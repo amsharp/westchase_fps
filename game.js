@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.8';
+var GAME_VERSION = 'v1.8.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---------------- world constants ----------------
@@ -1405,7 +1405,7 @@ function buildMeshyChar(cfg, mi) {
   g.scale.set(sc, sc, sc);
   return g;
 }
-var meshySkinCache = [];
+var meshySkinCache = [], meshySharedDecoded = {};
 function getMeshySkin(mi) {
   if (meshySkinCache[mi]) return meshySkinCache[mi];
   var e = MESHY_LIST[mi], d = {};
@@ -1432,7 +1432,15 @@ function getMeshySkin(mi) {
   d.clips = {};
   for (var k in e.clips) {
     var c = e.clips[k];
-    d.clips[k] = { d: c.d, f: c.f, q: new Int16Array(b64Bytes(c.q).buffer), y: new Int16Array(b64Bytes(c.y).buffer) };
+    if (c.shared && typeof MESHY_SHARED_CLIPS !== 'undefined') {
+      var sh = MESHY_SHARED_CLIPS.clips[k];
+      if (!meshySharedDecoded[k]) meshySharedDecoded[k] = { q: new Int16Array(b64Bytes(sh.q).buffer), y: new Int16Array(b64Bytes(sh.y).buffer) };
+      var map = [];
+      for (var si = 0; si < MESHY_SHARED_CLIPS.names.length; si++) map.push(e.skel.names.indexOf(MESHY_SHARED_CLIPS.names[si]));
+      d.clips[k] = { d: sh.d, f: sh.f, q: meshySharedDecoded[k].q, y: meshySharedDecoded[k].y, gy: c.gy || 0, map: map };
+    } else if (c.q) {
+      d.clips[k] = { d: c.d, f: c.f, q: new Int16Array(b64Bytes(c.q).buffer), y: new Int16Array(b64Bytes(c.y).buffer), gy: c.gy || 0 };
+    }
   }
   meshySkinCache[mi] = d;
   return d;
@@ -1444,14 +1452,16 @@ function meshyPose(sk, clipKey, cycles) {
   var nj = d.parents.length;
   var ft = (cycles - Math.floor(cycles)) * (c.f - 1);
   var f0 = Math.floor(ft), f1 = Math.min(c.f - 1, f0 + 1), a = ft - f0;
-  for (var i = 0; i < nj; i++) {
-    var b = sk.bones[i];
-    var o0 = (f0 * nj + i) * 4, o1 = (f1 * nj + i) * 4;
+  var srcN = c.map ? c.map.length : nj;
+  for (var i = 0; i < srcN; i++) {
+    var b = sk.bones[c.map ? c.map[i] : i];
+    if (!b) continue;
+    var o0 = (f0 * srcN + i) * 4, o1 = (f1 * srcN + i) * 4;
     b.quaternion.set(c.q[o0] / 16383, c.q[o0 + 1] / 16383, c.q[o0 + 2] / 16383, c.q[o0 + 3] / 16383);
     _poseQ.set(c.q[o1] / 16383, c.q[o1 + 1] / 16383, c.q[o1 + 2] / 16383, c.q[o1 + 3] / 16383);
     b.quaternion.slerp(_poseQ, a);
   }
-  sk.bones[d.rootI].position.y = sk.rootBindY + (c.y[f0] / 2000) * (1 - a) + (c.y[f1] / 2000) * a;
+  sk.bones[d.rootI].position.y = sk.rootBindY + (c.gy || 0) + (c.y[f0] / 2000) * (1 - a) + (c.y[f1] / 2000) * a;
 }
 function buildMeshySkinned(cfg, mi) {
   var d = getMeshySkin(mi);

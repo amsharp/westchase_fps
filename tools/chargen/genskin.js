@@ -152,7 +152,105 @@ function packClip(glb, label) {
   console.log(' ', label, dur.toFixed(2) + 's', frames, 'frames');
   return { d: +dur.toFixed(3), f: frames, q: Buffer.from(rq.buffer, rq.byteOffset, rq.byteLength).toString('base64'), y: Buffer.from(rootY.buffer, rootY.byteOffset, rootY.byteLength).toString('base64') };
 }
-const clips = { walk: packClip(W, 'walk'), run: packClip(loadGLB(RUN), 'run') };
+const clipsFull = { walk: packClip(W, 'walk'), run: packClip(loadGLB(RUN), 'run') };
+
+// ---- FK ground clamp -------------------------------------------------------
+// Clips can drop the hips below the bind pose (heavyset walks especially),
+// sinking feet through the ground. Compute each clip's lowest toe-joint
+// height via forward kinematics and store a per-clip root Y correction (gy)
+// that keeps the lowest frame's toes at their bind height.
+function fkToeMinY(clip) {
+  const nj = joints.length;
+  // careful: small base64 Buffers are views into Node's shared pool — always
+  // honor byteOffset/length or you read pool garbage
+  const qb = Buffer.from(clip.q, 'base64'), yb = Buffer.from(clip.y, 'base64');
+  const q = new Int16Array(qb.buffer, qb.byteOffset, qb.length / 2);
+  const y = new Int16Array(yb.buffer, yb.byteOffset, yb.length / 2);
+  const toeIdx = [];
+  jname.forEach((n, i) => { if (/ToeBase|Foot/.test(n)) toeIdx.push(i); });
+  function quatMat(qx, qy, qz, qw) {
+    const x2 = qx + qx, y2 = qy + qy, z2 = qz + qz;
+    const xx = qx * x2, xy = qx * y2, xz = qx * z2, yy = qy * y2, yz = qy * z2, zz = qz * z2, wx = qw * x2, wy = qw * y2, wz = qw * z2;
+    return [1 - (yy + zz), xy + wz, xz - wy, xy - wz, 1 - (xx + zz), yz + wx, xz + wy, yz - wx, 1 - (xx + yy)];
+  }
+  function jointWorldY(f) {
+    // per-joint world (R 3x3 + t), computed root-down (parents precede children? not guaranteed — recurse)
+    const world = new Array(nj).fill(null);
+    function calc(i) {
+      if (world[i]) return world[i];
+      const o = (f * nj + i) * 4;
+      const R = quatMat(q[o] / 16383, q[o + 1] / 16383, q[o + 2] / 16383, q[o + 3] / 16383);
+      let t = bindT[i].slice();
+      if (parentOf[i] < 0) t[1] += y[f] / 2000;
+      if (parentOf[i] < 0) { world[i] = { R, t }; return world[i]; }
+      const P = calc(parentOf[i]);
+      const wt = [
+        P.R[0] * t[0] + P.R[3] * t[1] + P.R[6] * t[2] + P.t[0],
+        P.R[1] * t[0] + P.R[4] * t[1] + P.R[7] * t[2] + P.t[1],
+        P.R[2] * t[0] + P.R[5] * t[1] + P.R[8] * t[2] + P.t[2]];
+      const WR = [];
+      for (let c = 0; c < 3; c++) for (let r = 0; r < 3; r++) {
+        WR[c * 3 + r] = P.R[r] * R[c * 3] + P.R[3 + r] * R[c * 3 + 1] + P.R[6 + r] * R[c * 3 + 2];
+      }
+      world[i] = { R: WR, t: wt };
+      return world[i];
+    }
+    let m = 1e9;
+    for (const ti of toeIdx) m = Math.min(m, calc(ti).t[1]);
+    return m;
+  }
+  // bind reference: identity rotations = bind pose toe height via same FK
+  let bindMin = 1e9, clipMin = 1e9;
+  {
+    const world = {};
+    function bindCalc(i) {
+      if (world[i]) return world[i];
+      const r = bindR[i], R = quatMat(r[0], r[1], r[2], r[3]);
+      if (parentOf[i] < 0) { world[i] = { R, t: bindT[i].slice() }; return world[i]; }
+      const P = bindCalc(parentOf[i]);
+      const t = bindT[i];
+      const wt = [
+        P.R[0] * t[0] + P.R[3] * t[1] + P.R[6] * t[2] + P.t[0],
+        P.R[1] * t[0] + P.R[4] * t[1] + P.R[7] * t[2] + P.t[1],
+        P.R[2] * t[0] + P.R[5] * t[1] + P.R[8] * t[2] + P.t[2]];
+      const WR = [];
+      for (let c = 0; c < 3; c++) for (let r2 = 0; r2 < 3; r2++) {
+        WR[c * 3 + r2] = P.R[r2] * R[c * 3] + P.R[3 + r2] * R[c * 3 + 1] + P.R[6 + r2] * R[c * 3 + 2];
+      }
+      world[i] = { R: WR, t: wt };
+      return world[i];
+    }
+    for (const n2 of jname) { }
+    jname.forEach((n2, i) => { if (/ToeBase|Foot/.test(n2)) bindMin = Math.min(bindMin, bindCalc(i).t[1]); });
+  }
+  for (let f = 0; f < clip.f; f++) clipMin = Math.min(clipMin, jointWorldY(f));
+  return +(bindMin - clipMin).toFixed(4);   // add to root Y so lowest frame matches bind
+}
+for (const k of Object.keys(clipsFull)) {
+  clipsFull[k].gy = fkToeMinY(clipsFull[k]);
+  console.log(' ', k, 'ground offset', clipsFull[k].gy);
+}
+
+// shared-clip mode: --clips-from <json> makes this entry reference the shared
+// clip set (matched by bone NAME at runtime) instead of embedding its own —
+// all Meshy rigs share the same 24-bone skeleton, so one walk/run set drives
+// every character (~40KB saved per character, uniform gait).
+let clips = clipsFull;
+const cfIdx = process.argv.indexOf('--clips-from');
+if (cfIdx >= 0) {
+  const shared = JSON.parse(fs.readFileSync(process.argv[cfIdx + 1], 'utf8'));
+  if (JSON.stringify(shared.names) !== JSON.stringify(jname)) {
+    console.log('  bone names differ from shared clips — embedding own clips');
+  } else {
+    clips = {};
+    for (const k of Object.keys(clipsFull)) clips[k] = { d: clipsFull[k].d, f: clipsFull[k].f, gy: clipsFull[k].gy, shared: 1 };
+  }
+}
+const scIdx = process.argv.indexOf('--emit-shared');
+if (scIdx >= 0) {
+  fs.writeFileSync(process.argv[scIdx + 1], JSON.stringify({ names: jname, clips: clipsFull }));
+  console.log('  shared clip set ->', process.argv[scIdx + 1]);
+}
 
 // geometry: absolute quantized (no per-part pivots), weights normalized u8
 const nv = P.length / 3;
