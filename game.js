@@ -1278,7 +1278,7 @@ var HATN = ['NONE', 'CAP', 'BEANIE', 'COWBOY', 'POLICE'];
 var GLASSN = ['NONE', 'SHADES', 'GLASSES'];
 var GEARN = ['NONE', 'PURSE', 'BACKPACK', 'CHAIN'];
 var CC_FIELDS = ['skin', 'hair', 'hairC', 'eyes', 'mouth', 'faceX', 'shirt', 'shirtC', 'shirtC2', 'pants', 'pantsC', 'shoeC', 'hat', 'hatC', 'glasses', 'extra', 'build', 'preset'];
-var CC_MAX = { skin: CSKIN.length, hair: HAIRN.length, hairC: CHAIRC.length, eyes: EYESN.length, mouth: MOUTHN.length, faceX: FACEXN.length, shirt: SHIRTN.length, shirtC: CSHIRT.length, shirtC2: CSHIRT.length, pants: LEGSN.length, pantsC: CPANTS.length, shoeC: CSHOE.length, hat: HATN.length, hatC: CHAT.length, glasses: GLASSN.length, extra: GEARN.length, build: 5, preset: 4 + ((typeof MESHY_CHARS !== 'undefined') ? MESHY_CHARS.length : 0) };
+var CC_MAX = { skin: CSKIN.length, hair: HAIRN.length, hairC: CHAIRC.length, eyes: EYESN.length, mouth: MOUTHN.length, faceX: FACEXN.length, shirt: SHIRTN.length, shirtC: CSHIRT.length, shirtC2: CSHIRT.length, pants: LEGSN.length, pantsC: CPANTS.length, shoeC: CSHOE.length, hat: HATN.length, hatC: CHAT.length, glasses: GLASSN.length, extra: GEARN.length, build: 5, preset: 4 + ((typeof MESHY_CHARS !== 'undefined') ? MESHY_CHARS.filter(function (m) { return !m.role || m.role === 'civ'; }).length : 0) };
 function seededRng(seed) { var s = seed >>> 0; return function () { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
 function randomCharConfig(rng) {
   rng = rng || Math.random;
@@ -1288,7 +1288,7 @@ function randomCharConfig(rng) {
   cfg.glasses = rng() < 0.3 ? 1 + ((rng() * 2) | 0) : 0;
   cfg.extra = rng() < 0.4 ? 1 + ((rng() * 3) | 0) : 0;
   cfg.faceX = rng() < 0.35 ? 1 + ((rng() * 3) | 0) : 0;
-  cfg.preset = rng() < 0.3 ? 1 + ((rng() * 3) | 0) : (rng() < 0.18 && typeof MESHY_CHARS !== 'undefined' && MESHY_CHARS.length ? 4 + ((rng() * MESHY_CHARS.length) | 0) : 0);
+  cfg.preset = rng() < 0.3 ? 1 + ((rng() * 3) | 0) : (rng() < 0.45 && MESHY_CIVS.length ? 4 + ((rng() * MESHY_CIVS.length) | 0) : 0);
   return cfg;
 }
 function encodeCC(cfg) {
@@ -1351,6 +1351,13 @@ function getPSXParts() {
 }
 // ---- Meshy AI characters (optional meshychars.js, loaded before game.js) --
 var MESHY_LIST = (typeof MESHY_CHARS !== 'undefined') ? MESHY_CHARS : [];
+var MESHY_CIVS = [], MESHY_COPS = [], MESHY_ROLE = {};
+for (var mli = 0; mli < MESHY_LIST.length; mli++) {
+  var mr = MESHY_LIST[mli].role || 'civ';
+  if (mr === 'civ') MESHY_CIVS.push(mli);
+  else if (mr === 'cop') MESHY_COPS.push(mli);
+  else MESHY_ROLE[mr] = mli;
+}
 var meshyPartsCache = [], meshyTexCache = [];
 function getMeshyParts(mi) {
   if (meshyPartsCache[mi]) return meshyPartsCache[mi];
@@ -1631,8 +1638,9 @@ var eyeM = lamb({ color: 0x1a1a1a });
 var goldM = lamb({ color: 0xd8ac30 });
 function buildCharacter(cfg) {
   // presets beyond the painted PSX skins are full Meshy-generated meshes
-  var mi = cfg.preset - 1 - PSX_SKINS.length;
-  if (cfg.preset > PSX_SKINS.length && MESHY_LIST[mi]) {
+  var mci = cfg.preset - 1 - PSX_SKINS.length;
+  if (cfg.preset > PSX_SKINS.length && MESHY_CIVS[mci] !== undefined) {
+    var mi = MESHY_CIVS[mci];
     return MESHY_LIST[mi].skel ? buildMeshySkinned(cfg, mi) : buildMeshyChar(cfg, mi);
   }
   var g = new THREE.Group();
@@ -1735,7 +1743,7 @@ function spawnNPC() {
 for (var ni = 0; ni < NPC_COUNT; ni++) spawnNPC();
 
 // dealer
-var dealer = buildPerson('#1b1b1f', '#141418', 0xc98d5e, { shades: true, hairColor: 0x111111, chain: true });
+var dealer = MESHY_ROLE.dealer !== undefined ? buildMeshySkinned(randomCharConfig(), MESHY_ROLE.dealer) : buildPerson('#1b1b1f', '#141418', 0xc98d5e, { shades: true, hairColor: 0x111111, chain: true });
 dealer.position.set(dealerPos.x, 0, dealerPos.z);
 scene.add(dealer);
 var dollarSprite = (function () {
@@ -1844,7 +1852,7 @@ function addIntCollider(cx, cz, w, d) { intColliders.push({ x0: cx - w / 2, x1: 
 })();
 
 // clerk NPC (behind the counter)
-var clerk = buildPerson('#c0392b', '#31435c', CSKIN[2], { hairColor: 0x2a1c10 });
+var clerk = MESHY_ROLE.clerk !== undefined ? buildMeshySkinned(randomCharConfig(), MESHY_ROLE.clerk) : buildPerson('#c0392b', '#31435c', CSKIN[2], { hairColor: 0x2a1c10 });
 clerk.position.set(clerkPos.x, INT.y, clerkPos.z);
 clerk.rotation.y = -Math.PI / 2; // faces the store (west)
 scene.add(clerk);
@@ -1928,6 +1936,10 @@ function setWanted(v) {
 function addStar(n) { setWanted(state.wanted + (n || 1)); }
 
 function buildCop() {
+  if (MESHY_COPS.length) {
+    var cfg = randomCharConfig(); cfg.preset = 0; cfg.build = 1 + ((Math.random() * 3) | 0);
+    return buildMeshySkinned(cfg, MESHY_COPS[(Math.random() * MESHY_COPS.length) | 0]);
+  }
   var g = buildPerson('#1e3a6e', '#16233f', CSKIN[(Math.random() * CSKIN.length) | 0],
     { cap: true, shades: true, hairColor: 0x111111 });
   g.add(box(0.05, 0.06, 0.02, badgeM, -0.09, 1.28, 0.125));   // badge
@@ -2826,6 +2838,8 @@ function updateNPCs(dt) {
 }
 function updateNPCExtras() {
   var ddx = player.x - dealerPos.x, ddz = player.z - dealerPos.z;
+  if (dealer.userData.skin) animPersonClip(dealer, 'idle', T);
+  if (clerk.userData.skin && !(robbedVisit || copsCalledVisit)) animPersonClip(clerk, 'idle2', T);
   if (ddx * ddx + ddz * ddz < 120) dealer.rotation.y = Math.atan2(ddx, ddz);
   dollarSprite.position.y = 3.0 + Math.sin(T * 2.2) * 0.18;
   if (inside) {
@@ -3166,7 +3180,7 @@ var CREATOR_ROWS = [
   { k: 'eyes', n: 'EYES', names: EYESN },
   { k: 'mouth', n: 'MOUTH', names: MOUTHN },
   { k: 'faceX', n: 'FACE', names: FACEXN },
-  { k: 'preset', n: 'PRESET', names: ['CUSTOM', 'JESS', 'MARCUS', 'SPIKE'].concat((typeof MESHY_CHARS !== 'undefined') ? MESHY_CHARS.map(function (m) { return m.n; }) : []) },
+  { k: 'preset', n: 'PRESET', names: ['CUSTOM', 'JESS', 'MARCUS', 'SPIKE'].concat((typeof MESHY_CHARS !== 'undefined') ? MESHY_CHARS.filter(function (m) { return !m.role || m.role === 'civ'; }).map(function (m) { return m.n; }) : []) },
   { k: 'glasses', n: 'GLASSES', names: GLASSN },
   { k: 'shirt', n: 'SHIRT', names: SHIRTN },
   { k: 'shirtC', n: 'SHIRT COLOR', pal: CSHIRT },
