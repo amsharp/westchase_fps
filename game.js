@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.9.0';
+var GAME_VERSION = 'v1.9.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---------------- world constants ----------------
@@ -400,9 +400,22 @@ var skyDome = null;
 
 // ---------------- ground / roads / parking ----------------
 (function ground() {
-  var g = new THREE.Mesh(new THREE.PlaneGeometry(TOTAL + 60, TOTAL + 60), lamb2(grassT));
-  g.rotation.x = -Math.PI / 2;
-  scene.add(g);
+  // circular hole under the lake — the flat grass otherwise sits between
+  // the water surface and the sunken bed and blocks the see-through water
+  var E = (TOTAL + 60) / 2;
+  var s = new THREE.Shape();
+  s.moveTo(-E, -E); s.lineTo(E, -E); s.lineTo(E, E); s.lineTo(-E, E); s.closePath();
+  var hole = new THREE.Path();
+  // the lake is elliptical (bed/water scaled 1.25 x / 0.85 z) — match it,
+  // slightly inset so the bed rim always covers the cut edge
+  hole.absellipse(LAKE.x, -LAKE.z, LAKE.r * 1.25 * 0.97, LAKE.r * 0.85 * 0.97, 0, Math.PI * 2, true, 0);
+  s.holes.push(hole);
+  var geo = new THREE.ShapeGeometry(s, 24);
+  // ShapeGeometry UVs are in shape units — normalize to the plane's 0..1
+  var uv = geo.attributes.uv;
+  for (var i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) / (E * 2) + 0.5, uv.getY(i) / (E * 2) + 0.5);
+  geo.rotateX(-Math.PI / 2);
+  scene.add(new THREE.Mesh(geo, lamb2(grassT)));
 })();
 
 function roadStrip(cx, cz, w, d, vertical) {
@@ -1060,11 +1073,14 @@ var fountainDrops = [];
   var bed = new THREE.Mesh(bedGeo, lamb({ color: 0xb09c72 }));
   bed.scale.set(1.25, 1, 0.85); bed.position.set(LAKE.x, 0.02, LAKE.z); scene.add(bed);
   // see-through water surface
+  // NOTE: these meshes scale BEFORE their rotation, so world-z size comes
+  // from scale.y (scale.z only squashes the plane's normal) — 0.85 goes in
+  // y or the water overhangs the bed and covers grass
   var w = new THREE.Mesh(new THREE.CircleGeometry(LAKE.r, 30),
     phong({ color: 0x3f82ae, shininess: 90, specular: 0xbbddee, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false }));
-  w.rotation.x = -Math.PI / 2; w.scale.set(1.25, 1, 0.85); w.position.set(LAKE.x, WATER_Y, LAKE.z); scene.add(w);
+  w.rotation.x = -Math.PI / 2; w.scale.set(1.25, 0.85, 1); w.position.set(LAKE.x, WATER_Y, LAKE.z); scene.add(w);
   var rim = new THREE.Mesh(new THREE.RingGeometry(LAKE.r, LAKE.r + 3, 30), lamb({ color: 0xb9a778 }));
-  rim.rotation.x = -Math.PI / 2; rim.scale.set(1.25, 1, 0.85); rim.position.set(LAKE.x, 0.19, LAKE.z); scene.add(rim);
+  rim.rotation.x = -Math.PI / 2; rim.scale.set(1.25, 0.85, 1); rim.position.set(LAKE.x, 0.19, LAKE.z); scene.add(rim);
   // NPCs/cops/cars still treat the water as a wall; the player wades in
   // (updatePlayer filters .lake colliders out of its pushOut list)
   colliders.push({ x0: LAKE.x - LAKE.r * 1.15, x1: LAKE.x + LAKE.r * 1.15, z0: LAKE.z - LAKE.r * 0.75, z1: LAKE.z + LAKE.r * 0.75, lake: true });
@@ -1278,7 +1294,7 @@ medianSeg(-300, -(CROSS_HW + 11));
   bush(cx, cz); bush(cx + s[0] * 2.2, cz + s[1] * 1.6); crepeMyrtle(cx + s[0] * 4, cz + s[1] * 3.2);
 });
 // bushes fronting a few landmarks
-[[52, -37], [-48, -37], [-72, -116], [-52, 37], [55, 41], [-116, -22]].forEach(function (p) { bush(p[0], p[1]); bush(p[0] + 3, p[1]); bush(p[0] - 3, p[1]); });
+[[52, -37], [-48, -37], [-72, -116], [-52, 37], [-116, -22]].forEach(function (p) { bush(p[0], p[1]); bush(p[0] + 3, p[1]); bush(p[0] - 3, p[1]); });
 
 // ---------------- street lights ----------------
 var streetLights = [];
@@ -1457,15 +1473,17 @@ function updateEnv(dt) {
   var k = Math.min(1, dt * 1.2);
   sun.intensity += (sunT - sun.intensity) * k;
   hemi.intensity += (hemiT - hemi.intensity) * k;
-  if (raining) fogTmp.copy(C_RAINNIGHT_FOG).lerp(C_RAIN_FOG, f);
-  else fogTmp.copy(C_NIGHT_FOG).lerp(C_DAY_FOG, f);
-  scene.fog.color.lerp(fogTmp, k);
-  var farT = raining ? 240 : (120 + 400 * f);
-  scene.fog.far += (farT - scene.fog.far) * k;
-  scene.fog.near += ((raining ? 40 : 60 + 60 * f) - scene.fog.near) * k;
   if (raining) skyTmp.copy(C_RAINNIGHT_SKY).lerp(C_RAIN_SKY, f);
   else skyTmp.copy(C_NIGHT_SKY).lerp(C_DAY_SKY, f);
   if (skyDome) skyDome.material.color.lerp(skyTmp, k);
+  // rain brings a dense fog the color of the rain sky; both fade with the
+  // same lerp when the rain stops
+  if (raining) fogTmp.copy(skyTmp);
+  else fogTmp.copy(C_NIGHT_FOG).lerp(C_DAY_FOG, f);
+  scene.fog.color.lerp(fogTmp, k);
+  var farT = raining ? 95 : (120 + 400 * f);
+  scene.fog.far += (farT - scene.fog.far) * k;
+  scene.fog.near += ((raining ? 12 : 60 + 60 * f) - scene.fog.near) * k;
   // rain sound
   if (rainGain) {
     var tgt = raining ? (inside ? 0.02 : 0.07) : 0;
