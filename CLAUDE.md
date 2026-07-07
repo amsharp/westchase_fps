@@ -126,13 +126,22 @@ forest walls + "ROAD CLOSED" barriers at the four road exits.
 - **Cars**: shootable (1.5 "seconds of fire" → `goBerserk`: veers hard off
   road, spins, explodes on contact); E to carjack (driver flees), WASD +
   mouse-orbit third-person cam, player cars have 100 HP under police fire →
-  `igniteCar` = 5 s fire warning → explode.
+  `igniteCar` = 5 s fire warning → explode. PvP hijack: E on a car another
+  player drives kicks them out (`jacked` to victim, `jackCD` broadcast,
+  `JACK_CD=15` s per-car cooldown enforced host-side + locally via snapshot
+  flag bit 16 → `c.playerDriven`); victim's forced `exitCar(true)` skips the
+  `park` message so ownership stays with the thief.
 - **Environment**: `DAY_LEN=360` day/night with street lights (`setLamps`),
   random rain (localized particles around player w/ per-building collision
   heights + splashes + sound), brown-noise ambient bed. All lerped in
   `updateEnv`.
+- **Weapon switching**: scroll wheel cycles owned weapons (`cycleEquip`,
+  requires pointer lock) alongside the TAB inventory.
 - **Multiplayer** (PeerJS, host-as-hub): menu offers Singleplayer / Host
-  (invite link `…#join=<peerid>`) / Join. **Host-authoritative world**: host
+  (invite link `…#join=<peerid>`) / Join, plus a display-name input
+  (localStorage `wc_name`; sent as `n`+`hp` in state msgs, drawn on the
+  overhead tag sprite with a health bar). `ICE_CONFIG` adds public TURN
+  relays (openrelay.metered.ca) so same-NAT/same-house peers can connect. **Host-authoritative world**: host
   sims traffic/NPCs/street-cops/cash and broadcasts `world` snapshots @8 Hz;
   clients gate their sims via `isClient()` and mirror in `applyWorldSnap`
   (street-cop mirrors live in `copsM`). Client actions are messages the host

@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.1';
+var GAME_VERSION = 'v1.2';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---------------- world constants ----------------
@@ -1643,7 +1643,7 @@ function updateCars(dt) {
         c.exploded = false; c.car.group.visible = true;
         c.pos = c.dir === 1 ? -EDGE + 4 : EDGE - 4;
         c.lane = c.lane0; c.dmgT = 0; c.berserk = false;
-        c.stolen = false; c.jacked = false;
+        c.stolen = false; c.jacked = false; c.jackCD = 0; c.playerDriven = false;
         c.burning = false; c.carHP = undefined;
         c.speed = 8 + Math.random() * 6;
       }
@@ -1738,11 +1738,18 @@ function updateCars(dt) {
 }
 
 // ---------------- driving ----------------
+var JACK_CD = 15;   // seconds a freshly hijacked car can't be hijacked again
+function carDrivenByPlayer(c) {
+  // host tracks drivenBy directly; clients mirror it from the snapshot flags
+  return !!(c.drivenBy || c.playerDriven);
+}
 function nearestStealableCar() {
   var best = null, bestD = 30;
   for (var i = 0; i < cars.length; i++) {
     var c = cars[i];
     if (c.exploded) continue;
+    if (c === driving) continue;
+    if (carDrivenByPlayer(c) && T < (c.jackCD || 0)) continue;   // hijack cooldown
     var m = c.car.group.position;
     var dx = m.x - player.x, dz = m.z - player.z, d2 = dx * dx + dz * dz;
     if (d2 < bestD) { best = c; bestD = d2; }
@@ -1762,16 +1769,26 @@ function kickDriver(c) {
   sfx('grunt');
 }
 function enterCar(c) {
+  var victim = carDrivenByPlayer(c);   // hijacking another player, not an NPC
   driving = c;
+  if (victim) {
+    c.jackCD = T + JACK_CD;
+    if (net.mode === 'host' && c.drivenBy) {
+      // kick the current driver out and start everyone's cooldown
+      for (var vi = 0; vi < net.conns.length; vi++) if (net.conns[vi].peer === c.drivenBy) { try { net.conns[vi].send({ t: 'jacked', i: cars.indexOf(c) }); } catch (e) { } }
+      netBroadcast({ t: 'jackCD', i: cars.indexOf(c) });
+    }
+  }
   c.stolen = true;
   c.drivenBy = null;
+  c.playerDriven = false;
   if (c.carHP === undefined) c.carHP = 100;
   c.pspeed = c.jacked ? 0 : c.speed;   // take over at its current speed on a fresh jack
   var g = c.car.group;
-  if (!c.jacked) {
+  if (!c.jacked || victim) {
     c.jacked = true;
-    kickDriver(c);
-    popup2('CARJACKED');
+    if (!victim) kickDriver(c);        // NPC driver bails; a player victim is kicked via net
+    popup2(victim ? 'HIJACKED!' : 'CARJACKED');
     lastCrimeT = T;
     if (state.wanted < 1) setWanted(1);
   }
@@ -1785,7 +1802,7 @@ function enterCar(c) {
   document.getElementById('crosshair').style.display = 'none';
   document.getElementById('weaponBox').innerHTML = 'DRIVING<br><small>[E] get out &middot; WASD drive &middot; mouse looks around</small>';
 }
-function exitCar() {
+function exitCar(hijacked) {
   if (!driving) return;
   var g = driving.car.group;
   var h = g.rotation.y;
@@ -1793,8 +1810,11 @@ function exitCar() {
   var pz = g.position.z - Math.sin(h + Math.PI / 2) * 2.6;
   var p = pushOut(px, pz, 0.55);
   player.x = p.x; player.z = p.z; player.y = EYE; player.vy = 0;
-  driving.pspeed = 0;
-  if (isClient()) netToHost({ t: 'park', i: cars.indexOf(driving), x: Math.round(g.position.x * 10) / 10, z: Math.round(g.position.z * 10) / 10, ry: Math.round(h * 100) / 100 });
+  // when we got hijacked the car belongs to the thief now — don't park it
+  if (!hijacked) {
+    driving.pspeed = 0;
+    if (isClient()) netToHost({ t: 'park', i: cars.indexOf(driving), x: Math.round(g.position.x * 10) / 10, z: Math.round(g.position.z * 10) / 10, ry: Math.round(h * 100) / 100 });
+  }
   driving = null;
   vm.visible = true;
   document.getElementById('crosshair').style.display = '';
@@ -2677,6 +2697,29 @@ function startGame() {
 
 // ---------------- multiplayer (PeerJS data channels, host = hub) ----------------
 var net = { mode: 'sp', peer: null, conns: [], remotes: {}, id: null, sendT: 0, envSyncT: 0, worldT: 0, worldSnap: null, copList: [] };
+// STUN finds a direct route; TURN relays when peers can't reach each other
+// directly (e.g. two players behind the same home router whose NAT doesn't
+// hairpin). Without TURN, same-network joins often fail.
+var ICE_CONFIG = { iceServers: [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:global.stun.twilio.com:3478' },
+  { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+  { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+  { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
+] };
+function getPlayerName() {
+  var el = document.getElementById('playerName');
+  var n = (el && el.value ? el.value : '').replace(/[^\x20-\x7E]/g, '').trim().slice(0, 12);
+  return n || (net.id ? net.id.slice(0, 6) : 'PLAYER');
+}
+function saveName() {
+  var el = document.getElementById('playerName');
+  try { if (el && el.value.trim()) localStorage.setItem('wc_name', el.value.trim().slice(0, 12)); } catch (e) { }
+}
+(function () {
+  var el = document.getElementById('playerName');
+  try { var sv = localStorage.getItem('wc_name'); if (el && sv) el.value = sv; } catch (e) { }
+})();
 function netActive() { return net.conns.length > 0; }
 function isClient() { return net.mode === 'client' && net.conns.length > 0; }
 function isHost() { return net.mode === 'host' && net.conns.length > 0; }
@@ -2698,14 +2741,25 @@ function updateLobbyStatus() {
   if (el) el.textContent = net.conns.length + (net.conns.length === 1 ? ' friend connected' : ' friends connected');
 }
 function makeTag(text) {
-  var c = document.createElement('canvas'); c.width = 128; c.height = 32;
+  // name on top, health bar underneath; redraw via sp.userData.draw(name, hp)
+  var c = document.createElement('canvas'); c.width = 160; c.height = 44;
   var g = c.getContext('2d');
-  g.font = 'bold 20px Courier New'; g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.strokeStyle = '#000'; g.lineWidth = 5; g.strokeText(text, 64, 16);
-  g.fillStyle = '#8fd0e8'; g.fillText(text, 64, 16);
   var t = new THREE.CanvasTexture(c); t.magFilter = THREE.LinearFilter;
   var sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthTest: false }));
-  sp.scale.set(2.6, 0.65, 1);
+  sp.scale.set(2.9, 0.8, 1);
+  sp.userData.draw = function (name, hp) {
+    g.clearRect(0, 0, 160, 44);
+    g.font = 'bold 19px Courier New'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.strokeStyle = '#000'; g.lineWidth = 5; g.strokeText(name, 80, 12);
+    g.fillStyle = '#8fd0e8'; g.fillText(name, 80, 12);
+    var w = 100, h = 8, x = (160 - w) / 2, y = 28;
+    g.fillStyle = 'rgba(0,0,0,0.7)'; g.fillRect(x - 2, y - 2, w + 4, h + 4);
+    var f = Math.max(0, Math.min(1, hp / 100));
+    g.fillStyle = f > 0.5 ? '#6fdc5a' : (f > 0.25 ? '#ffd94a' : '#e5533d');
+    g.fillRect(x, y, w * f, h);
+    t.needsUpdate = true;
+  };
+  sp.userData.draw(text, 100);
   return sp;
 }
 function hashStr(s) { var h = 0; for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h); }
@@ -2717,7 +2771,7 @@ function ensureRemote(id) {
   scene.add(mesh);
   var tag = makeTag(id.slice(0, 6));
   scene.add(tag);
-  var r = { id: id, mesh: mesh, tag: tag, x: -72, z: -97, y: 0, tx: -72, tz: -97, ty: 0, yaw: 0, tyaw: 0, h: 0, drv: 0, dead: 0, w: 0, phase: 0, lx: -72, lz: -97 };
+  var r = { id: id, mesh: mesh, tag: tag, x: -72, z: -97, y: 0, tx: -72, tz: -97, ty: 0, yaw: 0, tyaw: 0, h: 0, drv: 0, dead: 0, w: 0, phase: 0, lx: -72, lz: -97, name: id.slice(0, 6), hp: 100, tagName: id.slice(0, 6), tagHp: 100 };
   net.remotes[id] = r;
   return r;
 }
@@ -2735,6 +2789,12 @@ function handleNet(m, conn) {
     var r = ensureRemote(m.id);
     r.tx = m.x; r.tz = m.z; r.ty = m.y || 0; r.tyaw = m.yaw || 0;
     r.drv = m.drv || 0; r.h = m.h || 0; r.dead = m.dead || 0; r.w = m.w || 0;
+    if (m.n) r.name = m.n;
+    if (m.hp !== undefined) r.hp = m.hp;
+    if (r.name !== r.tagName || Math.abs(r.hp - r.tagHp) >= 1) {
+      r.tagName = r.name; r.tagHp = r.hp;
+      r.tag.userData.draw(r.name, r.hp);
+    }
     netRelay(m, conn);
   } else if (m.t === 'hit') {
     if (m.to === net.id) {
@@ -2756,6 +2816,15 @@ function handleNet(m, conn) {
   } else if (m.t === 'bye') {
     removeRemote(m.id);
     netRelay(m, conn);
+  } else if (m.t === 'jacked') {
+    // someone stole the car out from under us (or our hijack got denied)
+    var jc = cars[m.i];
+    if (jc) {
+      jc.jackCD = T + JACK_CD;
+      if (driving === jc) { exitCar(true); popup2('YOU GOT HIJACKED!'); sfx('grunt'); }
+    }
+  } else if (m.t === 'jackCD') {
+    if (cars[m.i]) cars[m.i].jackCD = T + JACK_CD;
   } else if (net.mode === 'host') {
     // ---- client → host world actions (host is authoritative) ----
     if (m.t === 'dmgNpc') {
@@ -2778,7 +2847,21 @@ function handleNet(m, conn) {
       if (rn && rn.state !== 'down' && rn.state !== 'ragdoll') killNpcRagdoll(rn, m.kx, m.kz, m.pw || 9);
     } else if (m.t === 'steal') {
       var sc = cars[m.i];
-      if (sc && !sc.exploded) { if (!sc.jacked) { kickDriver(sc); sc.jacked = true; } sc.stolen = true; sc.drivenBy = conn.peer; }
+      if (sc && !sc.exploded) {
+        var victimId = sc === driving ? net.id : sc.drivenBy;
+        if (victimId && victimId !== conn.peer && T < (sc.jackCD || 0)) {
+          // hijack cooldown still running — bounce the thief back out
+          try { conn.send({ t: 'jacked', i: m.i }); } catch (e) { }
+        } else {
+          if (victimId && victimId !== conn.peer) {
+            sc.jackCD = T + JACK_CD;
+            if (sc === driving) { exitCar(true); popup2('YOU GOT HIJACKED!'); sfx('grunt'); }
+            else for (var ji = 0; ji < net.conns.length; ji++) if (net.conns[ji].peer === victimId) { try { net.conns[ji].send({ t: 'jacked', i: m.i }); } catch (e) { } }
+            netBroadcast({ t: 'jackCD', i: m.i });
+          } else if (!sc.jacked) kickDriver(sc);
+          sc.jacked = true; sc.stolen = true; sc.drivenBy = conn.peer;
+        }
+      }
     } else if (m.t === 'park') {
       var pk = cars[m.i];
       if (pk) { pk.drivenBy = null; pk.stolen = true; pk.car.group.position.set(m.x, 0, m.z); pk.car.group.rotation.y = m.ry; }
@@ -2828,7 +2911,8 @@ function hostGame() {
   if (typeof Peer === 'undefined') { netError('Multiplayer unavailable (peerjs.min.js missing)'); return; }
   net.mode = 'host';
   netError('Setting up lobby…');
-  net.peer = new Peer();
+  saveName();
+  net.peer = new Peer({ config: ICE_CONFIG });
   net.peer.on('open', function (id) {
     net.id = id;
     document.getElementById('netErr').classList.add('hidden');
@@ -2846,7 +2930,8 @@ function joinGame(code) {
   if (!hostId) { netError('Paste an invite link or code first'); return; }
   net.mode = 'client';
   netError('Connecting…');
-  net.peer = new Peer();
+  saveName();
+  net.peer = new Peer({ config: ICE_CONFIG });
   net.peer.on('open', function () {
     net.id = net.peer.id;
     var c = net.peer.connect(hostId, { reliable: false });
@@ -2865,7 +2950,7 @@ function updateNet(dt) {
   net.sendT -= dt;
   if (net.sendT <= 0 && netActive()) {
     net.sendT = 0.07;
-    var msg = { t: 's', id: net.id, x: Math.round(player.x * 10) / 10, y: Math.round(player.y * 10) / 10, z: Math.round(player.z * 10) / 10, yaw: Math.round(yaw * 100) / 100, drv: driving ? 1 : 0, h: driving ? Math.round(driving.car.group.rotation.y * 100) / 100 : 0, dead: state.dead ? 1 : 0, w: state.wanted };
+    var msg = { t: 's', id: net.id, x: Math.round(player.x * 10) / 10, y: Math.round(player.y * 10) / 10, z: Math.round(player.z * 10) / 10, yaw: Math.round(yaw * 100) / 100, drv: driving ? 1 : 0, h: driving ? Math.round(driving.car.group.rotation.y * 100) / 100 : 0, dead: state.dead ? 1 : 0, w: state.wanted, n: getPlayerName(), hp: Math.round(Math.max(0, state.hp)) };
     if (net.mode === 'host') netBroadcast(msg);
     else net.conns[0] && net.conns[0].send(msg);
   }
@@ -2881,7 +2966,7 @@ function updateNet(dt) {
       for (var i = 0; i < cars.length; i++) {
         var cc = cars[i], mm = cc.car.group;
         carsArr.push([Math.round(mm.position.x * 10) / 10, Math.round(mm.position.z * 10) / 10, Math.round(mm.rotation.y * 100) / 100,
-          (cc.exploded ? 1 : 0) | (cc.berserk ? 2 : 0) | (cc.burning ? 4 : 0) | (cc.stolen ? 8 : 0)]);
+          (cc.exploded ? 1 : 0) | (cc.berserk ? 2 : 0) | (cc.burning ? 4 : 0) | (cc.stolen ? 8 : 0) | ((cc.drivenBy || cc === driving) ? 16 : 0)]);
       }
       var npcArr = [];
       for (i = 0; i < npcs.length; i++) {
@@ -2938,7 +3023,7 @@ function applyWorldSnap(dt) {
     var c = cars[i], a = s.cars[i], m = c.car.group;
     if (c === driving) continue;               // we own this one locally
     var fl = a[3];
-    c.exploded = !!(fl & 1); c.berserk = !!(fl & 2); c.burning = !!(fl & 4); c.stolen = !!(fl & 8);
+    c.exploded = !!(fl & 1); c.berserk = !!(fl & 2); c.burning = !!(fl & 4); c.stolen = !!(fl & 8); c.playerDriven = !!(fl & 16);
     m.visible = !c.exploded;
     if (c.exploded) { if (c.eng) c.eng.g.gain.value = 0; continue; }
     m.position.x += (a[0] - m.position.x) * k;
@@ -3028,6 +3113,21 @@ document.addEventListener('mouseup', function (e) {
   if (e.button === 0) mouseDown = false;
   else if (e.button === 2) setZoom(false);
 });
+function cycleEquip(dir) {
+  // quick-swap through everything you own; TAB inventory still works too
+  if (!state.running || state.menu || state.dead || driving) return;
+  var list = ['fists'];
+  for (var i = 0; i < GUN_LIST.length; i++) if (state.owned[GUN_LIST[i]]) list.push(GUN_LIST[i]);
+  if (state.snacks > 0) list.push('snack');
+  if (list.length < 2) return;
+  var idx = list.indexOf(state.equipped);
+  if (idx < 0) idx = 0;
+  setEquipped(list[(idx + dir + list.length) % list.length]);
+}
+document.addEventListener('wheel', function (e) {
+  if (document.pointerLockElement !== canvas) return;
+  cycleEquip(e.deltaY > 0 ? 1 : -1);
+}, { passive: true });
 document.addEventListener('keydown', function (e) {
   keys[e.code] = true;
   if (e.code === 'Tab') { e.preventDefault(); if (!state.running) return; if (state.menu === 'inv') closeMenus(); else { closeMenus(false); openMenu('inv'); } }
@@ -3099,8 +3199,11 @@ function updatePlayer(dt) {
     var gdx = player.x - gasRob.x, gdz = player.z - gasRob.z;
     if (ddx * ddx + ddz * ddz < 36) prompt.textContent = '[E] BUY GUNS';
     else if (gdx * gdx + gdz * gdz < 40) prompt.textContent = (T < gasClosedUntil) ? 'STORE CLOSED' : '[E] ENTER GAS STATION';
-    else if (nearestStealableCar()) prompt.textContent = '[E] STEAL CAR';
-    else prompt.textContent = '';
+    else {
+      var nsc = nearestStealableCar();
+      if (nsc) prompt.textContent = carDrivenByPlayer(nsc) ? '[E] HIJACK CAR' : '[E] STEAL CAR';
+      else prompt.textContent = '';
+    }
   }
 }
 function updateHUD() { document.getElementById('money').textContent = '$' + state.money; document.getElementById('hpBar').style.width = Math.max(0, state.hp) + '%'; }
@@ -3128,7 +3231,7 @@ window.__wc = {
   setYaw: function (y) { yaw = y; camera.position.set(player.x, player.y, player.z); camera.rotation.y = yaw; camera.rotation.x = pitch; },
   setPitch: function (p2) { pitch = p2; camera.rotation.x = pitch; },
   teleport: function (x, z) { player.x = x; player.z = z; },
-  tryAttack: tryAttack, setEquipped: setEquipped,
+  tryAttack: tryAttack, setEquipped: setEquipped, cycleEquip: cycleEquip,
   enterStore: enterStore, exitStore: exitStore, refreshClerk: refreshClerk,
   isInside: function () { return inside; },
   storeState: function () { return { robbed: robbedVisit, copsCalled: copsCalledVisit, closedUntil: gasClosedUntil, now: T }; },
@@ -3144,7 +3247,7 @@ window.__wc = {
   setClock: function (t2) { envT = t2; },
   envState: function () { return { envT: envT, raining: raining, dayFactor: dayFactor(), lampsOn: lampsOn, sun: sun.intensity, fogFar: scene.fog.far }; },
   goBerserk: goBerserk, igniteCar: igniteCar,
-  net: net, startGame: startGame, hostGame: hostGame, joinGame: joinGame,
+  net: net, startGame: startGame, hostGame: hostGame, joinGame: joinGame, handleNet: handleNet,
   tick: function (dt) { T += dt; updatePlayer(dt); updateNPCs(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateEnv(dt); updateNet(dt); renderer.render(scene, camera); }
 };
 

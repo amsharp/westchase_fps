@@ -19,11 +19,18 @@ Just double-click `index.html` — it runs in any modern browser, no install nee
 ## Multiplayer
 
 The main menu offers **Singleplayer** (fully offline) or **Host Multiplayer**.
-Hosting creates a lobby and gives you an **invite link / code** to send to
-friends (needs internet — connections go peer-to-peer over WebRTC). Friends
-open their copy of the game and paste the link or code into the JOIN box.
-You'll see each other in-world (on foot or driving, with name tags and cyan
-minimap dots) and can shoot and punch each other. The **host runs the world**:
+Type a **display name** at the top of the menu first — it floats over your
+head in-game with your **health bar** under it, so everyone can see who you
+are and how hurt you are (the name is remembered for next time). Hosting
+creates a lobby and gives you an **invite link / code** to send to friends
+(needs internet — connections go peer-to-peer over WebRTC, with a relay
+fallback so two players on the same wifi/router can join each other too).
+Friends open the game and paste the link or code into the JOIN box. You'll
+see each other in-world (on foot or driving, with name tags and cyan
+minimap dots) and can shoot and punch each other — or steal each other's
+wheels: press **E** on a car a friend is driving to **hijack it** and dump
+them on the curb. A freshly hijacked car can't be hijacked again for 15
+seconds, so make your getaway count. The **host runs the world**:
 traffic, pedestrians, street cops, dropped cash, stolen/parked/exploding
 cars, and the time of day and weather are all simulated on the host and
 streamed to everyone, so all players share one synced city. Combat against
@@ -106,6 +113,7 @@ bed runs under everything.
 
 - **WASD** — move, **Shift** — run, **Space** — jump, **Mouse** — look
 - **Left click** — punch / shoot
+- **Scroll wheel** — quick-swap to your next / previous weapon
 - **E** — talk to the dealer (when close)
 - **Tab** — inventory: equip or unequip weapons (you must unequip to punch)
 - **Esc** — release mouse / close menus
