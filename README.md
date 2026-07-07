@@ -38,6 +38,20 @@ streamed to everyone, so all players share one synced city. Combat against
 the world is host-authoritative — kill credit, stars, and cash come back to
 whoever earned them. (Gas-station interiors and weapon drops stay personal.)
 
+## Your character
+
+Hit **CHARACTER** on the main menu to build your look: skin, build, hair
+(7 styles), eyes, mouth, facial details, glasses, shirts (plain / stripes /
+graphic tees / v-neck / hoodie / tank), shorts or pants, shoes, hats (cap,
+beanie, cowboy), and gear (purse, backpack, gold chain). The preview
+window renders at PS1 resolution and your look is saved locally and shown
+to other players in multiplayer. Pedestrians and cops are generated from
+the same system, so everyone in town is unique.
+
+The character model is based on "Simple Character PSX" by **JashiPSX**
+(https://jashi-psx.itch.io) — the mesh was adapted for this game and all
+texturing is repainted procedurally at runtime.
+
 ## The loop
 
 You spawn **with no gun**. Punch pedestrians (they drop cash), pick up the

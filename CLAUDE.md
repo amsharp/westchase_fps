@@ -182,6 +182,37 @@ forest walls + "ROAD CLOSED" barriers at the four road exits.
   world car (host mirrors `drivenBy`); remote avatars get name tags.
   Weapon drops + interiors intentionally stay per-player.
 
+## PSX characters (v1.5)
+
+- Everyone (NPCs, cops, dealer, clerk, remote players) is built by
+  `buildCharacter(cfg)` from `PSX_MESH`: real mesh data reverse-engineered
+  from JashiPSX's "Simple Character PSX" GLB (user-supplied zip; credit in
+  README). 762 tris split into rigid parts (head/torso/armL/armR/legL/legR
+  + the asset's glasses lens) by dominant bone, quantized to mm, base64-
+  embedded. Arms are authored in T-pose — dropped via `rotation.z = ±1.25`
+  on the shoulder pivot groups; `animPerson` swings `rotation.x` as before
+  (`userData.limbs` contract unchanged).
+- `charAtlas(cfg)` repaints the asset's 256px UV layout per character:
+  triangles filled by class (skin/shirt/pants/shoe/sock/hair — classified
+  offline by sampling the original texture), shirt styles clipped to shirt
+  tris, face features painted along a face basis from `PSX_MESH.anchors`
+  (nose/chin/top/eyes; the face island is rotated 90° in UV space). The
+  asset ships denim shorts + bare shins: "long pants" paints shin/sock
+  classes with the pants color; skin-class tris reaching above the shorts
+  hem (`maxY > 0.66`) always get covered.
+- Config `cfg` = 17 small ints (see `CC_FIELDS`); `encodeCC`/`decodeCC`
+  (base36 string, 'a' prefix) — persisted as localStorage `wc_char`, sent
+  as `cc` in state msgs, remote avatars rebuild on change. POLICE hat
+  (hat=4) is cops-only. `buildPerson(shirt,pants,skin,opts)` is a legacy
+  shim for dealer/clerk/cops (forces long pants + dark shoes).
+- Character creator: CHARACTER button on the menu → `#charPanel`, tiny
+  second WebGLRenderer (96×126 upscaled, `image-rendering:pixelated`),
+  `renderCreatorFrame` runs from the main loop while at the menu.
+  `__wc.creatorSpin(v)` poses the turntable for screenshots.
+- The offline generator (GLB→PSX_MESH) lives in the session scratchpad as
+  `genpsx.js`; rerun it against the asset zip if the mesh data ever needs
+  regenerating.
+
 ## User preferences / history
 
 - Rejected the original blocky "PS1" look: wants **higher-poly meshes with
