@@ -214,15 +214,28 @@ forest walls + "ROAD CLOSED" barriers at the four road exits.
   regenerating. True bone pivots come from full inverse-bind-matrix
   inversion (geometric estimates disjointed the shoulders by ~11cm).
 - `PSX_SKINS`: three complete AI-painted character textures (JESS /
-  MARCUS / SPIKE, ~13KB JPEG data-URLs each) used whole via
+  MARCUS / SPIKE, ~13-15KB JPEG data-URLs each) used whole via
   `getPresetTex` when `cfg.preset` 1–3 (creator row PRESET; ~30% of
-  NPCs). Produced by the offline projection workflow in the scratchpad:
-  `claypose.js` renders the mesh T-posed front+back on white →
-  gpt-image-1 edits paint the character over it → `bake.js` projects the
-  painted views onto the UV atlas (per-limb mask-segment remapping,
-  eroded background mask, despeckle, dilation). `gen_template.js` makes
-  a color-coded UV template (alternate atlas-direct workflow). Never
-  call AI APIs from the game itself. cc is 18 fields.
+  NPCs). Produced by the offline projection workflow in the scratchpad
+  (v2, quality iteration): `claypose.js` renders the mesh T-posed
+  front+back on white → gpt-image-1 edits paint the character over it →
+  `clayhead.js` + `gen_heads.sh` do a second 3×-zoom head-only painting
+  round per character (`aigen/hh_*.png`) → `bake2.js` projects both
+  paintings onto the UV atlas. Key bake2 lessons (hard-won): the AI
+  redraws figures ~3-8% bigger/shifted (global affine calibration from
+  clay-vs-painted silhouette bboxes), heads at arbitrary scale with
+  DIFFERENT internal proportions than the mesh UV face (the original
+  artist's eye texels sit at world x −0.011/+0.066, nose at 0), so the
+  head is sampled through a hand-measured piecewise-linear feature warp
+  (`PRESET_HEADS`: face edges/eyes/nose/chin per painting — re-measure
+  via gridded crops if paintings regenerate), with jaw-taper clamping so
+  cheek/chin texels never hit the painted outline strokes; "smear"
+  triangles (long thin UV slivers, anisotropic uv/3d edge scale > 4)
+  must be skipped or they paint diagonal streaks across other islands.
+  `gen_template.js` makes a color-coded UV template (alternate
+  atlas-direct workflow, abandoned). `faceline.js`/`faceclose.js`/
+  `abtest.js` render in-game A/B comparisons vs the original texture.
+  Never call AI APIs from the game itself. cc is 18 fields.
 - Leg triangles whose class looks like shoe/sock but that reach above
   y 0.3 are denim fly/hem shading — painted as (shaded) pants, never shoe.
 
