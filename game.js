@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.8.6';
+var GAME_VERSION = 'v1.8.7';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---------------- world constants ----------------
@@ -920,21 +920,99 @@ var beamTex = (function () {
 })();
 var beamGeo = (function () { var g = new THREE.PlaneGeometry(6.4, 3.4); g.rotateX(-Math.PI / 2); g.translate(5.3, 0, 0); return g; })();
 var beamM = new THREE.MeshBasicMaterial({ map: beamTex, transparent: true, opacity: 0.5, depthWrite: false });
+// ---- Meshy AI vehicles (optional meshyvehs.js): 10 early-2000s bodies,
+// blue seed paint hue-swapped at load into 5 common colors per model ----
+var VEH_LEN = 4.64;                    // match the procedural car footprint
+// every Meshy model comes out nose -x (front-left 3/4 seed view) — flip all
+var VEH_FLIP = { COMPACT: 1, HATCH: 1, MINIVAN: 1, PICKUP_BIG: 1, PICKUP_FS: 1, PICKUP_HD: 1, SEDAN_FULL: 1, SEDAN_MID: 1, SEDAN_SPORT: 1, SUV_MID: 1 };
+var VEH_COLS = [null, [200, 202, 206], [232, 232, 228], [34, 36, 40], [166, 38, 30]]; // as-is/silver/white/black/red
+var vehGeoCache = {}, vehMatCache = {};
+function getVehGeo(vi) {
+  if (vehGeoCache[vi]) return vehGeoCache[vi];
+  var e = MESHY_VEHS[vi];
+  var qp = new Int16Array(b64Bytes(e.p).buffer), qu = new Uint16Array(b64Bytes(e.u).buffer);
+  var fp = new Float32Array(qp.length), fu = new Float32Array(qu.length);
+  for (var i = 0; i < qp.length; i++) fp[i] = qp[i] / e.q;
+  for (i = 0; i < qu.length; i += 2) { fu[i] = qu[i] / 8192; fu[i + 1] = 1 - qu[i + 1] / 8192; }
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(fp, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(fu, 2));
+  if (VEH_FLIP[e.n]) geo.rotateY(Math.PI);
+  geo.computeVertexNormals();
+  vehGeoCache[vi] = geo;
+  return geo;
+}
+function getVehMat(vi, col) {
+  var key = vi + '_' + col;
+  if (vehMatCache[key]) return vehMatCache[key];
+  var e = MESHY_VEHS[vi];
+  var cv = document.createElement('canvas');
+  cv.width = 1; cv.height = 1;
+  var tx = new THREE.CanvasTexture(cv);
+  tx.magFilter = THREE.NearestFilter; tx.minFilter = THREE.NearestFilter; tx.generateMipmaps = false;
+  var im = new Image();
+  im.onload = function () {
+    cv.width = im.width; cv.height = im.height;
+    var g = cv.getContext('2d'); g.drawImage(im, 0, 0);
+    var tgt = VEH_COLS[col];
+    if (tgt) {
+      var d = g.getImageData(0, 0, cv.width, cv.height), px = d.data;
+      for (var j = 0; j < px.length; j += 4) {
+        var r = px[j], gg = px[j + 1], b = px[j + 2];
+        if (b > r * 1.18 && b > gg * 1.12 && b > 55) {   // blue body paint
+          var lum = (r * 0.35 + gg * 0.45 + b * 0.35) / 148;   // ~1.0 at base paint
+          px[j] = Math.min(255, tgt[0] * lum);
+          px[j + 1] = Math.min(255, tgt[1] * lum);
+          px[j + 2] = Math.min(255, tgt[2] * lum);
+        }
+      }
+      g.putImageData(d, 0, 0);
+    }
+    tx.needsUpdate = true;
+  };
+  im.src = e.tex;
+  vehMatCache[key] = lamb({ map: tx });
+  return vehMatCache[key];
+}
 function makeCar() {
-  var g = new THREE.Group(); var col = CARCOLS[(Math.random() * CARCOLS.length) | 0];
+  var g = new THREE.Group();
   var body = new THREE.Group();   // separate so suspension can bounce it over the wheels
-  body.add(new THREE.Mesh(carBodyGeo, phong({ color: col, shininess: 55, specular: 0x999999 })));
-  body.add(new THREE.Mesh(carCabinGeo, glassMat));
-  body.add(box(0.2, 0.24, 1.8, bumperM, 2.3, 0.34, 0)); body.add(box(0.2, 0.24, 1.8, bumperM, -2.3, 0.34, 0));
-  body.add(box(0.06, 0.12, 0.32, lightF, 2.34, 0.68, 0.55)); body.add(box(0.06, 0.12, 0.32, lightF, 2.34, 0.68, -0.55));
-  body.add(box(0.06, 0.12, 0.32, lightR, -2.36, 0.68, 0.55)); body.add(box(0.06, 0.12, 0.32, lightR, -2.36, 0.68, -0.55));
-  g.add(body);
   var wheels = [], pivots = [];
-  [[1.42, 0.86], [1.42, -0.86], [-1.42, 0.86], [-1.42, -0.86]].forEach(function (wp) {
-    var pv = new THREE.Group(); pv.position.set(wp[0], 0.34, wp[1]);
+  var wheelSpots = [[1.42, 0.34, 0.86, 0.34], [1.42, 0.34, -0.86, 0.34], [-1.42, 0.34, 0.86, 0.34], [-1.42, 0.34, -0.86, 0.34]];
+  if (typeof MESHY_VEHS !== 'undefined' && MESHY_VEHS.length) {
+    var vi = (Math.random() * MESHY_VEHS.length) | 0;
+    var e = MESHY_VEHS[vi];
+    var s = VEH_LEN / e.dims[0];
+    var vm2 = new THREE.Mesh(getVehGeo(vi), getVehMat(vi, (Math.random() * VEH_COLS.length) | 0));
+    vm2.scale.set(s, s, s);
+    body.add(vm2);
+    // spinning/steering wheel props sit over the baked wheels
+    wheelSpots = e.wheels.map(function (w) {
+      var fx = VEH_FLIP[e.n] ? -1 : 1;
+      var wr = Math.min(0.44, Math.max(0.26, w[3] * s * 0.92));
+      var wz = (Math.abs(w[2]) * s - 0.06) * (w[2] > 0 ? 1 : -1) * fx;
+      return [w[0] * s * fx, wr, wz, wr];
+    });
+  } else {
+    var col = CARCOLS[(Math.random() * CARCOLS.length) | 0];
+    body.add(new THREE.Mesh(carBodyGeo, phong({ color: col, shininess: 55, specular: 0x999999 })));
+    body.add(new THREE.Mesh(carCabinGeo, glassMat));
+    body.add(box(0.2, 0.24, 1.8, bumperM, 2.3, 0.34, 0)); body.add(box(0.2, 0.24, 1.8, bumperM, -2.3, 0.34, 0));
+    body.add(box(0.06, 0.12, 0.32, lightF, 2.34, 0.68, 0.55)); body.add(box(0.06, 0.12, 0.32, lightF, 2.34, 0.68, -0.55));
+    body.add(box(0.06, 0.12, 0.32, lightR, -2.36, 0.68, 0.55)); body.add(box(0.06, 0.12, 0.32, lightR, -2.36, 0.68, -0.55));
+  }
+  g.add(body);
+  wheelSpots.forEach(function (wp) {
+    var pv = new THREE.Group(); pv.position.set(wp[0], wp[1], wp[2]);
     var w = new THREE.Mesh(wheelGeo, [tireMat, hubMat, hubMat]); w.rotation.x = Math.PI / 2;
+    var ws = wp[3] / 0.34;
+    w.scale.set(ws, 1, ws);   // scale the radius, keep the tire width
     pv.add(w); g.add(pv); wheels.push(w); pivots.push(pv);
   });
+  // front pivots first: sort by x so pivots[0]/[1] steer
+  var ord = pivots.map(function (p, i) { return i; }).sort(function (a2, b2) { return pivots[b2].position.x - pivots[a2].position.x; });
+  pivots = ord.map(function (i) { return pivots[i]; });
+  wheels = ord.map(function (i) { return wheels[i]; });
   var beam = new THREE.Mesh(beamGeo, beamM);
   beam.position.y = 0.16; beam.visible = false;
   g.add(beam);
@@ -1888,9 +1966,10 @@ function sidewalkSpot() {
 }
 function npcTarget() { return Math.random() < 0.6 ? sidewalkSpot() : randTarget(); }
 function spawnNPC() {
-  var mesh = buildCharacter(randomCharConfig());
+  var cfg = randomCharConfig();
+  var mesh = buildCharacter(cfg);
   var start = sidewalkSpot(), tgt = npcTarget();
-  var n = { mesh: mesh, x: start[0], z: start[1], tx: tgt[0], tz: tgt[1], hp: 100, state: 'walk', speed: 1.5 + Math.random() * 1.1, phase: Math.random() * 9, pause: 0, fleeT: 0, fleeDX: 0, fleeDZ: 0, downT: 0, hurtFlash: 0 };
+  var n = { mesh: mesh, x: start[0], z: start[1], tx: tgt[0], tz: tgt[1], hp: 100, state: 'walk', speed: 1.5 + Math.random() * 1.1, phase: Math.random() * 9, pause: 0, fleeT: 0, fleeDX: 0, fleeDZ: 0, downT: 0, hurtFlash: 0, vname: meshyNameFromCfg(cfg) };
   mesh.position.set(n.x, 0, n.z); mesh.userData.npc = n;
   scene.add(mesh); npcs.push(n); return n;
 }
@@ -2092,7 +2171,10 @@ function addStar(n) { setWanted(state.wanted + (n || 1)); }
 function buildCop() {
   if (MESHY_COPS.length) {
     var cfg = randomCharConfig(); cfg.preset = 0; cfg.build = 1 + ((Math.random() * 3) | 0);
-    return buildMeshySkinned(cfg, MESHY_COPS[(Math.random() * MESHY_COPS.length) | 0]);
+    var mi = MESHY_COPS[(Math.random() * MESHY_COPS.length) | 0];
+    var cg = buildMeshySkinned(cfg, mi);
+    cg.userData.vname = MESHY_LIST[mi].n;
+    return cg;
   }
   var g = buildPerson('#1e3a6e', '#16233f', CSKIN[(Math.random() * CSKIN.length) | 0],
     { cap: true, shades: true, hairColor: 0x111111 });
@@ -2109,7 +2191,7 @@ function spawnCop(nearPlayer) {
   } else { var t = randTarget(); x = t[0]; z = t[1]; }
   var p = pushOut(x, z, 0.6); x = p.x; z = p.z;
   var t2 = randTarget();
-  var c = { mesh: mesh, x: x, z: z, hp: 100, state: 'patrol', tx: t2[0], tz: t2[1], phase: Math.random() * 9, fireT: 0.5 + Math.random(), downT: 0, hurtFlash: 0 };
+  var c = { mesh: mesh, x: x, z: z, hp: 100, state: 'patrol', tx: t2[0], tz: t2[1], phase: Math.random() * 9, fireT: 0.5 + Math.random(), downT: 0, hurtFlash: 0, vname: mesh.userData.vname || null };
   mesh.position.set(x, 0, z); mesh.userData.cop = c;
   scene.add(mesh); cops.push(c); return c;
 }
@@ -2156,7 +2238,7 @@ function copShoot(c, wpn, dt, tgt) {
   if (!c.interior && !copHasLOS(c, tgt)) return;   // interior is one small room — they can always see you
   if (!tgt.id) {   // barks only for the local player
     if (state.wanted >= 4) playVoiceAny(['cop_fire_1', 'cop_fire_2'], 0.45, 'copBark', 12);
-    else playVoiceAny(['cop_engage_1', 'cop_engage_2'], 0.45, 'copBark', 12);
+    else if (!playNpcVoice(c.vname, 'quirk', npcVoiceGain(c.x, c.z), 12)) playVoiceAny(['cop_engage_1', 'cop_engage_2'], 0.45, 'copBark', 12);
   }
   sfx(wpn.sfx);
   var dx = tgt.x - c.x, dz = tgt.z - c.z, d = Math.sqrt(dx * dx + dz * dz) || 1;
@@ -2837,7 +2919,7 @@ function updateDrops(dt) {
 // ---------------- NPC logic (wander) ----------------
 function damageNPC(n, dmg, kx, kz, silent) {
   if (n.state === 'down') return;
-  if (!silent) playVoiceAny(['pedm_hit_1', 'pedm_hit_2', 'pedf_hit', 'pedo_hit'], 0.42, 'pedHit', 5);
+  if (!silent && !playNpcVoice(n.vname, 'hit', npcVoiceGain(n.x, n.z))) playVoiceAny(['pedm_hit_1', 'pedm_hit_2', 'pedf_hit', 'pedo_hit'], 0.42, 'pedHit', 5);
   n.hp -= dmg; n.hurtFlash = 0.12; n.x += (kx || 0) * 0.5; n.z += (kz || 0) * 0.5;
   lastCrimeT = T;
   if (n.hp <= 0) {
@@ -2859,7 +2941,7 @@ function damageNPC(n, dmg, kx, kz, silent) {
   for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o === n || o.state !== 'walk') continue; var dx = o.x - n.x, dz = o.z - n.z; if (dx * dx + dz * dz < 170) startFlee(o); }
 }
 function startFlee(n) { if (n.state === 'down') return; n.state = 'flee'; n.fleeT = 4 + Math.random() * 3; var dx = n.x - player.x, dz = n.z - player.z; var d = Math.sqrt(dx * dx + dz * dz) || 1; n.fleeDX = dx / d; n.fleeDZ = dz / d; }
-function panicNear(x, z, r2) { var fled = false; for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o.state !== 'walk') continue; var dx = o.x - x, dz = o.z - z; if (dx * dx + dz * dz < r2) { startFlee(o); fled = true; } } if (fled) playVoiceAny(['pedm_gun', 'pedf_gun'], 0.4, 'pedGun', 16); }
+function panicNear(x, z, r2) { var fled = null; for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o.state !== 'walk') continue; var dx = o.x - x, dz = o.z - z; if (dx * dx + dz * dz < r2) { startFlee(o); if (!fled || o.vname) fled = o; } } if (fled && !playNpcVoice(fled.vname, 'gunscared', npcVoiceGain(fled.x, fled.z), 10)) playVoiceAny(['pedm_gun', 'pedf_gun'], 0.4, 'pedGun', 16); }
 
 var npcSocialT = 0, npcBumpT = -99, meleeHit = false;
 function updateNPCs(dt) {
@@ -2883,9 +2965,19 @@ function updateNPCs(dt) {
             a.chatRole = 0; b2.chatRole = 1;
             a.stateT = b2.stateT = 5 + Math.random() * 6;
             a.animT = 0; b2.animT = 1.1;
+            playNpcVoice(a.vname || b2.vname, 'chat', npcVoiceGain(a.x, a.z), 8);
             break outer;
           }
         }
+      }
+    }
+    // named walkers throw a signature line when the player strolls past
+    if (!state.dead && !inside && !driving && Math.random() < 0.22) {
+      for (var qi = 0; qi < npcs.length; qi++) {
+        var qn = npcs[qi];
+        if (!qn.vname || qn.state !== 'walk') continue;
+        var qdx = qn.x - player.x, qdz = qn.z - player.z;
+        if (qdx * qdx + qdz * qdz < 20) { playNpcVoice(qn.vname, 'quirk', npcVoiceGain(qn.x, qn.z), 25); break; }
       }
     }
     // bump reaction: player shoving through someone
@@ -2896,7 +2988,7 @@ function updateNPCs(dt) {
         var bdx = bn.x - player.x, bdz = bn.z - player.z;
         if (bdx * bdx + bdz * bdz < 0.9 && T - npcBumpT > 6) {
           npcBumpT = T;
-          playVoiceAny(['pedm_hit_2', 'pedo_hit', 'pedf_hit'], 0.4, 'pedBump', 6);
+          if (!playNpcVoice(bn.vname, 'bump', npcVoiceGain(bn.x, bn.z))) playVoiceAny(['pedm_hit_2', 'pedo_hit', 'pedf_hit'], 0.4, 'pedBump', 6);
           bn.state = 'stand'; bn.stateT = 1.4; bn.animT = 0; bn.idleVar = false;
           bn.mesh.rotation.y = Math.atan2(-bdx, -bdz);
         }
@@ -3689,6 +3781,34 @@ function playVoiceAny(ids, gain, cdKey, cd) {
   voiceGroupT[cdKey] = T;
   playVoice(ids[(Math.random() * ids.length) | 0], gain, 0);
 }
+// per-NPC voice lines (optional npcvoices.js) — returns false when the
+// character has no pack entry so callers can fall back to the generic barks
+var npcVoiceBufs = {};
+function playNpcVoice(name, cat, gain, cd) {
+  if (!name || typeof NPC_VOICES === 'undefined' || !NPC_VOICES[name] || !NPC_VOICES[name][cat]) return false;
+  var key = 'npcv_' + name;
+  if (voiceGroupT[key] !== undefined && T - voiceGroupT[key] < (cd || 4)) return true;
+  voiceGroupT[key] = T;
+  if (!ac) return true;
+  var arr = NPC_VOICES[name][cat];
+  var idx = (Math.random() * arr.length) | 0;
+  var id = name + '_' + cat + '_' + idx;
+  function playBuf(buf) {
+    var src = ac.createBufferSource(); src.buffer = buf;
+    var g = ac.createGain(); g.gain.value = gain || 0.45;
+    src.connect(g); g.connect(ac.destination); src.start();
+  }
+  if (npcVoiceBufs[id]) { playBuf(npcVoiceBufs[id]); return true; }
+  var bytes = b64Bytes(arr[idx].split(',')[1]);
+  ac.decodeAudioData(bytes.buffer, function (buf) { npcVoiceBufs[id] = buf; playBuf(buf); }, function () { });
+  return true;
+}
+function meshyNameFromCfg(cfg) {
+  if (!cfg || !cfg.preset || cfg.preset <= PSX_SKINS.length) return null;
+  var mi = MESHY_CIVS[cfg.preset - 1 - PSX_SKINS.length];
+  return mi !== undefined ? MESHY_LIST[mi].n : null;
+}
+function npcVoiceGain(x, z) { var dx = x - player.x, dz = z - player.z; return Math.max(0, 1 - Math.sqrt(dx * dx + dz * dz) / 26) * 0.55; }
 function noiseBurst(dur, freq, gain) { if (!ac) return; var n = ac.sampleRate * dur, buf = ac.createBuffer(1, n, ac.sampleRate), d = buf.getChannelData(0); for (var i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n); var src = ac.createBufferSource(); src.buffer = buf; var f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = freq; var g = ac.createGain(); g.gain.value = gain; src.connect(f); f.connect(g); g.connect(ac.destination); src.start(); }
 function beep(freq, dur, gain, type, slide) { if (!ac) return; var o = ac.createOscillator(), g = ac.createGain(); o.type = type || 'square'; o.frequency.setValueAtTime(freq, ac.currentTime); if (slide) o.frequency.exponentialRampToValueAtTime(slide, ac.currentTime + dur); g.gain.setValueAtTime(gain, ac.currentTime); g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + dur); o.connect(g); g.connect(ac.destination); o.start(); o.stop(ac.currentTime + dur); }
 function sfx(kind) {

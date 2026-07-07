@@ -1,0 +1,248 @@
+{
+  "_comment": "Draft voice lines per named NPC (curated 2026-07-07, not yet synthesized). Categories: bump = bumped into, hit = punched/shot non-fatal, gunscared = player waves a gun, chat = sidewalk small talk, quirk = signature lines. Emotion markers must start the sentence: (scared)(angry)(shouting)(laughing)(sighing).",
+  "MARISOL": {
+    "bump": ["(angry) Ay! Watch where you're going!", "Careful, papi, these sandals are new."],
+    "hit": ["(angry) You did NOT just do that!", "(scared) Ay, somebody help me!"],
+    "gunscared": ["(scared) No no no, put that away!"],
+    "chat": ["This humidity is destroying my ponytail, I swear.", "You tried that new sushi place yet?"],
+    "quirk": ["My hoops are bigger than your future, honey.", "(laughing) I told my sister, that is SO Tampa."]
+  },
+  "TYRELL": {
+    "bump": ["Yo, easy on the windbreaker, man.", "(angry) Watch the sneakers, dawg."],
+    "hit": ["(angry) Oh, you wanna go? For real?"],
+    "gunscared": ["(scared) Whoa whoa, it ain't that serious!"],
+    "chat": ["You hear that new track on the radio?", "Heat like this, you walk slow on purpose."],
+    "quirk": ["This jacket? Vintage, my man. Ninety-two.", "Flat-top stays crispy, rain or shine."]
+  },
+  "BRAD": {
+    "bump": ["Hey, watch the rod arm, buddy!", "(sighing) Tourists. I swear."],
+    "hit": ["(angry) That's it, you scared off my luck!"],
+    "gunscared": ["(scared) Whoa there, hoss, I'm just fishin'!"],
+    "chat": ["Snook are bitin' off Rocky Creek, I'm tellin' ya.", "Hot enough to fry a mullet out here."],
+    "quirk": ["Caught a marlin THIS big. No lie.", "(laughing) Sunscreen's for quitters, buddy."]
+  },
+  "KEISHA": {
+    "bump": ["Excuse you, I just pulled a double.", "(sighing) Careful, hon."],
+    "hit": ["(angry) I patch people up. Don't make me one!"],
+    "gunscared": ["(scared) I'm a nurse! Please, put it down!"],
+    "chat": ["Twelve-hour shift and these clogs are done.", "Drink water, baby. This heat is no joke."],
+    "quirk": ["I've seen worse in the ER, trust me.", "(sighing) Your posture is stressing ME out."]
+  },
+  "ERNESTO": {
+    "bump": ["(sighing) Oye, respect your elders, eh?", "Careful, mijo. I'm not so fast anymore."],
+    "hit": ["(angry) Fifty years I walk here! Never this!"],
+    "gunscared": ["(scared) Tranquilo, tranquilo! I have grandchildren!"],
+    "chat": ["This heat? This is nothing. Try August.", "My wife makes the best coffee, eh."],
+    "quirk": ["I iron this guayabera myself. Forty years.", "(laughing) Dominoes on Sunday. I never lose."]
+  },
+  "SKYLER": {
+    "bump": ["Duuude, you totally ruined my line.", "(sighing) Bro. Seriously?"],
+    "hit": ["(angry) Not cool, man! So not cool!"],
+    "gunscared": ["(scared) Dude, whoa, I'm just a kid!"],
+    "chat": ["That parking lot curb? Butter. So buttery.", "Almost landed a kickflip down the bank steps."],
+    "quirk": ["Security guards fear me, bro.", "(laughing) My mom thinks I'm at study hall."]
+  },
+  "DENISE": {
+    "bump": ["(angry) Excuse ME? The perm, honey!", "Watch it, sugar. This blouse is dry-clean only."],
+    "hit": ["(shouting) Somebody get the manager! Of the street!"],
+    "gunscared": ["(scared) Take my coupons, just don't shoot!"],
+    "chat": ["I heard the Hendersons got a pool. Tacky.", "This humidity is a hairspray emergency, I swear."],
+    "quirk": ["I was Miss Citrus County, nineteen seventy-eight.", "(laughing) Leopard print is a neutral, honey."]
+  },
+  "ANDRE": {
+    "bump": ["Whoa, watch the gains, bro.", "(angry) You almost spilled my protein shake."],
+    "hit": ["(angry) Big mistake. HUGE mistake, little man."],
+    "gunscared": ["(scared) Easy, bro! Muscles can't stop bullets!"],
+    "chat": ["Leg day today. Pray for me, bro.", "You even lift, man? Serious question."],
+    "quirk": ["This body? One hundred percent chicken and rice.", "(shouting) LIGHT WEIGHT, BABY!"]
+  },
+  "PHUONG": {
+    "bump": ["(angry) Hey! You break it, you buy it!", "Careful! I am carrying eggs here!"],
+    "hit": ["(shouting) Help! This crazy person is attacking me!"],
+    "gunscared": ["(scared) Please! I have a family! Take nothing!"],
+    "chat": ["Lunch special today. Best noodles this side of town.", "My daughter made honor roll again."],
+    "quirk": ["You look skinny. You eat something. Now.", "(sighing) Nobody appreciates fresh herbs anymore."]
+  },
+  "COLT": {
+    "bump": ["Watch the boots, partner.", "(angry) You scuff these, we got a problem."],
+    "hit": ["(angry) Now you've gone and spilled my patience!"],
+    "gunscared": ["(scared) Easy now, friend. Ain't no quarrel here."],
+    "chat": ["Florida ain't got mountains, but she's got character.", "This hat's older than you, probably."],
+    "quirk": ["Ain't a horse in this county. And yet, here I am.", "(laughing) My mustache has its own zip code."]
+  },
+  "JAMAL": {
+    "bump": ["Yo, watch the kicks! These are new!", "(angry) Man, you almost fouled me."],
+    "hit": ["(angry) Flagrant! That's a flagrant foul, man!"],
+    "gunscared": ["(scared) Yo chill, chill! I got practice tomorrow!"],
+    "chat": ["Dropped thirty at the park yesterday. Easy.", "You watch the game last night? Unreal."],
+    "quirk": ["Number twenty-three. Just like Mike.", "(laughing) I'm going pro. Watch. Two years."]
+  },
+  "GLORIA": {
+    "bump": ["Oh! Goodness gracious, young man.", "(sighing) Everyone is in such a hurry."],
+    "hit": ["(scared) Oh! Oh my word! Help!"],
+    "gunscared": ["(scared) Sweet mercy! I'm somebody's grandmother!"],
+    "chat": ["Lovely weather, isn't it? Before the storms.", "My grandson never calls. Do you call yours?"],
+    "quirk": ["I've got butterscotch candies somewhere in this purse.", "(laughing) I once outran a gator, dear. Nineteen sixty-two."]
+  },
+  "DIEGO": {
+    "bump": ["Oye, careful. I got grease all over.", "(sighing) Watch it, man. Long day."],
+    "hit": ["(angry) You want a wrench upside the head?"],
+    "gunscared": ["(scared) Whoa, amigo! I just fix cars!"],
+    "chat": ["That sound your car makes? Not good. Bring it by.", "Transmission season, my friend. Everybody's dying."],
+    "quirk": ["I can fix anything except my marriage.", "(laughing) Check engine light? Just tape over it."]
+  },
+  "AISHA": {
+    "bump": ["Hey now, watch the dress!", "(sighing) It is too hot for this, honestly."],
+    "hit": ["(angry) Oh no you did NOT!"],
+    "gunscared": ["(scared) Okay, okay! I'm walking away, see?"],
+    "chat": ["This sun is everything today, isn't it?", "Farmers market Saturday. You should go."],
+    "quirk": ["Yellow is my color. Don't even try it.", "(laughing) I match my headwrap to my mood."]
+  },
+  "VLAD": {
+    "bump": ["(angry) You touch tracksuit? Bold move.", "In my country, this is declaration of war."],
+    "hit": ["(angry) Now I am upset. This is problem for you."],
+    "gunscared": ["Is nice gun. I had better one. Once."],
+    "chat": ["This Florida heat. Is like sauna, but worse.", "You want fitness tip? Eat more. Simple."],
+    "quirk": ["Tracksuit is not casual. Is lifestyle.", "(laughing) I have cousin who can fix this. Any this."]
+  },
+  "SUMMER": {
+    "bump": ["Oh my god, watch it, dude.", "(laughing) Whoa, easy there, sunshine."],
+    "hit": ["(scared) That is like, SO not chill!"],
+    "gunscared": ["(scared) Okay, that's a whole gun. Bye!"],
+    "chat": ["The beach was, like, unreal this morning.", "Mercury's in retrograde. Explains literally everything."],
+    "quirk": ["I don't tan. I photosynthesize.", "(laughing) My puka shells? Spiritual armor, basically."]
+  },
+  "WENDELL": {
+    "bump": ["Easy there, young blood.", "(sighing) Everybody's rushing. Nobody's arriving."],
+    "hit": ["(angry) Boy, I've got grandkids tougher than you!"],
+    "gunscared": ["(scared) Son, put that away 'fore somebody gets hurt."],
+    "chat": ["Chess in the park, noon sharp. Bring your loss.", "Hot today. Real chess weather."],
+    "quirk": ["Checkmate in four. I saw it yesterday already.", "(laughing) I let somebody win once. Nineteen eighty-five."]
+  },
+  "RIKO": {
+    "bump": ["Hey, hey. This hoodie is limited edition, man.", "(sighing) So clumsy. Wow."],
+    "hit": ["(angry) Do you know what this hoodie costs?!"],
+    "gunscared": ["(scared) Whoa! Okay! Not the hoodie, please!"],
+    "chat": ["This koi print? One of fifty ever made.", "Tampa needs better sneaker shops, honestly."],
+    "quirk": ["Silver hair is self-expression. My mom disagrees.", "(laughing) I skipped rent for these shoes."]
+  },
+  "PATTY": {
+    "bump": ["Watch it, hon. I've dropped enough trays today.", "(sighing) Lord, give me strength."],
+    "hit": ["(angry) I've thrown out bigger fellas than you, sugar!"],
+    "gunscared": ["(scared) Sugar, the tips ain't worth shooting me for!"],
+    "chat": ["My feet quit an hour before I do, hon.", "Pie's fresh today. Key lime. Just saying."],
+    "quirk": ["Coffee's only good if it can stand up by itself.", "(laughing) Been slinging hash since before you were born, sweetie."]
+  },
+  "OMAR": {
+    "bump": ["(sighing) These are Italian shoes, my friend.", "Careful. The watch alone outvalues your car."],
+    "hit": ["(angry) You have made an expensive mistake."],
+    "gunscared": ["(scared) Take the watch! It's insured anyway!"],
+    "chat": ["The market has been good to me. Very good.", "Boat's in the marina. The small one. Forty feet."],
+    "quirk": ["I don't sweat. I glisten. Professionally.", "(laughing) I retired at thirty-four. Twice."]
+  },
+  "BECCA": {
+    "bump": ["Dude, my water bottle almost fell!", "(sighing) Okay, personal space?"],
+    "hit": ["(shouting) HELP! This is NOT okay!"],
+    "gunscared": ["(scared) Oh my god, I have a midterm Monday!"],
+    "chat": ["Go Gators! Sorry, reflex.", "Four coffees, zero sleep. Thriving."],
+    "quirk": ["Hydration is a personality, actually.", "(laughing) My GPA and I are on a break."]
+  },
+  "LEON": {
+    "bump": ["Easy, brother. No need for all that rushing.", "(sighing) Everything moves too fast, man."],
+    "hit": ["(angry) Violence poisons the man who carries it!"],
+    "gunscared": ["(scared) Peace, brother, peace! Put it down."],
+    "chat": ["Sun's blessing us today, man.", "You ever just listen to the palm trees?"],
+    "quirk": ["These beads? Each one is a story, man.", "(laughing) Stress is a choice. I chose no."]
+  },
+  "TINA": {
+    "bump": ["Ay! Watch the fanny pack, please!", "(sighing) Careful, careful!"],
+    "hit": ["(shouting) Somebody help! This guy is crazy!"],
+    "gunscared": ["(scared) Take the fanny pack! Not the cat shirt!"],
+    "chat": ["I power-walk this loop twice a day. Join me!", "My cat did the funniest thing this morning."],
+    "quirk": ["The fanny pack has everything. EVERYTHING.", "(laughing) Cardio is cheaper than therapy."]
+  },
+  "COP_BROOKS": {
+    "bump": ["Watch yourself, citizen.", "(angry) You bumping a police officer now?"],
+    "hit": ["(shouting) Officer needs assistance! Assault in progress!"],
+    "gunscared": ["(shouting) GUN! Drop it! Drop it NOW!"],
+    "chat": ["Keep it moving. Nothing to see.", "Stay hydrated out here, folks."],
+    "quirk": ["I see everything on this block. Everything.", "(angry) Go ahead. Surprise me."]
+  },
+  "COP_DIAZ": {
+    "bump": ["(angry) Hey! Watch it! That's a badge!"],
+    "hit": ["(shouting) Oh, you just earned the cuffs!"],
+    "gunscared": ["(shouting) Weapon! Drop it or I drop you!"],
+    "chat": ["Quiet shift so far. Don't jinx it.", "My abuela still asks when I'm making sergeant."],
+    "quirk": ["I run faster in boots than you do scared.", "(laughing) Paperwork scares me more than perps."]
+  },
+  "COP_SULLIVAN": {
+    "bump": ["(angry) Eyes forward, taxpayer!"],
+    "hit": ["(shouting) Assaulting a sergeant?! Bad career move, son!"],
+    "gunscared": ["(shouting) DROP THE WEAPON! I won't ask twice!"],
+    "chat": ["Thirty years on this beat. Thirty.", "Coffee's the only backup I trust."],
+    "quirk": ["The mustache is regulation. I checked. I wrote it.", "(sighing) Kids today can't even loiter properly."]
+  },
+  "COP_NGUYEN": {
+    "bump": ["Careful. That was nearly a citation.", "(sighing) Watch your step, please."],
+    "hit": ["(shouting) Code three! Suspect is combative!"],
+    "gunscared": ["(shouting) Firearm! Put it on the ground! Slowly!"],
+    "chat": ["Procedure keeps everyone alive. Everyone.", "Nice evening. Statistically low crime hour."],
+    "quirk": ["I memorized the entire penal code. Twice.", "(sighing) Yes, the glasses are shatterproof. I asked."]
+  },
+  "COP_WASHINGTON": {
+    "bump": ["You want to try that again, differently?"],
+    "hit": ["(angry) Wrong officer. Wrong day."],
+    "gunscared": ["(shouting) Gun! Hands where I can see them!"],
+    "chat": ["Community first. That's the whole job.", "You call your mother lately? Do that."],
+    "quirk": ["I don't raise my voice. I don't need to.", "(laughing) The badge is heavy. I make it look easy."]
+  },
+  "COP_ROMERO": {
+    "bump": ["(angry) Oye, personal space, amigo."],
+    "hit": ["(shouting) Now it's resisting! Now it's a thing!"],
+    "gunscared": ["(shouting) Gun! Drop it, ahora!"],
+    "chat": ["The aviators? Standard issue. For me.", "Too quiet today. I don't trust quiet."],
+    "quirk": ["I can smell a fake ID from forty feet.", "(laughing) The mustache does the interrogating."]
+  },
+  "COP_OBRIEN": {
+    "bump": ["(scared) Oh! Sorry! I mean, YOU watch it!"],
+    "hit": ["(shouting) Backup! I need backup! Anyone!"],
+    "gunscared": ["(scared) Gun! GUN! Okay, breathe, like training!"],
+    "chat": ["First month on the job. Loving it. Mostly.", "Sarge says I salute too much. Is that possible?"],
+    "quirk": ["I got sunburned through my hat. Twice.", "(laughing) My mom irons my uniform. Don't tell Sarge."]
+  },
+  "COP_PATEL": {
+    "bump": ["Mind yourself, please. We're all walking here."],
+    "hit": ["(angry) That was genuinely unwise of you."],
+    "gunscared": ["(shouting) Weapon drawn! Comply immediately!"],
+    "chat": ["Fifteen years of service. The beard is twelve.", "Traffic is the real crime in this town."],
+    "quirk": ["I de-escalate. It's a gift, honestly.", "(sighing) Everyone asks about the beard. Everyone."]
+  },
+  "COP_KOWALSKI": {
+    "bump": ["(angry) You bounced off ME, pal."],
+    "hit": ["(laughing) Did you just hit me? Adorable."],
+    "gunscared": ["(shouting) Weapon! Big mistake, little person!"],
+    "chat": ["The doorframes in this town are too short.", "Bench press? All of it. Next question."],
+    "quirk": ["They only made the uniform in extra large. Once.", "(laughing) I AM the backup."]
+  },
+  "COP_JACKSON": {
+    "bump": ["(sighing) Son, I'm too old for bumping."],
+    "hit": ["(angry) Twenty-eight years and you pick TODAY?"],
+    "gunscared": ["(shouting) Gun! Don't make me run! I WILL regret it!"],
+    "chat": ["Retirement's in eighteen months. Not that I'm counting.", "Best donuts are on Countryway. That's intel."],
+    "quirk": ["I've seen everything twice. Bored now.", "(sighing) My knees file their own police reports."]
+  },
+  "CLERK": {
+    "bump": ["(scared) Whoa! Sorry! My bad. Wait, YOUR bad."],
+    "hit": ["(scared) Ow! I don't even make hourly for this!"],
+    "gunscared": ["(scared) Register's open! Take it! Take everything!"],
+    "chat": ["Slushee machine's fixed. Today's a good day.", "You want a receipt? Nobody wants the receipt."],
+    "quirk": ["Assistant night manager. Acting. Unpaid.", "(sighing) The visor is mandatory. The dignity is not."]
+  },
+  "DEALER": {
+    "bump": ["Watch it. I'm holding merchandise.", "(sighing) Easy, man. Easy."],
+    "hit": ["(angry) Bad idea. Terrible for business. Yours."],
+    "gunscared": ["(laughing) That's cute. I SOLD you that."],
+    "chat": ["Business is boomin'. Don't ask what business.", "Grocery lot. Best office in Tampa."],
+    "quirk": ["I got a customer loyalty program. Stay alive.", "(laughing) Cash only. Obviously."]
+  }
+}
