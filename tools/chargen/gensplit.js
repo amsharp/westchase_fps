@@ -87,12 +87,14 @@ for (const prim of mesh.primitives) {
     vertPart.push(partOfJoint(best));
   }
   const triCount = (Idx ? Idx.length : P.length / 3) / 3;
+  const triPart = [], triVerts = [];
   for (let t = 0; t < triCount; t++) {
     const vs = [0, 1, 2].map(k => Idx ? Idx[t * 3 + k] : t * 3 + k);
     // majority vote for the triangle's part
     const votes = {};
     for (const v of vs) votes[vertPart[v]] = (votes[vertPart[v]] || 0) + 1;
     const part = Object.keys(votes).sort((a, c) => votes[c] - votes[a])[0];
+    triPart.push(part); triVerts.push(vs);
     const p = getPart(part);
     for (const v of vs) {
       const key = v;
@@ -102,6 +104,69 @@ for (const prim of mesh.primitives) {
         p.uv.push(U[v * 2], U[v * 2 + 1]);
       }
       p.idx.push(p.map.get(key));
+    }
+  }
+  // --- joint caps ----------------------------------------------------------
+  // Cutting a continuous skin leaves raw open edges on both sides of every
+  // joint; rotating a limb (the ±1.42 T-pose arm drop especially) swings the
+  // cut edges apart and exposes a see-through gap. Fan-cap the cut boundary
+  // on BOTH parts (limb stump + parent socket) so rotation shows two closed
+  // surfaces sliding past each other — the classic PSX overlap trick.
+  {
+    // cut edges: edges shared by two triangles assigned to different parts
+    const edgeMap = new Map();   // "a_b" (a<b, original indices) -> [triIdx...]
+    for (let t = 0; t < triCount; t++) {
+      const vs = triVerts[t];
+      for (let e = 0; e < 3; e++) {
+        const a = vs[e], b2 = vs[(e + 1) % 3];
+        const key = Math.min(a, b2) + '_' + Math.max(a, b2);
+        if (!edgeMap.has(key)) edgeMap.set(key, []);
+        edgeMap.get(key).push(t);
+      }
+    }
+    // group cut-boundary verts per part pair, then cap each side
+    const pairRings = new Map();  // "partA|partB" -> Set(origVert)
+    for (const [key, tris] of edgeMap) {
+      if (tris.length < 2) continue;
+      const ps = [...new Set(tris.map(t => triPart[t]))];
+      if (ps.length < 2) continue;
+      const pk = ps.sort().join('|');
+      if (!pairRings.has(pk)) pairRings.set(pk, new Set());
+      const [a, b2] = key.split('_').map(Number);
+      pairRings.get(pk).add(a); pairRings.get(pk).add(b2);
+    }
+    for (const [pk, ring] of pairRings) {
+      if (ring.size < 3) continue;
+      for (const partName of pk.split('|')) {
+        const p = getPart(partName);
+        // centroid (position + uv) of the ring
+        let cx = 0, cy = 0, cz = 0, cu = 0, cv = 0;
+        for (const v of ring) {
+          cx += P[v * 3]; cy += P[v * 3 + 1]; cz += P[v * 3 + 2];
+          cu += U[v * 2]; cv += U[v * 2 + 1];
+        }
+        const n = ring.size;
+        const ci = p.pos.length / 3;
+        p.pos.push(cx / n * SCALE, (cy / n + YOFF) * SCALE, cz / n * SCALE);
+        p.uv.push(cu / n, cv / n);
+        // fan: for every cut edge on this part's own triangles, add a tri to
+        // the centroid (keeps winding consistent with the part's surface)
+        for (const [key, tris] of edgeMap) {
+          const ps = [...new Set(tris.map(t => triPart[t]))];
+          if (ps.length < 2 || ps.sort().join('|') !== pk) continue;
+          const ownTri = tris.find(t => triPart[t] === partName);
+          if (ownTri === undefined) continue;
+          const [a, b2] = key.split('_').map(Number);
+          // the owning triangle traverses the edge fa->fb; the cap must
+          // traverse fb->fa (adjacent faces share an edge in opposite
+          // directions) to face outward
+          const vs = triVerts[ownTri];
+          let fa = a, fb = b2;
+          for (let e = 0; e < 3; e++) if (vs[e] === b2 && vs[(e + 1) % 3] === a) { fa = b2; fb = a; }
+          if (!p.map.has(fa) || !p.map.has(fb)) continue;
+          p.idx.push(p.map.get(fb), p.map.get(fa), ci);
+        }
+      }
     }
   }
 }

@@ -75,6 +75,12 @@ creator's PRESET row; NPCs start wearing them too).
 
 - **UV flip**: gensplit stores RAW glb v; the game's loader applies `1-v`.
   If a character's texture looks scrambled, this is the first suspect.
+- **Joint gaps**: cutting the continuous skin leaves raw open edges at
+  every joint; rotated limbs (the ±1.42 arm drop especially) expose
+  see-through gaps. gensplit fan-caps BOTH sides of every cut (limb stump
+  + parent socket) so rotation shows closed surfaces sliding past each
+  other. If a character shows holes at shoulders/hips, the caps failed —
+  check the cut-edge detection.
 - **Occlusion bleed**: surfaces hidden in the T-pose (inner thighs under a
   shirt hem) get neighbor-color texture bleed from Meshy; visible when legs
   swing. Unsolved; acceptable at gameplay distance.
