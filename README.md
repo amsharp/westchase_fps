@@ -79,7 +79,7 @@ Westchase Guns & Ammo. He sells three guns:
 | Weapon | Price | Notes |
 |--------|-------|-------|
 | Pistol | $150  | semi-auto, reliable |
-| SMG (TEC-9) | $400 | full-auto, sprays |
+| SMG (TEC-9) | $400 | full-auto; first shots fly true, then it sprays — feather the trigger |
 | Rifle  | $600  | one shot, one nap — right-click to scope |
 | AK-47  | $1000 | full-auto, long range, accurate |
 | Rocket launcher | $2000 | 5s reload; the blast doesn't care whose side you're on |

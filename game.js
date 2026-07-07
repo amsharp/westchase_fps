@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.9.1';
+var GAME_VERSION = 'v1.9.2';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---------------- world constants ----------------
@@ -18,7 +18,7 @@ var CROSS_HW = 11;  // cross road (N-S, x=0) half width
 var WEAPONS = {
   fists:  { name: 'FISTS',  melee: true, dmg: 34, rate: 0.42, range: 2.4 },
   pistol: { name: 'PISTOL', price: 150, dmg: 40, rate: 0.34, auto: false, spread: 0.014, desc: '9mm sidearm. Reliable.', flashAt: [0.26, -0.265, -0.9] },
-  smg:    { name: 'SMG',    price: 400, dmg: 15, rate: 0.09, auto: true,  spread: 0.05,  desc: 'Hold the trigger. Sprays.', flashAt: [0.26, -0.262, -1.2] },
+  smg:    { name: 'SMG',    price: 400, dmg: 15, rate: 0.065, auto: true, spread: 0.008, spreadMax: 0.05, bloomPerShot: 0.006, desc: 'First shots on target. Then it sprays.', flashAt: [0.26, -0.262, -1.2] },
   rifle:  { name: 'RIFLE',  price: 600, dmg: 95, rate: 0.8,  auto: false, spread: 0.004, desc: 'One shot, one nap. Right-click to scope.', flashAt: [0.24, -0.235, -1.38] },
   auto:   { name: 'AK-47',  price: 1000, dmg: 34, rate: 0.11, auto: true, spread: 0.012, desc: 'Full auto, long range.', flashAt: [0.26, -0.255, -1.2] },
   rocket: { name: 'ROCKET LAUNCHER', price: 2000, rate: 5, rocket: true, desc: 'Danger close. 5s reload.', flashAt: [0.3, -0.28, -1.0] },
@@ -39,7 +39,7 @@ var state = {
 var keys = {}, mouseDown = false;
 var yaw = 0, pitch = 0;
 var player = { x: -72, z: -97, y: EYE, vy: 0, grounded: true };   // Publix lot, next to the dealer
-var lastShot = -99, punchT = -99, recoil = 0, punchSide = false;
+var lastShot = -99, punchT = -99, recoil = 0, punchSide = false, gunBloom = 0;
 var T = 0;
 var driving = null;   // traffic-car entry the player is driving
 
@@ -3424,6 +3424,7 @@ function setZoom(on) {
 function setEquipped(w) {
   if (inside && w && w !== 'fists' && w !== 'snack') playVoice('clerk_scared', 0.55, 45);
   setZoom(false);
+  gunBloom = 0;
   state.equipped = w;
   vm.visible = !zoomed && !driving;
   Object.keys(vmMap).forEach(function (k) { vmMap[k].visible = (k === w); });
@@ -3496,7 +3497,10 @@ function tryAttack() {
   }
   sfx(state.equipped);
   var dir = new THREE.Vector3(); camera.getWorldDirection(dir);
-  dir.x += (Math.random() - 0.5) * w.spread * 2; dir.y += (Math.random() - 0.5) * w.spread * 2; dir.z += (Math.random() - 0.5) * w.spread * 2; dir.normalize();
+  // bloom weapons (SMG): tight while tapping, blossoms under sustained fire
+  var sp = w.spread;
+  if (w.spreadMax) { sp = Math.min(w.spreadMax, w.spread + gunBloom); gunBloom += w.bloomPerShot; }
+  dir.x += (Math.random() - 0.5) * sp * 2; dir.y += (Math.random() - 0.5) * sp * 2; dir.z += (Math.random() - 0.5) * sp * 2; dir.normalize();
   raycaster.set(camera.position.clone(), dir); raycaster.far = 300;
   npcRootsAlive.length = 0;
   for (var k = 0; k < npcs.length; k++) if (npcs[k].state !== 'down') npcRootsAlive.push(npcs[k].mesh);
@@ -4537,6 +4541,7 @@ function updatePlayer(dt) {
   camera.position.set(player.x, player.y, player.z); camera.rotation.y = yaw; camera.rotation.x = pitch;
   var moving = (f || s) && player.grounded; var bob = moving ? Math.sin(T * (spd > 6 ? 13 : 9)) * 0.035 : 0; camera.position.y += bob;
   recoil = Math.max(0, recoil - dt * 8); vm.position.z = recoil * 0.07; vm.position.y = bob * 0.5; vm.rotation.x = recoil * 0.06;
+  gunBloom = Math.max(0, gunBloom - dt * 0.06);   // spread recovers ~0.7s after easing off
   var pt = T - punchT;
   if (WEAPONS[state.equipped].melee) {
     if (psxArms) {
@@ -4600,6 +4605,7 @@ window.__wc = {
   isInside: function () { return inside; },
   storeState: function () { return { robbed: robbedVisit, copsCalled: copsCalledVisit, closedUntil: gasClosedUntil, now: T }; },
   resetCooldowns: function () { punchT = -99; lastShot = -99; },
+  gunBloom: function () { return gunBloom; },
   openMenu: openMenu, closeMenus: closeMenus, spawnCashAt: spawnCash,
   renderer: renderer, scene: scene, camera: camera,
   cars: cars, boomAt: boomAt, killNpcRagdoll: killNpcRagdoll,
