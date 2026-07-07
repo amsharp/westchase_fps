@@ -59,6 +59,8 @@
   .pop.bad { color:#e5533d; }
   @keyframes rise { from { opacity:1; transform:translateY(0);} to { opacity:0; transform:translateY(-46px);} }
   #dmgFlash { position:fixed; inset:0; background:#c00; opacity:0; pointer-events:none; z-index:9; transition:opacity .45s; }
+  #waterFx { position:fixed; inset:0; pointer-events:none; z-index:7;
+    background:radial-gradient(circle at center, rgba(20,80,150,0.38) 0%, rgba(8,40,90,0.55) 100%); }
   #scope { position:fixed; inset:0; pointer-events:none; z-index:8;
     background:radial-gradient(circle at center, rgba(0,0,0,0) 27%, rgba(0,0,0,0.97) 29%); }
   #scope::before { content:''; position:absolute; left:50%; top:14%; bottom:14%; width:1.5px; background:rgba(0,0,0,0.75); }
@@ -100,6 +102,7 @@
   <div id="popups"></div>
 </div>
 <div id="dmgFlash"></div>
+<div id="waterFx" class="hidden"></div>
 <div id="scope" class="hidden"></div>
 
 <div id="startScreen" class="overlay">

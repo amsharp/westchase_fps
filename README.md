@@ -97,9 +97,19 @@ runs off screaming (and yes, that's a crime). Driving is third-person:
 WASD to drive, **E** to get out. You can't shoot from the driver's seat,
 but the car itself is the weapon — mow down pedestrians and cops, and
 ram traffic to send it spinning out of control like you'd shot it up.
+Trees and street lights snap and topple if you plow through them, in a
+shower of leaves or sparks — they grow back about a minute later.
 
 Your stolen ride isn't bulletproof: police fire chews through it. When
 it catches **fire you have ~5 seconds to bail** before it explodes.
+
+## The lake
+
+The lake in the northwest is swimmable: the sandy bed slopes down about
+four meters, so you can wade in off the shore and go fully under — the
+screen tints blue and everything goes muffled until you come back up. A
+stone fountain sprays in the middle. Pedestrians, cops, and cars stay on
+dry land, which makes the water a decent (slow) escape route.
 
 ## Weather & time
 

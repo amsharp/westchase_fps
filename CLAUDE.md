@@ -99,12 +99,32 @@ z=0 (MAIN_HW=14), cross road N–S at x=0 (CROSS_HW=11). Perimeter = fogged
 forest walls + "ROAD CLOSED" barriers at the four road exits.
 
 - SE: **RaceTrac** gas station (robbable, enterable interior) — entry zone
-  `gasRob {x:60,z:42}`.
-- SW: Dollar Tree, self-storage, blue-roof strip malls westward.
-- NE: Regions Bank, pharmacy, Sakura Sushi, Dunkin.
+  `gasRob {x:60,z:42}` — deliberately the ONLY building on that corner.
+- SW: Dollar Tree, self-storage, blue-roof strip malls westward; **Dunkin**
+  at (-116,31) fronting the first strip mall, across the main road from
+  Starbucks (-116,-30).
+- NE: Regions Bank, pharmacy, Sakura Sushi.
 - NW: Bank of America, **Publix** (player + dealer spawn in its parking lot:
   player (-72,-97), dealer `dealerPos (-72,-106)`), Farnell Middle School,
-  townhouses, lake `LAKE (-255,-150)`, 5-story red-roof house (-278,-78).
+  townhouses (two rows east of the lake, two moved NORTH of it at
+  (-210,-215)/(-210,-245) — nothing may sit over the water), lake
+  `LAKE (-255,-150)`, 5-story red-roof house (-278,-78).
+- **Lake is swimmable**: paraboloid bed (`lakeBedY`, `LAKE_DEPTH=4`,
+  surface `WATER_Y=0.2`), transparent double-sided water. Its collider is
+  flagged `.lake` — the player's pushOut uses `landColliders` (filtered)
+  so only NPCs/cops/cars are blocked. Center fountain (own collider) with
+  `fountainDrops` particles. Head below `WATER_Y` → `setUnderwater`:
+  `#waterFx` overlay + `uwGain` muffled loop.
+- **Sidewalk layering gotcha**: sidewalks are 4 flanking strips (y 0.12 /
+  0.125 for cross to avoid corner z-fights) laid AFTER roadStrip (y 0.05).
+  A full-width sidewalk slab under the road once hid the asphalt entirely.
+- NPCs spawn/respawn on sidewalks (`sidewalkSpot`) and wander with a 60%
+  sidewalk bias (`npcTarget`); cops still use `randTarget`.
+- **Breakables**: every oak/palm/streetlight registers in `breakables`
+  (`registerBreakable`); any car moving >3 u/s snaps them (`breakProp` →
+  ease-out topple + puff burst, 60 s respawn) in `updateWorldFx`, which
+  also runs the fountain + underwater check. Works on host and on
+  mirrored client cars, but breaks are per-peer (not net-synced).
 - Gas station interior is a hidden room **under the map** at y=-60
   (`INT` box, `intColliders`, clerk at `clerkPos`). The `inside` flag switches
   floor height and collider set (pushOut takes an optional collider list).
@@ -119,9 +139,9 @@ forest walls + "ROAD CLOSED" barriers at the four road exits.
   (gas station, $20, +50 hp, consumable). Death drops all owned guns as
   pickups (2 min despawn; duplicate pickup = half-price refund).
 - **Wanted** (0–5 stars): rob register at gunpoint → 2★; every 5 civ kills →
-  +1★; cop kill → +1★; decays after ~18 s clean & no cops near. Cops: 3
-  patrol at 0★, +2 per star; pistols <4★, full-auto SMGs 4–5★; 1★ = only
-  proximity aggro. Interior cops (`c.interior`, `c.baseY`) spawn on a failed
+  +1★; cop kill → +1★; decays after ~18 s clean & no cops near. Cops: 2
+  patrol at 0★, +2 per star (spawn interval 2.6 s); pistols <4★, full-auto
+  SMGs 4–5★; 1★ = only proximity aggro. Interior cops (`c.interior`, `c.baseY`) spawn on a failed
   unarmed robbery and are always local, never synced.
 - **Cars**: shootable (1.5 "seconds of fire" → `goBerserk`: veers hard off
   road, spins, explodes on contact); E to carjack (driver flees), WASD +
@@ -174,3 +194,6 @@ forest walls + "ROAD CLOSED" barriers at the four road exits.
   world freezes updating (listen-server tradeoff).
 - Berserk cars that find open ground blow up on a 6 s timer instead of
   hitting something.
+- Broken trees/street lights are local-only in multiplayer (each peer
+  breaks them from its own view of car positions — usually consistent,
+  never authoritative).

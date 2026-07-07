@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.2';
+var GAME_VERSION = 'v1.3';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---------------- world constants ----------------
@@ -20,7 +20,7 @@ var WEAPONS = {
   pistol: { name: 'PISTOL', price: 150, dmg: 40, rate: 0.34, auto: false, spread: 0.014, desc: '9mm sidearm. Reliable.', flashAt: [0.26, -0.265, -0.9] },
   smg:    { name: 'SMG',    price: 400, dmg: 15, rate: 0.09, auto: true,  spread: 0.05,  desc: 'Hold the trigger. Sprays.', flashAt: [0.26, -0.262, -1.2] },
   rifle:  { name: 'RIFLE',  price: 600, dmg: 95, rate: 0.8,  auto: false, spread: 0.004, desc: 'One shot, one nap. Right-click to scope.', flashAt: [0.24, -0.235, -1.38] },
-  auto:   { name: 'AK-47',  price: 1000, dmg: 28, rate: 0.11, auto: true, spread: 0.012, desc: 'Full auto, long range.', flashAt: [0.26, -0.255, -1.2] },
+  auto:   { name: 'AK-47',  price: 1000, dmg: 34, rate: 0.11, auto: true, spread: 0.012, desc: 'Full auto, long range.', flashAt: [0.26, -0.255, -1.2] },
   rocket: { name: 'ROCKET LAUNCHER', price: 2000, rate: 5, rocket: true, desc: 'Danger close. 5s reload.', flashAt: [0.3, -0.28, -1.0] },
   snack:  { name: 'SNACK', snack: true, rate: 0.8 }
 };
@@ -46,6 +46,14 @@ var driving = null;   // traffic-car entry the player is driving
 var dealerPos = { x: -72, z: -106 };   // in the Publix parking lot, facing the store
 var gasRob = { x: 60, z: 42 };   // entrance zone in front of the RaceTrac door
 var LAKE = { x: -255, z: -150, r: 62 };
+var LAKE_DEPTH = 4;            // bowl depth at the center
+var WATER_Y = 0.2;             // water surface height
+function lakeBedY(x, z) {
+  // paraboloid bowl matching the bed mesh; 0 outside the shoreline
+  var dx = (x - LAKE.x) / (LAKE.r * 1.25), dz = (z - LAKE.z) / (LAKE.r * 0.85);
+  var q = dx * dx + dz * dz;
+  return q >= 1 ? 0 : -LAKE_DEPTH * (1 - q);
+}
 
 // minimap feature registers
 var mapBuildings = [];   // {x,z,w,d,c,pad}
@@ -360,6 +368,7 @@ var shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true
 function blobShadow(sx, sz, y) { var m = new THREE.Mesh(shadowGeo, shadowMat); m.scale.set(sx, 1, sz); m.position.y = y || 0.03; return m; }
 
 var colliders = [], solidMeshes = [];
+var landColliders = null;   // colliders minus the lake block — the player may wade in
 function addCollider(cx, cz, w, d) { colliders.push({ x0: cx - w / 2, x1: cx + w / 2, z0: cz - d / 2, z1: cz + d / 2 }); }
 
 var hipGeo = new THREE.ConeGeometry(Math.SQRT1_2, 1, 4); hipGeo.rotateY(Math.PI / 4);
@@ -401,10 +410,11 @@ function roadStrip(cx, cz, w, d, vertical) {
   mesh.position.set(cx, 0.05, cz);
   scene.add(mesh);
 }
-function sidewalk(cx, cz, w, d) {
+function sidewalk(cx, cz, w, d, raise) {
+  // raise nudges y so overlapping strips at corners don't z-fight
   var geo = new THREE.PlaneGeometry(w, d); geo.rotateX(-Math.PI / 2);
   var m = lamb({ map: walkT.clone() }); m.map.repeat.set(w / 8, d / 8); m.map.needsUpdate = true;
-  var mesh = new THREE.Mesh(geo, m); mesh.position.set(cx, 0.12, cz); scene.add(mesh);
+  var mesh = new THREE.Mesh(geo, m); mesh.position.set(cx, raise ? 0.125 : 0.12, cz); scene.add(mesh);
 }
 function parkingLot(cx, cz, w, d) {
   var geo = new THREE.PlaneGeometry(w, d); geo.rotateX(-Math.PI / 2);
@@ -425,11 +435,14 @@ function drive(cx, cz, w, d) {
   mapDrives.push({ x: cx, z: cz, w: w, d: d });
 }
 
-// main + cross roads with flanking sidewalks
-sidewalk(0, 0, TOTAL, MAIN_HW * 2 + 10);
-sidewalk(0, 0, CROSS_HW * 2 + 10, TOTAL);
+// main + cross roads with flanking sidewalks (strips beside the asphalt,
+// not under it — the old full-width slab hid the road texture entirely)
 roadStrip(0, 0, TOTAL, MAIN_HW * 2, false);
 roadStrip(0, 0, CROSS_HW * 2, TOTAL, true);
+sidewalk(0, -(MAIN_HW + 2.5), TOTAL, 5);
+sidewalk(0, MAIN_HW + 2.5, TOTAL, 5);
+sidewalk(-(CROSS_HW + 2.5), 0, 5, TOTAL, true);
+sidewalk(CROSS_HW + 2.5, 0, 5, TOTAL, true);
 
 // crosswalks at the intersection
 var zebraT = (function () {
@@ -652,6 +665,17 @@ function coffeeShop(x, z) {
   shop(x, z, 15, 13, 5, '#e2d6bc', ['STARBUCKS'], '#0a5c3a', '#ffffff', { face: 1, mmColor: '#0a5c3a' });
 }
 
+// ---------------- breakable props (trees + street lights vs cars) ----------------
+var breakables = [];
+var Y_UP = new THREE.Vector3(0, 1, 0);
+function registerBreakable(g, x, z, r, type, light) {
+  breakables.push({
+    g: g, x: x, z: z, r: r, type: type, light: light || null,
+    broken: false, fallT: 0, respawnT: 0, fx: 1, fz: 0, thudded: false,
+    yq: new THREE.Quaternion().setFromAxisAngle(Y_UP, g.rotation.y)
+  });
+}
+
 // ---------------- oak trees + forest ----------------
 var oakTrunkM = lamb2(oakBarkT);
 var leafMats = [lamb({ color: 0x3f6f2e }), lamb({ color: 0x4c8038 }), lamb({ color: 0x355f28 }), lamb({ color: 0x568a3e })];
@@ -679,6 +703,7 @@ function oak(x, z, scale) {
   g.add(blobShadow(2 * scale, 2 * scale, 0.05));
   g.position.set(x, 0, z); g.rotation.y = Math.random() * Math.PI;
   scene.add(g);
+  registerBreakable(g, x, z, 1.0, 'tree');
 }
 
 // palm (kept, less common)
@@ -711,6 +736,7 @@ function palm(x, z) {
   for (var i = 0; i < 8; i++) { var f = new THREE.Mesh(frondGeo, frondMat); f.rotation.y = i / 8 * Math.PI * 2 + Math.random() * 0.4; f.rotation.z = (Math.random() - 0.5) * 0.2; crown.add(f); }
   g.add(crown); g.add(blobShadow(1.1, 1.1, 0.05));
   g.position.set(x, 0, z); g.rotation.y = Math.random() * Math.PI; scene.add(g);
+  registerBreakable(g, x, z, 0.8, 'tree');
 }
 
 function forestPatch(x0, x1, z0, z1) {
@@ -819,14 +845,44 @@ function makeCar() {
 }
 function staticCar(x, z, ry) { var c = makeCar(); c.group.position.set(x, 0, z); c.group.rotation.y = ry || 0; }
 
-// ---------------- lake ----------------
+// ---------------- lake (transparent, swimmable, with fountain) ----------------
+var fountainDrops = [];
 (function lake() {
-  var w = new THREE.Mesh(new THREE.CircleGeometry(LAKE.r, 30), phong({ color: 0x3f82ae, shininess: 80, specular: 0xaaccdd }));
-  w.rotation.x = -Math.PI / 2; w.scale.set(1.25, 1, 0.85); w.position.set(LAKE.x, 0.2, LAKE.z); scene.add(w);
+  // sloped sandy bed you can wade down into
+  var bedGeo = new THREE.CircleGeometry(LAKE.r, 30, 0, Math.PI * 2);
+  bedGeo.rotateX(-Math.PI / 2);
+  var bp = bedGeo.attributes.position;
+  for (var vi = 0; vi < bp.count; vi++) {
+    var vx = bp.getX(vi), vz = bp.getZ(vi);
+    var q = (vx * vx + vz * vz) / (LAKE.r * LAKE.r);
+    bp.setY(vi, -LAKE_DEPTH * (1 - q));
+  }
+  bedGeo.computeVertexNormals();
+  var bed = new THREE.Mesh(bedGeo, lamb({ color: 0xb09c72 }));
+  bed.scale.set(1.25, 1, 0.85); bed.position.set(LAKE.x, 0.02, LAKE.z); scene.add(bed);
+  // see-through water surface
+  var w = new THREE.Mesh(new THREE.CircleGeometry(LAKE.r, 30),
+    phong({ color: 0x3f82ae, shininess: 90, specular: 0xbbddee, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false }));
+  w.rotation.x = -Math.PI / 2; w.scale.set(1.25, 1, 0.85); w.position.set(LAKE.x, WATER_Y, LAKE.z); scene.add(w);
   var rim = new THREE.Mesh(new THREE.RingGeometry(LAKE.r, LAKE.r + 3, 30), lamb({ color: 0xb9a778 }));
   rim.rotation.x = -Math.PI / 2; rim.scale.set(1.25, 1, 0.85); rim.position.set(LAKE.x, 0.19, LAKE.z); scene.add(rim);
-  addCollider(LAKE.x, LAKE.z, LAKE.r * 2.3, LAKE.r * 1.5); // don't walk into the water
+  // NPCs/cops/cars still treat the water as a wall; the player wades in
+  // (updatePlayer filters .lake colliders out of its pushOut list)
+  colliders.push({ x0: LAKE.x - LAKE.r * 1.15, x1: LAKE.x + LAKE.r * 1.15, z0: LAKE.z - LAKE.r * 0.75, z1: LAKE.z + LAKE.r * 0.75, lake: true });
   for (var i = 0; i < 10; i++) { var a = i / 10 * Math.PI * 2; oak(LAKE.x + Math.cos(a) * (LAKE.r * 1.3), LAKE.z + Math.sin(a) * (LAKE.r * 0.95)); }
+  // fountain: stone base + column, droplets animated in updateWorldFx
+  var stoneM = lamb({ color: 0xc9c2b2 });
+  scene.add(cyl(2.4, 2.8, 1.1, 14, stoneM, LAKE.x, -0.4, LAKE.z));
+  scene.add(cyl(0.45, 0.6, 2.6, 10, stoneM, LAKE.x, 1.0, LAKE.z));
+  scene.add(cyl(1.3, 1.05, 0.35, 14, stoneM, LAKE.x, 2.3, LAKE.z));
+  addCollider(LAKE.x, LAKE.z, 5.6, 5.6);   // can't swim through the fountain
+  var dropGeo = new THREE.SphereGeometry(0.14, 6, 5);
+  var dropM = new THREE.MeshBasicMaterial({ color: 0xcfeaff, transparent: true, opacity: 0.85 });
+  for (var di = 0; di < 42; di++) {
+    var dm = new THREE.Mesh(dropGeo, dropM);
+    scene.add(dm);
+    fountainDrops.push({ mesh: dm, vx: 0, vy: -1, vz: 0, delay: Math.random() * 1.4 });
+  }
 })();
 
 // ---------------- lay out the city ----------------
@@ -838,9 +894,11 @@ storage(-52, 116);
 stripMall(-120, 52, 50, ['NAILS', 'SUBS', 'LAUNDRY']);
 stripMall(-188, 54, 52, ['PIZZA', 'VAPE', 'TAX']);
 stripMall(-256, 56, 48, ['AUTO', 'GYM']);
+// Dunkin fronts the blue-roof plaza, across the main road from Starbucks
+// (the gas station stands alone on its corner of the intersection)
+shop(-116, 31, 12, 11, 5, '#e8862e', ['DUNKIN'], '#e01a7a', '#ff8c42', { face: -1, mmColor: '#e8862e' });
 // NE bank / pharmacy / sushi
 bankBldg(52, -48, 'REGIONS BANK');
-shop(20, 44, 12, 11, 5, '#e8862e', ['DUNKIN'], '#e01a7a', '#ff8c42', { face: -1, mmColor: '#e8862e' });
 shop(52, -112, 24, 20, 6, '#e8dcc6', ['WESTCHASE PHARMACY'], '#1c4d8f', '#ffe9a0', { face: 1, mmColor: '#3f8fd0' });
 shop(108, -112, 28, 22, 7, '#c0392b', ['SAKURA SUSHI'], '#111111', '#ffcf3a', { face: 1, mmColor: '#d94f3d' });
 // NW bank / supermarket / school / townhouses
@@ -849,8 +907,9 @@ supermarket(-72, -140);
 school(-72, -238);
 townhouseRow(-150, -120, 6, 0);
 townhouseRow(-150, -150, 6, 0);
-townhouseRow(-210, -120, 6, 0);
-townhouseRow(-210, -150, 6, 0);
+// these two rows used to sit in the lake — moved to dry land north of it
+townhouseRow(-210, -215, 6, 0);
+townhouseRow(-210, -245, 6, 0);
 // west along the main road
 coffeeShop(-116, -30);
 shop(-135, -82, 20, 16, 6, '#e5d7bc', ['WEST PARK OFFICES'], '#3a3a3a', '#ffe9a0', { face: 1, mmColor: '#c9b98a' });
@@ -1029,7 +1088,9 @@ function streetlight(x, z, ax, az) {
   g.add(pool);
   g.position.set(x, 0, z);
   scene.add(g);
-  streetLights.push({ head: head, glow: glow, pool: pool });
+  var entry = { head: head, glow: glow, pool: pool, broken: false };
+  streetLights.push(entry);
+  registerBreakable(g, x, z, 0.6, 'light', entry);
 }
 (function placeStreetlights() {
   for (var x = -290; x <= 290; x += 58) {
@@ -1046,7 +1107,8 @@ function streetlight(x, z, ax, az) {
   streetlight(-92, -96, 1, 0); streetlight(-52, -96, -1, 0);        // Publix lot
   streetlight(-18, -238, -1, 0);                                    // school lot
   streetlight(-160, 34, 0, 1); streetlight(-250, 36, 0, 1);         // strip mall frontage
-  streetlight(40, 33, 0, 1);                                        // RaceTrac/Dunkin
+  streetlight(40, 33, 0, 1);                                        // RaceTrac frontage
+  streetlight(-116, 22, 0, 1);                                      // Dunkin
 })();
 var lampsOn = false;
 function setLamps(on) {
@@ -1055,8 +1117,8 @@ function setLamps(on) {
   for (var i = 0; i < streetLights.length; i++) {
     var L = streetLights[i];
     L.head.material = on ? lampOnM : lampOffM;
-    L.glow.visible = on;
-    L.pool.visible = on;
+    L.glow.visible = on && !L.broken;
+    L.pool.visible = on && !L.broken;
   }
 }
 
@@ -1240,9 +1302,20 @@ var npcs = [];
 var NPC_COUNT = 28;
 var WALK = { x0: -270, x1: 150, z0: -160, z1: 150 };
 function randTarget() { return [WALK.x0 + Math.random() * (WALK.x1 - WALK.x0), WALK.z0 + Math.random() * (WALK.z1 - WALK.z0)]; }
+function sidewalkSpot() {
+  // random point on the sidewalk strips flanking the two roads
+  var side = Math.random() < 0.5 ? 1 : -1;
+  if (Math.random() < 0.55) {
+    var x = WALK.x0 + Math.random() * (WALK.x1 - WALK.x0);
+    return [x, side * (MAIN_HW + 1.5 + Math.random() * 3)];
+  }
+  var z = WALK.z0 + Math.random() * (WALK.z1 - WALK.z0);
+  return [side * (CROSS_HW + 1.5 + Math.random() * 3), z];
+}
+function npcTarget() { return Math.random() < 0.6 ? sidewalkSpot() : randTarget(); }
 function spawnNPC() {
   var mesh = buildPerson(SHIRTS[(Math.random() * SHIRTS.length) | 0], PANTS[(Math.random() * PANTS.length) | 0], SKINS[(Math.random() * SKINS.length) | 0]);
-  var start = randTarget(), tgt = randTarget();
+  var start = sidewalkSpot(), tgt = npcTarget();
   var n = { mesh: mesh, x: start[0], z: start[1], tx: tgt[0], tz: tgt[1], hp: 100, state: 'walk', speed: 1.5 + Math.random() * 1.1, phase: Math.random() * 9, pause: 0, fleeT: 0, fleeDX: 0, fleeDZ: 0, downT: 0, hurtFlash: 0 };
   mesh.position.set(n.x, 0, n.z); mesh.userData.npc = n;
   scene.add(mesh); npcs.push(n); return n;
@@ -1468,7 +1541,7 @@ function spawnInteriorCops(n) {
     scene.add(mesh); cops.push(c);
   }
 }
-function desiredCops() { return state.wanted === 0 ? 3 : 3 + state.wanted * 2; }
+function desiredCops() { return state.wanted === 0 ? 2 : 2 + state.wanted * 2; }
 function copWeapon() {
   return state.wanted >= 4
     ? { range: 46, dmg: 4, rate: 0.14, acc: 0.5, sfx: 'copsmg' }   // full-auto SMGs
@@ -1539,7 +1612,7 @@ function updateCops(dt) {
     copSpawnT -= dt;
     var alive = 0;
     for (var i0 = 0; i0 < cops.length; i0++) if (cops[i0].state !== 'down' && !cops[i0].interior) alive++;
-    if (alive < desiredCops() && copSpawnT <= 0) { spawnCop(state.wanted >= 2); copSpawnT = 1.2; }
+    if (alive < desiredCops() && copSpawnT <= 0) { spawnCop(state.wanted >= 2); copSpawnT = 2.6; }
   }
   for (var i = 0; i < cops.length; i++) {
     var c = cops[i], m = c.mesh;
@@ -2207,7 +2280,7 @@ function updateNPCs(dt) {
     }
     if (n.state === 'down') {
       n.downT -= dt; m.rotation.x = Math.max(-1.45, m.rotation.x - dt * 7);
-      if (n.downT <= 0) { var s = randTarget(); n.x = s[0]; n.z = s[1]; var t = randTarget(); n.tx = t[0]; n.tz = t[1]; n.hp = 100; n.state = 'walk'; m.rotation.x = 0; if (m.userData.shadow) m.userData.shadow.visible = true; }
+      if (n.downT <= 0) { var s = sidewalkSpot(); n.x = s[0]; n.z = s[1]; var t = npcTarget(); n.tx = t[0]; n.tz = t[1]; n.hp = 100; n.state = 'walk'; m.rotation.x = 0; if (m.userData.shadow) m.userData.shadow.visible = true; }
       m.position.set(n.x, m.position.y, n.z); continue;
     }
     var vx = 0, vz = 0, spd = n.speed;
@@ -2216,7 +2289,7 @@ function updateNPCs(dt) {
     } else {
       if (n.pause > 0) { n.pause -= dt; animPerson(m, 0, dt); continue; }
       var dx = n.tx - n.x, dz = n.tz - n.z, d = Math.sqrt(dx * dx + dz * dz);
-      if (d < 1) { var tt = randTarget(); n.tx = tt[0]; n.tz = tt[1]; if (Math.random() < 0.25) n.pause = 1 + Math.random() * 3; continue; }
+      if (d < 1) { var tt = npcTarget(); n.tx = tt[0]; n.tz = tt[1]; if (Math.random() < 0.25) n.pause = 1 + Math.random() * 3; continue; }
       vx = dx / d; vz = dz / d;
     }
     n.x += vx * spd * dt; n.z += vz * spd * dt;
@@ -2547,7 +2620,95 @@ function hurtPlayer(d) {
 }
 
 // ---------------- audio ----------------
-var ac = null, ambientStarted = false, rainGain = null;
+// ---------------- world fx: destructible props, fountain, underwater ----------------
+var underwater = false;
+function setUnderwater(on) {
+  if (on === underwater) return;
+  underwater = on;
+  var el = document.getElementById('waterFx');
+  if (el) el.classList.toggle('hidden', !on);
+  if (ac && uwGain) uwGain.gain.setTargetAtTime(on ? 0.65 : 0, ac.currentTime, 0.12);
+}
+function breakProp(b, dirX, dirZ) {
+  if (b.broken) return;
+  b.broken = true; b.thudded = false; b.fallT = 0; b.respawnT = 60;
+  var d = Math.sqrt(dirX * dirX + dirZ * dirZ) || 1;
+  b.fx = dirX / d; b.fz = dirZ / d;
+  if (b.light) { b.light.broken = true; b.light.glow.visible = false; b.light.pool.visible = false; }
+  var cols = b.type === 'tree' ? [0x4c8038, 0x3f6f2e, 0x7a5a3a] : [0xffe9a8, 0x8a8f94, 0xd8d8d4];
+  var n = b.type === 'tree' ? 14 : 9;
+  for (var i = 0; i < n; i++) {
+    puff(new THREE.Vector3(
+      b.x + (Math.random() - 0.5) * 2.4,
+      0.6 + Math.random() * (b.type === 'tree' ? 4.5 : 6.5),
+      b.z + (Math.random() - 0.5) * 2.4), cols[i % 3]);
+  }
+  sfx('crash');
+}
+var fallAxis = new THREE.Vector3(), fallQ = new THREE.Quaternion();
+function updateWorldFx(dt) {
+  // cars snap trees & street lights (works on host and on mirrored client cars)
+  for (var i = 0; i < cars.length; i++) {
+    var c = cars[i];
+    var m = c.car.group.position;
+    var hx = c._bx === undefined ? m.x : c._bx, hz = c._bz === undefined ? m.z : c._bz;
+    var mvx = m.x - hx, mvz = m.z - hz;
+    c._bx = m.x; c._bz = m.z;
+    if (c.exploded) continue;
+    var v2 = (mvx * mvx + mvz * mvz) / Math.max(dt * dt, 1e-6);
+    if (v2 < 9) continue;                       // too slow to snap anything
+    for (var j = 0; j < breakables.length; j++) {
+      var b = breakables[j];
+      if (b.broken) continue;
+      var dx = b.x - m.x, dz = b.z - m.z;
+      var rr = 2 + b.r;
+      if (dx * dx + dz * dz < rr * rr) breakProp(b, mvx, mvz);
+    }
+  }
+  // falling animation + respawn
+  for (var k = 0; k < breakables.length; k++) {
+    var bb = breakables[k];
+    if (!bb.broken) continue;
+    if (bb.fallT < 1) {
+      bb.fallT = Math.min(1, bb.fallT + dt * 1.7);
+      var e = 1 - (1 - bb.fallT) * (1 - bb.fallT);   // ease-out slam
+      fallAxis.set(bb.fz, 0, -bb.fx).normalize();
+      fallQ.setFromAxisAngle(fallAxis, e * 1.52);
+      bb.g.quaternion.copy(fallQ).multiply(bb.yq);
+      if (bb.fallT >= 1 && !bb.thudded) {
+        bb.thudded = true;
+        sfx('thud');
+        for (var pi = 0; pi < 5; pi++) puff(new THREE.Vector3(bb.x + bb.fx * (2 + Math.random() * 3), 0.5, bb.z + bb.fz * (2 + Math.random() * 3)), 0x8a8478);
+      }
+    }
+    bb.respawnT -= dt;
+    if (bb.respawnT <= 0) {
+      bb.broken = false; bb.fallT = 0;
+      bb.g.quaternion.copy(bb.yq);
+      if (bb.light) { bb.light.broken = false; bb.light.glow.visible = lampsOn; bb.light.pool.visible = lampsOn; }
+    }
+  }
+  // fountain spray
+  for (var fi = 0; fi < fountainDrops.length; fi++) {
+    var fd = fountainDrops[fi];
+    if (fd.delay > 0) { fd.delay -= dt; fd.mesh.visible = false; continue; }
+    var fp = fd.mesh.position;
+    if (!fd.mesh.visible || fp.y < WATER_Y) {
+      fd.mesh.visible = true;
+      fp.set(LAKE.x, 2.5, LAKE.z);
+      var a = Math.random() * Math.PI * 2, sp = 0.7 + Math.random() * 1.7;
+      fd.vx = Math.cos(a) * sp; fd.vz = Math.sin(a) * sp;
+      fd.vy = 5.2 + Math.random() * 2.6;
+    }
+    fd.vy -= 9.5 * dt;
+    fp.x += fd.vx * dt; fp.y += fd.vy * dt; fp.z += fd.vz * dt;
+  }
+  // head under the surface → blue filter + underwater loop
+  setUnderwater(state.running && !inside && !driving && !state.dead && player.y < WATER_Y - 0.05);
+}
+
+// ---------------- audio ----------------
+var ac = null, ambientStarted = false, rainGain = null, uwGain = null;
 function initAudio() { if (ac) return; try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { } startAmbient(); }
 function startAmbient() {
   if (!ac || ambientStarted) return;
@@ -2565,6 +2726,17 @@ function startAmbient() {
   var rf = ac.createBiquadFilter(); rf.type = 'lowpass'; rf.frequency.value = 950;
   rainGain = ac.createGain(); rainGain.gain.value = 0;
   rs.connect(rf); rf.connect(rainGain); rainGain.connect(ac.destination); rs.start();
+  // underwater loop: muffled brown noise with a slow wobble, silent until you dive
+  var ul = ac.sampleRate * 3, ub = ac.createBuffer(1, ul, ac.sampleRate), ud = ub.getChannelData(0), ulast = 0;
+  for (i = 0; i < ul; i++) { var uw = Math.random() * 2 - 1; ulast = (ulast + 0.03 * uw) / 1.03; ud[i] = ulast * 3.2; }
+  var us = ac.createBufferSource(); us.buffer = ub; us.loop = true;
+  var uf = ac.createBiquadFilter(); uf.type = 'lowpass'; uf.frequency.value = 330; uf.Q.value = 5;
+  var ulfo = ac.createOscillator(); ulfo.frequency.value = 0.45;
+  var ulg = ac.createGain(); ulg.gain.value = 150;
+  ulfo.connect(ulg); ulg.connect(uf.frequency); ulfo.start();
+  uwGain = ac.createGain(); uwGain.gain.value = 0;
+  us.connect(uf); uf.connect(uwGain); uwGain.connect(ac.destination); us.start();
+  if (underwater) uwGain.gain.value = 0.65;
 }
 function noiseBurst(dur, freq, gain) { if (!ac) return; var n = ac.sampleRate * dur, buf = ac.createBuffer(1, n, ac.sampleRate), d = buf.getChannelData(0); for (var i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n); var src = ac.createBufferSource(); src.buffer = buf; var f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = freq; var g = ac.createGain(); g.gain.value = gain; src.connect(f); f.connect(g); g.connect(ac.destination); src.start(); }
 function beep(freq, dur, gain, type, slide) { if (!ac) return; var o = ac.createOscillator(), g = ac.createGain(); o.type = type || 'square'; o.frequency.setValueAtTime(freq, ac.currentTime); if (slide) o.frequency.exponentialRampToValueAtTime(slide, ac.currentTime + dur); g.gain.setValueAtTime(gain, ac.currentTime); g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + dur); o.connect(g); g.connect(ac.destination); o.start(); o.stop(ac.currentTime + dur); }
@@ -3170,10 +3342,11 @@ function updatePlayer(dt) {
   if (f || s) { var inv = spd / Math.sqrt(f * f + s * s); var fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw); player.x += (fx * f + rx * s) * inv * dt; player.z += (fz * f + rz * s) * inv * dt; }
   if (keys['Space'] && player.grounded) { player.vy = 5.6; player.grounded = false; }
   player.vy -= GRAV * dt; player.y += player.vy * dt;
-  var eyeFloor = (inside ? INT.y : 0) + EYE;
+  var eyeFloor = (inside ? INT.y : lakeBedY(player.x, player.z)) + EYE;
   if (player.y <= eyeFloor) { player.y = eyeFloor; player.vy = 0; player.grounded = true; }
   player.x = Math.max(-HALF + 1.2, Math.min(HALF - 1.2, player.x)); player.z = Math.max(-HALF + 1.2, Math.min(HALF - 1.2, player.z));
-  var p = pushOut(player.x, player.z, 0.55, inside ? intColliders : colliders); player.x = p.x; player.z = p.z;
+  if (!landColliders) landColliders = colliders.filter(function (cc) { return !cc.lake; });
+  var p = pushOut(player.x, player.z, 0.55, inside ? intColliders : landColliders); player.x = p.x; player.z = p.z;
   if (mouseDown && !WEAPONS[state.equipped].melee && WEAPONS[state.equipped].auto) tryAttack();
   if (state.hp < 100 && T - state.lastHurt > 5) state.hp = Math.min(100, state.hp + 5 * dt);
   camera.position.set(player.x, player.y, player.z); camera.rotation.y = yaw; camera.rotation.x = pitch;
@@ -3215,7 +3388,7 @@ function loop(now) {
   var dt = Math.min(0.05, (now - last) / 1000); last = now;
   if (!state.running) { renderer.render(scene, camera); return; }
   T += dt;
-  updatePlayer(dt); updateNPCs(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateEnv(dt); updateNet(dt); updateHUD(); drawMinimap();
+  updatePlayer(dt); updateNPCs(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateEnv(dt); updateNet(dt); updateHUD(); drawMinimap();
   renderer.render(scene, camera);
 }
 setEquipped('fists');
@@ -3247,8 +3420,10 @@ window.__wc = {
   setClock: function (t2) { envT = t2; },
   envState: function () { return { envT: envT, raining: raining, dayFactor: dayFactor(), lampsOn: lampsOn, sun: sun.intensity, fogFar: scene.fog.far }; },
   goBerserk: goBerserk, igniteCar: igniteCar,
+  breakables: breakables, breakProp: breakProp, lakeBedY: lakeBedY,
+  isUnderwater: function () { return underwater; },
   net: net, startGame: startGame, hostGame: hostGame, joinGame: joinGame, handleNet: handleNet,
-  tick: function (dt) { T += dt; updatePlayer(dt); updateNPCs(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateEnv(dt); updateNet(dt); renderer.render(scene, camera); }
+  tick: function (dt) { T += dt; updatePlayer(dt); updateNPCs(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateEnv(dt); updateNet(dt); renderer.render(scene, camera); }
 };
 
 })();
