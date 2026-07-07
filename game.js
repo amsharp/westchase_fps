@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.8.7';
+var GAME_VERSION = 'v1.8.8';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---------------- world constants ----------------
@@ -4591,7 +4591,7 @@ window.__wc = {
   isUnderwater: function () { return underwater; },
   net: net, startGame: startGame, hostGame: hostGame, joinGame: joinGame, handleNet: handleNet,
   buildIceConfig: buildIceConfig, hmacSha1B64: hmacSha1B64,
-  buildCharacter: buildCharacter, randomCharConfig: randomCharConfig,
+  buildCharacter: buildCharacter, randomCharConfig: randomCharConfig, buildMeshySkinned: buildMeshySkinned,
   encodeCC: encodeCC, decodeCC: decodeCC, seededRng: seededRng,
   openCreator: openCreator, closeCreator: closeCreator,
   creatorSpin: function (v) { if (cprev) cprev.spin = v; },
