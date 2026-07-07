@@ -25,13 +25,13 @@ fs.mkdirSync(WORK, { recursive: true });
       console.log('tts:', id, '-', JSON.stringify(text));
       const r = await fetch('https://api.fish.audio/v1/tts', {
         method: 'POST',
-        headers: { Authorization: 'Bearer ' + KEY, 'Content-Type': 'application/json' },
+        headers: { Authorization: 'Bearer ' + KEY, 'Content-Type': 'application/json', model: 's1' },
         body: JSON.stringify({ text, reference_id: voice, format: 'wav' }),
       });
       if (!r.ok) throw new Error(id + ': HTTP ' + r.status + ' ' + (await r.text()).slice(0, 200));
       const raw = Buffer.from(await r.arrayBuffer());
       fs.writeFileSync(path.join(WORK, id + '_raw.wav'), raw);
-      fs.writeFileSync(crunched, psxify(raw));
+      fs.writeFileSync(crunched, psxify(raw, 8000));
     }
     pack[id] = 'data:audio/wav;base64,' + fs.readFileSync(crunched).toString('base64');
     console.log(' ', id, Math.round(pack[id].length / 1024) + 'KB');

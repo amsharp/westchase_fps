@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.7';
+var GAME_VERSION = 'v1.8';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---------------- world constants ----------------
@@ -1834,7 +1834,7 @@ scene.add(clerk);
 function enterStore() {
   if (T < gasClosedUntil) { popup2('STORE CLOSED — come back later'); sfx('deny'); return; }
   inside = true; robbedVisit = false; copsCalledVisit = false;
-  playVoice('clerk_greet', 0.55, 60);
+  playVoiceAny(['clerk_hello_1', 'clerk_hello_2'], 0.55, 'clerkHi', 50);
   setZoom(false);
   player.x = doorIn.x; player.z = doorIn.z; player.y = INT.y + EYE;
   yaw = 0; pitch = 0;   // facing into the store
@@ -1862,7 +1862,7 @@ function refreshClerk() {
   }
   addBtn('Buy a snack — $20  (+50 hp when eaten)', function () {
     if (state.money < 20) { sfx('deny'); popup2("You can't afford it"); return; }
-    state.money -= 20; state.snacks++;
+    state.money -= 20; state.snacks++; playVoice('clerk_snack', 0.5, 10);
     sfx('buy'); popup('+1 SNACK (equip it in TAB)');
     refreshClerk();
   });
@@ -1871,7 +1871,7 @@ function refreshClerk() {
     if (armed) {
       var take = 100 + ((Math.random() * 201) | 0);
       state.money += take; robbedVisit = true;
-      playVoice('clerk_rob', 0.6, 8);
+      playVoiceAny(['clerk_rob_1', 'clerk_rob_2'], 0.6, 'clerkRob', 6);
       popup('ROBBED  +$' + take);
       sfx('alarm');
       if (state.wanted < 2) setWanted(2); else lastCrimeT = T;
@@ -1971,8 +1971,8 @@ function copShoot(c, wpn, dt, tgt) {
   c.fireT = wpn.rate;
   if (!c.interior && !copHasLOS(c, tgt)) return;   // interior is one small room — they can always see you
   if (!tgt.id) {   // barks only for the local player
-    var bark = state.wanted >= 4 ? 'cop_fire' : (Math.random() < 0.5 ? 'cop_freeze' : 'cop_stop');
-    playVoice(bark, 0.45, 14);
+    if (state.wanted >= 4) playVoiceAny(['cop_fire_1', 'cop_fire_2'], 0.45, 'copBark', 12);
+    else playVoiceAny(['cop_engage_1', 'cop_engage_2'], 0.45, 'copBark', 12);
   }
   sfx(wpn.sfx);
   var dx = tgt.x - c.x, dz = tgt.z - c.z, d = Math.sqrt(dx * dx + dz * dz) || 1;
@@ -2009,6 +2009,14 @@ function damageCop(c, dmg, kx, kz, silent) {
 }
 function updateCops(dt) {
   var wpn = copWeapon();
+  if (state.wanted === 1 && !state.dead && !inside) {
+    for (var wI = 0; wI < cops.length; wI++) {
+      var wc2 = cops[wI];
+      if (wc2.state === 'down' || wc2.interior) continue;
+      var wdx = wc2.x - player.x, wdz = wc2.z - player.z;
+      if (wdx * wdx + wdz * wdz < 150) { playVoice('cop_warn', 0.45, 30); break; }
+    }
+  }
   if (!isClient()) {
     copSpawnT -= dt;
     var alive = 0;
@@ -2642,6 +2650,7 @@ function updateDrops(dt) {
 // ---------------- NPC logic (wander) ----------------
 function damageNPC(n, dmg, kx, kz, silent) {
   if (n.state === 'down') return;
+  if (!silent) playVoiceAny(['pedm_hit_1', 'pedm_hit_2', 'pedf_hit', 'pedo_hit'], 0.42, 'pedHit', 5);
   n.hp -= dmg; n.hurtFlash = 0.12; n.x += (kx || 0) * 0.5; n.z += (kz || 0) * 0.5;
   lastCrimeT = T;
   if (n.hp <= 0) {
@@ -2656,7 +2665,7 @@ function damageNPC(n, dmg, kx, kz, silent) {
   for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o === n || o.state !== 'walk') continue; var dx = o.x - n.x, dz = o.z - n.z; if (dx * dx + dz * dz < 170) startFlee(o); }
 }
 function startFlee(n) { if (n.state === 'down') return; n.state = 'flee'; n.fleeT = 4 + Math.random() * 3; var dx = n.x - player.x, dz = n.z - player.z; var d = Math.sqrt(dx * dx + dz * dz) || 1; n.fleeDX = dx / d; n.fleeDZ = dz / d; }
-function panicNear(x, z, r2) { for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o.state !== 'walk') continue; var dx = o.x - x, dz = o.z - z; if (dx * dx + dz * dz < r2) startFlee(o); } }
+function panicNear(x, z, r2) { var fled = false; for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o.state !== 'walk') continue; var dx = o.x - x, dz = o.z - z; if (dx * dx + dz * dz < r2) { startFlee(o); fled = true; } } if (fled) playVoiceAny(['pedm_gun', 'pedf_gun'], 0.4, 'pedGun', 16); }
 
 function updateNPCs(dt) {
   if (isClient()) { updateNPCExtras(); return; }   // npcs mirrored from host snapshot
@@ -2877,6 +2886,7 @@ function setZoom(on) {
   document.getElementById('crosshair').style.display = on ? 'none' : '';
 }
 function setEquipped(w) {
+  if (inside && w && w !== 'fists' && w !== 'snack') playVoice('clerk_scared', 0.55, 45);
   setZoom(false);
   state.equipped = w;
   vm.visible = !zoomed && !driving;
@@ -3002,6 +3012,7 @@ function hurtPlayer(d) {
   requestAnimationFrame(function () { f.style.transition = 'opacity .45s'; f.style.opacity = 0; });
   if (state.hp <= 0) {
     state.hp = 0; state.dead = true;
+    if (state.wanted >= 2) playVoice('cop_down', 0.45, 10);
     if (driving) { driving.pspeed = 0; driving = null; document.getElementById('crosshair').style.display = ''; vm.visible = true; }
     if (inside) exitStore(true);   // clean up interior cops + lockout, respawn is outside anyway
     var lost = Math.floor(state.money * 0.25); state.money -= lost;
@@ -3232,7 +3243,7 @@ function startAmbient() {
   if (underwater) uwGain.gain.value = 0.65;
 }
 // ---- PS1-crunched TTS dialogue (optional voicelines.js) ----
-var voiceBufs = {}, voiceLastT = {};
+var voiceBufs = {}, voiceLastT = {}, dealerMet = false, shopBought = false, clerkScaredT = -99;
 function playVoice(id, gain, cd) {
   if (typeof VOICE_LINES === 'undefined' || !VOICE_LINES[id] || !ac) return;
   if (voiceLastT[id] !== undefined && T - voiceLastT[id] < (cd || 5)) return;
@@ -3245,6 +3256,12 @@ function playVoice(id, gain, cd) {
   if (voiceBufs[id]) { playBuf(voiceBufs[id]); return; }
   var bytes = b64Bytes(VOICE_LINES[id].split(',')[1]);
   ac.decodeAudioData(bytes.buffer, function (buf) { voiceBufs[id] = buf; playBuf(buf); }, function () { });
+}
+var voiceGroupT = {};
+function playVoiceAny(ids, gain, cdKey, cd) {
+  if (voiceGroupT[cdKey] !== undefined && T - voiceGroupT[cdKey] < cd) return;
+  voiceGroupT[cdKey] = T;
+  playVoice(ids[(Math.random() * ids.length) | 0], gain, 0);
 }
 function noiseBurst(dur, freq, gain) { if (!ac) return; var n = ac.sampleRate * dur, buf = ac.createBuffer(1, n, ac.sampleRate), d = buf.getChannelData(0); for (var i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n); var src = ac.createBufferSource(); src.buffer = buf; var f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = freq; var g = ac.createGain(); g.gain.value = gain; src.connect(f); f.connect(g); g.connect(ac.destination); src.start(); }
 function beep(freq, dur, gain, type, slide) { if (!ac) return; var o = ac.createOscillator(), g = ac.createGain(); o.type = type || 'square'; o.frequency.setValueAtTime(freq, ac.currentTime); if (slide) o.frequency.exponentialRampToValueAtTime(slide, ac.currentTime + dur); g.gain.setValueAtTime(gain, ac.currentTime); g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + dur); o.connect(g); g.connect(ac.destination); o.start(); o.stop(ac.currentTime + dur); }
@@ -3284,7 +3301,7 @@ function refreshShop() {
     var w = WEAPONS[k], row = document.createElement('div'); row.className = 'row';
     var left = document.createElement('div'); left.innerHTML = '<b>' + w.name + '</b> — <span class="cash">$' + w.price + '</span><small>' + w.desc + '</small>'; row.appendChild(left);
     if (state.owned[k]) { var sp = document.createElement('span'); sp.className = 'owned'; sp.textContent = 'OWNED'; row.appendChild(sp); }
-    else { var btn = document.createElement('button'); btn.textContent = 'BUY'; btn.disabled = state.money < w.price; btn.onclick = function () { if (state.money < w.price) { playVoice('dealer_nocash', 0.5, 6); sfx('deny'); return; } state.money -= w.price; state.owned[k] = true; playVoice('dealer_thanks', 0.5, 6); sfx('buy'); popup(w.name + ' purchased!'); refreshShop(); }; row.appendChild(btn); }
+    else { var btn = document.createElement('button'); btn.textContent = 'BUY'; btn.disabled = state.money < w.price; btn.onclick = function () { if (state.money < w.price) { playVoiceAny(['dealer_nocash_1', 'dealer_nocash_2'], 0.5, 'dealerNo', 5); sfx('deny'); return; } state.money -= w.price; state.owned[k] = true; shopBought = true; playVoiceAny(['dealer_buy_1', 'dealer_buy_2'], 0.5, 'dealerBuy', 4); sfx('buy'); popup(w.name + ' purchased!'); refreshShop(); }; row.appendChild(btn); }
     rows.appendChild(row);
   });
   document.getElementById('shopCash').textContent = '$' + state.money;
@@ -3314,8 +3331,8 @@ function refreshInv() {
   var any = GUN_LIST.some(function (k) { return state.owned[k]; });
   if (!any) { var hint = document.createElement('div'); hint.className = 'row'; hint.innerHTML = '<small>No guns yet — earn cash and visit the dealer ($ on the minimap).</small>'; rows.appendChild(hint); }
 }
-function openMenu(which) { setZoom(false); state.menu = which; document.exitPointerLock && document.exitPointerLock(); if (which === 'shop') { playVoice('dealer_greet', 0.5, 20); refreshShop(); document.getElementById('shopPanel').classList.remove('hidden'); } if (which === 'inv') { refreshInv(); document.getElementById('invPanel').classList.remove('hidden'); } if (which === 'clerk') { refreshClerk(); document.getElementById('clerkPanel').classList.remove('hidden'); } }
-function closeMenus(relock) { state.menu = null; document.getElementById('shopPanel').classList.add('hidden'); document.getElementById('invPanel').classList.add('hidden'); document.getElementById('clerkPanel').classList.add('hidden'); if (relock !== false && state.running) lockPointer(); }
+function openMenu(which) { setZoom(false); state.menu = which; document.exitPointerLock && document.exitPointerLock(); if (which === 'shop') { shopBought = false; if (!dealerMet) { dealerMet = true; playVoice('dealer_hello_first', 0.5, 1); } else playVoiceAny(['dealer_hello_1', 'dealer_hello_2'], 0.5, 'dealerHi', 18); refreshShop(); document.getElementById('shopPanel').classList.remove('hidden'); } if (which === 'inv') { refreshInv(); document.getElementById('invPanel').classList.remove('hidden'); } if (which === 'clerk') { refreshClerk(); document.getElementById('clerkPanel').classList.remove('hidden'); } }
+function closeMenus(relock) { if (state.menu === 'shop' && !shopBought) playVoice('dealer_bye', 0.45, 40); state.menu = null; document.getElementById('shopPanel').classList.add('hidden'); document.getElementById('invPanel').classList.add('hidden'); document.getElementById('clerkPanel').classList.add('hidden'); if (relock !== false && state.running) lockPointer(); }
 
 // ---------------- minimap ----------------
 var mm = document.getElementById('mm');

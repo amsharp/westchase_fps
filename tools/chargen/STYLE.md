@@ -34,6 +34,11 @@ waste Meshy credits and roster slots.
   character max (a graphic tee OR a wild shirt pattern, not both).
 - **Graphic tees encouraged**: big single-motif chest print (eagle, skull,
   pizza, lightning bolt). Keep the print pixelated/chunky.
+- **Every character needs a visual hook** — a graphic tee, a loud pattern,
+  distinctive hair, an accessory, SOMETHING. No plain-solid-tee-and-jeans
+  characters: the roster carries at most ONE deliberately generic person
+  (currently RYAN). If a seed reads as "background extra nobody would
+  remember", give it a hook and regenerate.
 
 ## Technical (non-negotiable for the pipeline)
 

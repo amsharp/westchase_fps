@@ -1,6 +1,6 @@
 # ttsgen — PS1-crunched character dialogue
 
-Text → Fish Audio TTS → PS1 bitcrush (mono, lowpass, 11025 Hz, 8-bit) →
+Text → Fish Audio TTS (S1 model) → PS1 bitcrush (mono, lowpass, 8000 Hz, 8-bit) →
 `voicelines.js` at repo root (data-URL WAVs, loaded before game.js, optional
 at runtime — the game guards with `typeof VOICE_LINES`).
 
@@ -29,8 +29,13 @@ FISH_API_KEY=... node mkvoicepack.js
 
 ## Fish Audio API notes
 
-- `POST https://api.fish.audio/v1/tts` `{text, reference_id, format:'wav'}` →
-  16-bit 44.1kHz WAV. No reference_id = default voice (don't ship that).
+- `POST https://api.fish.audio/v1/tts` `{text, reference_id, format:'wav'}` with
+  header `model: s1` → 16-bit 44.1kHz WAV. No reference_id = default voice
+  (don't ship that).
+- **Emotion/tone markers** (S1): `(scared)` `(angry)` `(happy)` `(shouting)`
+  `(whispering)` `(laughing)` `(sighing)` etc. — MUST be at the start of a
+  sentence. Only official tags; custom tags get read aloud. Use them — flat
+  deliveries kill the vibe.
 - Voice discovery: `GET /model?title=<query>&language=en` (findvoice.js).
   The catalog includes community voices (there's even a GTA-style angry cop).
 - Fish also supports creating custom voices from reference audio
