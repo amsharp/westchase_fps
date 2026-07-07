@@ -106,6 +106,20 @@ for (const prim of mesh.primitives) {
   }
 }
 
+// rig sanity: a healthy humanoid rig puts a solid chunk of the mesh on the
+// torso bones. Meshy auto-rigging occasionally fails (torso weighted to an
+// arm bone) — refuse to emit a broken character.
+{
+  const total = Object.values(parts).reduce((s, p) => s + p.idx.length / 3, 0);
+  const missing = ['head', 'torso', 'armL', 'armR', 'legL', 'legR'].filter(k => !parts[k]);
+  const torsoFrac = parts.torso ? (parts.torso.idx.length / 3) / total : 0;
+  if (missing.length || torsoFrac < 0.12) {
+    console.error('RIG SANITY FAILED: missing=[' + missing.join(',') + '] torsoFrac=' + torsoFrac.toFixed(2));
+    console.error('The rigging task produced bad weights — re-run rigging (or remesh at a higher polycount and re-rig).');
+    process.exit(1);
+  }
+}
+
 // pivots (scaled, ground-offset)
 function jp(n) { const p = jointPos[n]; return [p[0] * SCALE, (p[1] + YOFF) * SCALE, p[2] * SCALE]; }
 const pivots = {

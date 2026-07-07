@@ -60,7 +60,10 @@ creator's PRESET row; NPCs start wearing them too).
 ## Parameters that matter
 
 - `--polycount` (default 1600): crowd-safe. `should_remesh:true` is REQUIRED
-  or Meshy ignores the target entirely (returns ~9.5k tris).
+  or Meshy ignores the target entirely (returns ~9.5k tris) — and even with
+  it, the in-task remesh frequently doesn't hold (observed 4k–15k on a 1600
+  target). charpipe measures the rigged GLB and automatically falls back to
+  a standalone remesh + re-rig (+10 credits) when >1.6× over budget.
 - `pose_mode:'t-pose'` keeps arms horizontal so the game's ±1.42 rad arm
   drop works, and rigging requires a T-pose-ish input anyway.
 - `--height` feeds Meshy rigging; the split rescales to 1.78 game units

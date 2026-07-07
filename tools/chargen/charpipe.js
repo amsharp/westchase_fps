@@ -56,7 +56,7 @@ async function download(url, out) {
     model_type: 'lowpoly',
     ai_model: 'latest',
     should_texture: true,
-    should_remesh: true,        // without this Meshy ignores the polycount
+    should_remesh: true,        // without this Meshy ignores the polycount...
     topology: 'triangle',
     target_polycount: POLY,
     pose_mode: 't-pose',
@@ -66,14 +66,40 @@ async function download(url, out) {
   console.log(NAME, 'gen task', gen.result);
   await waitTask('/image-to-3d', gen.result, NAME + ':gen');
 
-  const rig = await api('POST', '/rigging', { input_task_id: gen.result, height_meters: HEIGHT });
+  // ...and even WITH it the in-task remesh often doesn't hold (observed
+  // 4k-15k tris on a 1600 target). Rig, measure the real count, and fall
+  // back to a standalone remesh + re-rig when over budget.
+  function glbTris(file) {
+    const b = fs.readFileSync(file);
+    const j = JSON.parse(b.slice(20, 20 + b.readUInt32LE(12)).toString('utf8'));
+    let t = 0;
+    for (const m of j.meshes || []) for (const p of m.primitives) {
+      t += (p.indices !== undefined ? j.accessors[p.indices].count : j.accessors[p.attributes.POSITION].count) / 3;
+    }
+    return t;
+  }
+  let meshTask = gen.result, remeshTask = null;
+  let rig = await api('POST', '/rigging', { input_task_id: meshTask, height_meters: HEIGHT });
   if (!rig.result) throw new Error('rig submit failed: ' + JSON.stringify(rig));
-  const rigRes = await waitTask('/rigging', rig.result, NAME + ':rig');
-
+  let rigRes = await waitTask('/rigging', rig.result, NAME + ':rig');
   const glb = path.join(WORK, NAME + '_rigged.glb');
   await download(rigRes.result.rigged_character_glb_url, glb);
+  const tris = glbTris(glb);
+  console.log(NAME, 'rigged at', tris, 'tris (target', POLY + ')');
+  if (tris > POLY * 1.6) {
+    console.log(NAME, 'over budget — standalone remesh + re-rig');
+    const rm = await api('POST', '/remesh', { input_task_id: gen.result, topology: 'triangle', target_polycount: POLY, target_formats: ['glb'] });
+    if (!rm.result) throw new Error('remesh submit failed: ' + JSON.stringify(rm));
+    await waitTask('/remesh', rm.result, NAME + ':remesh');
+    remeshTask = rm.result; meshTask = rm.result;
+    rig = await api('POST', '/rigging', { input_task_id: meshTask, height_meters: HEIGHT });
+    if (!rig.result) throw new Error('re-rig submit failed: ' + JSON.stringify(rig));
+    rigRes = await waitTask('/rigging', rig.result, NAME + ':rig2');
+    await download(rigRes.result.rigged_character_glb_url, glb);
+    console.log(NAME, 're-rigged at', glbTris(glb), 'tris');
+  }
   fs.writeFileSync(path.join(WORK, NAME + '_anims.json'), JSON.stringify({
-    gen_task: gen.result, rig_task: rig.result,
+    gen_task: gen.result, remesh_task: remeshTask, rig_task: rig.result,
     walking_glb: rigRes.result.basic_animations.walking_glb_url,
     running_glb: rigRes.result.basic_animations.running_glb_url,
   }, null, 1));
