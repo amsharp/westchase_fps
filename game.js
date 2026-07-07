@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.8.8';
+var GAME_VERSION = 'v1.8.9';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---------------- world constants ----------------
@@ -1662,24 +1662,30 @@ function getMeshySkin(mi) {
   if (typeof MESHY_SHARED_CLIPS !== 'undefined') {
     var map = [];
     for (var si = 0; si < MESHY_SHARED_CLIPS.names.length; si++) map.push(e.skel.names.indexOf(MESHY_SHARED_CLIPS.names[si]));
-    // retarget deltas: the shared clips carry the SOURCE rig's local
-    // rotations; each character's bind differs (100°+ at hips) — transfer
-    // the delta instead: q_final = q_clip * inv(bindSrc) * bindTgt
-    var post = new Float32Array(map.length * 4);
-    var srcBind = new Int16Array(b64Bytes(MESHY_SHARED_CLIPS.bind).buffer);
+    // retarget deltas: each shared clip carries ITS source rig's local
+    // rotations (walk and run come from different reference characters);
+    // each target's bind differs (100°+ at hips) — transfer the delta:
+    // q_final = q_clip * inv(bindSrc) * bindTgt, with bindSrc taken from
+    // the clip's own bind when present (fallback: the set-wide bind)
     var qs = new THREE.Quaternion(), qt = new THREE.Quaternion();
-    for (si = 0; si < map.length; si++) {
-      var bi2 = map[si];
-      qs.set(srcBind[si * 4] / 16383, srcBind[si * 4 + 1] / 16383, srcBind[si * 4 + 2] / 16383, srcBind[si * 4 + 3] / 16383).invert();
-      if (bi2 >= 0) qt.set(d.br[bi2 * 4] / 16383, d.br[bi2 * 4 + 1] / 16383, d.br[bi2 * 4 + 2] / 16383, d.br[bi2 * 4 + 3] / 16383);
-      else qt.identity();
-      qs.multiply(qt);
-      post[si * 4] = qs.x; post[si * 4 + 1] = qs.y; post[si * 4 + 2] = qs.z; post[si * 4 + 3] = qs.w;
+    function makePost(srcBind) {
+      var p = new Float32Array(map.length * 4);
+      for (var si2 = 0; si2 < map.length; si2++) {
+        var bi2 = map[si2];
+        qs.set(srcBind[si2 * 4] / 16383, srcBind[si2 * 4 + 1] / 16383, srcBind[si2 * 4 + 2] / 16383, srcBind[si2 * 4 + 3] / 16383).invert();
+        if (bi2 >= 0) qt.set(d.br[bi2 * 4] / 16383, d.br[bi2 * 4 + 1] / 16383, d.br[bi2 * 4 + 2] / 16383, d.br[bi2 * 4 + 3] / 16383);
+        else qt.identity();
+        qs.multiply(qt);
+        p[si2 * 4] = qs.x; p[si2 * 4 + 1] = qs.y; p[si2 * 4 + 2] = qs.z; p[si2 * 4 + 3] = qs.w;
+      }
+      return p;
     }
+    var basePost = makePost(new Int16Array(b64Bytes(MESHY_SHARED_CLIPS.bind).buffer));
     for (var k in MESHY_SHARED_CLIPS.clips) {
       var sh = MESHY_SHARED_CLIPS.clips[k];
       if (!meshySharedDecoded[k]) meshySharedDecoded[k] = { q: new Int16Array(b64Bytes(sh.q).buffer), y: new Int16Array(b64Bytes(sh.y).buffer) };
       var gy = (e.clips[k] && e.clips[k].gy !== undefined) ? e.clips[k].gy : gyWalk;
+      var post = sh.bind ? makePost(new Int16Array(b64Bytes(sh.bind).buffer)) : basePost;
       d.clips[k] = { d: sh.d, f: sh.f, q: meshySharedDecoded[k].q, y: meshySharedDecoded[k].y, gy: gy, map: map, post: post };
     }
   }
