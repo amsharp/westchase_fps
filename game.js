@@ -1148,15 +1148,17 @@ function updateRainFx(dt) {
 }
 function updateEnv(dt) {
   envT += dt;
-  // rain scheduling
-  if (raining) {
-    rainLeft -= dt;
-    if (rainLeft <= 0) { raining = false; nextRainCheck = 30 + Math.random() * 40; }
-  } else {
-    nextRainCheck -= dt;
-    if (nextRainCheck <= 0) {
-      nextRainCheck = 25 + Math.random() * 35;
-      if (Math.random() < 0.4) { raining = true; rainLeft = 35 + Math.random() * 35; }
+  // rain scheduling (clients follow the host's weather instead)
+  if (!isClient()) {
+    if (raining) {
+      rainLeft -= dt;
+      if (rainLeft <= 0) { raining = false; nextRainCheck = 30 + Math.random() * 40; }
+    } else {
+      nextRainCheck -= dt;
+      if (nextRainCheck <= 0) {
+        nextRainCheck = 25 + Math.random() * 35;
+        if (Math.random() < 0.4) { raining = true; rainLeft = 35 + Math.random() * 35; }
+      }
     }
   }
   var f = dayFactor();
@@ -1469,23 +1471,38 @@ function copWeapon() {
     : { range: 21, dmg: 9, rate: 1.05, acc: 0.55, sfx: 'copshot' }; // sidearms, short range
 }
 var copRay = new THREE.Raycaster();
-function copHasLOS(c) {
+function copHasLOS(c, tgt) {
   var oy = (c.baseY || 0) + 1.4;
-  var dir = new THREE.Vector3(player.x - c.x, player.y - oy, player.z - c.z);
+  var dir = new THREE.Vector3(tgt.x - c.x, (tgt.y || EYE) - oy, tgt.z - c.z);
   var dist = dir.length(); dir.normalize();
   copRay.set(new THREE.Vector3(c.x, oy, c.z), dir); copRay.far = Math.max(0.1, dist - 0.6);
   return copRay.intersectObjects(solidMeshes, true).length === 0;
 }
-function copShoot(c, wpn, dt) {
+// pick the closest wanted player (local or remote) this cop can go after
+function copPickTarget(c) {
+  var best = null, bd = 1e9;
+  function cand(x, z, y, w, id) {
+    if (w < 1) return;
+    var dx = x - c.x, dz = z - c.z, d2 = dx * dx + dz * dz;
+    if (!(w >= 2 || d2 < 256 || c.state === 'engage')) return;
+    if (d2 < bd) { bd = d2; best = { x: x, z: z, y: y, id: id, d: Math.sqrt(d2) }; }
+  }
+  if (!state.dead && !inside) cand(player.x, player.z, player.y, state.wanted, null);
+  for (var id in net.remotes) { var r = net.remotes[id]; if (!r.dead) cand(r.x, r.z, r.y || EYE, r.w || 0, id); }
+  return best;
+}
+function copShoot(c, wpn, dt, tgt) {
   c.fireT -= dt;
   if (c.fireT > 0) return;
   c.fireT = wpn.rate;
-  if (!c.interior && !copHasLOS(c)) return;   // interior is one small room — they can always see you
+  if (!c.interior && !copHasLOS(c, tgt)) return;   // interior is one small room — they can always see you
   sfx(wpn.sfx);
-  var dx = player.x - c.x, dz = player.z - c.z, d = Math.sqrt(dx * dx + dz * dz) || 1;
+  var dx = tgt.x - c.x, dz = tgt.z - c.z, d = Math.sqrt(dx * dx + dz * dz) || 1;
   puff(new THREE.Vector3(c.x + dx / d * 0.5, (c.baseY || 0) + 1.45, c.z + dz / d * 0.5), 0xffe08a);
   var hitChance = wpn.acc * Math.max(0.15, 1 - d / wpn.range);
-  if (Math.random() < hitChance && !state.dead) {
+  if (Math.random() < hitChance) {
+    if (tgt.id) { netSendHit(tgt.id, wpn.dmg); return; }   // remote player: their client applies (car redirect included)
+    if (state.dead) return;
     if (driving) {
       // rounds slam into your car instead
       var cp2 = driving.car.group.position;
@@ -1495,7 +1512,7 @@ function copShoot(c, wpn, dt) {
     } else hurtPlayer(wpn.dmg);
   }
 }
-function damageCop(c, dmg, kx, kz) {
+function damageCop(c, dmg, kx, kz, silent) {
   if (c.state === 'down') return;
   c.hp -= dmg; c.hurtFlash = 0.12;
   c.x += (kx || 0) * 0.4; c.z += (kz || 0) * 0.4;
@@ -1504,22 +1521,25 @@ function damageCop(c, dmg, kx, kz) {
     c.state = 'down'; c.downT = 10;
     if (c.mesh.userData.shadow) c.mesh.userData.shadow.visible = false;
     spawnCash(c.x, c.z, 10 + ((Math.random() * 30) | 0), c.baseY || 0);
-    popup('COP DOWN!'); sfx('ko');
-    addStar(1);
+    sfx('ko');
+    if (!silent) { popup('COP DOWN!'); addStar(1); }
   } else {
     c.state = 'engage';
-    if (state.wanted < 1) setWanted(1);
+    if (!silent && state.wanted < 1) setWanted(1);
     sfx('hit');
   }
 }
 function updateCops(dt) {
-  copSpawnT -= dt;
-  var alive = 0;
-  for (var i = 0; i < cops.length; i++) if (cops[i].state !== 'down' && !cops[i].interior) alive++;
-  if (alive < desiredCops() && copSpawnT <= 0) { spawnCop(state.wanted >= 2); copSpawnT = 1.2; }
   var wpn = copWeapon();
-  for (i = 0; i < cops.length; i++) {
+  if (!isClient()) {
+    copSpawnT -= dt;
+    var alive = 0;
+    for (var i0 = 0; i0 < cops.length; i0++) if (cops[i0].state !== 'down' && !cops[i0].interior) alive++;
+    if (alive < desiredCops() && copSpawnT <= 0) { spawnCop(state.wanted >= 2); copSpawnT = 1.2; }
+  }
+  for (var i = 0; i < cops.length; i++) {
     var c = cops[i], m = c.mesh;
+    if (isClient() && !c.interior) { scene.remove(m); cops.splice(i, 1); i--; continue; }   // street cops come from the host
     var baseY = c.baseY || 0;
     if (c.interior && !inside && c.state !== 'down') { scene.remove(m); cops.splice(i, 1); i--; continue; }
     if (c.hurtFlash > 0) c.hurtFlash -= dt;
@@ -1531,15 +1551,15 @@ function updateCops(dt) {
       continue;
     }
     if (state.wanted === 0 && c.state === 'engage' && !c.interior) c.state = 'patrol';
-    var dx = player.x - c.x, dz = player.z - c.z, d = Math.sqrt(dx * dx + dz * dz);
-    var engaged;
-    if (c.interior) engaged = inside && !state.dead;
-    else engaged = !state.dead && !inside && (state.wanted >= 2 || (state.wanted >= 1 && (d < 16 || c.state === 'engage')));
+    var tgt;
+    if (c.interior) tgt = (inside && !state.dead) ? { x: player.x, z: player.z, y: player.y, id: null, d: Math.sqrt((player.x - c.x) * (player.x - c.x) + (player.z - c.z) * (player.z - c.z)) } : null;
+    else tgt = copPickTarget(c);
     var vx = 0, vz = 0, spd = 0, moving = false;
-    if (engaged) {
+    if (tgt) {
+      var dx = tgt.x - c.x, dz = tgt.z - c.z, d = tgt.d;
       if (d > wpn.range * 0.65 || (c.interior && d > 5)) { vx = dx / d; vz = dz / d; spd = 4.4; moving = true; }
       m.rotation.y = Math.atan2(dx, dz);
-      if (d < wpn.range) copShoot(c, wpn, dt);
+      if (d < wpn.range) copShoot(c, wpn, dt, tgt);
     } else {
       if (c.interior) { animPerson(m, 0, dt); m.position.set(c.x, baseY, c.z); continue; }
       var tdx = c.tx - c.x, tdz = c.tz - c.z, td = Math.sqrt(tdx * tdx + tdz * tdz);
@@ -1596,6 +1616,7 @@ function ensureEngine(c) {
   c.eng = { o: o, g: g };
 }
 function updateCars(dt) {
+  if (isClient()) return;   // world traffic is mirrored from the host snapshot
   for (var i = 0; i < cars.length; i++) {
     var c = cars[i];
     ensureEngine(c);
@@ -1626,6 +1647,12 @@ function updateCars(dt) {
     }
     // stolen cars are player-controlled (or parked) — no traffic AI
     if (c.stolen) {
+      // a remote player is driving it: mirror their position for everyone
+      if (c.drivenBy && net.remotes[c.drivenBy]) {
+        var drv = net.remotes[c.drivenBy];
+        c.car.group.position.set(drv.x, 0, drv.z);
+        c.car.group.rotation.y = drv.h;
+      }
       if (c.eng && c !== driving) c.eng.g.gain.value = 0;
       continue;
     }
@@ -1718,27 +1745,33 @@ function nearestStealableCar() {
   }
   return best;
 }
+function kickDriver(c) {
+  // driver bails and runs away scared
+  var g = c.car.group;
+  if (npcs.length < 40 && !isClient()) {
+    var n = spawnNPC();
+    n.x = g.position.x + Math.cos(g.rotation.y + Math.PI / 2) * 2.4;
+    n.z = g.position.z - Math.sin(g.rotation.y + Math.PI / 2) * 2.4;
+    n.mesh.position.set(n.x, 0, n.z);
+    startFlee(n);
+  }
+  sfx('grunt');
+}
 function enterCar(c) {
   driving = c;
   c.stolen = true;
+  c.drivenBy = null;
   if (c.carHP === undefined) c.carHP = 100;
   c.pspeed = c.jacked ? 0 : c.speed;   // take over at its current speed on a fresh jack
   var g = c.car.group;
   if (!c.jacked) {
     c.jacked = true;
-    // kick the driver out — they run away scared
-    if (npcs.length < 40) {
-      var n = spawnNPC();
-      n.x = g.position.x + Math.cos(g.rotation.y + Math.PI / 2) * 2.4;
-      n.z = g.position.z - Math.sin(g.rotation.y + Math.PI / 2) * 2.4;
-      n.mesh.position.set(n.x, 0, n.z);
-      startFlee(n);
-      sfx('grunt');
-    }
+    kickDriver(c);
     popup2('CARJACKED');
     lastCrimeT = T;
     if (state.wanted < 1) setWanted(1);
   }
+  if (isClient()) netToHost({ t: 'steal', i: cars.indexOf(c) });
   setZoom(false);
   vm.visible = false;
   // start the orbit camera behind the car
@@ -1757,6 +1790,7 @@ function exitCar() {
   var p = pushOut(px, pz, 0.55);
   player.x = p.x; player.z = p.z; player.y = EYE; player.vy = 0;
   driving.pspeed = 0;
+  if (isClient()) netToHost({ t: 'park', i: cars.indexOf(driving), x: Math.round(g.position.x * 10) / 10, z: Math.round(g.position.z * 10) / 10, ry: Math.round(h * 100) / 100 });
   driving = null;
   vm.visible = true;
   document.getElementById('crosshair').style.display = '';
@@ -1805,13 +1839,15 @@ function updateDriving(dt) {
       var lon = dx * fx + dz * fz, lat = -dx * fz + dz * fx;
       if (Math.abs(lon) < 2.8 && Math.abs(lat) < 1.5) {
         sfx('crash');
-        killNpcRagdoll(n, fx * sgn + (Math.random() - 0.5) * 0.5, fz * sgn + (Math.random() - 0.5) * 0.5, 8 + Math.abs(c.pspeed) * 0.55);
+        if (isClient()) netToHost({ t: 'ragNpc', i: i, kx: fx * sgn, kz: fz * sgn, pw: 8 + Math.abs(c.pspeed) * 0.55 });
+        else killNpcRagdoll(n, fx * sgn + (Math.random() - 0.5) * 0.5, fz * sgn + (Math.random() - 0.5) * 0.5, 8 + Math.abs(c.pspeed) * 0.55);
+        n.state = 'ragdoll';   // avoid double-triggering while the host confirms
         state.civKills++;
         if (state.civKills % 5 === 0) { addStar(1); popup2('WANTED LEVEL UP'); }
         lastCrimeT = T;
       }
     }
-    // run over cops
+    // run over cops (local sim or host-mirrored)
     for (i = 0; i < cops.length; i++) {
       var cp = cops[i];
       if (cp.state === 'down') continue;
@@ -1822,15 +1858,41 @@ function updateDriving(dt) {
         damageCop(cp, 999, fx * sgn, fz * sgn);
       }
     }
+    if (isClient()) for (i = 0; i < copsM.length; i++) {
+      var cpm = copsM[i];
+      if (cpm.hit) continue;
+      var mdx = cpm.x - p.x, mdz = cpm.z - p.z;
+      var mlon = mdx * fx + mdz * fz, mlat = -mdx * fz + mdz * fx;
+      if (Math.abs(mlon) < 2.8 && Math.abs(mlat) < 1.5) {
+        cpm.hit = true;   // one message per pass-through
+        sfx('crash'); sfx('grunt');
+        netToHost({ t: 'dmgCop', i: i, dmg: 999, kx: fx * sgn, kz: fz * sgn });
+      }
+    }
     // ram traffic: they lose control like being shot up
     for (i = 0; i < cars.length; i++) {
       var oc = cars[i];
       if (oc === c || oc.exploded || oc.stolen) continue;
       var om = oc.car.group.position;
       if (Math.abs(om.x - p.x) < 4 && Math.abs(om.z - p.z) < 3.2) {
-        if (!oc.berserk) { goBerserk(oc); lastCrimeT = T; }
+        if (!oc.berserk) {
+          if (isClient()) { netToHost({ t: 'ram', i: i }); oc.berserk = true; }
+          else goBerserk(oc);
+          lastCrimeT = T;
+        }
         c.pspeed *= 0.5;
       }
+    }
+  }
+  // client: your burning car ticks down here (traffic sim is host-side)
+  if (isClient() && c.burning && !c.exploded) {
+    c.burnT -= dt;
+    c.flameT = (c.flameT || 0) - dt;
+    if (c.flameT <= 0) { c.flameT = 0.07; puff(new THREE.Vector3(p.x + (Math.random() - 0.5) * 1.6, 0.9 + Math.random(), p.z + (Math.random() - 0.5) * 1.2), Math.random() < 0.55 ? 0xff8828 : 0x222222); }
+    if (c.burnT <= 0) {
+      var ii = cars.indexOf(c);
+      explodeCar(c);
+      netToHost({ t: 'carBoom', i: ii });
     }
   }
   // player rides along
@@ -1858,6 +1920,11 @@ function updateCash(dt) {
   for (var i = cashes.length - 1; i >= 0; i--) {
     var c = cashes[i]; c.life -= dt; c.mesh.rotation.y += dt * 3; c.mesh.position.y = c.baseY + 0.38 + Math.sin(T * 3 + i) * 0.12;
     var dx = player.x - c.mesh.position.x, dz = player.z - c.mesh.position.z;
+    if (c.netCash) {
+      // host owns the cash: ask for it, the money arrives as a 'cash' message
+      if (dx * dx + dz * dz < 2.1 && !c.pend) { c.pend = true; netToHost({ t: 'takeCash', x: c.mesh.position.x, z: c.mesh.position.z }); }
+      continue;
+    }
     if (dx * dx + dz * dz < 2.1 || c.life <= 0) { if (c.life > 0) { state.money += c.val; popup('+$' + c.val); sfx('cash'); } scene.remove(c.mesh); cashes.splice(i, 1); }
   }
 }
@@ -1917,20 +1984,22 @@ function boomAt(x, z, fromNet) {
   for (var i = 0; i < 9; i++) puff(new THREE.Vector3(x + (Math.random() - 0.5) * 4, 0.8 + Math.random() * 3, z + (Math.random() - 0.5) * 4), i % 2 ? 0x333333 : 0xd86a20);
   scorch(x, z);
   sfx('boom');
-  for (i = 0; i < npcs.length; i++) {
-    var n = npcs[i]; if (n.state === 'down' || n.state === 'ragdoll') continue;
-    var dx = n.x - x, dz = n.z - z, d = Math.sqrt(dx * dx + dz * dz);
-    if (d < 9) killNpcRagdoll(n, dx / (d || 1), dz / (d || 1), 13);
-  }
-  for (i = 0; i < cops.length; i++) {
-    var cp = cops[i]; if (cp.state === 'down') continue;
-    var cdx = cp.x - x, cdz = cp.z - z, cd = Math.sqrt(cdx * cdx + cdz * cdz);
-    if (cd < 9) damageCop(cp, 999, cdx / (cd || 1), cdz / (cd || 1));
+  if (!isClient()) {   // kills are host-authoritative; clients get them via snapshot
+    for (i = 0; i < npcs.length; i++) {
+      var n = npcs[i]; if (n.state === 'down' || n.state === 'ragdoll') continue;
+      var dx = n.x - x, dz = n.z - z, d = Math.sqrt(dx * dx + dz * dz);
+      if (d < 9) killNpcRagdoll(n, dx / (d || 1), dz / (d || 1), 13);
+    }
+    for (i = 0; i < cops.length; i++) {
+      var cp = cops[i]; if (cp.state === 'down') continue;
+      var cdx = cp.x - x, cdz = cp.z - z, cd = Math.sqrt(cdx * cdx + cdz * cdz);
+      if (cd < 9) damageCop(cp, 999, cdx / (cd || 1), cdz / (cd || 1));
+    }
   }
   var pdx = player.x - x, pdz = player.z - z, pd = Math.sqrt(pdx * pdx + pdz * pdz);
   if (pd < 10 && !state.dead) hurtPlayer(Math.round(80 * (1 - pd / 10) + 15));
   // chain: nearby cars go up too
-  for (i = 0; i < cars.length; i++) {
+  if (!isClient()) for (i = 0; i < cars.length; i++) {
     var cx = cars[i];
     if (cx.exploded) continue;
     var cm = cx.car.group.position;
@@ -2073,15 +2142,18 @@ function updateDrops(dt) {
 }
 
 // ---------------- NPC logic (wander) ----------------
-function damageNPC(n, dmg, kx, kz) {
+function damageNPC(n, dmg, kx, kz, silent) {
   if (n.state === 'down') return;
   n.hp -= dmg; n.hurtFlash = 0.12; n.x += (kx || 0) * 0.5; n.z += (kz || 0) * 0.5;
   lastCrimeT = T;
   if (n.hp <= 0) {
     n.state = 'down'; n.downT = 8; if (n.mesh.userData.shadow) n.mesh.userData.shadow.visible = false;
-    spawnCash(n.x, n.z, 5 + ((Math.random() * 18) | 0)); popup('KO!'); sfx('ko'); sfx('grunt');
-    state.civKills++;
-    if (state.civKills % 5 === 0) { addStar(1); popup2('WANTED LEVEL UP'); }
+    spawnCash(n.x, n.z, 5 + ((Math.random() * 18) | 0)); sfx('ko'); sfx('grunt');
+    if (!silent) {
+      popup('KO!');
+      state.civKills++;
+      if (state.civKills % 5 === 0) { addStar(1); popup2('WANTED LEVEL UP'); }
+    }
   } else { startFlee(n); sfx('hit'); }
   for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o === n || o.state !== 'walk') continue; var dx = o.x - n.x, dz = o.z - n.z; if (dx * dx + dz * dz < 170) startFlee(o); }
 }
@@ -2089,6 +2161,7 @@ function startFlee(n) { if (n.state === 'down') return; n.state = 'flee'; n.flee
 function panicNear(x, z, r2) { for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o.state !== 'walk') continue; var dx = o.x - x, dz = o.z - z; if (dx * dx + dz * dz < r2) startFlee(o); } }
 
 function updateNPCs(dt) {
+  if (isClient()) { updateNPCExtras(); return; }   // npcs mirrored from host snapshot
   for (var i = 0; i < npcs.length; i++) {
     var n = npcs[i], m = n.mesh;
     if (n.hurtFlash > 0) { n.hurtFlash -= dt; m.position.y = n.hurtFlash > 0 ? 0.06 : 0; }
@@ -2128,6 +2201,9 @@ function updateNPCs(dt) {
     m.position.set(n.x, m.position.y === 0.06 ? 0.06 : 0, n.z);
     m.rotation.y = Math.atan2(vx, vz); n.phase += spd * dt * 3.4; animPerson(m, spd, dt, n.phase);
   }
+  updateNPCExtras();
+}
+function updateNPCExtras() {
   var ddx = player.x - dealerPos.x, ddz = player.z - dealerPos.z;
   if (ddx * ddx + ddz * ddz < 120) dealer.rotation.y = Math.atan2(ddx, ddz);
   dollarSprite.position.y = 3.0 + Math.sin(T * 2.2) * 0.18;
@@ -2342,14 +2418,25 @@ function tryAttack() {
       var cdx = cp.x - player.x, cdz = cp.z - player.z, cd = Math.sqrt(cdx * cdx + cdz * cdz);
       if (cd < w.range && (cdx * fx + cdz * fz) / (cd || 1) > 0.55 && cd < bestD) { bestCop = cp; best = null; bestD = cd; }
     }
+    var bestCopM = -1;
+    if (isClient()) for (i = 0; i < copsM.length; i++) {
+      var cpm = copsM[i];
+      var mdx = cpm.x - player.x, mdz = cpm.z - player.z, md = Math.sqrt(mdx * mdx + mdz * mdz);
+      if (md < w.range && (mdx * fx + mdz * fz) / (md || 1) > 0.55 && md < bestD) { bestCopM = i; best = null; bestCop = null; bestD = md; }
+    }
     var bestRemote = null;
     for (var rid2 in net.remotes) {
       var rm = net.remotes[rid2]; if (rm.dead) continue;
       var rdx = rm.x - player.x, rdz = rm.z - player.z, rd = Math.sqrt(rdx * rdx + rdz * rdz);
-      if (rd < w.range && (rdx * fx + rdz * fz) / (rd || 1) > 0.55 && rd < bestD) { bestRemote = rm; best = null; bestCop = null; bestD = rd; }
+      if (rd < w.range && (rdx * fx + rdz * fz) / (rd || 1) > 0.55 && rd < bestD) { bestRemote = rm; best = null; bestCop = null; bestCopM = -1; bestD = rd; }
     }
-    if (best) { damageNPC(best, w.dmg, fx, fz); puff(new THREE.Vector3(best.x, 1.3, best.z), 0xd96a4f); }
+    if (best) {
+      puff(new THREE.Vector3(best.x, 1.3, best.z), 0xd96a4f);
+      if (isClient()) netToHost({ t: 'dmgNpc', i: npcs.indexOf(best), dmg: w.dmg, kx: fx, kz: fz });
+      else damageNPC(best, w.dmg, fx, fz);
+    }
     else if (bestCop) { damageCop(bestCop, w.dmg, fx, fz); puff(new THREE.Vector3(bestCop.x, 1.3, bestCop.z), 0xd96a4f); }
+    else if (bestCopM >= 0) { puff(new THREE.Vector3(copsM[bestCopM].x, 1.3, copsM[bestCopM].z), 0xd96a4f); netToHost({ t: 'dmgCop', i: bestCopM, dmg: w.dmg, kx: fx, kz: fz }); }
     else if (bestRemote) { netSendHit(bestRemote.id, w.dmg); puff(new THREE.Vector3(bestRemote.x, 1.3, bestRemote.z), 0xd96a4f); }
     return;
   }
@@ -2368,20 +2455,27 @@ function tryAttack() {
   npcRootsAlive.length = 0;
   for (var k = 0; k < npcs.length; k++) if (npcs[k].state !== 'down') npcRootsAlive.push(npcs[k].mesh);
   for (k = 0; k < cops.length; k++) if (cops[k].state !== 'down') npcRootsAlive.push(cops[k].mesh);
+  if (isClient()) for (k = 0; k < copsM.length; k++) npcRootsAlive.push(copsM[k].mesh);
   for (k = 0; k < cars.length; k++) if (!cars[k].exploded) npcRootsAlive.push(cars[k].car.group);
   for (var rid in net.remotes) { var rr = net.remotes[rid]; if (rr.dead) continue; npcRootsAlive.push(rr.drv && rr.car ? rr.car.group : rr.mesh); }
   var hits = raycaster.intersectObjects(npcRootsAlive.concat(solidMeshes), true);
   if (hits.length) {
-    var h = hits[0], o = h.object, npcHit = null, copHit = null, carHit = null, remoteHit = null;
+    var h = hits[0], o = h.object, npcHit = null, copHit = null, carHit = null, remoteHit = null, copMHit = -1;
     while (o) {
       if (o.userData && o.userData.npc) { npcHit = o.userData.npc; break; }
       if (o.userData && o.userData.cop) { copHit = o.userData.cop; break; }
+      if (o.userData && o.userData.copM !== undefined) { copMHit = o.userData.copM; break; }
       if (o.userData && o.userData.remoteId) { remoteHit = o.userData.remoteId; break; }
       if (o.userData && o.userData.trafficCar) { carHit = o.userData.trafficCar; break; }
       o = o.parent;
     }
-    if (npcHit) { damageNPC(npcHit, w.dmg, dir.x, dir.z); puff(h.point, 0xd93a2a); }
+    if (npcHit) {
+      puff(h.point, 0xd93a2a);
+      if (isClient()) netToHost({ t: 'dmgNpc', i: npcs.indexOf(npcHit), dmg: w.dmg, kx: dir.x, kz: dir.z });
+      else damageNPC(npcHit, w.dmg, dir.x, dir.z);
+    }
     else if (remoteHit) { netSendHit(remoteHit, w.dmg); puff(h.point, 0xd93a2a); }
+    else if (copMHit >= 0) { puff(h.point, 0xd93a2a); netToHost({ t: 'dmgCop', i: copMHit, dmg: w.dmg, kx: dir.x, kz: dir.z }); }
     else if (copHit) { damageCop(copHit, w.dmg, dir.x, dir.z); puff(h.point, 0xd93a2a); }
     else if (carHit) {
       puff(h.point, 0xd8c860);
@@ -2389,6 +2483,8 @@ function tryAttack() {
         // your (or a parked stolen) ride takes real damage
         carHit.carHP = (carHit.carHP === undefined ? 100 : carHit.carHP) - w.dmg;
         if (carHit.carHP <= 0) igniteCar(carHit);
+      } else if (isClient()) {
+        netToHost({ t: 'shootCar', i: cars.indexOf(carHit), rate: w.rate });
       } else {
         carHit.dmgT += w.rate;
         if (carHit.dmgT >= 1.5 && !carHit.berserk) { goBerserk(carHit); lastCrimeT = T; }
@@ -2546,6 +2642,7 @@ function drawMinimap() {
   mg.fillStyle = '#eeeeee'; for (var n = 0; n < npcs.length; n++) { if (npcs[n].state === 'down') continue; mg.fillRect(w2m(npcs[n].x) - 1, w2m(npcs[n].z) - 1, 2, 2); }
   // cops (blue, slightly bigger)
   mg.fillStyle = '#3f8fe8'; for (var cop = 0; cop < cops.length; cop++) { if (cops[cop].state === 'down') continue; mg.fillRect(w2m(cops[cop].x) - 1.5, w2m(cops[cop].z) - 1.5, 3, 3); }
+  for (var cop2 = 0; cop2 < copsM.length; cop2++) { mg.fillRect(w2m(copsM[cop2].x) - 1.5, w2m(copsM[cop2].z) - 1.5, 3, 3); }
   // other players (cyan)
   mg.fillStyle = '#4ae8d8'; for (var rp in net.remotes) { var rpp = net.remotes[rp]; mg.fillRect(w2m(rpp.x) - 2, w2m(rpp.z) - 2, 4, 4); }
   // cash
@@ -2575,8 +2672,11 @@ function startGame() {
 }
 
 // ---------------- multiplayer (PeerJS data channels, host = hub) ----------------
-var net = { mode: 'sp', peer: null, conns: [], remotes: {}, id: null, sendT: 0, envSyncT: 0 };
+var net = { mode: 'sp', peer: null, conns: [], remotes: {}, id: null, sendT: 0, envSyncT: 0, worldT: 0, worldSnap: null, copList: [] };
 function netActive() { return net.conns.length > 0; }
+function isClient() { return net.mode === 'client' && net.conns.length > 0; }
+function isHost() { return net.mode === 'host' && net.conns.length > 0; }
+function netToHost(m) { if (isClient()) { try { net.conns[0].send(m); } catch (e) { } } }
 function netError(msg) {
   var el = document.getElementById('netErr');
   el.textContent = msg;
@@ -2613,7 +2713,7 @@ function ensureRemote(id) {
   scene.add(mesh);
   var tag = makeTag(id.slice(0, 6));
   scene.add(tag);
-  var r = { id: id, mesh: mesh, tag: tag, car: null, x: -72, z: -97, y: 0, tx: -72, tz: -97, ty: 0, yaw: 0, tyaw: 0, h: 0, drv: 0, dead: 0, phase: 0, lx: -72, lz: -97 };
+  var r = { id: id, mesh: mesh, tag: tag, x: -72, z: -97, y: 0, tx: -72, tz: -97, ty: 0, yaw: 0, tyaw: 0, h: 0, drv: 0, dead: 0, w: 0, phase: 0, lx: -72, lz: -97 };
   net.remotes[id] = r;
   return r;
 }
@@ -2621,32 +2721,96 @@ function removeRemote(id) {
   var r = net.remotes[id];
   if (!r) return;
   scene.remove(r.mesh); scene.remove(r.tag);
-  if (r.car) scene.remove(r.car.group);
   delete net.remotes[id];
+  // free any car they were driving
+  for (var i = 0; i < cars.length; i++) if (cars[i].drivenBy === id) cars[i].drivenBy = null;
 }
 function handleNet(m, conn) {
   if (!m || !m.t) return;
   if (m.t === 's') {
     var r = ensureRemote(m.id);
     r.tx = m.x; r.tz = m.z; r.ty = m.y || 0; r.tyaw = m.yaw || 0;
-    r.drv = m.drv || 0; r.h = m.h || 0; r.dead = m.dead || 0;
+    r.drv = m.drv || 0; r.h = m.h || 0; r.dead = m.dead || 0; r.w = m.w || 0;
     netRelay(m, conn);
   } else if (m.t === 'hit') {
-    if (m.to === net.id) { hurtPlayer(m.dmg); }
+    if (m.to === net.id) {
+      if (driving) {
+        driving.carHP = (driving.carHP === undefined ? 100 : driving.carHP) - m.dmg * 2;
+        var cp3 = driving.car.group.position;
+        puff(new THREE.Vector3(cp3.x + (Math.random() - 0.5) * 2, 1 + Math.random(), cp3.z + (Math.random() - 0.5) * 2), 0xd8c860);
+        if (driving.carHP <= 0) igniteCar(driving);
+      } else hurtPlayer(m.dmg);
+    }
     else if (net.mode === 'host') { for (var i = 0; i < net.conns.length; i++) if (net.conns[i].peer === m.to) { try { net.conns[i].send(m); } catch (e) { } } }
   } else if (m.t === 'boom') {
     boomAt(m.x, m.z, true);
     netRelay(m, conn);
+  } else if (m.t === 'world') {
+    if (net.mode === 'client') net.worldSnap = m;
   } else if (m.t === 'env') {
     if (net.mode === 'client') { envT = m.envT; raining = m.raining; rainLeft = m.rainLeft; }
   } else if (m.t === 'bye') {
     removeRemote(m.id);
     netRelay(m, conn);
+  } else if (net.mode === 'host') {
+    // ---- client → host world actions (host is authoritative) ----
+    if (m.t === 'dmgNpc') {
+      var n = npcs[m.i];
+      if (n && n.state !== 'down' && n.state !== 'ragdoll') {
+        damageNPC(n, m.dmg, m.kx, m.kz, true);
+        if (n.state === 'down') { try { conn.send({ t: 'kill', kind: 'npc' }); } catch (e) { } }
+      }
+    } else if (m.t === 'dmgCop') {
+      var cpx = net.copList[m.i];
+      if (cpx && cpx.state !== 'down') {
+        damageCop(cpx, m.dmg, m.kx, m.kz, true);
+        if (cpx.state === 'down') { try { conn.send({ t: 'kill', kind: 'cop' }); } catch (e) { } }
+      }
+    } else if (m.t === 'shootCar') {
+      var scc = cars[m.i];
+      if (scc && !scc.stolen && !scc.exploded) { scc.dmgT += m.rate; if (scc.dmgT >= 1.5 && !scc.berserk) goBerserk(scc); }
+    } else if (m.t === 'ragNpc') {
+      var rn = npcs[m.i];
+      if (rn && rn.state !== 'down' && rn.state !== 'ragdoll') killNpcRagdoll(rn, m.kx, m.kz, m.pw || 9);
+    } else if (m.t === 'steal') {
+      var sc = cars[m.i];
+      if (sc && !sc.exploded) { if (!sc.jacked) { kickDriver(sc); sc.jacked = true; } sc.stolen = true; sc.drivenBy = conn.peer; }
+    } else if (m.t === 'park') {
+      var pk = cars[m.i];
+      if (pk) { pk.drivenBy = null; pk.stolen = true; pk.car.group.position.set(m.x, 0, m.z); pk.car.group.rotation.y = m.ry; }
+    } else if (m.t === 'ram') {
+      var rc = cars[m.i];
+      if (rc && !rc.stolen && !rc.exploded) goBerserk(rc);
+    } else if (m.t === 'carBoom') {
+      var bc = cars[m.i];
+      if (bc) { bc.drivenBy = null; if (!bc.exploded) explodeCar(bc); }
+    } else if (m.t === 'takeCash') {
+      var bi = -1, bd2 = 6;
+      for (var ci = 0; ci < cashes.length; ci++) {
+        var ccp = cashes[ci].mesh.position;
+        var ddx2 = ccp.x - m.x, ddz2 = ccp.z - m.z;
+        if (ddx2 * ddx2 + ddz2 * ddz2 < bd2) { bd2 = ddx2 * ddx2 + ddz2 * ddz2; bi = ci; }
+      }
+      if (bi >= 0) {
+        var val = cashes[bi].val || 10;
+        scene.remove(cashes[bi].mesh); cashes.splice(bi, 1);
+        try { conn.send({ t: 'cash', val: val }); } catch (e) { }
+      }
+    }
+  } else if (m.t === 'cash') {
+    state.money += m.val; popup('+$' + m.val); sfx('cash');
+  } else if (m.t === 'kill') {
+    if (m.kind === 'npc') { state.civKills++; if (state.civKills % 5 === 0) { addStar(1); popup2('WANTED LEVEL UP'); } lastCrimeT = T; popup('KO!'); }
+    else if (m.kind === 'cop') { addStar(1); popup('COP DOWN!'); }
   }
 }
 function onConn(c) {
   net.conns.push(c);
   updateLobbyStatus();
+  if (net.mode === 'host') {
+    var sendEnv = function () { try { c.send({ t: 'env', envT: envT, raining: raining, rainLeft: rainLeft }); } catch (e) { } };
+    if (c.open) sendEnv(); else c.on('open', sendEnv);
+  }
   c.on('data', function (m) { handleNet(m, c); });
   c.on('close', function () {
     var idx = net.conns.indexOf(c);
@@ -2697,16 +2861,45 @@ function updateNet(dt) {
   net.sendT -= dt;
   if (net.sendT <= 0 && netActive()) {
     net.sendT = 0.07;
-    var msg = { t: 's', id: net.id, x: Math.round(player.x * 10) / 10, y: Math.round(player.y * 10) / 10, z: Math.round(player.z * 10) / 10, yaw: Math.round(yaw * 100) / 100, drv: driving ? 1 : 0, h: driving ? Math.round(driving.car.group.rotation.y * 100) / 100 : 0, dead: state.dead ? 1 : 0 };
+    var msg = { t: 's', id: net.id, x: Math.round(player.x * 10) / 10, y: Math.round(player.y * 10) / 10, z: Math.round(player.z * 10) / 10, yaw: Math.round(yaw * 100) / 100, drv: driving ? 1 : 0, h: driving ? Math.round(driving.car.group.rotation.y * 100) / 100 : 0, dead: state.dead ? 1 : 0, w: state.wanted };
     if (net.mode === 'host') netBroadcast(msg);
     else net.conns[0] && net.conns[0].send(msg);
   }
-  // host syncs weather/time
   if (net.mode === 'host' && netActive()) {
+    // weather/time sync
     net.envSyncT -= dt;
-    if (net.envSyncT <= 0) { net.envSyncT = 4; netBroadcast({ t: 'env', envT: envT, raining: raining, rainLeft: rainLeft }); }
+    if (net.envSyncT <= 0) { net.envSyncT = 3; netBroadcast({ t: 'env', envT: envT, raining: raining, rainLeft: rainLeft }); }
+    // authoritative world snapshot ~8x/s: traffic, npcs, street cops, cash
+    net.worldT -= dt;
+    if (net.worldT <= 0) {
+      net.worldT = 0.12;
+      var carsArr = [];
+      for (var i = 0; i < cars.length; i++) {
+        var cc = cars[i], mm = cc.car.group;
+        carsArr.push([Math.round(mm.position.x * 10) / 10, Math.round(mm.position.z * 10) / 10, Math.round(mm.rotation.y * 100) / 100,
+          (cc.exploded ? 1 : 0) | (cc.berserk ? 2 : 0) | (cc.burning ? 4 : 0) | (cc.stolen ? 8 : 0)]);
+      }
+      var npcArr = [];
+      for (i = 0; i < npcs.length; i++) {
+        var nn = npcs[i];
+        npcArr.push([Math.round(nn.x * 10) / 10, Math.round(nn.z * 10) / 10, Math.round(nn.mesh.rotation.y * 100) / 100,
+          nn.state === 'down' ? 2 : (nn.state === 'ragdoll' ? 3 : 0), Math.round(nn.mesh.position.y * 10) / 10]);
+      }
+      net.copList = [];
+      var copArr = [];
+      for (i = 0; i < cops.length; i++) {
+        var cq = cops[i];
+        if (cq.interior) continue;
+        net.copList.push(cq);
+        copArr.push([Math.round(cq.x * 10) / 10, Math.round(cq.z * 10) / 10, Math.round(cq.mesh.rotation.y * 100) / 100, cq.state === 'down' ? 2 : 0]);
+      }
+      var cashArr = [];
+      for (i = 0; i < cashes.length; i++) { var kp = cashes[i].mesh.position; cashArr.push([Math.round(kp.x * 10) / 10, Math.round(kp.z * 10) / 10]); }
+      netBroadcast({ t: 'world', cars: carsArr, npcs: npcArr, cops: copArr, cash: cashArr });
+    }
   }
-  // interpolate remotes
+  if (isClient()) applyWorldSnap(dt);
+  // interpolate remote players
   for (var id in net.remotes) {
     var r = net.remotes[id];
     var k = Math.min(1, dt * 12);
@@ -2717,21 +2910,86 @@ function updateNet(dt) {
     r.phase += moved * 3.4;
     r.lx = r.x; r.lz = r.z;
     if (r.drv) {
-      if (!r.car) { r.car = makeCar(); r.car.group.userData.remoteId = id; }
-      r.car.group.visible = true;
-      r.car.group.position.set(r.x, 0, r.z);
-      r.car.group.rotation.y = r.h;
+      // their car is a synced world car — just hide the walking avatar
       r.mesh.visible = false;
       r.tag.position.set(r.x, 3.2, r.z);
     } else {
-      if (r.car) r.car.group.visible = false;
       r.mesh.visible = true;
-      r.mesh.position.set(r.x, Math.max(0, r.y - EYE), r.z);
+      r.mesh.position.set(r.x, Math.max(-59.9, r.y - EYE), r.z);
       r.mesh.rotation.y = r.yaw + Math.PI;
       r.mesh.rotation.x = r.dead ? -1.5 : 0;
       animPerson(r.mesh, r.dead ? 0 : (moved / Math.max(dt, 0.001) > 0.5 ? 2 : 0), dt, r.phase);
-      r.tag.position.set(r.x, 2.5, r.z);
+      r.tag.position.set(r.x, r.y - EYE + 2.5, r.z);
     }
+  }
+}
+
+// client: mirror the host's world snapshot
+var copsM = [];
+function applyWorldSnap(dt) {
+  var s = net.worldSnap;
+  if (!s) return;
+  var k = Math.min(1, dt * 10);
+  for (var i = 0; i < cars.length && i < s.cars.length; i++) {
+    var c = cars[i], a = s.cars[i], m = c.car.group;
+    if (c === driving) continue;               // we own this one locally
+    var fl = a[3];
+    c.exploded = !!(fl & 1); c.berserk = !!(fl & 2); c.burning = !!(fl & 4); c.stolen = !!(fl & 8);
+    m.visible = !c.exploded;
+    if (c.exploded) { if (c.eng) c.eng.g.gain.value = 0; continue; }
+    m.position.x += (a[0] - m.position.x) * k;
+    m.position.z += (a[1] - m.position.z) * k;
+    m.rotation.y = a[2];
+    if (c.berserk || c.burning) {
+      c.smokeT = (c.smokeT || 0) - dt;
+      if (c.smokeT <= 0) { c.smokeT = 0.1; puff(new THREE.Vector3(m.position.x, 1.1, m.position.z), c.burning ? 0xff8828 : 0x555555); }
+    }
+    var edx = player.x - m.position.x, edz = player.z - m.position.z;
+    var ed = Math.sqrt(edx * edx + edz * edz);
+    ensureEngine(c);
+    if (c.eng) { var vol = Math.max(0, 1 - ed / 80); c.eng.g.gain.value = c.stolen ? 0 : vol * vol * 0.055; c.eng.o.frequency.value = 62; }
+    if (!driving && !c.stolen && Math.abs(edx) < 2.6 && Math.abs(edz) < 2.6 && !state.dead) {
+      var dd = ed || 1;
+      player.x += (edx / dd) * 2.4; player.z += (edz / dd) * 2.4;
+      if (T - state.lastCarHit > 0.8) { state.lastCarHit = T; hurtPlayer(12); sfx('thud'); }
+    }
+  }
+  while (npcs.length < s.npcs.length) spawnNPC();
+  for (i = 0; i < s.npcs.length && i < npcs.length; i++) {
+    var n = npcs[i], b = s.npcs[i], nm = n.mesh;
+    n.x += (b[0] - n.x) * k; n.z += (b[1] - n.z) * k;
+    var st = b[3];
+    n.state = st === 2 ? 'down' : (st === 3 ? 'ragdoll' : 'walk');
+    nm.position.set(n.x, st === 3 ? (b[4] || 0) : 0, n.z);
+    nm.rotation.y = b[2];
+    nm.rotation.x = st >= 2 ? -1.5 : 0;
+    if (nm.userData.shadow) nm.userData.shadow.visible = st < 2;
+    if (st === 0) { n.phase += dt * 5; animPerson(nm, 2, dt, n.phase); }
+  }
+  while (copsM.length < s.cops.length) { var cm2 = buildCop(); cm2.userData.copM = copsM.length; scene.add(cm2); copsM.push({ mesh: cm2, x: 0, z: 0, phase: Math.random() * 9 }); }
+  while (copsM.length > s.cops.length) { var oldc = copsM.pop(); scene.remove(oldc.mesh); }
+  for (i = 0; i < copsM.length; i++) {
+    var cp = copsM[i], cs = s.cops[i];
+    cp.x += (cs[0] - cp.x) * k; cp.z += (cs[1] - cp.z) * k;
+    cp.mesh.position.set(cp.x, 0, cp.z);
+    cp.mesh.rotation.y = cs[2];
+    cp.mesh.rotation.x = cs[3] === 2 ? -1.5 : 0;
+    cp.mesh.userData.copM = i;
+    cp.phase += dt * 5;
+    animPerson(cp.mesh, cs[3] === 2 ? 0 : 2, dt, cp.phase);
+  }
+  // cash mirror
+  if (cashes.length !== s.cash.length) {
+    for (i = 0; i < cashes.length; i++) scene.remove(cashes[i].mesh);
+    cashes.length = 0;
+    for (i = 0; i < s.cash.length; i++) {
+      var cmesh = new THREE.Mesh(cashGeo, cashMats);
+      cmesh.position.set(s.cash[i][0], 0.4, s.cash[i][1]);
+      scene.add(cmesh);
+      cashes.push({ mesh: cmesh, val: 0, life: 9999, baseY: 0, netCash: true, pend: false });
+    }
+  } else {
+    for (i = 0; i < cashes.length; i++) { cashes[i].mesh.position.x = s.cash[i][0]; cashes[i].mesh.position.z = s.cash[i][1]; }
   }
 }
 function netSendHit(toId, dmg) {
