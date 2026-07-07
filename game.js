@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.3';
+var GAME_VERSION = 'v1.4';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---------------- world constants ----------------
@@ -2871,14 +2871,69 @@ function startGame() {
 var net = { mode: 'sp', peer: null, conns: [], remotes: {}, id: null, sendT: 0, envSyncT: 0, worldT: 0, worldSnap: null, copList: [] };
 // STUN finds a direct route; TURN relays when peers can't reach each other
 // directly (e.g. two players behind the same home router whose NAT doesn't
-// hairpin). Without TURN, same-network joins often fail.
-var ICE_CONFIG = { iceServers: [
-  { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'stun:global.stun.twilio.com:3478' },
-  { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
-  { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
-  { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
-] };
+// hairpin and whose wifi blocks mDNS). Without a WORKING TURN server,
+// same-network joins often fail. Open Relay's static login was retired, so
+// we mint short-lived credentials ourselves via the documented TURN REST
+// scheme: username = expiry unix time, password = HMAC-SHA1(secret, username).
+function sha1Bytes(msg) {
+  function rotl(n, s) { return ((n << s) | (n >>> (32 - s))) >>> 0; }
+  var m = msg.slice(), ml = msg.length;
+  m.push(0x80);
+  while (m.length % 64 !== 56) m.push(0);
+  var hi = Math.floor(ml / 536870912), lo = (ml * 8) >>> 0;
+  m.push((hi >>> 24) & 255, (hi >>> 16) & 255, (hi >>> 8) & 255, hi & 255);
+  m.push((lo >>> 24) & 255, (lo >>> 16) & 255, (lo >>> 8) & 255, lo & 255);
+  var h0 = 0x67452301, h1 = 0xEFCDAB89, h2 = 0x98BADCFE, h3 = 0x10325476, h4 = 0xC3D2E1F0;
+  var w = new Array(80);
+  for (var off = 0; off < m.length; off += 64) {
+    for (var i = 0; i < 16; i++) w[i] = ((m[off + i * 4] << 24) | (m[off + i * 4 + 1] << 16) | (m[off + i * 4 + 2] << 8) | m[off + i * 4 + 3]) >>> 0;
+    for (i = 16; i < 80; i++) w[i] = rotl(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);
+    var a = h0, b = h1, c = h2, d = h3, e = h4, f, k;
+    for (i = 0; i < 80; i++) {
+      if (i < 20) { f = (b & c) | (~b & d); k = 0x5A827999; }
+      else if (i < 40) { f = b ^ c ^ d; k = 0x6ED9EBA1; }
+      else if (i < 60) { f = (b & c) | (b & d) | (c & d); k = 0x8F1BBCDC; }
+      else { f = b ^ c ^ d; k = 0xCA62C1D6; }
+      var t = (rotl(a, 5) + f + e + k + w[i]) >>> 0;
+      e = d; d = c; c = rotl(b, 30); b = a; a = t;
+    }
+    h0 = (h0 + a) >>> 0; h1 = (h1 + b) >>> 0; h2 = (h2 + c) >>> 0; h3 = (h3 + d) >>> 0; h4 = (h4 + e) >>> 0;
+  }
+  var out = [];
+  [h0, h1, h2, h3, h4].forEach(function (h) { out.push((h >>> 24) & 255, (h >>> 16) & 255, (h >>> 8) & 255, h & 255); });
+  return out;
+}
+function strBytes(s) { var b = []; for (var i = 0; i < s.length; i++) b.push(s.charCodeAt(i) & 255); return b; }
+function hmacSha1B64(key, msg) {
+  var k = strBytes(key);
+  if (k.length > 64) k = sha1Bytes(k);
+  var ipad = [], opad = [];
+  for (var i = 0; i < 64; i++) { var kb = k[i] || 0; ipad.push(kb ^ 0x36); opad.push(kb ^ 0x5C); }
+  var digest = sha1Bytes(opad.concat(sha1Bytes(ipad.concat(strBytes(msg)))));
+  var s = '';
+  for (i = 0; i < digest.length; i++) s += String.fromCharCode(digest[i]);
+  return btoa(s);
+}
+function buildIceConfig() {
+  var user = String(Math.floor(Date.now() / 1000) + 24 * 3600);   // valid 24h
+  var pass = hmacSha1B64('openrelayprojectsecret', user);
+  var T = 'staticauth.openrelay.metered.ca';
+  return { iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:global.stun.twilio.com:3478' },
+    { urls: 'turn:' + T + ':80', username: user, credential: pass },
+    { urls: 'turn:' + T + ':443', username: user, credential: pass },
+    { urls: 'turn:' + T + ':80?transport=tcp', username: user, credential: pass },
+    { urls: 'turns:' + T + ':443?transport=tcp', username: user, credential: pass }
+  ] };
+}
+// window.WC_NET_OVERRIDE lets tests point the game at a local signaling +
+// TURN server (and force relay-only to emulate same-router NAT failure).
+function peerOptions() {
+  var opts = { config: buildIceConfig() };
+  if (window.WC_NET_OVERRIDE) { var o = window.WC_NET_OVERRIDE; for (var k in o) opts[k] = o[k]; }
+  return opts;
+}
 function getPlayerName() {
   var el = document.getElementById('playerName');
   var n = (el && el.value ? el.value : '').replace(/[^\x20-\x7E]/g, '').trim().slice(0, 12);
@@ -3084,7 +3139,7 @@ function hostGame() {
   net.mode = 'host';
   netError('Setting up lobby…');
   saveName();
-  net.peer = new Peer({ config: ICE_CONFIG });
+  net.peer = new Peer(peerOptions());
   net.peer.on('open', function (id) {
     net.id = id;
     document.getElementById('netErr').classList.add('hidden');
@@ -3103,16 +3158,22 @@ function joinGame(code) {
   net.mode = 'client';
   netError('Connecting…');
   saveName();
-  net.peer = new Peer({ config: ICE_CONFIG });
+  net.peer = new Peer(peerOptions());
   net.peer.on('open', function () {
     net.id = net.peer.id;
     var c = net.peer.connect(hostId, { reliable: false });
+    // watchdog: if the tunnel never opens (NAT/relay trouble), say so
+    var joined = false;
+    var watchdog = setTimeout(function () {
+      if (!joined) netError('Still connecting… if this hangs, host and joiner may both need to refresh and retry (relay servers can take a moment).');
+    }, 12000);
     c.on('open', function () {
+      joined = true; clearTimeout(watchdog);
       document.getElementById('netErr').classList.add('hidden');
       onConn(c);
       startGame();
     });
-    c.on('error', function (e) { netError('Could not join: ' + e.type); });
+    c.on('error', function (e) { clearTimeout(watchdog); netError('Could not join: ' + e.type); });
   });
   net.peer.on('error', function (e) { netError('Could not join: ' + e.type + ' (check the code / internet)'); });
 }
@@ -3423,6 +3484,7 @@ window.__wc = {
   breakables: breakables, breakProp: breakProp, lakeBedY: lakeBedY,
   isUnderwater: function () { return underwater; },
   net: net, startGame: startGame, hostGame: hostGame, joinGame: joinGame, handleNet: handleNet,
+  buildIceConfig: buildIceConfig, hmacSha1B64: hmacSha1B64,
   tick: function (dt) { T += dt; updatePlayer(dt); updateNPCs(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateEnv(dt); updateNet(dt); renderer.render(scene, camera); }
 };
 

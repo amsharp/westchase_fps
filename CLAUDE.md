@@ -160,8 +160,17 @@ forest walls + "ROAD CLOSED" barriers at the four road exits.
 - **Multiplayer** (PeerJS, host-as-hub): menu offers Singleplayer / Host
   (invite link `…#join=<peerid>`) / Join, plus a display-name input
   (localStorage `wc_name`; sent as `n`+`hp` in state msgs, drawn on the
-  overhead tag sprite with a health bar). `ICE_CONFIG` adds public TURN
-  relays (openrelay.metered.ca) so same-NAT/same-house peers can connect. **Host-authoritative world**: host
+  overhead tag sprite with a health bar). `buildIceConfig()` mints
+  short-lived TURN credentials in-browser (TURN REST scheme: username =
+  expiry unix time, credential = HMAC-SHA1(`openrelayprojectsecret`,
+  username) — pure-ES5 sha1/hmac in game.js) for
+  `staticauth.openrelay.metered.ca` so same-NAT/same-house peers can relay.
+  `window.WC_NET_OVERRIDE` (merged into the Peer options) lets tests point
+  the game at a local PeerServer + local TURN and force
+  `iceTransportPolicy:'relay'` — the sandbox rig in scratchpad
+  (`mpnet/rig.js` + `test_samenet.js`, npm pkgs `peer` + `node-turn`)
+  emulates same-router NAT failure and asserts via getStats that the
+  selected candidate pair is relay/relay. **Host-authoritative world**: host
   sims traffic/NPCs/street-cops/cash and broadcasts `world` snapshots @8 Hz;
   clients gate their sims via `isClient()` and mirror in `applyWorldSnap`
   (street-cop mirrors live in `copsM`). Client actions are messages the host
