@@ -1,0 +1,43 @@
+{
+  "civs": {
+    "MARISOL": "a Latina woman in her 30s with a high curly ponytail, wearing a coral tank top with a big white hibiscus flower graphic, white denim shorts, gold hoop earrings, wedge sandals",
+    "TYRELL": "a tall Black man with a flat-top haircut, wearing a purple-and-teal 90s geometric-pattern windbreaker, black track pants with white side stripes, white sneakers",
+    "BRAD": "a sunburned white man in his 40s with aviator sunglasses, wearing a sleeveless neon-green fishing shirt with a big marlin graphic, cargo shorts, flip flops, a bucket hat",
+    "KEISHA": "a Black woman in her 20s with long box braids, wearing lavender medical scrubs with an ID badge clipped to the chest pocket, white clogs",
+    "ERNESTO": "an older Latino man with a grey mustache, wearing a white guayabera shirt with embroidered stripes, brown slacks, a straw fedora hat",
+    "SKYLER": "a lanky white teenage skater with shaggy blond hair, wearing an oversized black t-shirt with a flaming skateboard graphic, ripped baggy jeans, checkered slip-on shoes",
+    "DENISE": "a middle-aged white woman with a big 80s perm, wearing a pink leopard-print blouse, acid-wash jeans, chunky white sneakers, big sunglasses on her head",
+    "ANDRE": "a muscular Black man with a shaved head and a goatee, wearing a tight red sleeveless gym shirt with a barbell graphic, grey athletic shorts, gym gloves",
+    "PHUONG": "a Vietnamese woman in her 40s, wearing a yellow apron with a lotus flower print over a white blouse, black pants, hair in a neat bun",
+    "COLT": "a wiry white man with a handlebar mustache, wearing a denim vest with patches over a black t-shirt, blue jeans, cowboy boots, a black cowboy hat",
+    "JAMAL": "a Black teenager with short twists, wearing an orange basketball jersey with the number 23, black basketball shorts, high-top sneakers, a wristband",
+    "GLORIA": "an elderly white woman with a silver bob, wearing a mint-green cardigan over a floral dress, pearl necklace, orthopedic shoes, holding glasses on a chain",
+    "DIEGO": "a Latino mechanic in his 30s, wearing navy work coveralls with the sleeves tied at the waist over a white tank top, an oil rag hanging from the pocket, work boots, a red trucker cap",
+    "AISHA": "a Black woman in her 20s wearing a bright yellow sundress with a white polka-dot pattern, white sandals, a matching yellow headwrap",
+    "VLAD": "a pale broad-shouldered man with a buzzcut, wearing a black tracksuit with white Adidas-style stripes, black loafers, a thin gold chain",
+    "SUMMER": "a tanned white woman in her 20s with long beach-blonde hair, wearing a tie-dye crop top, cutoff denim shorts, barefoot sandals, a puka shell necklace",
+    "WENDELL": "a heavyset older Black man with grey hair, wearing a brown cardigan over a mustard-yellow shirt with a chess knight graphic, brown slacks, newsboy cap",
+    "RIKO": "a Japanese man in his 20s with dyed silver hair, wearing an oversized graphic hoodie with a big koi fish print, wide-leg black pants, chunky sneakers",
+    "PATTY": "a white waitress in her 50s with red hair in a bun, wearing a teal diner uniform dress with a white apron and a name tag, white sneakers",
+    "OMAR": "a Middle-Eastern man in his 30s with a trimmed beard, wearing a crisp white polo shirt, a gold wristwatch, pressed khaki shorts, boat shoes, mirrored sunglasses",
+    "BECCA": "a white college-age woman with a messy topknot, wearing an oversized state-university sweatshirt with a big gator mascot graphic, athletic leggings, running shoes, a hydro bottle sling",
+    "LEON": "a Black man in his 40s with dreadlocks tied back, wearing a green-yellow-red striped knit shirt, faded jeans, leather sandals, wooden bead necklace",
+    "TINA": "a petite Filipino woman in her 30s, wearing a hot-pink windbreaker over a white shirt with a cat-face graphic, capri jeans, pink running shoes, a fanny pack worn across the chest"
+  },
+  "cops": {
+    "COP_BROOKS": "a tall Black male police officer with a short fade haircut, wearing a navy short-sleeve police uniform shirt with a silver badge and shoulder patches, dark navy trousers, black duty belt, black boots",
+    "COP_DIAZ": "a Latina female police officer with dark hair in a low bun, wearing a navy short-sleeve police uniform shirt with a silver badge and shoulder patches, dark navy trousers, black duty belt, black boots",
+    "COP_SULLIVAN": "a stocky white male police sergeant in his 50s with a grey walrus mustache, wearing a navy short-sleeve police uniform shirt with sergeant stripes and a silver badge, dark navy trousers, black duty belt, black boots",
+    "COP_NGUYEN": "a Vietnamese male police officer in his 30s, wearing a navy short-sleeve police uniform shirt with a silver badge and shoulder patches, dark navy trousers, black duty belt, black boots, wire-frame glasses",
+    "COP_WASHINGTON": "a Black female police officer with a short natural haircut, wearing a navy short-sleeve police uniform shirt with a silver badge and shoulder patches, dark navy trousers, black duty belt, black boots",
+    "COP_ROMERO": "a Latino male police officer with a buzzcut and a thin mustache, wearing a navy short-sleeve police uniform shirt with a silver badge and shoulder patches, dark navy trousers, black duty belt, black boots, aviator sunglasses",
+    "COP_OBRIEN": "a freckled white male police officer in his 20s with short red hair, wearing a navy short-sleeve police uniform shirt with a silver badge and shoulder patches, dark navy trousers, black duty belt, black boots",
+    "COP_PATEL": "an Indian male police officer in his 40s with a neat black beard, wearing a navy short-sleeve police uniform shirt with a silver badge and shoulder patches, dark navy trousers, black duty belt, black boots",
+    "COP_KOWALSKI": "a very tall broad white male police officer with a blond crew cut and a square jaw, wearing a navy short-sleeve police uniform shirt with a silver badge and shoulder patches, dark navy trousers, black duty belt, black boots",
+    "COP_JACKSON": "a heavyset Black male police officer in his 50s with grey temples, wearing a navy short-sleeve police uniform shirt with a silver badge and shoulder patches, dark navy trousers, black duty belt, black boots"
+  },
+  "roles": {
+    "CLERK": "a skinny white man in his early 20s with acne and messy brown hair, wearing a red RaceTrac gas-station polo shirt with a white name tag, khaki pants, a red visor cap, black non-slip shoes, a lanyard with keys around his neck",
+    "DEALER": "a wiry Black man in his 40s with a thin mustache, wearing black wraparound sunglasses, a thick gold chain necklace, an open black short-sleeve shirt over a dark grey t-shirt, black jeans, black leather shoes"
+  }
+}

@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.8.1';
+var GAME_VERSION = 'v1.8.2';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---------------- world constants ----------------
@@ -401,10 +401,14 @@ var skyDome = null;
 })();
 
 function roadStrip(cx, cz, w, d, vertical) {
-  var geo = new THREE.PlaneGeometry(w, d); geo.rotateX(-Math.PI / 2);
+  // long axis always on u, then rotate the GEOMETRY for the cross road —
+  // rotating the UV transform lands the repeat across the road and paints
+  // a pinstripe carpet of lane lines
+  var L = Math.max(w, d), W2 = Math.min(w, d);
+  var geo = new THREE.PlaneGeometry(L, W2); geo.rotateX(-Math.PI / 2);
+  if (vertical) geo.rotateY(Math.PI / 2);
   var m = lamb({ map: roadT.clone() });
-  if (vertical) { m.map.rotation = Math.PI / 2; m.map.center.set(0.5, 0.5); m.map.repeat.set(1, Math.max(w, d) / 16); }
-  else m.map.repeat.set(Math.max(w, d) / 16, 1);
+  m.map.repeat.set(L / 16, 1);
   m.map.needsUpdate = true;
   var mesh = new THREE.Mesh(geo, m);
   mesh.position.set(cx, 0.05, cz);
@@ -1430,27 +1434,31 @@ function getMeshySkin(mi) {
   g.computeVertexNormals();
   d.geo = g;
   d.clips = {};
-  for (var k in e.clips) {
-    var c = e.clips[k];
-    if (c.shared && typeof MESHY_SHARED_CLIPS !== 'undefined') {
+  var gyWalk = (e.clips.walk && e.clips.walk.gy) || 0;
+  if (typeof MESHY_SHARED_CLIPS !== 'undefined') {
+    var map = [];
+    for (var si = 0; si < MESHY_SHARED_CLIPS.names.length; si++) map.push(e.skel.names.indexOf(MESHY_SHARED_CLIPS.names[si]));
+    for (var k in MESHY_SHARED_CLIPS.clips) {
       var sh = MESHY_SHARED_CLIPS.clips[k];
       if (!meshySharedDecoded[k]) meshySharedDecoded[k] = { q: new Int16Array(b64Bytes(sh.q).buffer), y: new Int16Array(b64Bytes(sh.y).buffer) };
-      var map = [];
-      for (var si = 0; si < MESHY_SHARED_CLIPS.names.length; si++) map.push(e.skel.names.indexOf(MESHY_SHARED_CLIPS.names[si]));
-      d.clips[k] = { d: sh.d, f: sh.f, q: meshySharedDecoded[k].q, y: meshySharedDecoded[k].y, gy: c.gy || 0, map: map };
-    } else if (c.q) {
-      d.clips[k] = { d: c.d, f: c.f, q: new Int16Array(b64Bytes(c.q).buffer), y: new Int16Array(b64Bytes(c.y).buffer), gy: c.gy || 0 };
+      var gy = (e.clips[k] && e.clips[k].gy !== undefined) ? e.clips[k].gy : gyWalk;
+      d.clips[k] = { d: sh.d, f: sh.f, q: meshySharedDecoded[k].q, y: meshySharedDecoded[k].y, gy: gy, map: map };
     }
+  }
+  for (var k2 in e.clips) {
+    var c = e.clips[k2];
+    if (c.q) d.clips[k2] = { d: c.d, f: c.f, q: new Int16Array(b64Bytes(c.q).buffer), y: new Int16Array(b64Bytes(c.y).buffer), gy: c.gy || 0 };
   }
   meshySkinCache[mi] = d;
   return d;
 }
 var _poseQ = null;
-function meshyPose(sk, clipKey, cycles) {
+function meshyPose(sk, clipKey, cycles, oneshot) {
   if (!_poseQ) _poseQ = new THREE.Quaternion();
   var d = sk.d, c = d.clips[clipKey] || d.clips.walk;
   var nj = d.parents.length;
-  var ft = (cycles - Math.floor(cycles)) * (c.f - 1);
+  var cyc = oneshot ? Math.min(cycles, 0.999) : (cycles - Math.floor(cycles));
+  var ft = cyc * (c.f - 1);
   var f0 = Math.floor(ft), f1 = Math.min(c.f - 1, f0 + 1), a = ft - f0;
   var srcN = c.map ? c.map.length : nj;
   for (var i = 0; i < srcN; i++) {
@@ -2671,14 +2679,61 @@ function damageNPC(n, dmg, kx, kz, silent) {
       state.civKills++;
       if (state.civKills % 5 === 0) { addStar(1); popup2('WANTED LEVEL UP'); }
     }
-  } else { startFlee(n); sfx('hit'); }
+  } else {
+    sfx('hit');
+    if (n.state !== 'fight') {
+      n.state = 'hitreact'; n.animT = 0; n.stateT = 0.6;
+      n.hitClip = meleeHit ? 'hitpunch' : 'hitshot';
+      n.afterFight = meleeHit && Math.random() < 0.4;
+    }
+  }
   for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o === n || o.state !== 'walk') continue; var dx = o.x - n.x, dz = o.z - n.z; if (dx * dx + dz * dz < 170) startFlee(o); }
 }
 function startFlee(n) { if (n.state === 'down') return; n.state = 'flee'; n.fleeT = 4 + Math.random() * 3; var dx = n.x - player.x, dz = n.z - player.z; var d = Math.sqrt(dx * dx + dz * dz) || 1; n.fleeDX = dx / d; n.fleeDZ = dz / d; }
 function panicNear(x, z, r2) { var fled = false; for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o.state !== 'walk') continue; var dx = o.x - x, dz = o.z - z; if (dx * dx + dz * dz < r2) { startFlee(o); fled = true; } } if (fled) playVoiceAny(['pedm_gun', 'pedf_gun'], 0.4, 'pedGun', 16); }
 
+var npcSocialT = 0, npcBumpT = -99, meleeHit = false;
 function updateNPCs(dt) {
   if (isClient()) { updateNPCExtras(); return; }   // npcs mirrored from host snapshot
+  npcSocialT -= dt;
+  if (npcSocialT <= 0) {
+    npcSocialT = 1.2;
+    // occasionally pair up two nearby walkers for a chat
+    if (Math.random() < 0.35) {
+      outer:
+      for (var ci = 0; ci < npcs.length; ci++) {
+        var a = npcs[ci];
+        if (a.state !== 'walk') continue;
+        for (var cj = ci + 1; cj < npcs.length; cj++) {
+          var b2 = npcs[cj];
+          if (b2.state !== 'walk') continue;
+          var cdx = a.x - b2.x, cdz = a.z - b2.z;
+          if (cdx * cdx + cdz * cdz < 12) {
+            a.state = 'chat'; b2.state = 'chat';
+            a.partner = cj; b2.partner = ci;
+            a.chatRole = 0; b2.chatRole = 1;
+            a.stateT = b2.stateT = 5 + Math.random() * 6;
+            a.animT = 0; b2.animT = 1.1;
+            break outer;
+          }
+        }
+      }
+    }
+    // bump reaction: player shoving through someone
+    if (!state.dead && !inside && !driving) {
+      for (var bi = 0; bi < npcs.length; bi++) {
+        var bn = npcs[bi];
+        if (bn.state !== 'walk' && bn.state !== 'stand') continue;
+        var bdx = bn.x - player.x, bdz = bn.z - player.z;
+        if (bdx * bdx + bdz * bdz < 0.9 && T - npcBumpT > 6) {
+          npcBumpT = T;
+          playVoiceAny(['pedm_hit_2', 'pedo_hit', 'pedf_hit'], 0.4, 'pedBump', 6);
+          bn.state = 'stand'; bn.stateT = 1.4; bn.animT = 0; bn.idleVar = false;
+          bn.mesh.rotation.y = Math.atan2(-bdx, -bdz);
+        }
+      }
+    }
+  }
   for (var i = 0; i < npcs.length; i++) {
     var n = npcs[i], m = n.mesh;
     if (n.hurtFlash > 0) { n.hurtFlash -= dt; m.position.y = n.hurtFlash > 0 ? 0.06 : 0; }
@@ -2703,13 +2758,62 @@ function updateNPCs(dt) {
       if (n.downT <= 0) { var s = sidewalkSpot(); n.x = s[0]; n.z = s[1]; var t = npcTarget(); n.tx = t[0]; n.tz = t[1]; n.hp = 100; n.state = 'walk'; m.rotation.x = 0; if (m.userData.shadow) m.userData.shadow.visible = true; }
       m.position.set(n.x, m.position.y, n.z); continue;
     }
+    if (n.state === 'stand') {
+      n.stateT -= dt; n.animT += dt;
+      animPersonClip(m, n.idleVar ? 'idle2' : 'idle', n.animT);
+      if (n.stateT <= 0) { n.state = 'walk'; var st2 = npcTarget(); n.tx = st2[0]; n.tz = st2[1]; }
+      m.position.set(n.x, 0, n.z);
+      continue;
+    }
+    if (n.state === 'chat') {
+      n.stateT -= dt; n.animT += dt;
+      var pr = npcs[n.partner];
+      if (!pr || pr.state !== 'chat') { n.state = 'walk'; continue; }
+      m.rotation.y = Math.atan2(pr.x - n.x, pr.z - n.z);
+      animPersonClip(m, n.chatRole ? 'talk' : 'chat', n.animT);
+      if (n.stateT <= 0) { n.state = 'walk'; pr.state = 'walk'; }
+      m.position.set(n.x, 0, n.z);
+      continue;
+    }
+    if (n.state === 'hitreact') {
+      n.stateT -= dt; n.animT += dt;
+      animPersonClip(m, n.hitClip || 'hitpunch', n.animT, true);
+      if (n.stateT <= 0) {
+        if (n.afterFight && !state.dead && !inside) { n.state = 'fight'; n.fightT = 4 + Math.random() * 3; n.jabT = 0.7; n.animT = 0; }
+        else startFlee(n);
+      }
+      m.position.set(n.x, 0, n.z);
+      continue;
+    }
+    if (n.state === 'fight') {
+      n.fightT -= dt;
+      var fdx = player.x - n.x, fdz = player.z - n.z, fd = Math.sqrt(fdx * fdx + fdz * fdz) || 1;
+      m.rotation.y = Math.atan2(fdx, fdz);
+      if (n.fightT <= 0 || n.hp < 35 || state.dead || fd > 9) { startFlee(n); continue; }
+      if (fd > 1.5) {
+        n.x += fdx / fd * 3.2 * dt; n.z += fdz / fd * 3.2 * dt;
+        var fpos = pushOut(n.x, n.z, 0.45); n.x = fpos.x; n.z = fpos.z;
+        n.phase += 3.2 * dt * 3.4;
+        animPerson(m, 3.2, dt, n.phase);
+      } else {
+        n.animT += dt; n.jabT -= dt;
+        animPersonClip(m, 'jab', (n.animT % 1.1), true);
+        if (n.jabT <= 0) { n.jabT = 1.1; n.animT = 0; if (fd < 1.9) { hurtPlayer(4 + ((Math.random() * 4) | 0)); sfx('hit'); } }
+      }
+      m.position.set(n.x, 0, n.z);
+      continue;
+    }
     var vx = 0, vz = 0, spd = n.speed;
     if (n.state === 'flee') {
       n.fleeT -= dt; spd = 4.6; vx = n.fleeDX; vz = n.fleeDZ; if (n.fleeT <= 0) n.state = 'walk';
     } else {
       if (n.pause > 0) { n.pause -= dt; animPerson(m, 0, dt); continue; }
       var dx = n.tx - n.x, dz = n.tz - n.z, d = Math.sqrt(dx * dx + dz * dz);
-      if (d < 1) { var tt = npcTarget(); n.tx = tt[0]; n.tz = tt[1]; if (Math.random() < 0.25) n.pause = 1 + Math.random() * 3; continue; }
+      if (d < 1) {
+        var tt = npcTarget(); n.tx = tt[0]; n.tz = tt[1];
+        if (Math.random() < 0.3) { n.state = 'stand'; n.stateT = 2.5 + Math.random() * 6; n.animT = Math.random() * 3; n.idleVar = Math.random() < 0.4; }
+        continue;
+      }
       vx = dx / d; vz = dz / d;
     }
     n.x += vx * spd * dt; n.z += vz * spd * dt;
@@ -2736,9 +2840,16 @@ function updateNPCExtras() {
     }
   }
 }
+function animPersonClip(m, clip, tSec, oneshot) {
+  var sk = m.userData.skin;
+  if (sk && sk.d.clips[clip]) { meshyPose(sk, clip, tSec / sk.d.clips[clip].d, oneshot); return true; }
+  var L = m.userData.limbs;
+  if (L) { L.legL.rotation.x = 0; L.legR.rotation.x = 0; L.armL.rotation.x = clip === 'jab' ? -1.2 : 0; L.armR.rotation.x = 0; }
+  return false;
+}
 function animPerson(m, spd, dt, phase) {
   var sk = m.userData.skin;
-  if (sk) { if (spd > 0.1) meshyPose(sk, spd > 2.2 ? 'run' : 'walk', (phase || 0) / 6.2832); return; }
+  if (sk) { if (spd > 0.1) meshyPose(sk, spd > 2.2 ? 'run' : 'walk', (phase || 0) / 6.2832); else meshyPose(sk, 'idle', (T + (m.id % 10)) / (sk.d.clips.idle ? sk.d.clips.idle.d : 4)); return; }
   var L = m.userData.limbs; if (!L) return;
   var a = spd > 0.1 ? Math.sin(phase || 0) * 0.65 : 0;
   L.legL.rotation.x = a; L.legR.rotation.x = -a; L.armL.rotation.x = -a * 0.8; L.armR.rotation.x = a * 0.8;
@@ -2991,6 +3102,7 @@ function tryAttack() {
     }
     if (npcHit) {
       puff(h.point, 0xd93a2a);
+      meleeHit = state.equipped === 'fists';
       if (isClient()) netToHost({ t: 'dmgNpc', i: npcs.indexOf(npcHit), dmg: w.dmg, kx: dir.x, kz: dir.z });
       else damageNPC(npcHit, w.dmg, dir.x, dir.z);
     }
@@ -4028,7 +4140,7 @@ window.__wc = {
   setPitch: function (p2) { pitch = p2; camera.rotation.x = pitch; },
   teleport: function (x, z) { player.x = x; player.z = z; },
   tryAttack: tryAttack, setEquipped: setEquipped, cycleEquip: cycleEquip,
-  enterStore: enterStore, exitStore: exitStore, refreshClerk: refreshClerk, animPerson: animPerson, playVoice: playVoice,
+  enterStore: enterStore, exitStore: exitStore, refreshClerk: refreshClerk, animPerson: animPerson, animPersonClip: animPersonClip, playVoice: playVoice,
   isInside: function () { return inside; },
   storeState: function () { return { robbed: robbedVisit, copsCalled: copsCalledVisit, closedUntil: gasClosedUntil, now: T }; },
   resetCooldowns: function () { punchT = -99; lastShot = -99; },
