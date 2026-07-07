@@ -29,6 +29,7 @@
   .inviteRow { display:flex; width:420px; margin:0 auto; gap:6px; }
   #lobbyStatus { color:#8ee87f !important; }
   #netErr { margin-top:14px; color:#e5533d; font-size:14px; }
+  #gameVer { position:absolute; left:16px; bottom:12px; color:#8a8470; font-size:13px; letter-spacing:2px; }
 
   #pauseScreen, #deadScreen { background:rgba(6,10,18,0.75); color:#fff; text-align:center; cursor:pointer; }
   #pauseScreen h1 { font-size:34px; letter-spacing:6px; }
@@ -126,6 +127,7 @@
     <button class="menuBtn" id="btnEnter">ENTER WESTCHASE</button>
   </div>
   <div id="netErr" class="hidden"></div>
+  <div id="gameVer"></div>
 </div>
 
 <div id="pauseScreen" class="overlay hidden"><h1>PAUSED</h1><p style="margin-top:10px">click to resume</p></div>

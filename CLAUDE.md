@@ -153,6 +153,8 @@ forest walls + "ROAD CLOSED" barriers at the four road exits.
 - Verify changes in-game (screenshots via the /upload pipeline) before
   reporting done; the user notices regressions like disappearing viewmodels.
 - Update README.md when gameplay features change.
+- **Bump `GAME_VERSION`** (top of game.js, shown bottom-left of the main
+  menu) with every change to the game, no matter how small.
 
 ## Known jank / accepted tradeoffs
 

@@ -5,6 +5,10 @@
 (function () {
 'use strict';
 
+// Bump with EVERY change to the game (shown on the main menu).
+var GAME_VERSION = 'v1.1';
+document.getElementById('gameVer').textContent = GAME_VERSION;
+
 // ---------------- world constants ----------------
 var HALF = 340, TOTAL = HALF * 2;
 var EYE = 1.7, GRAV = 16;
