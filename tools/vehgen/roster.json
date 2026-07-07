@@ -1,0 +1,14 @@
+{
+  "vehicles": {
+    "PICKUP_FS": "a generic early-2000s American full-size pickup truck (F-150 class): single cab, long bed, big chrome front bumper, simple rectangular headlights, tall boxy hood",
+    "PICKUP_HD": "a generic early-2000s heavy-duty American pickup truck (Silverado class): extended cab, short bed, wide chrome grille bar, fog lights in the bumper",
+    "PICKUP_BIG": "a generic early-2000s American pickup truck with a huge rounded crosshair-style grille (Ram class): sloped hood, flared fenders, single cab",
+    "SEDAN_MID": "a generic early-2000s Japanese mid-size family sedan (Camry class): soft rounded body, plain trapezoid grille, wraparound headlights, four doors",
+    "SEDAN_SPORT": "a generic early-2000s Japanese sporty sedan (Accord class): slightly lower stance, thin angular headlights, subtle trunk lip spoiler, four doors",
+    "SEDAN_FULL": "a generic early-2000s American full-size sedan (Taurus class): very rounded jellybean body, oval rear window, wide oval grille, four doors",
+    "COMPACT": "a generic early-2000s Japanese compact sedan (Corolla class): short hood, upright cabin, simple slim grille, small wheels, four doors",
+    "HATCH": "a generic early-2000s Japanese compact coupe (Civic class): two doors, low nose, thin headlights, small factory alloy wheels",
+    "SUV_MID": "a generic early-2000s American mid-size SUV (Explorer class): boxy two-box shape, roof rails, gray plastic lower cladding, five doors",
+    "MINIVAN": "a generic early-2000s American minivan (Caravan class): one-box egg shape, sliding rear door seam, low floor, small wheels"
+  }
+}

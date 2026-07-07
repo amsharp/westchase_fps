@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.8.3';
+var GAME_VERSION = 'v1.8.4';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---------------- world constants ----------------
@@ -382,11 +382,16 @@ var skyDome = null;
   gr.addColorStop(0, '#3f8ad8'); gr.addColorStop(0.45, '#8ec6ea'); gr.addColorStop(0.75, '#d5e9f2'); gr.addColorStop(1, '#e2ecf0');
   g.fillStyle = gr; g.fillRect(0, 0, 256, 256);
   for (var i = 0; i < 10; i++) {
-    var x = Math.random() * 256, y = 60 + Math.random() * 90, r = 14 + Math.random() * 26;
-    var cg = g.createRadialGradient(x, y, 2, x, y, r);
-    cg.addColorStop(0, 'rgba(255,255,255,0.85)'); cg.addColorStop(0.6, 'rgba(255,255,255,0.4)'); cg.addColorStop(1, 'rgba(255,255,255,0)');
-    g.fillStyle = cg; g.save(); g.translate(x, y); g.scale(2.2, 1); g.translate(-x, -y);
-    g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); g.restore();
+    var cx0 = Math.random() * 256, y = 60 + Math.random() * 90, r = 14 + Math.random() * 26;
+    // draw wrapped copies so no cloud gets clipped at the U seam of the dome
+    for (var w = -1; w <= 1; w++) {
+      var x = cx0 + w * 256;
+      if (x + r * 2.2 < 0 || x - r * 2.2 > 256) continue;
+      var cg = g.createRadialGradient(x, y, 2, x, y, r);
+      cg.addColorStop(0, 'rgba(255,255,255,0.85)'); cg.addColorStop(0.6, 'rgba(255,255,255,0.4)'); cg.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = cg; g.save(); g.translate(x, y); g.scale(2.2, 1); g.translate(-x, -y);
+      g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); g.restore();
+    }
   }
   var t = new THREE.CanvasTexture(c); t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter;
   skyDome = new THREE.Mesh(new THREE.SphereGeometry(520, 20, 12), new THREE.MeshBasicMaterial({ map: t, side: THREE.BackSide, fog: false }));
@@ -672,6 +677,61 @@ function coffeeShop(x, z) {
 // ---------------- breakable props (trees + street lights vs cars) ----------------
 var breakables = [];
 var Y_UP = new THREE.Vector3(0, 1, 0);
+var packPropCache = {};
+function getPackProp(name) {
+  if (packPropCache[name]) return packPropCache[name];
+  if (typeof MESHY_PROPS === 'undefined') return null;
+  var e = null;
+  for (var i = 0; i < MESHY_PROPS.length; i++) if (MESHY_PROPS[i].n === name) e = MESHY_PROPS[i];
+  if (!e) return null;
+  var qp = new Int16Array(b64Bytes(e.p).buffer), qu = new Uint16Array(b64Bytes(e.u).buffer);
+  var fp = new Float32Array(qp.length), fu = new Float32Array(qu.length);
+  for (i = 0; i < qp.length; i++) fp[i] = qp[i] / e.q;
+  for (i = 0; i < qu.length; i += 2) { fu[i] = qu[i] / 8192; fu[i + 1] = 1 - qu[i + 1] / 8192; }
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(fp, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(fu, 2));
+  geo.computeVertexNormals();
+  var im = new Image();
+  var tx = new THREE.Texture(im);
+  tx.magFilter = THREE.NearestFilter; tx.minFilter = THREE.NearestFilter; tx.generateMipmaps = false;
+  im.onload = function () { tx.needsUpdate = true; };
+  im.src = e.tex;
+  var mat = lamb({ map: tx, alphaTest: 0.4, side: THREE.DoubleSide });
+  var maxY = 0;
+  for (i = 1; i < fp.length; i += 3) if (fp[i] > maxY) maxY = fp[i];
+  packPropCache[name] = { geo: geo, mat: mat, h: maxY || 1 };
+  return packPropCache[name];
+}
+var packPinkCache = {};
+function getPackPropPink(name) {   // blossom recolor of a pack prop (crepe myrtle)
+  if (packPinkCache[name]) return packPinkCache[name];
+  var pp = getPackProp(name);
+  if (!pp) return null;
+  var e = null;
+  for (var i = 0; i < MESHY_PROPS.length; i++) if (MESHY_PROPS[i].n === name) e = MESHY_PROPS[i];
+  var cv = document.createElement('canvas');
+  var tx = new THREE.CanvasTexture(cv);
+  tx.magFilter = THREE.NearestFilter; tx.minFilter = THREE.NearestFilter; tx.generateMipmaps = false;
+  var im = new Image();
+  im.onload = function () {
+    cv.width = im.width; cv.height = im.height;
+    var c2 = cv.getContext('2d'); c2.drawImage(im, 0, 0);
+    var d = c2.getImageData(0, 0, cv.width, cv.height), px = d.data;
+    for (var j = 0; j < px.length; j += 4) {
+      var g = px[j + 1];
+      if (g > px[j] * 0.9 && g > px[j + 2]) {   // leafy pixel -> blossom
+        px[j] = Math.min(255, 130 + g * 0.85) | 0;
+        px[j + 1] = 55 + g * 0.35 | 0;
+        px[j + 2] = 95 + g * 0.45 | 0;
+      }
+    }
+    c2.putImageData(d, 0, 0); tx.needsUpdate = true;
+  };
+  im.src = e.tex;
+  packPinkCache[name] = { geo: pp.geo, mat: lamb({ map: tx, alphaTest: 0.4, side: THREE.DoubleSide }), h: pp.h };
+  return packPinkCache[name];
+}
 function registerBreakable(g, x, z, r, type, light) {
   breakables.push({
     g: g, x: x, z: z, r: r, type: type, light: light || null,
@@ -689,6 +749,19 @@ function oak(x, z, scale) {
   if (oakCount >= OAK_CAP) return;
   oakCount++;
   scale = scale || (0.85 + Math.random() * 0.5);
+  var pp = getPackProp(['oak1', 'oak2', 'oak3'][(Math.random() * 3) | 0]);
+  if (pp) {
+    var g2 = new THREE.Group();
+    var tm = new THREE.Mesh(pp.geo, pp.mat);
+    var ts = 8.5 * scale / pp.h;   // scale to oak height regardless of authoring units
+    tm.scale.set(ts, ts, ts);
+    g2.add(tm);
+    g2.add(blobShadow(2 * scale, 2 * scale, 0.05));
+    g2.position.set(x, 0, z); g2.rotation.y = Math.random() * Math.PI * 2;
+    scene.add(g2);
+    registerBreakable(g2, x, z, 1.0, 'tree');
+    return;
+  }
   var g = new THREE.Group();
   var h = (4.5 + Math.random() * 2.5) * scale;
   g.add(cyl(0.28 * scale, 0.45 * scale, h, 7, oakTrunkM, 0, h / 2, 0));
@@ -971,6 +1044,17 @@ var bushMats = [lamb({ color: 0x3f6f2e }), lamb({ color: 0x4a7d34 }), lamb({ col
 var bushGeo = new THREE.SphereGeometry(1, 7, 5);
 function bush(x, z, scale) {
   scale = scale || (0.8 + Math.random() * 0.6);
+  var pb = getPackProp(Math.random() < 0.5 ? 'bush1' : 'bush2');
+  if (pb) {
+    var gb = new THREE.Group();
+    var bm2 = new THREE.Mesh(pb.geo, pb.mat);
+    var bs = 1.3 * scale / pb.h;
+    bm2.scale.set(bs, bs, bs);
+    gb.add(bm2);
+    gb.position.set(x, 0, z); gb.rotation.y = Math.random() * Math.PI * 2;
+    scene.add(gb);
+    return;
+  }
   var m = bushMats[(Math.random() * 3) | 0], g = new THREE.Group();
   var n = 2 + (Math.random() * 2 | 0);
   for (var i = 0; i < n; i++) { var b = new THREE.Mesh(bushGeo, m); var r = (0.5 + Math.random() * 0.4) * scale; b.scale.set(r, r * 0.8, r); b.position.set((Math.random() - 0.5) * scale, r * 0.7, (Math.random() - 0.5) * scale); g.add(b); }
@@ -980,8 +1064,19 @@ var thinTrunkM = lamb({ color: 0x7a5a3a });
 function crepeMyrtle(x, z) {
   var g = new THREE.Group(); var h = 3 + Math.random() * 1.6;
   g.add(cyl(0.11, 0.16, h, 6, thinTrunkM, 0, h / 2, 0));
-  var lm = Math.random() < 0.4 ? lamb({ color: 0xd98fb0 }) : bushMats[(Math.random() * 3) | 0];
-  for (var i = 0; i < 4; i++) { var c = new THREE.Mesh(bushGeo, lm); var r = 0.8 + Math.random() * 0.5; c.scale.set(r, r * 0.9, r); c.position.set((Math.random() - 0.5) * 1.2, h + (Math.random() - 0.3), (Math.random() - 0.5) * 1.2); g.add(c); }
+  var bn = Math.random() < 0.5 ? 'bush1' : 'bush2';
+  var pb = Math.random() < 0.4 ? getPackPropPink(bn) : getPackProp(bn);
+  if (pb) {
+    var cm = new THREE.Mesh(pb.geo, pb.mat);
+    var cs = 2.7 / pb.h;
+    cm.scale.set(cs, cs, cs);
+    cm.position.y = h - 1.0;   // canopy card cluster caps the trunk
+    cm.rotation.y = Math.random() * Math.PI * 2;
+    g.add(cm);
+  } else {
+    var lm = Math.random() < 0.4 ? lamb({ color: 0xd98fb0 }) : bushMats[(Math.random() * 3) | 0];
+    for (var i = 0; i < 4; i++) { var c = new THREE.Mesh(bushGeo, lm); var r = 0.8 + Math.random() * 0.5; c.scale.set(r, r * 0.9, r); c.position.set((Math.random() - 0.5) * 1.2, h + (Math.random() - 0.3), (Math.random() - 0.5) * 1.2); g.add(c); }
+  }
   g.add(blobShadow(1, 1, 0.05)); g.position.set(x, 0, z); scene.add(g);
 }
 
@@ -4169,7 +4264,7 @@ window.__wc = {
   setPitch: function (p2) { pitch = p2; camera.rotation.x = pitch; },
   teleport: function (x, z) { player.x = x; player.z = z; },
   tryAttack: tryAttack, setEquipped: setEquipped, cycleEquip: cycleEquip,
-  enterStore: enterStore, exitStore: exitStore, refreshClerk: refreshClerk, animPerson: animPerson, animPersonClip: animPersonClip, playVoice: playVoice,
+  enterStore: enterStore, exitStore: exitStore, refreshClerk: refreshClerk, animPerson: animPerson, animPersonClip: animPersonClip, playVoice: playVoice, oak: oak, bush: bush, getPackProp: getPackProp,
   isInside: function () { return inside; },
   storeState: function () { return { robbed: robbedVisit, copsCalled: copsCalledVisit, closedUntil: gasClosedUntil, now: T }; },
   resetCooldowns: function () { punchT = -99; lastShot = -99; },
