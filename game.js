@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.9.2';
+var GAME_VERSION = 'v1.9.3';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---------------- world constants ----------------
@@ -2288,6 +2288,7 @@ function damageCop(c, dmg, kx, kz, silent) {
   if (c.hp <= 0) {
     c.state = 'down'; c.downT = 10;
     if (c.mesh.userData.shadow) c.mesh.userData.shadow.visible = false;
+    stopNpcVoice(c.vname);
     spawnCash(c.x, c.z, 10 + ((Math.random() * 30) | 0), c.baseY || 0);
     sfx('ko');
     if (!silent) { popup('COP DOWN!'); addStar(1); }
@@ -2760,6 +2761,7 @@ function updateDecals(dt) {
 function killNpcRagdoll(n, dx, dz, power) {
   if (n.state === 'down' || n.state === 'ragdoll') return;
   n.state = 'ragdoll'; n.hp = 0;
+  stopNpcVoice(n.vname);
   if (n.mesh.userData.shadow) n.mesh.userData.shadow.visible = false;
   n.vx = dx * power + (Math.random() - 0.5) * 3;
   n.vz = dz * power + (Math.random() - 0.5) * 3;
@@ -2948,6 +2950,7 @@ function damageNPC(n, dmg, kx, kz, silent) {
   lastCrimeT = T;
   if (n.hp <= 0) {
     n.state = 'down'; n.downT = 8; if (n.mesh.userData.shadow) n.mesh.userData.shadow.visible = false;
+    stopNpcVoice(n.vname);
     spawnCash(n.x, n.z, 5 + ((Math.random() * 18) | 0)); sfx('ko'); sfx('grunt');
     if (!silent) {
       popup('KO!');
@@ -3811,7 +3814,13 @@ function playVoiceAny(ids, gain, cdKey, cd) {
 }
 // per-NPC voice lines (optional npcvoices.js) — returns false when the
 // character has no pack entry so callers can fall back to the generic barks
-var npcVoiceBufs = {};
+var npcVoiceBufs = {}, npcVoiceLive = {}, npcVoiceSrc = {};
+function stopNpcVoice(name) {   // cut a character's line short (death)
+  if (!name) return;
+  npcVoiceLive[name] = null;    // cancels a play still waiting on decode
+  var s = npcVoiceSrc[name];
+  if (s) { try { s.stop(); } catch (e) { } npcVoiceSrc[name] = null; }
+}
 function playNpcVoice(name, cat, gain, cd) {
   if (!name || typeof NPC_VOICES === 'undefined' || !NPC_VOICES[name] || !NPC_VOICES[name][cat]) return false;
   var key = 'npcv_' + name;
@@ -3821,10 +3830,17 @@ function playNpcVoice(name, cat, gain, cd) {
   var arr = NPC_VOICES[name][cat];
   var idx = (Math.random() * arr.length) | 0;
   var id = name + '_' + cat + '_' + idx;
+  var token = {};
+  npcVoiceLive[name] = token;
   function playBuf(buf) {
+    if (npcVoiceLive[name] !== token) return;   // died / superseded while decoding
+    var prev = npcVoiceSrc[name];
+    if (prev) { try { prev.stop(); } catch (e) { } }
     var src = ac.createBufferSource(); src.buffer = buf;
     var g = ac.createGain(); g.gain.value = gain || 0.45;
     src.connect(g); g.connect(ac.destination); src.start();
+    npcVoiceSrc[name] = src;
+    src.onended = function () { if (npcVoiceSrc[name] === src) npcVoiceSrc[name] = null; };
   }
   if (npcVoiceBufs[id]) { playBuf(npcVoiceBufs[id]); return true; }
   var bytes = b64Bytes(arr[idx].split(',')[1]);
