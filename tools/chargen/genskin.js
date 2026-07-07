@@ -248,7 +248,7 @@ if (cfIdx >= 0) {
 }
 const scIdx = process.argv.indexOf('--emit-shared');
 if (scIdx >= 0) {
-  fs.writeFileSync(process.argv[scIdx + 1], JSON.stringify({ names: jname, clips: clipsFull }));
+  fs.writeFileSync(process.argv[scIdx + 1], JSON.stringify({ names: jname, bindR: Buffer.from(new Int16Array(bindR.flat().map(v => Math.round(v * 16383))).buffer).toString('base64'), clips: clipsFull }));
   console.log('  shared clip set ->', process.argv[scIdx + 1]);
 }
 

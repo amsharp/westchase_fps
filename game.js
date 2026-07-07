@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.8.2';
+var GAME_VERSION = 'v1.8.3';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---------------- world constants ----------------
@@ -1445,11 +1445,25 @@ function getMeshySkin(mi) {
   if (typeof MESHY_SHARED_CLIPS !== 'undefined') {
     var map = [];
     for (var si = 0; si < MESHY_SHARED_CLIPS.names.length; si++) map.push(e.skel.names.indexOf(MESHY_SHARED_CLIPS.names[si]));
+    // retarget deltas: the shared clips carry the SOURCE rig's local
+    // rotations; each character's bind differs (100°+ at hips) — transfer
+    // the delta instead: q_final = q_clip * inv(bindSrc) * bindTgt
+    var post = new Float32Array(map.length * 4);
+    var srcBind = new Int16Array(b64Bytes(MESHY_SHARED_CLIPS.bind).buffer);
+    var qs = new THREE.Quaternion(), qt = new THREE.Quaternion();
+    for (si = 0; si < map.length; si++) {
+      var bi2 = map[si];
+      qs.set(srcBind[si * 4] / 16383, srcBind[si * 4 + 1] / 16383, srcBind[si * 4 + 2] / 16383, srcBind[si * 4 + 3] / 16383).invert();
+      if (bi2 >= 0) qt.set(d.br[bi2 * 4] / 16383, d.br[bi2 * 4 + 1] / 16383, d.br[bi2 * 4 + 2] / 16383, d.br[bi2 * 4 + 3] / 16383);
+      else qt.identity();
+      qs.multiply(qt);
+      post[si * 4] = qs.x; post[si * 4 + 1] = qs.y; post[si * 4 + 2] = qs.z; post[si * 4 + 3] = qs.w;
+    }
     for (var k in MESHY_SHARED_CLIPS.clips) {
       var sh = MESHY_SHARED_CLIPS.clips[k];
       if (!meshySharedDecoded[k]) meshySharedDecoded[k] = { q: new Int16Array(b64Bytes(sh.q).buffer), y: new Int16Array(b64Bytes(sh.y).buffer) };
       var gy = (e.clips[k] && e.clips[k].gy !== undefined) ? e.clips[k].gy : gyWalk;
-      d.clips[k] = { d: sh.d, f: sh.f, q: meshySharedDecoded[k].q, y: meshySharedDecoded[k].y, gy: gy, map: map };
+      d.clips[k] = { d: sh.d, f: sh.f, q: meshySharedDecoded[k].q, y: meshySharedDecoded[k].y, gy: gy, map: map, post: post };
     }
   }
   for (var k2 in e.clips) {
@@ -1475,6 +1489,7 @@ function meshyPose(sk, clipKey, cycles, oneshot) {
     b.quaternion.set(c.q[o0] / 16383, c.q[o0 + 1] / 16383, c.q[o0 + 2] / 16383, c.q[o0 + 3] / 16383);
     _poseQ.set(c.q[o1] / 16383, c.q[o1 + 1] / 16383, c.q[o1 + 2] / 16383, c.q[o1 + 3] / 16383);
     b.quaternion.slerp(_poseQ, a);
+    if (c.post) { _poseQ.set(c.post[i * 4], c.post[i * 4 + 1], c.post[i * 4 + 2], c.post[i * 4 + 3]); b.quaternion.multiply(_poseQ); }
   }
   sk.bones[d.rootI].position.y = sk.rootBindY + (c.gy || 0) + (c.y[f0] / 2000) * (1 - a) + (c.y[f1] / 2000) * a;
 }

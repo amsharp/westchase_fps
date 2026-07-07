@@ -24,7 +24,7 @@ let sharedOut = '';
 const sharedFile = path.join(__dirname, 'work', 'shared_clips.json');
 if (fs.existsSync(sharedFile)) {
   const sh = JSON.parse(fs.readFileSync(sharedFile, 'utf8'));
-  const packed = { names: sh.names, clips: {} };
+  const packed = { names: sh.names, bind: sh.bindR, clips: {} };
   for (const k in sh.clips) packed.clips[k] = { d: sh.clips[k].d, f: sh.clips[k].f, q: sh.clips[k].q, y: sh.clips[k].y };
   sharedOut = 'var MESHY_SHARED_CLIPS = ' + JSON.stringify(packed) + ';\n';
   console.log('shared clips: ' + Object.keys(packed.clips).join('+'));
