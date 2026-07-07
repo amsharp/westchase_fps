@@ -239,6 +239,37 @@ forest walls + "ROAD CLOSED" barriers at the four road exits.
 - Leg triangles whose class looks like shoe/sock but that reach above
   y 0.3 are denim fly/hem shading — painted as (shaded) pants, never shoe.
 
+## Meshy AI characters (v1.6)
+
+- `meshychars.js` (repo root, loaded by index.html BEFORE game.js; game
+  guards with `typeof MESHY_CHARS`) holds full AI-generated characters:
+  `[{n:'RYAN', tex:<256px JPEG data-url>, parts:{head/torso/armL/armR/
+  legL/legR: {pv,n,p,u,i}}}]` — same quantization scheme as PSX_MESH.
+  `buildCharacter` dispatches `cfg.preset > PSX_SKINS.length` →
+  `buildMeshyChar` (same limbs/shadow/cc contract, arms T-pose-dropped
+  ±1.42, no hats/glasses/gear — heads don't fit the PSX fittings).
+  Creator PRESET row + CC_MAX.preset extend automatically from
+  MESHY_CHARS; ~18% of non-preset NPCs roll a Meshy look.
+- Offline pipeline (scratchpad `meshy/`): gpt-image-1 seed (T-pose PSX
+  character, style-anchored on `aigen/h_man2.png` via images/edits) →
+  Meshy image-to-3d (`model_type:lowpoly, pose_mode:t-pose,
+  should_remesh, target_polycount:1600, topology:triangle`) → Meshy
+  rigging (`input_task_id`, gives Mixamo-style 24-joint skeleton + FREE
+  walking/running GLBs) → `gensplit.js` dominant-joint split into the 6
+  rigid parts w/ IBM-inverted pivots (genpsx method), 4K→256px
+  posterized JPEG texture → `meshychars_data.json` → meshychars.js.
+  `pipeline.js` runs seeds through the whole chain concurrently.
+  Costs: ~30cr gen + 5cr rig (+5cr standalone remesh); balance via
+  /openapi/v1/balance. Meshy key in scratchpad SECRETS.md — NEVER commit.
+- Gotchas: Meshy ignores/overshoots target_polycount without
+  should_remesh (9.5k tris); store RAW glb uv v in the quantized data
+  (game loader applies the 1-v flip); occluded-in-T-pose regions (inner
+  thighs under shirt hems) come back with neighbor-color texture bleed —
+  visible mid-stride, unsolved; skinned-playback path (SkinnedMesh +
+  Meshy anim library) validated offline (`skinframe.js`) but not wired
+  into the game; anim clip URLs per char saved in
+  `meshy/char_*_anims.json`.
+
 ## User preferences / history
 
 - Rejected the original blocky "PS1" look: wants **higher-poly meshes with

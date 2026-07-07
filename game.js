@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.5.1';
+var GAME_VERSION = 'v1.6';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---------------- world constants ----------------
@@ -1274,7 +1274,7 @@ var HATN = ['NONE', 'CAP', 'BEANIE', 'COWBOY', 'POLICE'];
 var GLASSN = ['NONE', 'SHADES', 'GLASSES'];
 var GEARN = ['NONE', 'PURSE', 'BACKPACK', 'CHAIN'];
 var CC_FIELDS = ['skin', 'hair', 'hairC', 'eyes', 'mouth', 'faceX', 'shirt', 'shirtC', 'shirtC2', 'pants', 'pantsC', 'shoeC', 'hat', 'hatC', 'glasses', 'extra', 'build', 'preset'];
-var CC_MAX = { skin: CSKIN.length, hair: HAIRN.length, hairC: CHAIRC.length, eyes: EYESN.length, mouth: MOUTHN.length, faceX: FACEXN.length, shirt: SHIRTN.length, shirtC: CSHIRT.length, shirtC2: CSHIRT.length, pants: LEGSN.length, pantsC: CPANTS.length, shoeC: CSHOE.length, hat: HATN.length, hatC: CHAT.length, glasses: GLASSN.length, extra: GEARN.length, build: 5, preset: 4 };
+var CC_MAX = { skin: CSKIN.length, hair: HAIRN.length, hairC: CHAIRC.length, eyes: EYESN.length, mouth: MOUTHN.length, faceX: FACEXN.length, shirt: SHIRTN.length, shirtC: CSHIRT.length, shirtC2: CSHIRT.length, pants: LEGSN.length, pantsC: CPANTS.length, shoeC: CSHOE.length, hat: HATN.length, hatC: CHAT.length, glasses: GLASSN.length, extra: GEARN.length, build: 5, preset: 4 + ((typeof MESHY_CHARS !== 'undefined') ? MESHY_CHARS.length : 0) };
 function seededRng(seed) { var s = seed >>> 0; return function () { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
 function randomCharConfig(rng) {
   rng = rng || Math.random;
@@ -1284,7 +1284,7 @@ function randomCharConfig(rng) {
   cfg.glasses = rng() < 0.3 ? 1 + ((rng() * 2) | 0) : 0;
   cfg.extra = rng() < 0.4 ? 1 + ((rng() * 3) | 0) : 0;
   cfg.faceX = rng() < 0.35 ? 1 + ((rng() * 3) | 0) : 0;
-  cfg.preset = rng() < 0.3 ? 1 + ((rng() * 3) | 0) : 0;
+  cfg.preset = rng() < 0.3 ? 1 + ((rng() * 3) | 0) : (rng() < 0.18 && typeof MESHY_CHARS !== 'undefined' && MESHY_CHARS.length ? 4 + ((rng() * MESHY_CHARS.length) | 0) : 0);
   return cfg;
 }
 function encodeCC(cfg) {
@@ -1344,6 +1344,66 @@ function getPSXParts() {
     psxParts[k] = { geo: geo, pv: P.pv, pos: fp, uvq: uvq, idx: idx, cls: cls };
   }
   return psxParts;
+}
+// ---- Meshy AI characters (optional meshychars.js, loaded before game.js) --
+var MESHY_LIST = (typeof MESHY_CHARS !== 'undefined') ? MESHY_CHARS : [];
+var meshyPartsCache = [], meshyTexCache = [];
+function getMeshyParts(mi) {
+  if (meshyPartsCache[mi]) return meshyPartsCache[mi];
+  var out = {};
+  var P0 = MESHY_LIST[mi].parts;
+  for (var k in P0) {
+    var P = P0[k];
+    var pos = new Int16Array(b64Bytes(P.p).buffer);
+    var uvq = new Uint16Array(b64Bytes(P.u).buffer);
+    var idx = new Uint16Array(b64Bytes(P.i).buffer);
+    var fp = new Float32Array(pos.length), fu = new Float32Array(uvq.length);
+    for (var i = 0; i < pos.length; i++) fp[i] = pos[i] / 2000;
+    for (i = 0; i < uvq.length; i += 2) { fu[i] = uvq[i] / 8192; fu[i + 1] = 1 - uvq[i + 1] / 8192; }
+    var geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(fp, 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(fu, 2));
+    geo.setIndex(new THREE.BufferAttribute(idx, 1));
+    geo.computeVertexNormals();
+    out[k] = { geo: geo, pv: P.pv };
+  }
+  meshyPartsCache[mi] = out;
+  return out;
+}
+function getMeshyTex(mi) {
+  if (!meshyTexCache[mi]) {
+    var im = new Image();
+    var tx = new THREE.Texture(im);
+    tx.magFilter = THREE.NearestFilter; tx.minFilter = THREE.NearestFilter; tx.generateMipmaps = false;
+    im.onload = function () { tx.needsUpdate = true; };
+    im.src = MESHY_LIST[mi].tex;
+    meshyTexCache[mi] = tx;
+  }
+  return meshyTexCache[mi];
+}
+function buildMeshyChar(cfg, mi) {
+  var g = new THREE.Group();
+  var M = lamb({ map: getMeshyTex(mi) });
+  var PP = getMeshyParts(mi);
+  var torso = new THREE.Mesh(PP.torso.geo, M);
+  var head = new THREE.Mesh(PP.head.geo, M);
+  function pivotGroup(k, rz) {
+    var gr = new THREE.Group();
+    gr.position.set(PP[k].pv[0], PP[k].pv[1], PP[k].pv[2]);
+    gr.add(new THREE.Mesh(PP[k].geo, M));
+    if (rz) gr.rotation.z = rz;
+    return gr;
+  }
+  var legL = pivotGroup('legL', 0), legR = pivotGroup('legR', 0);
+  var armL = pivotGroup('armL', -1.42), armR = pivotGroup('armR', 1.42);
+  g.add(torso, head, legL, legR, armL, armR);
+  var shadow = blobShadow(0.42, 0.42, 0.16); g.add(shadow);
+  g.userData.limbs = { legL: legL, legR: legR, armL: armL, armR: armR };
+  g.userData.shadow = shadow;
+  g.userData.cc = encodeCC(cfg);
+  var sc = 0.92 + (cfg.build || 0) * 0.045;
+  g.scale.set(sc, sc, sc);
+  return g;
 }
 var presetTexCache = [];
 function getPresetTex(i) {
@@ -1474,6 +1534,9 @@ function charAtlas(cfg) {
 var eyeM = lamb({ color: 0x1a1a1a });
 var goldM = lamb({ color: 0xd8ac30 });
 function buildCharacter(cfg) {
+  // presets beyond the painted PSX skins are full Meshy-generated meshes
+  var mi = cfg.preset - 1 - PSX_SKINS.length;
+  if (cfg.preset > PSX_SKINS.length && MESHY_LIST[mi]) return buildMeshyChar(cfg, mi);
   var g = new THREE.Group();
   var M = (cfg.preset > 0 && PSX_SKINS[cfg.preset - 1])
     ? lamb({ map: getPresetTex(cfg.preset - 1) })
@@ -2881,7 +2944,7 @@ var CREATOR_ROWS = [
   { k: 'eyes', n: 'EYES', names: EYESN },
   { k: 'mouth', n: 'MOUTH', names: MOUTHN },
   { k: 'faceX', n: 'FACE', names: FACEXN },
-  { k: 'preset', n: 'PRESET', names: ['CUSTOM', 'JESS', 'MARCUS', 'SPIKE'] },
+  { k: 'preset', n: 'PRESET', names: ['CUSTOM', 'JESS', 'MARCUS', 'SPIKE'].concat((typeof MESHY_CHARS !== 'undefined') ? MESHY_CHARS.map(function (m) { return m.n; }) : []) },
   { k: 'glasses', n: 'GLASSES', names: GLASSN },
   { k: 'shirt', n: 'SHIRT', names: SHIRTN },
   { k: 'shirtC', n: 'SHIRT COLOR', pal: CSHIRT },
