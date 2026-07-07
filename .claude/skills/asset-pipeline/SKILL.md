@@ -17,8 +17,11 @@ parameters, quality gates, and known gotchas.
    `style_ref.png`). **Always review the seed image before spending Meshy
    credits** — seeds are cheap, Meshy tasks cost ~35 credits per character.
 3. `charpipe.js NAME seed.png` runs Meshy image-to-3D (lowpoly, t-pose,
-   remeshed to ~1600 tris) + rigging, downloads the rigged GLB, and splits it
-   into the game's six rigid parts (`gensplit.js`).
+   remeshed to ~1600 tris) + rigging and downloads the rigged GLB. Then
+   download the walking+running clip GLBs (URLs in work/NAME_anims.json —
+   they expire, grab them immediately) and run `genskin.js NAME walk.glb
+   run.glb` for the SKINNED format (current standard; gensplit.js rigid
+   split is the legacy fallback).
 4. `glbview.js` renders any GLB in the game's own three.js for review;
    `merge_meshychars.js` integrates entries into `meshychars.js`.
 5. Verify in-game (characters auto-appear as creator presets and on NPCs),
@@ -33,6 +36,13 @@ parameters, quality gates, and known gotchas.
 - Never call AI APIs from the game itself; generation is build-time only.
 - Bump `GAME_VERSION` with every game change; update README.md for player-
   facing changes; don't merge staging work to main without user approval.
+
+## Voice / dialogue
+
+`tools/ttsgen/README.md` covers the Fish Audio TTS pipeline (needs
+`FISH_API_KEY` from the user): manifest.json lines -> mkvoicepack.js ->
+PS1-crunched voicelines.js. One voice reference_id per character, pinned in
+voices.json — never mix voices for the same character.
 
 ## Extending beyond characters
 

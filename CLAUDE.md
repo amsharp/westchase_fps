@@ -239,7 +239,7 @@ forest walls + "ROAD CLOSED" barriers at the four road exits.
 - Leg triangles whose class looks like shoe/sock but that reach above
   y 0.3 are denim fly/hem shading — painted as (shaded) pants, never shoe.
 
-## Meshy AI characters (v1.6)
+## Meshy AI characters (v1.6, SKINNED as of v1.7)
 
 - `meshychars.js` (repo root, loaded by index.html BEFORE game.js; game
   guards with `typeof MESHY_CHARS`) holds full AI-generated characters:
@@ -261,6 +261,28 @@ forest walls + "ROAD CLOSED" barriers at the four road exits.
   `pipeline.js` runs seeds through the whole chain concurrently.
   Costs: ~30cr gen + 5cr rig (+5cr standalone remesh); balance via
   /openapi/v1/balance. Meshy key in scratchpad SECRETS.md — NEVER commit.
+- **v1.7: characters are true SkinnedMeshes** (user rejected the rigid
+  split — joint gaps). meshychars.js entries now carry skel (24-joint
+  Mixamo-style bind pose; Meshy's Armature node scale 0.01 baked into
+  bind translations — joints are authored in CENTIMETERS), geo with
+  skinIndex/skinWeight, and 15fps quantized quaternion clips (walk+run,
+  root XZ motion stripped, Y bob kept). Runtime: getMeshySkin /
+  buildMeshySkinned build THREE.Skeleton+SkinnedMesh programmatically
+  (no loaders); meshyPose slerps clip frames; animPerson dispatches
+  m.userData.skin (phase/2pi = clip cycles, spd>2.2 = run clip);
+  userData.limbs points at the actual THREE.Bones so ragdoll works.
+  All 7 share the same skeleton — clip data could be deduped/unified
+  across characters later. tools/chargen/genskin.js converts walk+run
+  GLBs; clips expire on Meshy's CDN so download promptly (saved in
+  scratchpad meshy/clips/). Old rigid path (entry.parts +
+  buildMeshyChar) kept as fallback.
+- **TTS dialogue (v1.7)**: tools/ttsgen (Fish Audio -> psxify 8-bit
+  11kHz crunch -> voicelines.js data-URL WAVs, optional script before
+  game.js). playVoice(id,gain,cooldown) via the game AudioContext;
+  triggers: dealer shop/no-cash/buy, clerk greet/rob/panic, cop barks in
+  copShoot. Character->voice registry in tools/ttsgen/voices.json — one
+  reference_id per character, always. Fish key from user env, never
+  committed.
 - Gotchas: Meshy ignores/overshoots target_polycount without
   should_remesh (9.5k tris); store RAW glb uv v in the quantized data
   (game loader applies the 1-v flip); occluded-in-T-pose regions (inner

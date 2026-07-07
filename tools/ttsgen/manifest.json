@@ -1,0 +1,11 @@
+{
+  "dealer_greet": { "text": "Looking for hardware? I got what you need.", "voice": "78eda55526de4a1aa02d5f1ff5b0112b" },
+  "dealer_nocash": { "text": "Come back when you got the cash.", "voice": "78eda55526de4a1aa02d5f1ff5b0112b" },
+  "dealer_thanks": { "text": "Pleasure doing business.", "voice": "78eda55526de4a1aa02d5f1ff5b0112b" },
+  "clerk_greet": { "text": "Welcome to RaceTrac. Let me know if you need anything.", "voice": "3c9dcc58d40a45c2b60f5361294068ea" },
+  "clerk_rob": { "text": "Okay, okay! Take it! Take the money, man!", "voice": "3c9dcc58d40a45c2b60f5361294068ea" },
+  "clerk_panic": { "text": "Robbery! Somebody call the cops!", "voice": "3c9dcc58d40a45c2b60f5361294068ea" },
+  "cop_freeze": { "text": "Police! Freeze!", "voice": "f1c45fba3963441cba626504086e5e12" },
+  "cop_stop": { "text": "Stop right there, punk!", "voice": "f1c45fba3963441cba626504086e5e12" },
+  "cop_fire": { "text": "He's got a gun! Open fire!", "voice": "f1c45fba3963441cba626504086e5e12" }
+}

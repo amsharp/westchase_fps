@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.6.2';
+var GAME_VERSION = 'v1.7';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---------------- world constants ----------------
@@ -1405,6 +1405,84 @@ function buildMeshyChar(cfg, mi) {
   g.scale.set(sc, sc, sc);
   return g;
 }
+var meshySkinCache = [];
+function getMeshySkin(mi) {
+  if (meshySkinCache[mi]) return meshySkinCache[mi];
+  var e = MESHY_LIST[mi], d = {};
+  d.parents = e.skel.parents;
+  d.bt = new Int16Array(b64Bytes(e.skel.t).buffer);
+  d.br = new Int16Array(b64Bytes(e.skel.r).buffer);
+  d.rootI = 0;
+  for (var i = 0; i < d.parents.length; i++) if (d.parents[i] < 0) d.rootI = i;
+  var qp = new Int16Array(b64Bytes(e.geo.p).buffer), qu = new Uint16Array(b64Bytes(e.geo.u).buffer);
+  var fp = new Float32Array(qp.length), fu = new Float32Array(qu.length);
+  for (i = 0; i < qp.length; i++) fp[i] = qp[i] / 2000;
+  for (i = 0; i < qu.length; i += 2) { fu[i] = qu[i] / 8192; fu[i + 1] = 1 - qu[i + 1] / 8192; }
+  var si = b64Bytes(e.geo.si), sw = b64Bytes(e.geo.sw);
+  var fsi = new Uint16Array(si.length), fsw = new Float32Array(sw.length);
+  for (i = 0; i < si.length; i++) { fsi[i] = si[i]; fsw[i] = sw[i] / 255; }
+  var g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(fp, 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(fu, 2));
+  g.setAttribute('skinIndex', new THREE.BufferAttribute(fsi, 4));
+  g.setAttribute('skinWeight', new THREE.BufferAttribute(fsw, 4));
+  g.setIndex(new THREE.BufferAttribute(new Uint16Array(b64Bytes(e.geo.i).buffer), 1));
+  g.computeVertexNormals();
+  d.geo = g;
+  d.clips = {};
+  for (var k in e.clips) {
+    var c = e.clips[k];
+    d.clips[k] = { d: c.d, f: c.f, q: new Int16Array(b64Bytes(c.q).buffer), y: new Int16Array(b64Bytes(c.y).buffer) };
+  }
+  meshySkinCache[mi] = d;
+  return d;
+}
+var _poseQ = null;
+function meshyPose(sk, clipKey, cycles) {
+  if (!_poseQ) _poseQ = new THREE.Quaternion();
+  var d = sk.d, c = d.clips[clipKey] || d.clips.walk;
+  var nj = d.parents.length;
+  var ft = (cycles - Math.floor(cycles)) * (c.f - 1);
+  var f0 = Math.floor(ft), f1 = Math.min(c.f - 1, f0 + 1), a = ft - f0;
+  for (var i = 0; i < nj; i++) {
+    var b = sk.bones[i];
+    var o0 = (f0 * nj + i) * 4, o1 = (f1 * nj + i) * 4;
+    b.quaternion.set(c.q[o0] / 16383, c.q[o0 + 1] / 16383, c.q[o0 + 2] / 16383, c.q[o0 + 3] / 16383);
+    _poseQ.set(c.q[o1] / 16383, c.q[o1 + 1] / 16383, c.q[o1 + 2] / 16383, c.q[o1 + 3] / 16383);
+    b.quaternion.slerp(_poseQ, a);
+  }
+  sk.bones[d.rootI].position.y = sk.rootBindY + (c.y[f0] / 2000) * (1 - a) + (c.y[f1] / 2000) * a;
+}
+function buildMeshySkinned(cfg, mi) {
+  var d = getMeshySkin(mi);
+  var g = new THREE.Group();
+  var nj = d.parents.length, bones = [], root = null;
+  for (var i = 0; i < nj; i++) {
+    var b = new THREE.Bone();
+    b.position.set(d.bt[i * 3] / 2000, d.bt[i * 3 + 1] / 2000, d.bt[i * 3 + 2] / 2000);
+    b.quaternion.set(d.br[i * 4] / 16383, d.br[i * 4 + 1] / 16383, d.br[i * 4 + 2] / 16383, d.br[i * 4 + 3] / 16383);
+    bones.push(b);
+  }
+  for (i = 0; i < nj; i++) { if (d.parents[i] >= 0) bones[d.parents[i]].add(bones[i]); else root = bones[i]; }
+  var mesh = new THREE.SkinnedMesh(d.geo, lamb({ map: getMeshyTex(mi) }));
+  mesh.add(root);
+  mesh.updateMatrixWorld(true);
+  mesh.bind(new THREE.Skeleton(bones));
+  mesh.frustumCulled = false;
+  g.add(mesh);
+  var names = MESHY_LIST[mi].skel.names, bi = {};
+  for (i = 0; i < nj; i++) bi[names[i]] = i;
+  var sk = { d: d, bones: bones, rootBindY: bones[d.rootI].position.y };
+  g.userData.skin = sk;
+  meshyPose(sk, 'walk', 0);   // natural stance instead of T-pose
+  g.userData.limbs = { armL: bones[bi.LeftArm], armR: bones[bi.RightArm], legL: bones[bi.LeftUpLeg], legR: bones[bi.RightUpLeg] };
+  var shadow = blobShadow(0.42, 0.42, 0.16); g.add(shadow);
+  g.userData.shadow = shadow;
+  g.userData.cc = encodeCC(cfg);
+  var sc = 0.92 + (cfg.build || 0) * 0.045;
+  g.scale.set(sc, sc, sc);
+  return g;
+}
 var presetTexCache = [];
 function getPresetTex(i) {
   if (!presetTexCache[i]) {
@@ -1536,7 +1614,9 @@ var goldM = lamb({ color: 0xd8ac30 });
 function buildCharacter(cfg) {
   // presets beyond the painted PSX skins are full Meshy-generated meshes
   var mi = cfg.preset - 1 - PSX_SKINS.length;
-  if (cfg.preset > PSX_SKINS.length && MESHY_LIST[mi]) return buildMeshyChar(cfg, mi);
+  if (cfg.preset > PSX_SKINS.length && MESHY_LIST[mi]) {
+    return MESHY_LIST[mi].skel ? buildMeshySkinned(cfg, mi) : buildMeshyChar(cfg, mi);
+  }
   var g = new THREE.Group();
   var M = (cfg.preset > 0 && PSX_SKINS[cfg.preset - 1])
     ? lamb({ map: getPresetTex(cfg.preset - 1) })
@@ -1754,6 +1834,7 @@ scene.add(clerk);
 function enterStore() {
   if (T < gasClosedUntil) { popup2('STORE CLOSED — come back later'); sfx('deny'); return; }
   inside = true; robbedVisit = false; copsCalledVisit = false;
+  playVoice('clerk_greet', 0.55, 60);
   setZoom(false);
   player.x = doorIn.x; player.z = doorIn.z; player.y = INT.y + EYE;
   yaw = 0; pitch = 0;   // facing into the store
@@ -1790,12 +1871,14 @@ function refreshClerk() {
     if (armed) {
       var take = 100 + ((Math.random() * 201) | 0);
       state.money += take; robbedVisit = true;
+      playVoice('clerk_rob', 0.6, 8);
       popup('ROBBED  +$' + take);
       sfx('alarm');
       if (state.wanted < 2) setWanted(2); else lastCrimeT = T;
       closeMenus();
     } else {
       copsCalledVisit = true; robbedVisit = true;
+      playVoice('clerk_panic', 0.6, 8);
       popup2('You threaten him with... fists? He hits the panic button!');
       sfx('alarm');
       if (state.wanted < 2) setWanted(2); else lastCrimeT = T;
@@ -1887,6 +1970,10 @@ function copShoot(c, wpn, dt, tgt) {
   if (c.fireT > 0) return;
   c.fireT = wpn.rate;
   if (!c.interior && !copHasLOS(c, tgt)) return;   // interior is one small room — they can always see you
+  if (!tgt.id) {   // barks only for the local player
+    var bark = state.wanted >= 4 ? 'cop_fire' : (Math.random() < 0.5 ? 'cop_freeze' : 'cop_stop');
+    playVoice(bark, 0.45, 14);
+  }
   sfx(wpn.sfx);
   var dx = tgt.x - c.x, dz = tgt.z - c.z, d = Math.sqrt(dx * dx + dz * dz) || 1;
   puff(new THREE.Vector3(c.x + dx / d * 0.5, (c.baseY || 0) + 1.45, c.z + dz / d * 0.5), 0xffe08a);
@@ -2631,6 +2718,8 @@ function updateNPCExtras() {
   }
 }
 function animPerson(m, spd, dt, phase) {
+  var sk = m.userData.skin;
+  if (sk) { if (spd > 0.1) meshyPose(sk, spd > 2.2 ? 'run' : 'walk', (phase || 0) / 6.2832); return; }
   var L = m.userData.limbs; if (!L) return;
   var a = spd > 0.1 ? Math.sin(phase || 0) * 0.65 : 0;
   L.legL.rotation.x = a; L.legR.rotation.x = -a; L.armL.rotation.x = -a * 0.8; L.armR.rotation.x = a * 0.8;
@@ -3142,6 +3231,21 @@ function startAmbient() {
   us.connect(uf); uf.connect(uwGain); uwGain.connect(ac.destination); us.start();
   if (underwater) uwGain.gain.value = 0.65;
 }
+// ---- PS1-crunched TTS dialogue (optional voicelines.js) ----
+var voiceBufs = {}, voiceLastT = {};
+function playVoice(id, gain, cd) {
+  if (typeof VOICE_LINES === 'undefined' || !VOICE_LINES[id] || !ac) return;
+  if (voiceLastT[id] !== undefined && T - voiceLastT[id] < (cd || 5)) return;
+  voiceLastT[id] = T;
+  function playBuf(buf) {
+    var src = ac.createBufferSource(); src.buffer = buf;
+    var g = ac.createGain(); g.gain.value = gain || 0.5;
+    src.connect(g); g.connect(ac.destination); src.start();
+  }
+  if (voiceBufs[id]) { playBuf(voiceBufs[id]); return; }
+  var bytes = b64Bytes(VOICE_LINES[id].split(',')[1]);
+  ac.decodeAudioData(bytes.buffer, function (buf) { voiceBufs[id] = buf; playBuf(buf); }, function () { });
+}
 function noiseBurst(dur, freq, gain) { if (!ac) return; var n = ac.sampleRate * dur, buf = ac.createBuffer(1, n, ac.sampleRate), d = buf.getChannelData(0); for (var i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n); var src = ac.createBufferSource(); src.buffer = buf; var f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = freq; var g = ac.createGain(); g.gain.value = gain; src.connect(f); f.connect(g); g.connect(ac.destination); src.start(); }
 function beep(freq, dur, gain, type, slide) { if (!ac) return; var o = ac.createOscillator(), g = ac.createGain(); o.type = type || 'square'; o.frequency.setValueAtTime(freq, ac.currentTime); if (slide) o.frequency.exponentialRampToValueAtTime(slide, ac.currentTime + dur); g.gain.setValueAtTime(gain, ac.currentTime); g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + dur); o.connect(g); g.connect(ac.destination); o.start(); o.stop(ac.currentTime + dur); }
 function sfx(kind) {
@@ -3180,7 +3284,7 @@ function refreshShop() {
     var w = WEAPONS[k], row = document.createElement('div'); row.className = 'row';
     var left = document.createElement('div'); left.innerHTML = '<b>' + w.name + '</b> — <span class="cash">$' + w.price + '</span><small>' + w.desc + '</small>'; row.appendChild(left);
     if (state.owned[k]) { var sp = document.createElement('span'); sp.className = 'owned'; sp.textContent = 'OWNED'; row.appendChild(sp); }
-    else { var btn = document.createElement('button'); btn.textContent = 'BUY'; btn.disabled = state.money < w.price; btn.onclick = function () { if (state.money < w.price) { sfx('deny'); return; } state.money -= w.price; state.owned[k] = true; sfx('buy'); popup(w.name + ' purchased!'); refreshShop(); }; row.appendChild(btn); }
+    else { var btn = document.createElement('button'); btn.textContent = 'BUY'; btn.disabled = state.money < w.price; btn.onclick = function () { if (state.money < w.price) { playVoice('dealer_nocash', 0.5, 6); sfx('deny'); return; } state.money -= w.price; state.owned[k] = true; playVoice('dealer_thanks', 0.5, 6); sfx('buy'); popup(w.name + ' purchased!'); refreshShop(); }; row.appendChild(btn); }
     rows.appendChild(row);
   });
   document.getElementById('shopCash').textContent = '$' + state.money;
@@ -3210,7 +3314,7 @@ function refreshInv() {
   var any = GUN_LIST.some(function (k) { return state.owned[k]; });
   if (!any) { var hint = document.createElement('div'); hint.className = 'row'; hint.innerHTML = '<small>No guns yet — earn cash and visit the dealer ($ on the minimap).</small>'; rows.appendChild(hint); }
 }
-function openMenu(which) { setZoom(false); state.menu = which; document.exitPointerLock && document.exitPointerLock(); if (which === 'shop') { refreshShop(); document.getElementById('shopPanel').classList.remove('hidden'); } if (which === 'inv') { refreshInv(); document.getElementById('invPanel').classList.remove('hidden'); } if (which === 'clerk') { refreshClerk(); document.getElementById('clerkPanel').classList.remove('hidden'); } }
+function openMenu(which) { setZoom(false); state.menu = which; document.exitPointerLock && document.exitPointerLock(); if (which === 'shop') { playVoice('dealer_greet', 0.5, 20); refreshShop(); document.getElementById('shopPanel').classList.remove('hidden'); } if (which === 'inv') { refreshInv(); document.getElementById('invPanel').classList.remove('hidden'); } if (which === 'clerk') { refreshClerk(); document.getElementById('clerkPanel').classList.remove('hidden'); } }
 function closeMenus(relock) { state.menu = null; document.getElementById('shopPanel').classList.add('hidden'); document.getElementById('invPanel').classList.add('hidden'); document.getElementById('clerkPanel').classList.add('hidden'); if (relock !== false && state.running) lockPointer(); }
 
 // ---------------- minimap ----------------
@@ -3897,7 +4001,7 @@ window.__wc = {
   setPitch: function (p2) { pitch = p2; camera.rotation.x = pitch; },
   teleport: function (x, z) { player.x = x; player.z = z; },
   tryAttack: tryAttack, setEquipped: setEquipped, cycleEquip: cycleEquip,
-  enterStore: enterStore, exitStore: exitStore, refreshClerk: refreshClerk,
+  enterStore: enterStore, exitStore: exitStore, refreshClerk: refreshClerk, animPerson: animPerson, playVoice: playVoice,
   isInside: function () { return inside; },
   storeState: function () { return { robbed: robbedVisit, copsCalled: copsCalledVisit, closedUntil: gasClosedUntil, now: T }; },
   resetCooldowns: function () { punchT = -99; lastShot = -99; },
