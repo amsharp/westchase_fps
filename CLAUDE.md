@@ -250,7 +250,7 @@ forest walls + "ROAD CLOSED" barriers at the four road exits.
   ±1.42, no hats/glasses/gear — heads don't fit the PSX fittings).
   Creator PRESET row + CC_MAX.preset extend automatically from
   MESHY_CHARS; ~18% of non-preset NPCs roll a Meshy look.
-- Offline pipeline (scratchpad `meshy/`): gpt-image-1 seed (T-pose PSX
+- Offline pipeline (durable copy: **`tools/chargen/` in the repo** — README.md there is the source of truth, plus `.claude/skills/asset-pipeline/SKILL.md`; scratchpad `meshy/` was the original): gpt-image-1 seed (T-pose PSX
   character, style-anchored on `aigen/h_man2.png` via images/edits) →
   Meshy image-to-3d (`model_type:lowpoly, pose_mode:t-pose,
   should_remesh, target_polycount:1600, topology:triangle`) → Meshy
