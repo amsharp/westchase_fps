@@ -211,7 +211,14 @@ forest walls + "ROAD CLOSED" barriers at the four road exits.
   `__wc.creatorSpin(v)` poses the turntable for screenshots.
 - The offline generator (GLB→PSX_MESH) lives in the session scratchpad as
   `genpsx.js`; rerun it against the asset zip if the mesh data ever needs
-  regenerating.
+  regenerating. True bone pivots come from full inverse-bind-matrix
+  inversion (geometric estimates disjointed the shoulders by ~11cm).
+- `PSX_FACES`: six painterly face patches (gpt-image-1, generated offline
+  at build time — never call APIs from the game) composited into the face
+  UV island (`cfg.photo` 1–6, creator row FACE STYLE); each carries a
+  sampled skin hex that overrides the body tone. cc is 18 fields now.
+- Leg triangles whose class looks like shoe/sock but that reach above
+  y 0.3 are denim fly/hem shading — painted as (shaded) pants, never shoe.
 
 ## User preferences / history
 
