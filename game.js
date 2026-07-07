@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.8.4';
+var GAME_VERSION = 'v1.8.5';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---------------- world constants ----------------
@@ -906,21 +906,65 @@ var wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.24, 12);
 var lightF = new THREE.MeshBasicMaterial({ color: 0xfff2cc });
 var lightR = new THREE.MeshBasicMaterial({ color: 0xc03028 });
 var bumperM = lamb({ color: 0x2c2e32 });
+// headlight ground beam (night): warm trapezoid glow ahead of the nose
+var beamTex = (function () {
+  var c = document.createElement('canvas'); c.width = 128; c.height = 64;
+  var g = c.getContext('2d');
+  g.clearRect(0, 0, 128, 64);
+  var gr = g.createLinearGradient(0, 0, 128, 0);
+  gr.addColorStop(0, 'rgba(255,238,190,0.9)'); gr.addColorStop(0.55, 'rgba(255,238,190,0.45)'); gr.addColorStop(1, 'rgba(255,238,190,0)');
+  g.fillStyle = gr;
+  g.beginPath(); g.moveTo(0, 22); g.lineTo(128, 2); g.lineTo(128, 62); g.lineTo(0, 42); g.closePath(); g.fill();
+  var t = new THREE.CanvasTexture(c); t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter;
+  return t;
+})();
+var beamGeo = (function () { var g = new THREE.PlaneGeometry(6.4, 3.4); g.rotateX(-Math.PI / 2); g.translate(5.3, 0, 0); return g; })();
+var beamM = new THREE.MeshBasicMaterial({ map: beamTex, transparent: true, opacity: 0.5, depthWrite: false });
 function makeCar() {
   var g = new THREE.Group(); var col = CARCOLS[(Math.random() * CARCOLS.length) | 0];
-  g.add(new THREE.Mesh(carBodyGeo, phong({ color: col, shininess: 55, specular: 0x999999 })));
-  g.add(new THREE.Mesh(carCabinGeo, glassMat));
-  g.add(box(0.2, 0.24, 1.8, bumperM, 2.3, 0.34, 0)); g.add(box(0.2, 0.24, 1.8, bumperM, -2.3, 0.34, 0));
-  g.add(box(0.06, 0.12, 0.32, lightF, 2.34, 0.68, 0.55)); g.add(box(0.06, 0.12, 0.32, lightF, 2.34, 0.68, -0.55));
-  g.add(box(0.06, 0.12, 0.32, lightR, -2.36, 0.68, 0.55)); g.add(box(0.06, 0.12, 0.32, lightR, -2.36, 0.68, -0.55));
-  var wheels = [];
+  var body = new THREE.Group();   // separate so suspension can bounce it over the wheels
+  body.add(new THREE.Mesh(carBodyGeo, phong({ color: col, shininess: 55, specular: 0x999999 })));
+  body.add(new THREE.Mesh(carCabinGeo, glassMat));
+  body.add(box(0.2, 0.24, 1.8, bumperM, 2.3, 0.34, 0)); body.add(box(0.2, 0.24, 1.8, bumperM, -2.3, 0.34, 0));
+  body.add(box(0.06, 0.12, 0.32, lightF, 2.34, 0.68, 0.55)); body.add(box(0.06, 0.12, 0.32, lightF, 2.34, 0.68, -0.55));
+  body.add(box(0.06, 0.12, 0.32, lightR, -2.36, 0.68, 0.55)); body.add(box(0.06, 0.12, 0.32, lightR, -2.36, 0.68, -0.55));
+  g.add(body);
+  var wheels = [], pivots = [];
   [[1.42, 0.86], [1.42, -0.86], [-1.42, 0.86], [-1.42, -0.86]].forEach(function (wp) {
-    var w = new THREE.Mesh(wheelGeo, [tireMat, hubMat, hubMat]); w.rotation.x = Math.PI / 2; w.position.set(wp[0], 0.34, wp[1]); g.add(w); wheels.push(w);
+    var pv = new THREE.Group(); pv.position.set(wp[0], 0.34, wp[1]);
+    var w = new THREE.Mesh(wheelGeo, [tireMat, hubMat, hubMat]); w.rotation.x = Math.PI / 2;
+    pv.add(w); g.add(pv); wheels.push(w); pivots.push(pv);
   });
+  var beam = new THREE.Mesh(beamGeo, beamM);
+  beam.position.y = 0.16; beam.visible = false;
+  g.add(beam);
   g.add(blobShadow(2.4, 1.15, 0.1)); scene.add(g);
-  return { group: g, wheels: wheels };
+  return { group: g, body: body, wheels: wheels, pivots: pivots, beam: beam };
 }
 function staticCar(x, z, ry) { var c = makeCar(); c.group.position.set(x, 0, z); c.group.rotation.y = ry || 0; }
+// suspension spring + accel pitch + steer roll + front-wheel steering (visual only)
+function updateCarFeel(c, dt, spd, accel, steer) {
+  var cc = c.car;
+  if (!cc.body) return;
+  c.sy = c.sy || 0; c.svy = c.svy || 0;
+  c.svy += (-140 * c.sy - 11 * c.svy) * dt;
+  c.sy += c.svy * dt;
+  var asp = Math.abs(spd);
+  c.seedPh = c.seedPh || Math.random() * 6.28;
+  var rumble = asp > 2 ? Math.sin(T * (7 + asp * 0.55) + c.seedPh) * 0.015 * Math.min(1, asp / 14) : 0;
+  cc.body.position.y = Math.max(-0.12, Math.min(0.18, c.sy)) + rumble;
+  c.pitchS = c.pitchS || 0; c.rollS = c.rollS || 0;
+  var k = Math.min(1, 6 * dt);
+  c.pitchS += ((accel || 0) * 0.0035 - c.pitchS) * k;
+  c.rollS += (-(steer || 0) * Math.min(1, asp / 12) * 0.05 - c.rollS) * k;
+  cc.body.rotation.z = c.pitchS;
+  cc.body.rotation.x = c.rollS;
+  var target = (steer || 0) * 0.42;
+  c.steerA = c.steerA || 0;
+  c.steerA += (target - c.steerA) * Math.min(1, 10 * dt);
+  cc.pivots[0].rotation.y = c.steerA;
+  cc.pivots[1].rotation.y = c.steerA;
+}
 
 // ---------------- lake (transparent, swimmable, with fountain) ----------------
 var fountainDrops = [];
@@ -2302,6 +2346,7 @@ function updateCars(dt) {
     }
     var spin = (c.speed * dt) / 0.34;
     for (var wi = 0; wi < 4; wi++) c.car.wheels[wi].rotation.y -= spin;
+    updateCarFeel(c, dt, c.berserk ? 14 : c.speed, 0, c.berserk ? Math.sin(T * 5 + i) : 0);
 
     // engine noise: pitch by speed, volume by distance
     var edx = player.x - m.position.x, edz = player.z - m.position.z;
@@ -2462,12 +2507,14 @@ function updateDriving(dt) {
   var p = pushOut(nx, nz, 1.7);
   if (Math.abs(p.x - nx) > 0.01 || Math.abs(p.z - nz) > 0.01) {
     if (Math.abs(c.pspeed) > 8) sfx('crash');
+    c.svy = (c.svy || 0) - Math.min(1.4, Math.abs(c.pspeed) * 0.09);   // suspension slam
     c.pspeed *= -0.15;
   }
   g.position.set(p.x, 0, p.z);
   g.rotation.y = h;
   var spin = (c.pspeed * dt) / 0.34;
   for (var wi = 0; wi < 4; wi++) c.car.wheels[wi].rotation.y -= spin;
+  updateCarFeel(c, dt, c.pspeed, accel, steer);
   ensureEngine(c);
   if (c.eng) {
     var sp = Math.abs(c.pspeed);
@@ -3400,6 +3447,10 @@ function updateWorldFx(dt) {
   // cars snap trees & street lights (works on host and on mirrored client cars)
   for (var i = 0; i < cars.length; i++) {
     var c = cars[i];
+    if (c.car.beam) {   // headlights follow the street lights (any peer)
+      var bv = lampsOn && !c.exploded;
+      if (c.car.beam.visible !== bv) c.car.beam.visible = bv;
+    }
     var m = c.car.group.position;
     var hx = c._bx === undefined ? m.x : c._bx, hz = c._bz === undefined ? m.z : c._bz;
     var mvx = m.x - hx, mvz = m.z - hz;

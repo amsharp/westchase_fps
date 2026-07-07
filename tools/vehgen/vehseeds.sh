@@ -11,12 +11,17 @@ mkdir -p work
 
 gen_one() {
   NAME="$1"; DESC="$2"
-  PROMPT="Retro PS1 / PSX low-poly game model of $DESC. The vehicle is completely generic with NO brand logos, NO badges, NO license plate text. Body paint: saturated medium blue. Windows: simple flat dark gray, no reflections. View: three-quarter front-left view showing the front and the left side, whole vehicle fully in frame, plain white background, flat even lighting with no shadows. Art style: chunky angular low-poly geometry with hard visible triangular facets and blocky silhouette edges (NOT smooth or rounded), crisp low-resolution pixelated painted textures like a 256x256 game texture, painted-on details for door seams, headlights, grille and door handles."
+  # style-anchored on style_ref_car.png (GGBot PSX car render) — the
+  # reference contributes ONLY art style; the description sets the vehicle
+  PROMPT="Create this vehicle as a retro PS1 / PSX low-poly game model: $DESC. IMPORTANT: this is a COMPLETELY DIFFERENT vehicle from the one in the attached reference image - keep the described body type and era; from the reference copy ONLY the art style: the same extremely chunky low-poly geometry made of visibly flat angular facets, the same grainy low-resolution pixelated 256x256-style painted texture with painted-on door seams, painted-on headlights, painted-on grille, and simple flat dark windows. The vehicle is completely generic with NO brand logos, NO badges, NO license plate text. Body paint: saturated medium blue. View: three-quarter front-left view showing the front and the left side, whole vehicle fully in frame, plain white background, flat even lighting with no shadows. It must look like it was ripped straight from a 1997 PlayStation game: blocky, faceted, pixelated, NOT smooth, NOT rounded, NOT modern-render clean."
   RESP=$(mktemp)
-  curl -sS https://api.openai.com/v1/images/generations \
+  curl -sS https://api.openai.com/v1/images/edits \
     -H "Authorization: Bearer $OPENAI_API_KEY" \
-    -H "Content-Type: application/json" \
-    -d "$(node -e "console.log(JSON.stringify({model:'gpt-image-1',prompt:process.argv[1],size:'1536x1024',quality:'high'}))" "$PROMPT")" > "$RESP"
+    -F "model=gpt-image-1" \
+    -F "image[]=@style_ref_car.png" \
+    -F "prompt=$PROMPT" \
+    -F "size=1536x1024" \
+    -F "quality=high" > "$RESP"
   node -e "
 const r=JSON.parse(require('fs').readFileSync('$RESP','utf8'));
 if(!r.data){console.error('API error $NAME:',JSON.stringify(r).slice(0,300));process.exit(1);}
