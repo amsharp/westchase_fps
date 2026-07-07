@@ -59,6 +59,17 @@ characters (unique meshes and outfits, graphic tees and all) built
 offline through an image-to-3D pipeline. Some pedestrians wear all of
 these too.
 
+## The town talks (and swings back)
+
+Everyone with a name has a voice: the dealer greets you (and remembers
+you), the clerk chats you up or panics at the sight of a gun, cops bark
+warnings before they shoot, and pedestrians yelp when you bump them —
+low-bitrate 8 kHz radio-crackle voices, like a PS1 game that shipped with
+a full dub. Pedestrians also live their own lives: they stop to stand
+around, pair up for sidewalk conversations, stagger when you shove them —
+and sometimes a punch is answered with fists. Take the hint and back off,
+or drop them for the cash like always.
+
 ## The loop
 
 You spawn **with no gun**. Punch pedestrians (they drop cash), pick up the
@@ -124,6 +135,17 @@ shower of leaves or sparks — they grow back about a minute later.
 
 Your stolen ride isn't bulletproof: police fire chews through it. When
 it catches **fire you have ~5 seconds to bail** before it explodes.
+
+Cars have some life to them: bodies bounce on their suspension (slam a
+curb or a wall and feel it), the front wheels visibly steer, and after
+dark every car projects real headlight pools onto the asphalt.
+
+## Trees
+
+The oaks and bushes are real PS1-style assets — flat textured branch
+cards with alpha cutouts, from the free "retro nature pack" by
+**ElegantCrow** — and the median crepe myrtles bloom pink off the same
+leaves. They still snap like twigs if you drive through them.
 
 ## The lake
 

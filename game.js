@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.8.5';
+var GAME_VERSION = 'v1.8.6';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---------------- world constants ----------------
@@ -39,7 +39,7 @@ var state = {
 var keys = {}, mouseDown = false;
 var yaw = 0, pitch = 0;
 var player = { x: -72, z: -97, y: EYE, vy: 0, grounded: true };   // Publix lot, next to the dealer
-var lastShot = -99, punchT = -99, recoil = 0;
+var lastShot = -99, punchT = -99, recoil = 0, punchSide = false;
 var T = 0;
 var driving = null;   // traffic-car entry the player is driving
 
@@ -3061,6 +3061,134 @@ var armLf = vmArm(-0.24, -0.44, -0.5, -0.18);
 var punchArm = vmArm(0.24, -0.44, -0.5, 0.18);
 var punchArmBase = punchArm.position.clone();
 vmFists.add(armLf, punchArm);
+// PSX skinned first-person arms (optional meshyarms.js) — replaces the
+// capsule fists; texture is re-tinted to the player's skin tone.
+var psxArms = null;
+function armsTintTex(skinHex) {
+  var cv = document.createElement('canvas');
+  cv.width = 1; cv.height = 1;   // valid upload before the image decodes
+  var g0 = cv.getContext('2d'); g0.fillStyle = skinHex || '#e8b88a'; g0.fillRect(0, 0, 1, 1);
+  var tx = new THREE.CanvasTexture(cv);
+  tx.magFilter = THREE.NearestFilter; tx.minFilter = THREE.NearestFilter; tx.generateMipmaps = false;
+  var im = new Image();
+  im.onload = function () {
+    cv.width = im.width; cv.height = im.height;
+    var g = cv.getContext('2d'); g.drawImage(im, 0, 0);
+    var d = g.getImageData(0, 0, cv.width, cv.height), px = d.data;
+    // reference = average of the texture itself (it's all skin); scale to target
+    var ar = 0, ag = 0, ab = 0, n = 0;
+    for (var i = 0; i < px.length; i += 16) { if (px[i + 3] > 200) { ar += px[i]; ag += px[i + 1]; ab += px[i + 2]; n++; } }
+    ar /= n; ag /= n; ab /= n;
+    var t = parseInt(skinHex.slice(1), 16);
+    var sr = ((t >> 16) & 255) / ar, sg = ((t >> 8) & 255) / ag, sb = (t & 255) / ab;
+    for (i = 0; i < px.length; i += 4) {
+      px[i] = Math.min(255, px[i] * sr);
+      px[i + 1] = Math.min(255, px[i + 1] * sg);
+      px[i + 2] = Math.min(255, px[i + 2] * sb);
+    }
+    g.putImageData(d, 0, 0); tx.needsUpdate = true;
+  };
+  im.src = MESHY_ARMS.tex;
+  return tx;
+}
+function buildPSXArms(skinHex) {
+  if (typeof MESHY_ARMS === 'undefined') return null;
+  var A = MESHY_ARMS;
+  function f32(b64) { var u = b64Bytes(b64); return new Float32Array(u.buffer, u.byteOffset, u.length / 4); }
+  function i16(b64) { var u = b64Bytes(b64); return new Int16Array(u.buffer, u.byteOffset, u.length / 2); }
+  function u16(b64) { var u = b64Bytes(b64); return new Uint16Array(u.buffer, u.byteOffset, u.length / 2); }
+  var names = A.skel.names, np = names.length;
+  var bt = f32(A.skel.t), br = f32(A.skel.r), bsc = f32(A.skel.s);
+  var bones = [], root = new THREE.Group();
+  for (var i = 0; i < np; i++) {
+    var b = new THREE.Bone();
+    b.name = names[i];
+    b.position.set(bt[i * 3], bt[i * 3 + 1], bt[i * 3 + 2]);
+    b.quaternion.set(br[i * 4], br[i * 4 + 1], br[i * 4 + 2], br[i * 4 + 3]);
+    b.scale.set(bsc[i * 3], bsc[i * 3 + 1], bsc[i * 3 + 2]);
+    bones.push(b);
+  }
+  for (i = 0; i < np; i++) {
+    var pi = A.skel.parents[i];
+    if (pi >= 0) bones[pi].add(bones[i]); else root.add(bones[i]);
+  }
+  var qp = i16(A.geo.p), qu = u16(A.geo.u);
+  var fp = new Float32Array(qp.length), fu = new Float32Array(qu.length);
+  for (i = 0; i < qp.length; i++) fp[i] = qp[i] / A.geo.q;
+  for (i = 0; i < qu.length; i += 2) { fu[i] = qu[i] / 8192; fu[i + 1] = qu[i + 1] / 8192; }
+  var si = b64Bytes(A.geo.si), sw8 = b64Bytes(A.geo.sw);
+  var sw = new Float32Array(sw8.length);
+  for (i = 0; i < sw8.length; i++) sw[i] = sw8[i] / 255;
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(fp, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(fu, 2));
+  geo.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(Array.prototype.slice.call(si), 4));
+  geo.setAttribute('skinWeight', new THREE.BufferAttribute(sw, 4));
+  geo.setIndex(new THREE.BufferAttribute(A.geo.i32 ? new Uint32Array(b64Bytes(A.geo.i).buffer.slice(0)) : u16(A.geo.i), 1));
+  geo.computeVertexNormals();
+  var mesh = new THREE.SkinnedMesh(geo, lamb({ map: armsTintTex(skinHex || CSKIN[1]) }));
+  mesh.frustumCulled = false;
+  root.add(mesh);
+  mesh.updateMatrixWorld(true); root.updateMatrixWorld(true);
+  mesh.bind(new THREE.Skeleton(bones));
+  // clips: frame-major Int16 quats (/16384) + translations (/1024 or clip.ts)
+  var clips = {};
+  for (var k in A.clips) {
+    var c = A.clips[k];
+    clips[k] = { d: c.d, f: c.f, q: i16(c.q), t: i16(c.t), ts: c.ts || 1024 };
+  }
+  var ci = names.indexOf('camera');
+  return {
+    root: root, bones: bones, mesh: mesh, clips: clips, np: np,
+    camBone: ci >= 0 ? bones[ci] : null, rootBone: bones[0]
+  };
+}
+var armsQA = new THREE.Quaternion(), armsQB = new THREE.Quaternion(), armsTmpV = new THREE.Vector3();
+// keep the rig's authored camera bone glued to the view origin every frame
+// (the clips animate the root bone with full character-height translation).
+// The rig is authored facing +z, so the group is yawed 180 to face -z.
+function anchorArms(pa) {
+  if (!pa.camBone) return;
+  armsTmpV.copy(pa.camBone.position).applyQuaternion(pa.rootBone.quaternion).add(pa.rootBone.position);
+  pa.root.quaternion.set(0, 1, 0, 0);
+  pa.root.position.set(armsTmpV.x, -armsTmpV.y, armsTmpV.z);
+}
+function armsPose(pa, key, t, oneshot) {
+  var c = pa.clips[key];
+  if (!c) return;
+  var ft = (t / c.d) * (c.f - 1);
+  if (oneshot) ft = Math.min(c.f - 1.001, Math.max(0, ft));
+  else { ft = ft % (c.f - 1); if (ft < 0) ft += c.f - 1; }
+  var f0 = ft | 0, f1 = Math.min(c.f - 1, f0 + 1), k2 = ft - f0;
+  var np = pa.np;
+  for (var j = 0; j < np; j++) {
+    var a = (f0 * np + j) * 4, b = (f1 * np + j) * 4;
+    armsQA.set(c.q[a] / 16384, c.q[a + 1] / 16384, c.q[a + 2] / 16384, c.q[a + 3] / 16384);
+    armsQB.set(c.q[b] / 16384, c.q[b + 1] / 16384, c.q[b + 2] / 16384, c.q[b + 3] / 16384);
+    armsQA.slerp(armsQB, k2);
+    pa.bones[j].quaternion.copy(armsQA);
+    var ta = (f0 * np + j) * 3, tb = (f1 * np + j) * 3;
+    pa.bones[j].position.set(
+      (c.t[ta] + (c.t[tb] - c.t[ta]) * k2) / c.ts,
+      (c.t[ta + 1] + (c.t[tb + 1] - c.t[ta + 1]) * k2) / c.ts,
+      (c.t[ta + 2] + (c.t[tb + 2] - c.t[ta + 2]) * k2) / c.ts);
+  }
+  anchorArms(pa);
+}
+function initPSXArms() {
+  if (psxArms || typeof MESHY_ARMS === 'undefined') return;
+  try {
+    psxArms = buildPSXArms(CSKIN[playerChar ? playerChar.skin : 1]);
+    if (psxArms) {
+      armLf.visible = false; punchArm.visible = false;
+      vmFists.add(psxArms.root);
+      armsPose(psxArms, 'idle', 0);
+    }
+  } catch (e) { psxArms = null; }
+}
+function retintPSXArms() {
+  if (psxArms && playerChar) psxArms.mesh.material.map = armsTintTex(CSKIN[playerChar.skin]);
+}
 var vmPistol = new THREE.Group();
 (function () {
   vmPistol.add(box(0.075, 0.085, 0.36, metalM, 0.26, -0.262, -0.63));
@@ -3208,7 +3336,7 @@ function tryAttack() {
   }
   if (w.melee) {
     if (T - punchT < w.rate) return;
-    punchT = T; sfx('whoosh');
+    punchT = T; punchSide = !punchSide; sfx('whoosh');
     var fx = -Math.sin(yaw), fz = -Math.cos(yaw), best = null, bestD = 99, bestCop = null;
     for (var i = 0; i < npcs.length; i++) {
       var n = npcs[i]; if (n.state === 'down') continue;
@@ -3407,6 +3535,7 @@ function closeCreator() {
   document.getElementById('charPanel').classList.add('hidden');
   creatorOpen = false;
   savePlayerChar();
+  retintPSXArms();
 }
 function renderCreatorFrame(dt) {
   if (!creatorOpen || !cprev || !cprev.char) return;
@@ -3683,6 +3812,8 @@ var startScreen = document.getElementById('startScreen');
 var pauseScreen = document.getElementById('pauseScreen');
 function startGame() {
   initAudio();
+  initPSXArms();
+  retintPSXArms();
   startScreen.classList.add('hidden');
   state.running = true;
   lockPointer();
@@ -4264,7 +4395,12 @@ function updatePlayer(dt) {
   recoil = Math.max(0, recoil - dt * 8); vm.position.z = recoil * 0.07; vm.position.y = bob * 0.5; vm.rotation.x = recoil * 0.06;
   var pt = T - punchT;
   if (WEAPONS[state.equipped].melee) {
-    if (pt < 0.28) { var kk = Math.sin((pt / 0.28) * Math.PI); punchArm.position.z = punchArmBase.z - kk * 0.5; punchArm.position.x = punchArmBase.x - kk * 0.14; punchArm.rotation.x = -kk * 0.4; }
+    if (psxArms) {
+      var jabKey = psxArms.clips[punchSide ? 'jabR' : 'jabL'] ? (punchSide ? 'jabR' : 'jabL') : 'idle';
+      var jd = psxArms.clips[jabKey] ? psxArms.clips[jabKey].d : 0.3;
+      if (pt >= 0 && pt < jd) armsPose(psxArms, jabKey, pt, true);
+      else armsPose(psxArms, 'idle', T);
+    } else if (pt < 0.28) { var kk = Math.sin((pt / 0.28) * Math.PI); punchArm.position.z = punchArmBase.z - kk * 0.5; punchArm.position.x = punchArmBase.x - kk * 0.14; punchArm.rotation.x = -kk * 0.4; }
     else { punchArm.position.copy(punchArmBase); punchArm.rotation.x = 0; }
   }
   if (flashT > 0) { flashT -= dt; if (flashT <= 0) flash.visible = false; }
@@ -4316,6 +4452,7 @@ window.__wc = {
   teleport: function (x, z) { player.x = x; player.z = z; },
   tryAttack: tryAttack, setEquipped: setEquipped, cycleEquip: cycleEquip,
   enterStore: enterStore, exitStore: exitStore, refreshClerk: refreshClerk, animPerson: animPerson, animPersonClip: animPersonClip, playVoice: playVoice, oak: oak, bush: bush, getPackProp: getPackProp,
+  armsInfo: function () { return psxArms ? { clips: Object.keys(psxArms.clips), np: psxArms.np, anchor: psxArms.root.position.toArray().map(function (v) { return Math.round(v * 100) / 100; }) } : null; },
   isInside: function () { return inside; },
   storeState: function () { return { robbed: robbedVisit, copsCalled: copsCalledVisit, closedUntil: gasClosedUntil, now: T }; },
   resetCooldowns: function () { punchT = -99; lastShot = -99; },

@@ -2,10 +2,12 @@
 //   Meshy image-to-3d (lowpoly) -> measure tris -> standalone remesh if over
 //   budget -> download GLB into the workdir as NAME.glb.
 //
-//   MESHY_API_KEY=msy_... node vehpipe.js NAME seed.png [--polycount 900] [--workdir work]
+//   MESHY_API_KEY=msy_... node vehpipe.js NAME seed.png [--polycount 450] [--workdir work]
 //
 // Convert the GLBs with tools/chargen/genprops.js afterwards (vehicles are
 // static props: quantized positions + UVs + embedded texture). ~15 credits/car.
+// Polycount grounded in measured PS1 source material — see STYLE.md
+// (GGBot PSX cars: 304-476 tris, mean ~408; GT-era cars ~300 polys).
 const fs = require('fs');
 const path = require('path');
 
@@ -16,7 +18,7 @@ const API = 'https://api.meshy.ai/openapi/v1';
 const args = process.argv.slice(2);
 const NAME = args[0], SEED = args[1];
 function opt(flag, dflt) { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : dflt; }
-const POLY = +opt('--polycount', 900);
+const POLY = +opt('--polycount', 450);
 const WORK = opt('--workdir', path.join(__dirname, 'work'));
 if (!NAME || !SEED) { console.error('usage: node vehpipe.js NAME seed.png [--polycount N] [--workdir D]'); process.exit(1); }
 fs.mkdirSync(WORK, { recursive: true });
