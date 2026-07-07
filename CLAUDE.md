@@ -213,10 +213,16 @@ forest walls + "ROAD CLOSED" barriers at the four road exits.
   `genpsx.js`; rerun it against the asset zip if the mesh data ever needs
   regenerating. True bone pivots come from full inverse-bind-matrix
   inversion (geometric estimates disjointed the shoulders by ~11cm).
-- `PSX_FACES`: six painterly face patches (gpt-image-1, generated offline
-  at build time — never call APIs from the game) composited into the face
-  UV island (`cfg.photo` 1–6, creator row FACE STYLE); each carries a
-  sampled skin hex that overrides the body tone. cc is 18 fields now.
+- `PSX_SKINS`: three complete AI-painted character textures (JESS /
+  MARCUS / SPIKE, ~13KB JPEG data-URLs each) used whole via
+  `getPresetTex` when `cfg.preset` 1–3 (creator row PRESET; ~30% of
+  NPCs). Produced by the offline projection workflow in the scratchpad:
+  `claypose.js` renders the mesh T-posed front+back on white →
+  gpt-image-1 edits paint the character over it → `bake.js` projects the
+  painted views onto the UV atlas (per-limb mask-segment remapping,
+  eroded background mask, despeckle, dilation). `gen_template.js` makes
+  a color-coded UV template (alternate atlas-direct workflow). Never
+  call AI APIs from the game itself. cc is 18 fields.
 - Leg triangles whose class looks like shoe/sock but that reach above
   y 0.3 are denim fly/hem shading — painted as (shaded) pants, never shoe.
 

@@ -51,9 +51,10 @@ the same system, so everyone in town is unique.
 The character model is based on "Simple Character PSX" by **JashiPSX**
 (https://jashi-psx.itch.io) — the real 762-triangle mesh was adapted for
 this game and all texturing is repainted procedurally at runtime. The
-**FACE STYLE** option adds six painterly PSX photo-faces (pre-generated
-offline with AI, embedded in the game — no network needed) that
-automatically tint your body's skin to match.
+**PRESET** option offers three fully hand-off AI-painted characters
+(JESS, MARCUS, SPIKE) with complete painterly PSX textures — faces,
+clothes, shoes — pre-generated offline and embedded in the game (no
+network needed). Some pedestrians wear them too.
 
 ## The loop
 
