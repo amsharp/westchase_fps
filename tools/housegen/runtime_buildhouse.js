@@ -107,8 +107,11 @@ function buildHouse(cluster, shift) {
   body.position.y = h / 2 + 0.05;
   g.add(body);
 
+  // roof keeps its original color — recolored walls with the stock gray/brown
+  // shingle roof is how the real neighborhood varies, and shifted roofs read
+  // wrong (green shingles etc).
   var roofM = new THREE.MeshLambertMaterial({
-    map: houseTex(cluster.tex.roof, shift, Math.max(2, w / 5), Math.max(1, Math.round(d / 8))),
+    map: houseTex(cluster.tex.roof, 0, Math.max(2, w / 5), Math.max(1, Math.round(d / 8))),
   });
   if (cluster.roofType === 'hip') {
     var hipG = new THREE.ConeGeometry(Math.SQRT1_2, 1, 4);
