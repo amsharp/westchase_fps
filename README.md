@@ -276,11 +276,19 @@ gets to it first, not to whoever made it show up. Probably nothing.
   intersection is in — the residential grids southeast and east, the
   Lynmar industrial park, collector roads, retention ponds (wadeable,
   not swimmable), and dense preserve forest out to the new edge.
-  Buildings for the new neighborhoods are arriving next. Pedestrians now
-  roam the whole map: the junction stays the busiest, but you'll meet
-  people walking the residential sidewalks (they stick to their own
-  neighborhood, and jaywalk — no crosswalks out there) and the odd
-  soul trudging along a collector or through Lynmar.
+- The roads now follow the **real satellite geometry**: Race Track Rd
+  sweeps through the intersection as a smoothed diagonal, Countryway Blvd
+  runs SE and Nine Eagles Dr heads N (a three-leg Y instead of the old
+  perpendicular cross), with curved residential streets, sidewalks, and a
+  traffic lane graph the cars actually follow. Nearly 500 procedurally
+  textured houses fill the neighborhoods. Pedestrians roam the whole map:
+  the junction stays busiest, but you'll meet people on the residential
+  sidewalks (they stick to their own neighborhood, and jaywalk — no
+  crosswalks out there) and the odd soul along a collector or Lynmar.
+  (Work in progress: a few of the original corner landmarks — Publix, the
+  strip malls, the banks — still sit on their old grid positions and can
+  straddle the new diagonals until they're re-anchored to the true
+  geometry.)
 - The map is finite — a wall rings the city.
 - Watch for traffic; cars hurt.
 - Getting knocked out costs you 25% of your cash.

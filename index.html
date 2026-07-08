@@ -199,10 +199,11 @@
 <script src="voicelines.js"></script>
 <script src="blooddecals.js"></script>
 <script src="streetprops.js"></script>
-<!-- houses.js / remapdata.js: staged data for the neighborhood buildout + true-geometry
-     remap. Kept UNWIRED until the stamping integration passes full verification (perf,
-     screenshots, suites), so prod stays on the proven map. game.js no-ops when
-     HOUSE_INSTANCES / WC_REMAP data is absent. -->
+<!-- true-geometry remap (R2) + neighborhood buildout: remapdata.js supplies the
+     real road polylines, houses.js the stamped house instances. Loaded before
+     game.js so REMAP_ROADS/HOUSE_CLUSTERS exist when it enables WC_REMAP. -->
+<script src="remapdata.js"></script>
+<script src="houses.js"></script>
 <script src="game.js"></script>
 </body>
 </html>

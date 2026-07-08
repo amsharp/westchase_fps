@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.23.0';
+var GAME_VERSION = 'v1.24.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -15,7 +15,7 @@ document.getElementById('gameVer').textContent = GAME_VERSION;
 // (Race Track Rd as a smoothed diagonal through the origin, Countryway SE,
 // Nine Eagles N — a 3-leg Y) instead of the perpendicular axis roads.
 // Tests force it on via window.WC_REMAP_OVERRIDE (set before game.js loads).
-var WC_REMAP = false;
+var WC_REMAP = true;
 if (typeof window !== 'undefined' && window.WC_REMAP_OVERRIDE !== undefined) WC_REMAP = !!window.WC_REMAP_OVERRIDE;
 if (typeof REMAP_ROADS === 'undefined') WC_REMAP = false;   // data file missing -> legacy world
 
