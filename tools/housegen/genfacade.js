@@ -32,9 +32,10 @@ const STYLE = 'Retro PS1 / PSX era video game texture set: flat shading, posteri
 // (the model draws a literal gable triangle), and describe the roof tile as a
 // seamless MATERIAL SWATCH or it paints an eave/siding strip under it.
 function prompt(c) {
+  var subj = c.subject || 'a real suburban house';
   return STYLE +
-    ' Using the attached reference photos of a real suburban house (' + c.desc + '),' +
-    ' create a single image that is a 3x3 GRID of nine SEPARATE game textures of THIS house,' +
+    ' Using the attached reference photos of ' + subj + ' (' + c.desc + '),' +
+    ' create a single image that is a 3x3 GRID of nine SEPARATE game textures of THIS building,' +
     ' divided by solid pure-black gutter lines about 16 pixels thick, with a black border around the outside edge.' +
     ' Each tile completely fills its grid cell edge to edge. The nine tiles, left-to-right then top-to-bottom:' +
     ' TILE 1 (top row, left): the house wall as a PLAIN FLAT wall texture in the exact wall color and material of the photo -' +

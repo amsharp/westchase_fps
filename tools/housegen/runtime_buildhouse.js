@@ -324,6 +324,23 @@ function buildHouse(cluster, shift) {
     dr2.rotation.z = -dra; g.add(dr2);
   }
 
+  // ---- generic extra boxes: balconies, parapet caps, bays, canopies -------
+  // feat.boxes: [ [mat, x, y, z, bw, bh, bd], ... ] — box centered at
+  // (x, y, z) in house space (meters; +z = front). mat: 'trim'|'wall'|
+  // 'conc'|'gable'|'glass'|'roof'|'door'|'garage'. 'wall' wears the front
+  // texture so recolors track it (same rule as garage piers).
+  if (feat.boxes) {
+    var bMats = { trim: trimM, wall: frontM, conc: concM, gable: gableM, glass: glassM, roof: miniRoofM };
+    if (tex.door) bMats.door = new THREE.MeshLambertMaterial({ map: houseTex(tex.door, 0, 0, 0) });
+    if (tex.garage) bMats.garage = new THREE.MeshLambertMaterial({ map: houseTex(tex.garage, 0, 0, 0) });
+    for (var bxi = 0; bxi < feat.boxes.length; bxi++) {
+      var bspec = feat.boxes[bxi];
+      var bmesh = box(bspec[4], bspec[5], bspec[6], bMats[bspec[0]] || trimM);
+      bmesh.position.set(bspec[1], bspec[2], bspec[3]);
+      g.add(bmesh);
+    }
+  }
+
   // ---- AC unit + pad on the right (+x) wall, street-prop-style clutter ----
   if (feat.ac) {
     var pad = box(1.1, 0.1, 0.6, concM);
