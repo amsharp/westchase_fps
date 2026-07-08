@@ -1177,8 +1177,8 @@ function updateCarLights(c, dt, braking) {
   var cc = c.car;
   if (!cc.head1) return;
   if (braking) c.brkT = 0.14; else if (c.brkT > 0) c.brkT -= dt;
-  var brk = c.brkT > 0 && !c.exploded;
-  var on = lampsOn && !c.exploded;
+  var brk = c.brkT > 0 && !c.exploded && !c.parked;
+  var on = lampsOn && !c.exploded && !c.parked;   // parked = ignition off, no lights
   if (cc.head1.visible !== on) { cc.head1.visible = on; cc.head2.visible = on; }
   var tv = on || brk;
   if (cc.tail1.visible !== tv) { cc.tail1.visible = tv; cc.tail2.visible = tv; }
@@ -1310,6 +1310,13 @@ drive(-72, -31, 10, 92);
 drive(-124, -113, 9, 254);
 drive(-122, -79, 62, 9);
 drive(-116, -22, 9, 18);
+
+// customer parking strips (satellite: every plaza fronts a small lot) —
+// registered in mapParking; the parked-car pass fills them with cars
+parkingLot(-160, 27.5, 220, 17);   // strip malls + Dollar Tree frontage
+parkingLot(61, 67, 22, 12);        // RaceTrac side lot
+parkingLot(74, -48, 16, 24);       // Regions Bank east lot
+parkingLot(-48, -68, 26, 12);      // Bank of America south lot
 
 // ---------------- street furniture & landscaping ----------------
 var bushMats = [lamb({ color: 0x3f6f2e }), lamb({ color: 0x4a7d34 }), lamb({ color: 0x355f28 })];
@@ -3118,6 +3125,89 @@ function addCar(axis, lane, dir) {
 [4, 8].forEach(function (l) { addCar('z', l, 1); addCar('z', l, 1); });
 [-4, -8].forEach(function (l) { addCar('z', l, -1); addCar('z', l, -1); });
 
+// ---- parked cars: the lots hold empty cars you can break into (E, 0.9s) ----
+// Deterministic layout (seeded RNG + deterministic slot rejection) so host and
+// clients build cars[] in the same order/count — world snapshots map by index.
+// Models/colors stay per-peer random, same as traffic.
+function addParkedCar(x, z, ry) {
+  var c = { car: makeCar(), axis: 'x', lane: 0, lane0: 0, dir: 1, pos: 0, speed: 0, dmgT: 0, berserk: false, exploded: false, respawnT: 0, smokeT: 0, eng: null, parked: true, slot: { x: x, z: z, ry: ry } };
+  c.car.group.position.set(x, 0, z);
+  c.car.group.rotation.y = ry;
+  c.car.group.userData.trafficCar = c;
+  cars.push(c);
+  return c;
+}
+// hand-authored slot rows inside the mapParking lots: rows run along each
+// lot's long axis, cars nose-in toward the building, ~3.2u stall pitch.
+// n = how many of the row's slots get a car (random subset = natural gaps).
+var PARKED_ROWS = [
+  // Publix (78x40 lot; aisle at z~-96 stays clear: player spawn -72,-97 + dealer -72,-106)
+  { x: -106, z: -104, dx: 3.2, dz: 0, slots: 20, ry: Math.PI / 2, n: 5 },
+  { x: -106, z: -88, dx: 3.2, dz: 0, slots: 20, ry: -Math.PI / 2, n: 4 },
+  // strip malls + Dollar Tree frontage strip
+  { x: -254, z: 32, dx: 3.3, dz: 0, slots: 58, ry: -Math.PI / 2, n: 6 },
+  // RaceTrac side lot
+  { x: 53, z: 66.5, dx: 3.3, dz: 0, slots: 6, ry: Math.PI / 2, n: 2 },
+  // Regions Bank east lot
+  { x: 70, z: -56, dx: 0, dz: 3.3, slots: 6, ry: Math.PI, n: 2 },
+  // Bank of America south lot
+  { x: -58, z: -68, dx: 3.3, dz: 0, slots: 7, ry: -Math.PI / 2, n: 2 },
+  // Farnell school east lot (single row — the lot's east half hugs the cross road)
+  { x: -24, z: -255, dx: 0, dz: 3.3, slots: 11, ry: Math.PI, n: 4 }
+];
+var PARKED_CLEAR = [[-72, -97], [-72, -106]];   // player spawn + gun dealer
+function parkedHalfExt(ry) {
+  var co = Math.abs(Math.cos(ry)), si = Math.abs(Math.sin(ry));
+  return { hx: 2.5 * co + 1.3 * si, hz: 2.5 * si + 1.3 * co };
+}
+function parkedSlotFree(x, z, ry) {
+  var h = parkedHalfExt(ry), hx = h.hx, hz = h.hz, i;
+  if (Math.abs(z) - hz < MAIN_HW + 2) return false;            // never on the main road
+  if (Math.abs(x) - hx < CROSS_HW + 2) return false;           // never on the cross road
+  for (i = 0; i < colliders.length; i++) {                     // buildings/solid props/lake/fountain
+    var b = colliders[i];
+    if (x + hx > b.x0 - 0.2 && x - hx < b.x1 + 0.2 && z + hz > b.z0 - 0.2 && z - hz < b.z1 + 0.2) return false;
+  }
+  for (i = 0; i < mapDrives.length; i++) {                     // keep the access lanes open
+    var d = mapDrives[i];
+    if (x + hx > d.x - d.w / 2 && x - hx < d.x + d.w / 2 && z + hz > d.z - d.d / 2 && z - hz < d.z + d.d / 2) return false;
+  }
+  for (i = 0; i < breakables.length; i++) {                    // trees/lights/signs/carts/…
+    var br = breakables[i];
+    var qx = Math.max(x - hx, Math.min(br.x, x + hx)), qz = Math.max(z - hz, Math.min(br.z, z + hz));
+    var ddx = br.x - qx, ddz = br.z - qz;
+    if (ddx * ddx + ddz * ddz < (br.r + 0.4) * (br.r + 0.4)) return false;
+  }
+  for (i = 0; i < PARKED_CLEAR.length; i++) {
+    var pc = PARKED_CLEAR[i], cx = pc[0] - x, cz = pc[1] - z;
+    if (cx * cx + cz * cz < 30) return false;
+  }
+  for (i = 0; i < cars.length; i++) {                          // other parked cars
+    if (!cars[i].parked) continue;
+    var oh = parkedHalfExt(cars[i].slot.ry);
+    var om = cars[i].car.group.position;
+    if (Math.abs(om.x - x) < hx + oh.hx + 0.3 && Math.abs(om.z - z) < hz + oh.hz + 0.3) return false;
+  }
+  return true;
+}
+(function spawnParkedCars() {
+  var rng = seededRng(0x9A7CED);
+  for (var r = 0; r < PARKED_ROWS.length; r++) {
+    var row = PARKED_ROWS[r];
+    var free = [];
+    for (var s = 0; s < row.slots; s++) {
+      var sx = row.x + row.dx * s, sz = row.z + row.dz * s;
+      if (parkedSlotFree(sx, sz, row.ry)) free.push([sx, sz]);
+    }
+    var want = Math.min(row.n, free.length);
+    for (var k = 0; k < want; k++) {
+      var pick = (rng() * free.length) | 0;
+      var sp2 = free.splice(pick, 1)[0];
+      addParkedCar(sp2[0], sp2[1], row.ry);
+    }
+  }
+})();
+
 // ---- procedural car engine (layered synth driven by an RPM model) ----
 // speed maps to revs through gear steps, so an accelerating car audibly
 // climbs and then drops on each upshift. Every car runs a cheap 5-node
@@ -3221,7 +3311,7 @@ function updateCars(dt) {
   if (isClient()) return;   // world traffic is mirrored from the host snapshot
   for (var i = 0; i < cars.length; i++) {
     var c = cars[i];
-    ensureEngine(c);
+    if (!c.parked) ensureEngine(c);   // parked cars never even build audio nodes
     // on fire: about to blow
     if (c.burning && !c.exploded) {
       c.burnT -= dt;
@@ -3239,13 +3329,37 @@ function updateCars(dt) {
       c.respawnT -= dt;
       if (c.respawnT <= 0) {
         c.exploded = false; c.car.group.visible = true;
-        c.pos = c.dir === 1 ? -EDGE + 4 : EDGE - 4;
-        c.lane = c.lane0; c.dmgT = 0; c.berserk = false;
+        c.dmgT = 0; c.berserk = false;
         c.stolen = false; c.jacked = false; c.jackCD = 0; c.playerDriven = false;
         c.drivenBy = null;   // stale ids here made respawned traffic read as player-driven
         c.burning = false; c.carHP = undefined;
-        c.speed = 8 + Math.random() * 6;
+        if (c.slot) {
+          // lot cars come back parked in their home slot, never as traffic
+          c.parked = true; c.speed = 0; c.shoveT = 0;
+          c.car.group.position.set(c.slot.x, 0, c.slot.z);
+          c.car.group.rotation.y = c.slot.ry;
+        } else {
+          c.pos = c.dir === 1 ? -EDGE + 4 : EDGE - 4;
+          c.lane = c.lane0;
+          c.speed = 8 + Math.random() * 6;
+        }
       }
+      continue;
+    }
+    // parked lot cars: no driver, no traffic AI, engine dead silent —
+    // they only move if something rams them (shove physics still applies)
+    if (c.parked) {
+      if (c.shoveT > 0) {
+        c.shoveT -= dt;
+        c.svx *= 1 - dt * 1.8; c.svz *= 1 - dt * 1.8;
+        c.sx += c.svx * dt; c.sz += c.svz * dt;
+        c.sx = Math.max(-HALF + 2, Math.min(HALF - 2, c.sx));
+        c.sz = Math.max(-HALF + 2, Math.min(HALF - 2, c.sz));
+        c.car.group.position.set(c.sx, 0, c.sz);
+        c.car.group.rotation.y += c.sspin * dt;
+        c.sspin *= 1 - dt * 1.5;
+      }
+      if (c.eng) c.eng.g.gain.value = 0;
       continue;
     }
     // stolen cars are player-controlled (or parked) — no traffic AI
@@ -3396,7 +3510,12 @@ function enterCar(c) {
   if (c.carHP === undefined) c.carHP = 100;
   c.pspeed = c.jacked ? 0 : c.speed;   // take over at its current speed on a fresh jack
   var g = c.car.group;
-  if (!c.jacked || victim) {
+  if (c.parked) {
+    // break-in complete: nobody to kick out, and no automatic star —
+    // cops only care if they can already see chaos
+    c.parked = false; c.jacked = true; c.pspeed = 0;
+    popup2('STOLEN');
+  } else if (!c.jacked || victim) {
     c.jacked = true;
     if (!victim) kickDriver(c);        // NPC driver bails; a player victim is kicked via net
     popup2(victim ? 'HIJACKED!' : 'CARJACKED');
@@ -3430,6 +3549,37 @@ function exitCar(hijacked) {
   vm.visible = true;
   document.getElementById('crosshair').style.display = '';
   setEquipped(state.equipped);   // restores viewmodel + weapon HUD
+}
+// ---- breaking into parked cars: E starts a 0.9s window-jimmy, then you're in ----
+var breakIn = null;   // {c, t}
+function startBreakIn(c) {
+  if (breakIn || driving || !c.parked || c.exploded) return;
+  var g = c.car.group.position;
+  breakIn = { c: c, t: 0.9 };
+  popup2('BREAKING IN…');
+  sfx('glass', { x: g.x, z: g.z, range: 55 });
+  // a bystander who can SEE you jimmy the door panics like a gunshot scare
+  // (no automatic star — startFlee only, same as any scared pedestrian)
+  for (var i = 0; i < npcs.length; i++) {
+    var n = npcs[i];
+    if (n.state !== 'walk' && n.state !== 'chat' && n.state !== 'stand') continue;
+    var dx = n.x - g.x, dz = n.z - g.z;
+    if (dx * dx + dz * dz > 100) continue;   // ~10u earshot/eyeshot
+    if (copHasLOS({ x: n.x, z: n.z }, { x: g.x, z: g.z, y: 1.2 })) startFlee(n);
+  }
+}
+function updateBreakIn(dt) {
+  if (!breakIn) return;
+  var c = breakIn.c, g = c.car.group.position;
+  var dx = player.x - g.x, dz = player.z - g.z;
+  // cancel if the car blew/was taken, we died, or we wandered off
+  if (!c.parked || c.exploded || state.dead || driving || dx * dx + dz * dz > 36) { breakIn = null; return; }
+  breakIn.t -= dt;
+  if (breakIn.t <= 0) {
+    breakIn = null;
+    sfx('glass', { x: g.x, z: g.z, range: 55 });
+    enterCar(c);
+  }
 }
 function updateDriving(dt) {
   var c = driving, g = c.car.group;
@@ -3718,6 +3868,15 @@ function updateBooms(dt) {
 }
 function goBerserk(c) {
   if (c.berserk || c.exploded) return;
+  if (c.parked) {
+    // no driver to lose control — a shot-up parked car just catches fire and blows
+    if (!c.burning) {
+      c.burning = true; c.burnT = 2.2; c.flameT = 0;
+      var pp = c.car.group.position;
+      sfx('crash', { x: pp.x, z: pp.z, range: 90 });
+    }
+    return;
+  }
   c.berserk = true;
   var m = c.car.group;
   var dirx = c.axis === 'x' ? c.dir : 0, dirz = c.axis === 'z' ? c.dir : 0;
@@ -3759,7 +3918,7 @@ function explodeCar(c) {
   }
   boomAt(pos.x, pos.z);
   c.car.group.visible = false;
-  c.respawnT = 5;
+  c.respawnT = c.slot ? 60 : 5;   // lot cars take a minute to "get replaced"
 }
 
 // ---------------- rockets ----------------
@@ -5375,8 +5534,8 @@ function updateWorldFx(dt) {
   // cars snap trees & street lights (works on host and on mirrored client cars)
   for (var i = 0; i < cars.length; i++) {
     var c = cars[i];
-    if (c.car.beam) {   // headlights follow the street lights (any peer)
-      var bv = lampsOn && !c.exploded;
+    if (c.car.beam) {   // headlights follow the street lights (any peer; parked = off)
+      var bv = lampsOn && !c.exploded && !c.parked;
       if (c.car.beam.visible !== bv) c.car.beam.visible = bv;
     }
     var m = c.car.group.position;
@@ -5393,6 +5552,20 @@ function updateWorldFx(dt) {
     var braking = c === driving ? !!c.brakeIn : (c.shoveT > 0 || (dec > 4 && c._sspd > 0.6));
     updateCarLights(c, dt, braking);
     if (c.exploded) continue;
+    // parked cars are solid-ish to the on-foot player (traffic only shoves/hurts;
+    // a still car you can lean on while breaking in must not be a ghost)
+    if (c.parked && !driving && !state.dead) {
+      var pkx = player.x - m.x, pkz = player.z - m.z;
+      var pfy = c.car.group.rotation.y;
+      var pfx = Math.cos(pfy), pfz = -Math.sin(pfy);
+      var plon = pkx * pfx + pkz * pfz, plat = -pkx * pfz + pkz * pfx;
+      if (Math.abs(plon) < 2.75 && Math.abs(plat) < 1.5) {
+        var pushLon = (plon >= 0 ? 2.75 : -2.75) - plon;
+        var pushLat = (plat >= 0 ? 1.5 : -1.5) - plat;
+        if (Math.abs(pushLat) < Math.abs(pushLon)) { player.x += -pfz * pushLat; player.z += pfx * pushLat; }
+        else { player.x += pfx * pushLon; player.z += pfz * pushLon; }
+      }
+    }
     var v2 = (mvx * mvx + mvz * mvz) / Math.max(dt * dt, 1e-6);
     if (v2 < 9) continue;                       // too slow to snap anything
     for (var j = 0; j < breakables.length; j++) {
@@ -5686,6 +5859,7 @@ function sfx(kind, at) {
     case 'eat': nb(0.09, 2500, 0.2); setTimeout(function () { nb(0.09, 2200, 0.18); }, 140); setTimeout(function () { nb(0.09, 2400, 0.15); }, 280); break;
     case 'rocketfire': nb(0.5, 800, 0.7); bp(220, 0.4, 0.3, 'sawtooth', 50); break;
     case 'crash': nb(0.3, 900, 0.8); bp(85, 0.18, 0.35, 'square', 45); break;
+    case 'glass': nb(0.07, 3400, 0.5); bp(190, 0.09, 0.14, 'square', 70); setTimeout(function () { nb(0.1, 2700, 0.38); }, 70); setTimeout(function () { nb(0.14, 2100, 0.28); }, 160); break;
     case 'boom': nb(0.8, 320, 1.3); bp(60, 0.6, 0.6, 'sine', 24); setTimeout(function () { nb(0.4, 700, 0.4); }, 120); break;
   }
 }
@@ -6056,8 +6230,8 @@ function handleNet(m, conn) {
             if (sc === driving) { exitCar(true); popup2('YOU GOT HIJACKED!'); sfx('grunt'); }
             else for (var ji = 0; ji < net.conns.length; ji++) if (net.conns[ji].peer === victimId) { try { net.conns[ji].send({ t: 'jacked', i: m.i }); } catch (e) { } }
             netBroadcast({ t: 'jackCD', i: m.i });
-          } else if (!sc.jacked) kickDriver(sc);
-          sc.jacked = true; sc.stolen = true; sc.drivenBy = conn.peer;
+          } else if (!sc.jacked && !sc.parked) kickDriver(sc);   // a parked car has no driver to bail
+          sc.parked = false; sc.jacked = true; sc.stolen = true; sc.drivenBy = conn.peer;
         }
       }
     } else if (m.t === 'park') {
@@ -6212,7 +6386,7 @@ function updateNet(dt) {
       for (var i = 0; i < cars.length; i++) {
         var cc = cars[i], mm = cc.car.group;
         carsArr.push([Math.round(mm.position.x * 10), Math.round(mm.position.z * 10), Math.round(mm.rotation.y * 100),
-          (cc.exploded ? 1 : 0) | (cc.berserk ? 2 : 0) | (cc.burning ? 4 : 0) | (cc.stolen ? 8 : 0) | ((cc.drivenBy || cc === driving) ? 16 : 0)]);
+          (cc.exploded ? 1 : 0) | (cc.berserk ? 2 : 0) | (cc.burning ? 4 : 0) | (cc.stolen ? 8 : 0) | ((cc.drivenBy || cc === driving) ? 16 : 0) | (cc.parked ? 32 : 0)]);
       }
       var npcArr = [];
       for (i = 0; i < npcs.length; i++) {
@@ -6280,7 +6454,7 @@ function applyWorldSnap(dt) {
     var c = cars[i], a = s.cars[i], m = c.car.group;
     if (c === driving) continue;               // we own this one locally
     var fl = a[3];
-    c.exploded = !!(fl & 1); c.berserk = !!(fl & 2); c.burning = !!(fl & 4); c.stolen = !!(fl & 8); c.playerDriven = !!(fl & 16);
+    c.exploded = !!(fl & 1); c.berserk = !!(fl & 2); c.burning = !!(fl & 4); c.stolen = !!(fl & 8); c.playerDriven = !!(fl & 16); c.parked = !!(fl & 32);
     m.visible = !c.exploded;
     if (c.exploded) { if (c.eng) c.eng.g.gain.value = 0; continue; }
     m.position.x += (a[0] / 10 - m.position.x) * k;
@@ -6292,9 +6466,11 @@ function applyWorldSnap(dt) {
     }
     var edx = player.x - m.position.x, edz = player.z - m.position.z;
     var ed = Math.sqrt(edx * edx + edz * edz);
-    ensureEngine(c);
-    if (c.eng) engineTickMirror(c, dt);   // speed estimated from mirrored motion
-    if (!driving && !c.stolen && Math.abs(edx) < 2.6 && Math.abs(edz) < 2.6 && !state.dead) {
+    if (!c.parked) {   // parked mirrors are engine-off: never build audio nodes
+      ensureEngine(c);
+      if (c.eng) engineTickMirror(c, dt);   // speed estimated from mirrored motion
+    } else if (c.eng) c.eng.g.gain.value = 0;
+    if (!driving && !c.stolen && !c.parked && Math.abs(edx) < 2.6 && Math.abs(edz) < 2.6 && !state.dead) {
       var dd = ed || 1;
       player.x += (edx / dd) * 2.4; player.z += (edz / dd) * 2.4;
       if (T - state.lastCarHit > 0.8) { state.lastCarHit = T; hurtPlayer(12); sfx('thud'); }
@@ -6486,7 +6662,10 @@ document.addEventListener('keydown', function (e) {
     if (gdx * gdx + gdz * gdz < 40) { enterStore(); return; }
     if (streetPropInteract()) return;   // vending / payphone / ATM / newsbox
     var sc = nearestStealableCar();
-    if (sc) enterCar(sc);
+    if (sc) {
+      if (sc.parked) startBreakIn(sc);   // empty lot car: 0.9s break-in first
+      else enterCar(sc);
+    }
   }
   if (e.code === 'Escape' && state.menu) closeMenus(false);
   if (e.code === 'Escape' && !state.running && creatorOpen) closeCreator();
@@ -6503,6 +6682,7 @@ function updatePlayer(dt) {
     document.getElementById('prompt').textContent = '[E] EXIT CAR';
     return;
   }
+  updateBreakIn(dt);
   var f = 0, s = 0;
   if (keys['KeyW']) f += 1; if (keys['KeyS']) f -= 1; if (keys['KeyD']) s += 1; if (keys['KeyA']) s -= 1;
   var spd = keys['ShiftLeft'] || keys['ShiftRight'] ? 8.4 : 5.2;
@@ -6630,10 +6810,11 @@ function updatePlayer(dt) {
     if (ddx * ddx + ddz * ddz < 36) prompt.textContent = '[E] BUY GUNS';
     else if (gdx * gdx + gdz * gdz < 40) prompt.textContent = (T < gasClosedUntil) ? 'STORE CLOSED' : '[E] ENTER GAS STATION';
     else {
-      var spp = streetPropPrompt();   // streetprops: vending/atm/payphone/newsbox
-      var nsc = spp ? null : nearestStealableCar();
-      if (spp) prompt.textContent = spp;
-      else if (nsc) prompt.textContent = carDrivenByPlayer(nsc) ? '[E] HIJACK CAR' : '[E] STEAL CAR';
+      var spp = breakIn ? null : streetPropPrompt();   // streetprops: vending/atm/payphone/newsbox
+      var nsc = spp || breakIn ? null : nearestStealableCar();
+      if (breakIn) prompt.textContent = 'BREAKING IN…';
+      else if (spp) prompt.textContent = spp;
+      else if (nsc) prompt.textContent = carDrivenByPlayer(nsc) ? '[E] HIJACK CAR' : (nsc.parked ? '[E] BREAK IN' : '[E] STEAL CAR');
       else prompt.textContent = '';
     }
   }
@@ -6716,6 +6897,11 @@ window.__wc = {
   envState: function () { return { envT: envT, raining: raining, dayFactor: dayFactor(), lampsOn: lampsOn, sun: sun.intensity, fogFar: scene.fog.far }; },
   sigState: function () { return { t: sigClock, main: sigMain, cross: sigCross }; },
   goBerserk: goBerserk, igniteCar: igniteCar,
+  startBreakIn: startBreakIn,
+  breakInState: function () { return breakIn ? { t: Math.round(breakIn.t * 100) / 100, i: cars.indexOf(breakIn.c) } : null; },
+  parkedInfo: function () {
+    return cars.map(function (c, i) { return c.slot ? { i: i, parked: !!c.parked, stolen: !!c.stolen, exploded: !!c.exploded, eng: !!c.eng, respawnT: Math.round(c.respawnT * 10) / 10, x: Math.round(c.car.group.position.x * 10) / 10, z: Math.round(c.car.group.position.z * 10) / 10, ry: Math.round(c.car.group.rotation.y * 100) / 100, slot: c.slot } : null; }).filter(function (e) { return e; });
+  },
   breakables: breakables, breakProp: breakProp, lakeBedY: lakeBedY,
   streetProps: streetPropInteractables, streetPropInteract: streetPropInteract, getStreetProp: getStreetProp, hydrantJets: hydrantJets,
   isUnderwater: function () { return underwater; },

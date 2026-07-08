@@ -43,7 +43,7 @@ function houseShiftPixels(px, hueDeg, satMul, lightMul, baseHex) {
     var av = (r + g + b) / 3;
     var dr = (r - av) - bcr, dg = (g - av) - bcg, db = (b - av) - bcb;
     var cd = Math.sqrt(dr * dr + dg * dg + db * db);
-    var f = Math.min(1, Math.max(0, (0.16 - cd) / 0.08)); // 1 near wall chroma, 0 away
+    var f = Math.min(1, Math.max(0, (0.09 - cd) / 0.045)); // 1 near wall chroma, 0 away
     if (f <= 0) continue;
     var mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2;
     var h = 0, s = 0, d = mx - mn;
@@ -131,9 +131,9 @@ function buildHouse(cluster, shift) {
     // ridge along x; two slopes + two triangular gable ends (plain wall color)
     var hd = (d + ovh) / 2, slant = Math.sqrt(hd * hd + roofH * roofH), ang = Math.atan2(roofH, hd);
     var s1 = new THREE.Mesh(new THREE.BoxGeometry(w + ovh, 0.22, slant + 0.3), roofM);
-    s1.position.set(0, h + 0.05 + roofH / 2, -hd / 2); s1.rotation.x = ang; g.add(s1);
+    s1.position.set(0, h + 0.05 + roofH / 2, -hd / 2); s1.rotation.x = -ang; g.add(s1);
     var s2 = new THREE.Mesh(new THREE.BoxGeometry(w + ovh, 0.22, slant + 0.3), roofM);
-    s2.position.set(0, h + 0.05 + roofH / 2, hd / 2); s2.rotation.x = -ang; g.add(s2);
+    s2.position.set(0, h + 0.05 + roofH / 2, hd / 2); s2.rotation.x = ang; g.add(s2);
     var tri = new THREE.Shape();
     tri.moveTo(-d / 2, 0); tri.lineTo(d / 2, 0); tri.lineTo(0, roofH); tri.lineTo(-d / 2, 0);
     var triG = new THREE.ShapeGeometry(tri); triG.rotateY(Math.PI / 2);

@@ -3,15 +3,24 @@
 // PROTOTYPE — output goes to tools/ggbotveh/out/ggbotvehs.js and is NOT
 // wired into the game.
 //
-// Differences from the Meshy fleet worth knowing:
-//  - Bodies ship WITHOUT wheels (open arches); the pack has one shared
-//    28-tri wheel mesh. So `wheels` entries here are true PIVOT positions
-//    derived from boundary-edge circle fits of the arch openings — no
-//    VEH_WHEEL_TUNE-style hand cover-up needed.
-//  - OBJ uv v is bottom-up; the game loader applies v'=1-v_stored on top of
-//    a flipY=true texture, so we store v_stored = 1 - vt (glTF top-down
-//    convention) to end up sampling the PNG correctly.
-//  - Textures are already 128x128 PNGs: embedded as-is (no downscale pass).
+// Key discovery (verified by connected-component analysis + renders): each
+// drivable body ships with FOUR BAKED 3D WHEELS, each a separate 28-tri
+// connected component (an instanced copy of the pack's Wheel.obj, but
+// UV-mapped into the car's own 128px atlas). So the converter:
+//   1. welds verts by position, union-finds components,
+//   2. detects wheel components (28-40 tris, square in Y/Z, thin axle X,
+//      low, offset to a side — this also correctly skips Car 07's vertical
+//      rear SPARE wheel and round headlamps),
+//   3. STRIPS them from the body and emits true pivots in `wheels`
+//      ([x,y,z,r] per corner, car space: +x nose, axle = Z),
+//   4. re-centers one wheel component as the car's own wheel mesh `wg`
+//      (indexed, axle rotated to local +Y like MESHY_WHEEL; textured by
+//      the same car atlas — no separate wheel texture needed).
+// Car 06 is a burned-out wreck: no wheels, converted as a static prop.
+//
+// OBJ uv v is bottom-up; the game loader applies v'=1-v_stored on top of a
+// flipY=true texture, so we store v_stored = 1 - vt (glTF top-down
+// convention). Textures are already 128x128 PNGs: embedded as-is.
 //
 //   node genggbot.js [packDir]
 const fs = require('fs');
@@ -27,11 +36,11 @@ const MODELS = [
   ['GG_SALOON', 'Car 02/Car2.obj', 'Car 02/car2.png'],
   ['GG_MINIVAN', 'Car 04/Car4.obj', 'Car 04/car4.png'],
   ['GG_POLICE', 'Car 05/Car5_Police.obj', 'Car 05/car5_police.png'],
-  ['GG_WRECK', 'Car 06/Car6.obj', 'Car 06/car6.png', true], // burned-out prop: no wheels
+  ['GG_WRECK', 'Car 06/Car6.obj', 'Car 06/car6.png'],
 ];
 
 function parseOBJ(file) {
-  const v = [], vt = [], tris = [];
+  const v = [], vt = [], tris = []; // tris: [[vi,ti]x3]
   for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
     const t = line.trim().split(/\s+/);
     if (t[0] === 'v') v.push([+t[1], +t[2], +t[3]]);
@@ -47,183 +56,153 @@ function parseOBJ(file) {
   return { v, vt, tris };
 }
 
-function circleFit(pts) { // Kasa least squares in (a,b)
-  let sa = 0, sb = 0, saa = 0, sbb = 0, sab = 0, saaa = 0, sbbb = 0, saab = 0, sabb = 0;
-  const n = pts.length;
-  for (const [a, b] of pts) {
-    sa += a; sb += b; saa += a * a; sbb += b * b; sab += a * b;
-    saaa += a * a * a; sbbb += b * b * b; saab += a * a * b; sabb += a * b * b;
-  }
-  const C = n * saa - sa * sa, D = n * sab - sa * sb, E = n * sbb - sb * sb;
-  const G = 0.5 * (n * saaa + n * sabb - (saa + sbb) * sa);
-  const H = 0.5 * (n * sbbb + n * saab - (saa + sbb) * sb);
-  const det = C * E - D * D;
-  if (Math.abs(det) < 1e-12) return null;
-  const ca = (G * E - D * H) / det, cb = (C * H - D * G) / det;
-  let r = 0;
-  for (const [a, b] of pts) r += Math.hypot(a - ca, b - cb);
-  return { ca, cb, r: r / n };
-}
-
 const b64 = a => Buffer.from(a.buffer, a.byteOffset, a.byteLength).toString('base64');
 const texURL = f => 'data:image/png;base64,' + fs.readFileSync(f).toString('base64');
 
-// GGBot wheel: width/diameter ratio (measured: 0.274 / 0.917)
-const WHEEL_W_RATIO = 0.274 / 0.917;
+// quantize a {pos:[[x,y,z]..], uv:[[u,v]..], idx:[..]|null} bundle
+function quantize(pos, uv, idx) {
+  let maxE = 0;
+  for (const p of pos) maxE = Math.max(maxE, Math.abs(p[0]), Math.abs(p[1]), Math.abs(p[2]));
+  const Q = 32000 / (maxE + 1e-6);
+  const qp = new Int16Array(pos.length * 3), qu = new Uint16Array(uv.length * 2);
+  for (let i = 0; i < pos.length; i++) {
+    qp[i * 3] = Math.round(pos[i][0] * Q);
+    qp[i * 3 + 1] = Math.round(pos[i][1] * Q);
+    qp[i * 3 + 2] = Math.round(pos[i][2] * Q);
+  }
+  for (let i = 0; i < uv.length; i++) {
+    qu[i * 2] = Math.max(0, Math.min(65535, Math.round(uv[i][0] * 8192)));
+    qu[i * 2 + 1] = Math.max(0, Math.min(65535, Math.round((1 - uv[i][1]) * 8192))); // OBJ->glTF v
+  }
+  const out = { q: +Q.toFixed(4), p: b64(qp), u: b64(qu) };
+  if (idx) out.i = b64(new Uint16Array(idx));
+  return out;
+}
 
-function processCar(name, objFile, texFile, noWheels) {
+function processCar(name, objFile, texFile) {
   const o = parseOBJ(path.join(PACK, objFile));
 
-  // ---- normalize: long axis (Z in this pack) -> X, minY -> 0, center XZ
+  // ---- weld by position + union-find into connected components
+  const wmap = new Map(), remap = [];
+  for (let i = 0; i < o.v.length; i++) {
+    const k = o.v[i].map(x => x.toFixed(5)).join(',');
+    if (!wmap.has(k)) wmap.set(k, i);
+    remap[i] = wmap.get(k);
+  }
+  const par = [...Array(o.v.length).keys()];
+  const find = x => { while (par[x] !== x) { par[x] = par[par[x]]; x = par[x]; } return x; };
+  for (const t of o.tris) {
+    const a = find(remap[t[0][0]]);
+    for (const k of [1, 2]) par[find(remap[t[k][0]])] = a;
+  }
+  const comps = new Map();
+  o.tris.forEach((t, ti) => {
+    const r = find(remap[t[0][0]]);
+    if (!comps.has(r)) comps.set(r, []);
+    comps.get(r).push(ti);
+  });
+
+  // full-model bbox (original space: length = Z, width = X, axle = X)
   let mn = [1e9, 1e9, 1e9], mx = [-1e9, -1e9, -1e9];
   for (const p of o.v) for (let i = 0; i < 3; i++) {
     if (p[i] < mn[i]) mn[i] = p[i]; if (p[i] > mx[i]) mx[i] = p[i];
   }
-  const rotated = (mx[2] - mn[2]) > (mx[0] - mn[0]);
-  const pts = o.v.map(p => {
-    let [x, y, z] = p;
-    if (rotated) { const t = x; x = z; z = -t; }
-    return [x, y, z];
-  });
-  mn = [1e9, 1e9, 1e9]; mx = [-1e9, -1e9, -1e9];
-  for (const p of pts) for (let i = 0; i < 3; i++) {
-    if (p[i] < mn[i]) mn[i] = p[i]; if (p[i] > mx[i]) mx[i] = p[i];
+  const hgt = mx[1] - mn[1], halfW = (mx[0] - mn[0]) / 2;
+
+  // ---- detect baked-wheel components
+  const wheelComps = [];
+  for (const [root, tlist] of comps) {
+    if (tlist.length < 20 || tlist.length > 40) continue;
+    let cmn = [1e9, 1e9, 1e9], cmx = [-1e9, -1e9, -1e9];
+    for (const ti of tlist) for (const [vi] of o.tris[ti]) {
+      const p = o.v[vi];
+      for (let i = 0; i < 3; i++) { if (p[i] < cmn[i]) cmn[i] = p[i]; if (p[i] > cmx[i]) cmx[i] = p[i]; }
+    }
+    const d = [cmx[0] - cmn[0], cmx[1] - cmn[1], cmx[2] - cmn[2]];
+    const ctr = [(cmn[0] + cmx[0]) / 2, (cmn[1] + cmx[1]) / 2, (cmn[2] + cmx[2]) / 2];
+    const roundYZ = Math.abs(d[1] - d[2]) < 0.08 * Math.max(d[1], d[2]);
+    const thinX = d[0] < 0.6 * d[1];
+    const low = (ctr[1] - mn[1]) < 0.5 * hgt;
+    const offside = Math.abs(ctr[0]) > 0.4 * halfW; // skips Car 07's centered spare
+    if (roundYZ && thinX && low && offside && d[1] > 0.4 && d[1] < 1.6)
+      wheelComps.push({ tris: tlist, ctr, r: d[1] / 2, w: d[0], zOut: Math.max(Math.abs(cmn[0]), Math.abs(cmx[0])) });
   }
+  if (wheelComps.length !== 4 && wheelComps.length !== 0)
+    console.log('WARNING ' + name + ': found ' + wheelComps.length + ' wheel components (expected 4 or 0)');
+
+  // ---- car-space transform: length Z -> X ((x,z)->(z,-x), nose lands +x),
+  // shift full-model minY -> 0, center on full-model XZ bbox center
   const cx = (mn[0] + mx[0]) / 2, cz = (mn[2] + mx[2]) / 2;
-  for (const p of pts) { p[0] -= cx; p[1] -= mn[1]; p[2] -= cz; }
-  const len = mx[0] - mn[0], hgt = mx[1] - mn[1], wid = mx[2] - mn[2];
+  const toCar = p => [p[2] - cz, p[1] - mn[1], -(p[0] - cx)];
 
-  // ---- wheel pivots from arch shapes. The arches are CLOSED geometry (no
-  // boundary holes — verified by edge-count probing), so we cluster low
-  // fender verts per corner and circle-fit in the (x, y) plane with
-  // iterative outlier rejection, then sanity-gate the fit; models that fail
-  // (e.g. the burned-out Car 06, which sits flat on the ground) get no
-  // wheels at all.
-  const clusters = { f: { l: [], r: [] }, r: { l: [], r: [] } };
-  for (const p of pts) {
-    if (p[1] > 0.45 * hgt) continue;            // arches live low
-    if (Math.abs(p[0]) < 0.15 * len) continue;  // and near the ends
-    if (Math.abs(p[2]) < 0.55 * wid / 2) continue; // fender/side verts only
-    clusters[p[0] > 0 ? 'f' : 'r'][p[2] > 0 ? 'l' : 'r'].push(p);
-  }
-  function axleFit(ax) {
-    const sides = [];
-    for (const s of ['l', 'r']) {
-      let c = clusters[ax][s];
-      if (c.length < 6) continue;
-      let f = circleFit(c.map(p => [p[0], p[1]]));
-      for (let it = 0; it < 4 && f; it++) { // drop outliers (rockers, bumpers)
-        const keep = c.filter(p => Math.abs(Math.hypot(p[0] - f.ca, p[1] - f.cb) - f.r) < 0.35 * f.r);
-        if (keep.length < 6 || keep.length === c.length) break;
-        c = keep; f = circleFit(c.map(p => [p[0], p[1]]));
+  const dimsFull = [mx[2] - mn[2], hgt, mx[0] - mn[0]]; // len, h, w in car space
+
+  // ---- body = everything except wheel components
+  const wheelTris = new Set();
+  for (const wc of wheelComps) for (const ti of wc.tris) wheelTris.add(ti);
+  const bpos = [], buv = [];
+  o.tris.forEach((t, ti) => {
+    if (wheelTris.has(ti)) return;
+    for (const [vi, tvi] of t) {
+      bpos.push(toCar(o.v[vi]));
+      buv.push(tvi >= 0 ? o.vt[tvi] : [0, 0]);
+    }
+  });
+
+  // ---- wheels: pivots (car space) + one re-centered wheel mesh (axle X in
+  // original space -> rotate to local +Y: (x,y,z)->(y,-x,z), matching the
+  // MESHY_WHEEL mount contract where mesh.rotation.x = +-PI/2 per side)
+  const wheels = wheelComps.map(wc => {
+    const c = toCar(wc.ctr);
+    return [c[0], c[1], c[2], wc.r].map(v => +v.toFixed(4));
+  }).sort((a, b) => (b[0] - a[0]) || (b[2] - a[2]));
+  let wg = null;
+  if (wheelComps.length) {
+    const wc = wheelComps[0];
+    const seen = new Map(), wpos = [], wuv = [], widx = [];
+    for (const ti of wc.tris) {
+      for (const [vi, tvi] of o.tris[ti]) {
+        const key = vi + '_' + tvi;
+        if (!seen.has(key)) {
+          seen.set(key, wpos.length);
+          const p = o.v[vi];
+          wpos.push([p[1] - wc.ctr[1], -(p[0] - wc.ctr[0]), p[2] - wc.ctr[2]]);
+          wuv.push(tvi >= 0 ? o.vt[tvi] : [0, 0]);
+        }
+        widx.push(seen.get(key));
       }
-      // sanity: radius 4-14% of car length, center above ground & below 40% h
-      if (f && f.r > 0.04 * len && f.r < 0.14 * len && f.cb > 0.02 * hgt && f.cb < 0.4 * hgt)
-        sides.push({ cx: f.ca, cy: f.cb, r: f.r, zOut: Math.max(...c.map(p => Math.abs(p[2]))) });
     }
-    if (!sides.length) return null;
-    const m = k => sides.reduce((s2, v) => s2 + v[k], 0) / sides.length;
-    return { cx: m('cx'), cy: m('cy'), r: m('r'), zOut: m('zOut') };
-  }
-  const F = noWheels ? null : axleFit('f'), R = noWheels ? null : axleFit('r');
-  const wheels = [];
-  for (const [fit, tag] of [[F, 'front'], [R, 'rear']]) {
-    if (!fit) { if (!noWheels) console.log('NOTE ' + name + ': no ' + tag + ' arch fit (wheel-less)'); wheels.push(null, null); continue; }
-    // wheel radius: touch ground from the arch-center pivot, but never
-    // bigger than the arch opening itself (small ground-contact fudge ok)
-    const r = Math.min(fit.cy, fit.r * 0.97);
-    const halfW = r * WHEEL_W_RATIO;              // wheel scales as a whole
-    const z = fit.zOut - halfW * 0.9;             // outer face ~flush with arch lip
-    wheels.push([fit.cx, fit.cy, z, r], [fit.cx, fit.cy, -z, r]);
-    console.log('  ' + name + ' ' + tag + ': pivot x=' + fit.cx.toFixed(3) + ' y=' + fit.cy.toFixed(3) +
-      ' archR=' + fit.r.toFixed(3) + ' wheelR=' + r.toFixed(3) + ' z=+-' + z.toFixed(3));
+    wg = quantize(wpos, wuv, widx);
+    wg.tris = wc.tris.length;
+    wg.dims = [wc.r * 2, wc.w, wc.r * 2].map(v => +v.toFixed(4));
   }
 
-  // ---- expand + quantize (genvehs.js scheme; divisor from post-shift values)
-  const n = o.tris.length * 3;
-  let maxE = 0;
-  for (const p of pts) maxE = Math.max(maxE, Math.abs(p[0]), p[1], Math.abs(p[2]));
-  const Q = 32000 / (maxE + 1e-6);
-  const qp = new Int16Array(n * 3), qu = new Uint16Array(n * 2);
-  let k = 0;
-  for (const t of o.tris) {
-    for (const [vi, ti] of t) {
-      const p = pts[vi];
-      qp[k * 3] = Math.round(p[0] * Q);
-      qp[k * 3 + 1] = Math.round(p[1] * Q);
-      qp[k * 3 + 2] = Math.round(p[2] * Q);
-      const u = ti >= 0 ? o.vt[ti][0] : 0, v = ti >= 0 ? o.vt[ti][1] : 0;
-      qu[k * 2] = Math.max(0, Math.min(65535, Math.round(u * 8192)));
-      qu[k * 2 + 1] = Math.max(0, Math.min(65535, Math.round((1 - v) * 8192))); // OBJ->glTF v
-      k++;
-    }
-  }
-  return {
-    n: name, q: +Q.toFixed(4), tris: o.tris.length,
-    p: b64(qp), u: b64(qu),
+  const entry = Object.assign({ n: name }, quantize(bpos, buv, null), {
+    tris: bpos.length / 3,
     tex: texURL(path.join(PACK, texFile)),
-    dims: [len, hgt, wid].map(v => +v.toFixed(4)),
-    wheels: wheels.map(w => w && w.map(v => +v.toFixed(4)))
-  };
-}
-
-// ---- shared wheel -> MESHY_WHEEL-format entry (indexed, axle local +Y,
-// spoke/hub face local -Y like the game expects)
-function processWheel() {
-  const o = parseOBJ(path.join(PACK, 'Wheel/Wheel.obj'));
-  // axle is X (thin axis). Rotate about Z by +90deg: (x,y,z)->(-y,x,z),
-  // mapping +X (hub cap side, verified in harness) to +Y... game wants the
-  // face on -Y, so rotate by -90deg instead: (x,y,z)->(y,-x,z).
-  const pts = o.v.map(p => [p[1], -p[0], p[2]]);
-  // center (already origin-centered per analyze.js, but be safe)
-  let mn = [1e9, 1e9, 1e9], mx = [-1e9, -1e9, -1e9];
-  for (const p of pts) for (let i = 0; i < 3; i++) {
-    if (p[i] < mn[i]) mn[i] = p[i]; if (p[i] > mx[i]) mx[i] = p[i];
-  }
-  for (const p of pts) for (let i = 0; i < 3; i++) p[i] -= (mn[i] + mx[i]) / 2;
-  const dims = [mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]];
-  // dedupe by (vi,ti) -> indexed
-  const map = new Map(), P = [], U = [], I = [];
-  for (const t of o.tris) {
-    for (const [vi, ti] of t) {
-      const key = vi + '_' + ti;
-      if (!map.has(key)) {
-        map.set(key, P.length / 3);
-        P.push(...pts[vi]);
-        U.push(ti >= 0 ? o.vt[ti][0] : 0, ti >= 0 ? 1 - o.vt[ti][1] : 0);
-      }
-      I.push(map.get(key));
-    }
-  }
-  let maxE = 0;
-  for (const v of P) maxE = Math.max(maxE, Math.abs(v));
-  const Q = 32000 / (maxE + 1e-6);
-  const qp = new Int16Array(P.length), qu = new Uint16Array(U.length);
-  for (let i = 0; i < P.length; i++) qp[i] = Math.round(P[i] * Q);
-  for (let i = 0; i < U.length; i++) qu[i] = Math.max(0, Math.min(65535, Math.round(U[i] * 8192)));
-  return {
-    n: 'GG_WHEEL', q: +Q.toFixed(4), tris: o.tris.length,
-    p: b64(qp), u: b64(qu), i: b64(new Uint16Array(I)),
-    tex: texURL(path.join(PACK, 'Wheel/wheel.png')),
-    dims: dims.map(v => +v.toFixed(4))
-  };
+    dims: dimsFull.map(v => +v.toFixed(4)),
+    wheels: wheels.length ? wheels : null,
+    wg: wg
+  });
+  console.log('  ' + name + ': body ' + entry.tris + ' tris, ' + wheelComps.length +
+    ' baked wheels stripped' + (wheels.length ?
+      ', pivots ' + wheels.map(w => '(' + w[0] + ',' + w[1] + ',' + w[2] + ' r' + w[3] + ')').join(' ') : ''));
+  return entry;
 }
 
 fs.mkdirSync(OUTDIR, { recursive: true });
-const entries = MODELS.map(m => processCar(m[0], m[1], m[2], m[3]));
-const wheel = processWheel();
+const entries = MODELS.map(m => processCar(m[0], m[1], m[2]));
 const out = '// GGBot "PSX Style Cars" (CC0 1.0, https://ggbot.itch.io/psx-style-cars)\n' +
   '// converted by tools/ggbotveh/genggbot.js — PROTOTYPE, not loaded by the game.\n' +
-  '// Same decode contract as MESHY_VEHS / MESHY_WHEEL, but wheels[] are TRUE\n' +
-  '// pivots (bodies have open arches, no baked wheels).\n' +
-  'var GGBOT_VEHS = [\n' + entries.map(e => ' ' + JSON.stringify(e)).join(',\n') + '\n];\n' +
-  'var GGBOT_WHEEL = ' + JSON.stringify(wheel) + ';\n';
+  '// Same decode contract as MESHY_VEHS, but: bodies are wheel-LESS (baked\n' +
+  '// wheels stripped), wheels[] are TRUE pivots, and each entry carries its\n' +
+  '// own wheel mesh `wg` (indexed, axle local +Y, textured by the car atlas).\n' +
+  'var GGBOT_VEHS = [\n' + entries.map(e => ' ' + JSON.stringify(e)).join(',\n') + '\n];\n';
 new Function(out); // syntax gate
 fs.writeFileSync(path.join(OUTDIR, 'ggbotvehs.js'), out);
 for (const e of entries) {
-  console.log(e.n + ': ' + e.tris + ' tris, dims [' + e.dims.join(', ') + '], wheels r=[' +
-    e.wheels.map(w => w ? w[3] : '-').join(', ') + ']');
+  console.log(e.n + ': ' + e.tris + ' body tris, dims [' + e.dims.join(', ') + '], wheels ' +
+    (e.wheels ? 'r=[' + e.wheels.map(w => w[3]).join(', ') + '] + own ' + e.wg.tris + '-tri mesh' : 'none'));
 }
-console.log('GG_WHEEL: ' + wheel.tris + ' tris, dims [' + wheel.dims.join(', ') + ']');
 console.log('wrote ' + path.join(OUTDIR, 'ggbotvehs.js') + ' ~' +
   Math.round(fs.statSync(path.join(OUTDIR, 'ggbotvehs.js')).size / 1024) + 'KB');

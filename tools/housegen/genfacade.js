@@ -30,7 +30,7 @@ function prompt(c) {
     ' Each tile completely fills its grid cell edge to edge. The four tiles, left-to-right then top-to-bottom:' +
     ' TILE 1 (top-left): the COMPLETE FRONT WALL of the house as a plain RECTANGULAR wall texture filling the whole tile,' +
     ' spanning from the far-LEFT corner to the far-RIGHT corner of the house, matching the photo -' +
-    ' same wall color and trim, with its garage door taking only its true share of the width (roughly one third),' +
+    ' same wall color and trim, with its garage door kept SMALL (only about 30 percent of the tile width, positioned left of center; most of the tile is plain stucco wall),' +
     ' plus the front door and front windows in roughly their real positions, wall tall enough that the garage door top nearly reaches the top edge of the tile.' +
     ' Absolutely NO roofline, NO gable triangle, NO eaves and NO sky inside the tile - flat wall surface edge to edge.' +
     ' TILE 2 (top-right): the SIDE WALL of the house - mostly plain wall texture in the same color with one small window.' +
