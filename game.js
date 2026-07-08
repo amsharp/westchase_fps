@@ -6544,6 +6544,27 @@ updateStarsHUD();
 camera.position.set(player.x, player.y, player.z);
 requestAnimationFrame(loop);
 
+// ---- late-loaded NPC voice chunks ----
+// npcvoices1.js ships as a blocking <script> tag and declares
+// NPC_VOICE_CHUNKS; the remaining npcvoicesN.js chunks arrive here as dynamic
+// script tags shortly after the menu is up, so first paint stays fast. Plain
+// <script src> injection keeps file:// working (fetch/XHR would not).
+// playNpcVoice treats a character whose chunk hasn't landed yet exactly like
+// one with no pack entry, so callers fall back to the generic barks silently.
+var npcVoiceChunksKicked = false;
+function loadNpcVoiceChunks() {
+  if (npcVoiceChunksKicked) return;
+  npcVoiceChunksKicked = true;
+  var total = typeof NPC_VOICE_CHUNKS !== 'undefined' ? NPC_VOICE_CHUNKS : 0;
+  for (var i = 2; i <= total; i++) {
+    var s = document.createElement('script');
+    s.src = 'npcvoices' + i + '.js';
+    s.async = true;
+    document.head.appendChild(s);
+  }
+}
+setTimeout(loadNpcVoiceChunks, 800);
+
 // debug hook
 window.__wc = {
   state: state, player: player, npcs: npcs, cashes: cashes, cops: cops,
