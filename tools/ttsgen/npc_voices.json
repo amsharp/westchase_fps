@@ -1,38 +1,198 @@
 {
-  "_comment": "Per-NPC Fish Audio voice picks (curated 2026-07-07, no audio generated yet). One unique reference_id per named character; DEALER/CLERK reuse their pinned voices.json refs. Verify with findvoice.js / a test TTS before committing lines to a voice.",
-  "MARISOL": { "ref": "2df72d6d41d34476b15ae5a35619b54a", "title": "Latina", "why": "confident calm-and-cool Latina accent, matches 30s vibrant woman" },
-  "TYRELL": { "ref": "73e3300598584cd1a33c29d6dd0517f8", "title": "BEARD BALD BLACK MAN", "why": "smooth confident charismatic Black male, fits 90s-cool Tyrell" },
-  "BRAD": { "ref": "fee420f4813d4318bfea84f8f6cac53f", "title": "redneck", "why": "thick lively Southern accent, perfect sunburned Florida fisherman" },
-  "KEISHA": { "ref": "41e720a2116c4ace8f9d1da1630f4d27", "title": "Black woman accent", "why": "energetic friendly young Black woman, popular high-use voice" },
-  "ERNESTO": { "ref": "500dde5da01a4fd38466a0cf85cd0f95", "title": "Hispanic Generic", "why": "warm husky older Hispanic male, guayabera grandpa energy" },
-  "SKYLER": { "ref": "c9eca4b3949347828b362f856df487bb", "title": "Skater dude synthteen", "why": "chill mush-mouthed West Coast teen boy, literal skater" },
-  "DENISE": { "ref": "3e5c125ee7464f3187fa0105e7404284", "title": "Sassy Gossip Narrator", "why": "confident playful gossipy middle-aged female, big-perm energy" },
-  "ANDRE": { "ref": "ccbc13d6002a46b7883f607fd8fe0516", "title": "BLACK BALD MAN", "why": "high-energy enthusiastic Black male, gym hype-man delivery" },
-  "PHUONG": { "ref": "df90883f28ae472d90fd7680e8211e13", "title": "ASIAN WOMAN", "why": "clear calm middle-aged Asian female, proven high-use voice" },
-  "COLT": { "ref": "a97131ef0e2f4bc3b55305c9d3ab57c5", "title": "Cowboy", "why": "gruff energetic thick Western accent, handlebar-mustache cowboy" },
-  "JAMAL": { "ref": "38cf218eb5454fcfb1f66fcd171f89bb", "title": "Black man", "why": "energetic expressive young urban male, teen hooper fit" },
-  "GLORIA": { "ref": "0b6770770baf4db5b13c78c3091584a0", "title": "Old grandma", "why": "warm gentle slightly raspy grandmother, pearls and cardigans" },
-  "DIEGO": { "ref": "218370d341294dceaf99b5c04b3ebcc5", "title": "Drey Rincon (Mexican accent guy)", "why": "warm confident Mexican-accent male, friendly mechanic energy" },
-  "AISHA": { "ref": "8884d5144f94430999ea4976829afc39", "title": "BLACK DRESS WOMAN", "why": "bright animated playful young Black female, sunny sundress" },
-  "VLAD": { "ref": "cb3738020a154e26842d9f29b8fba80b", "title": "Russian Man Speaking English With Accent", "why": "deep serious Eastern-European accent, deadpan tracksuit menace" },
-  "SUMMER": { "ref": "87e56e4d711c46b2a950e8da6b1e507a", "title": "valley girl", "why": "high bright animated valley-girl accent, beach blonde" },
-  "WENDELL": { "ref": "1090fd9fa122405e94f8a82821ebaa2e", "title": "45 year old black man on porch", "why": "raspy husky porch-sage delivery, chess-park elder" },
-  "RIKO": { "ref": "34aef7e5fa444b55b787087112930d7d", "title": "Japanese Man", "why": "confident clear Japanese male; tagged middle-aged, reads younger" },
-  "PATTY": { "ref": "66462ae79c454129898b1bde54d04efa", "title": "Julia - Southern Woman", "why": "warm raspy Southern older female, career diner waitress" },
-  "OMAR": { "ref": "1fdd2c7163c144759352d50e732da3a1", "title": "Middle Eastern Storyteller", "why": "deep warm expressive Middle-Eastern male, polished and smug" },
-  "BECCA": { "ref": "685fbf7e5b8a46008c1dee91d782b528", "title": "valley girl", "why": "clear expressive conversational young female, college chatter" },
-  "LEON": { "ref": "c02407f8d19d4b7b93217a8bcd1a6261", "title": "jamaican 2", "why": "warm authoritative Caribbean accent, mellow rasta philosopher" },
-  "TINA": { "ref": "c65cb6e5de954e3eabf038cf19aaba00", "title": "Bright Young Filipino", "why": "bright warm friendly Filipina, cheerful power-walker" },
-  "COP_BROOKS": { "ref": "b0de137a71954b66b8a43cb04f9efe4e", "title": "Sergeant Doakes", "why": "deep raspy intense authoritative Black male officer" },
-  "COP_DIAZ": { "ref": "6f7423dc10a54e9ca8b3d2dcb3553e5f", "title": "ANGRY LATINA", "why": "intense dramatic Latina, fiery no-nonsense officer" },
-  "COP_SULLIVAN": { "ref": "9865a69980674b94b58a39daa5455cee", "title": "Sergeant Hartman", "why": "raspy husky drill-sergeant bark, old walrus-mustache sergeant" },
-  "COP_NGUYEN": { "ref": "e4c9f3ee58e44c46b654c840b9c66144", "title": "Clear Vietnamese Narrator", "why": "clear calm articulate Vietnamese male, by-the-book officer" },
-  "COP_WASHINGTON": { "ref": "0c55ceb51fca40319d40eb148bc6d3ce", "title": "Respectful Black Woman", "why": "deep smooth warm authoritative Black female officer" },
-  "COP_ROMERO": { "ref": "fc2db2a08de949fe8eafbad7e0bb8cc1", "title": "Cyael, Spanish accent", "why": "intense serious Spanish-accent male, aviators-cool officer" },
-  "COP_OBRIEN": { "ref": "168dca1915364fd5bf61bdf441facd3f", "title": "Emergency Dispatcher", "why": "clear urgent young male, jumpy rookie energy" },
-  "COP_PATEL": { "ref": "6423345fa90748f99b95d5d49ef84f53", "title": "Indian man English accent", "why": "calm friendly Indian-accent male 40s, de-escalation officer" },
-  "COP_KOWALSKI": { "ref": "a0ef13957a8442dca8139d6a345bdf66", "title": "Sergeant arch dornan", "why": "commanding aggressive military bellow, giant officer" },
-  "COP_JACKSON": { "ref": "43570d2836f24e5baf92de881c09a50c", "title": "Thatcher Davis (Dispatcher)", "why": "deep low weary police lieutenant, tired veteran" },
-  "CLERK": { "ref": "3c9dcc58d40a45c2b60f5361294068ea", "title": "store clerk (voices.json reuse)", "why": "existing pinned clerk voice, energetic nervous young male" },
-  "DEALER": { "ref": "78eda55526de4a1aa02d5f1ff5b0112b", "title": "gangster (voices.json reuse)", "why": "existing pinned dealer voice, gritty laid-back hustler" }
+ "_comment": "Per-NPC Fish Audio voice picks (curated 2026-07-07, no audio generated yet). One unique reference_id per named character; DEALER/CLERK reuse their pinned voices.json refs. Verify with findvoice.js / a test TTS before committing lines to a voice.",
+ "MARISOL": {
+  "ref": "2df72d6d41d34476b15ae5a35619b54a",
+  "title": "Latina",
+  "why": "confident calm-and-cool Latina accent, matches 30s vibrant woman"
+ },
+ "TYRELL": {
+  "ref": "73e3300598584cd1a33c29d6dd0517f8",
+  "title": "BEARD BALD BLACK MAN",
+  "why": "smooth confident charismatic Black male, fits 90s-cool Tyrell"
+ },
+ "BRAD": {
+  "ref": "fee420f4813d4318bfea84f8f6cac53f",
+  "title": "redneck",
+  "why": "thick lively Southern accent, perfect sunburned Florida fisherman"
+ },
+ "KEISHA": {
+  "ref": "41e720a2116c4ace8f9d1da1630f4d27",
+  "title": "Black woman accent",
+  "why": "energetic friendly young Black woman, popular high-use voice"
+ },
+ "ERNESTO": {
+  "ref": "500dde5da01a4fd38466a0cf85cd0f95",
+  "title": "Hispanic Generic",
+  "why": "warm husky older Hispanic male, guayabera grandpa energy"
+ },
+ "SKYLER": {
+  "ref": "c9eca4b3949347828b362f856df487bb",
+  "title": "Skater dude synthteen",
+  "why": "chill mush-mouthed West Coast teen boy, literal skater"
+ },
+ "DENISE": {
+  "ref": "3e5c125ee7464f3187fa0105e7404284",
+  "title": "Sassy Gossip Narrator",
+  "why": "confident playful gossipy middle-aged female, big-perm energy"
+ },
+ "ANDRE": {
+  "ref": "ccbc13d6002a46b7883f607fd8fe0516",
+  "title": "BLACK BALD MAN",
+  "why": "high-energy enthusiastic Black male, gym hype-man delivery"
+ },
+ "PHUONG": {
+  "ref": "df90883f28ae472d90fd7680e8211e13",
+  "title": "ASIAN WOMAN",
+  "why": "clear calm middle-aged Asian female, proven high-use voice"
+ },
+ "COLT": {
+  "ref": "a97131ef0e2f4bc3b55305c9d3ab57c5",
+  "title": "Cowboy",
+  "why": "gruff energetic thick Western accent, handlebar-mustache cowboy"
+ },
+ "JAMAL": {
+  "ref": "38cf218eb5454fcfb1f66fcd171f89bb",
+  "title": "Black man",
+  "why": "energetic expressive young urban male, teen hooper fit"
+ },
+ "GLORIA": {
+  "ref": "0b6770770baf4db5b13c78c3091584a0",
+  "title": "Old grandma",
+  "why": "warm gentle slightly raspy grandmother, pearls and cardigans"
+ },
+ "DIEGO": {
+  "ref": "218370d341294dceaf99b5c04b3ebcc5",
+  "title": "Drey Rincon (Mexican accent guy)",
+  "why": "warm confident Mexican-accent male, friendly mechanic energy"
+ },
+ "AISHA": {
+  "ref": "8884d5144f94430999ea4976829afc39",
+  "title": "BLACK DRESS WOMAN",
+  "why": "bright animated playful young Black female, sunny sundress"
+ },
+ "VLAD": {
+  "ref": "cb3738020a154e26842d9f29b8fba80b",
+  "title": "Russian Man Speaking English With Accent",
+  "why": "deep serious Eastern-European accent, deadpan tracksuit menace"
+ },
+ "SUMMER": {
+  "ref": "87e56e4d711c46b2a950e8da6b1e507a",
+  "title": "valley girl",
+  "why": "high bright animated valley-girl accent, beach blonde"
+ },
+ "WENDELL": {
+  "ref": "1090fd9fa122405e94f8a82821ebaa2e",
+  "title": "45 year old black man on porch",
+  "why": "raspy husky porch-sage delivery, chess-park elder"
+ },
+ "RIKO": {
+  "ref": "34aef7e5fa444b55b787087112930d7d",
+  "title": "Japanese Man",
+  "why": "confident clear Japanese male; tagged middle-aged, reads younger"
+ },
+ "PATTY": {
+  "ref": "66462ae79c454129898b1bde54d04efa",
+  "title": "Julia - Southern Woman",
+  "why": "warm raspy Southern older female, career diner waitress"
+ },
+ "OMAR": {
+  "ref": "1fdd2c7163c144759352d50e732da3a1",
+  "title": "Middle Eastern Storyteller",
+  "why": "deep warm expressive Middle-Eastern male, polished and smug"
+ },
+ "BECCA": {
+  "ref": "685fbf7e5b8a46008c1dee91d782b528",
+  "title": "valley girl",
+  "why": "clear expressive conversational young female, college chatter"
+ },
+ "LEON": {
+  "ref": "c02407f8d19d4b7b93217a8bcd1a6261",
+  "title": "jamaican 2",
+  "why": "warm authoritative Caribbean accent, mellow rasta philosopher"
+ },
+ "TINA": {
+  "ref": "c65cb6e5de954e3eabf038cf19aaba00",
+  "title": "Bright Young Filipino",
+  "why": "bright warm friendly Filipina, cheerful power-walker"
+ },
+ "COP_BROOKS": {
+  "ref": "b0de137a71954b66b8a43cb04f9efe4e",
+  "title": "Sergeant Doakes",
+  "why": "deep raspy intense authoritative Black male officer"
+ },
+ "COP_DIAZ": {
+  "ref": "6f7423dc10a54e9ca8b3d2dcb3553e5f",
+  "title": "ANGRY LATINA",
+  "why": "intense dramatic Latina, fiery no-nonsense officer"
+ },
+ "COP_SULLIVAN": {
+  "ref": "9865a69980674b94b58a39daa5455cee",
+  "title": "Sergeant Hartman",
+  "why": "raspy husky drill-sergeant bark, old walrus-mustache sergeant"
+ },
+ "COP_NGUYEN": {
+  "ref": "e4c9f3ee58e44c46b654c840b9c66144",
+  "title": "Clear Vietnamese Narrator",
+  "why": "clear calm articulate Vietnamese male, by-the-book officer"
+ },
+ "COP_WASHINGTON": {
+  "ref": "0c55ceb51fca40319d40eb148bc6d3ce",
+  "title": "Respectful Black Woman",
+  "why": "deep smooth warm authoritative Black female officer"
+ },
+ "COP_ROMERO": {
+  "ref": "fc2db2a08de949fe8eafbad7e0bb8cc1",
+  "title": "Cyael, Spanish accent",
+  "why": "intense serious Spanish-accent male, aviators-cool officer"
+ },
+ "COP_OBRIEN": {
+  "ref": "168dca1915364fd5bf61bdf441facd3f",
+  "title": "Emergency Dispatcher",
+  "why": "clear urgent young male, jumpy rookie energy"
+ },
+ "COP_PATEL": {
+  "ref": "6423345fa90748f99b95d5d49ef84f53",
+  "title": "Indian man English accent",
+  "why": "calm friendly Indian-accent male 40s, de-escalation officer"
+ },
+ "COP_KOWALSKI": {
+  "ref": "a0ef13957a8442dca8139d6a345bdf66",
+  "title": "Sergeant arch dornan",
+  "why": "commanding aggressive military bellow, giant officer"
+ },
+ "COP_JACKSON": {
+  "ref": "43570d2836f24e5baf92de881c09a50c",
+  "title": "Thatcher Davis (Dispatcher)",
+  "why": "deep low weary police lieutenant, tired veteran"
+ },
+ "CLERK": {
+  "ref": "3c9dcc58d40a45c2b60f5361294068ea",
+  "title": "store clerk (voices.json reuse)",
+  "why": "existing pinned clerk voice, energetic nervous young male"
+ },
+ "DEALER": {
+  "ref": "78eda55526de4a1aa02d5f1ff5b0112b",
+  "title": "gangster (voices.json reuse)",
+  "why": "existing pinned dealer voice, gritty laid-back hustler"
+ },
+ "DON": {
+  "ref": "25e19c17980d4bc9b32e43f4438a2580",
+  "title": "Dad",
+  "why": "mature deep calm resonant - dad-next-door energy for the Big Sky Montana guy"
+ },
+ "ALEX": {
+  "ref": "8a1d903ea3574b02ab8623c6a9147cef",
+  "title": "user-picked",
+  "why": "reference id supplied directly by the user (fish.audio/m/8a1d903e...)"
+ },
+ "DERIK": {
+  "ref": "c053bc9135c44e869fde87a59ab3974f",
+  "title": "Deep Mumble Male Speaker",
+  "why": "relaxed casual informal - skater chill"
+ },
+ "DYLAN": {
+  "ref": "6290ad34543a487ab85d4f36defd6be4",
+  "title": "American Soft male smooth",
+  "why": "soft smooth mellow - Pink Floyd sweatshirt vibes"
+ }
 }
