@@ -272,6 +272,12 @@ gets to it first, not to whoever made it show up. Probably nothing.
 - Some vehicles (station wagon, sedan, taxi, step van, and the burned
   wreck) are from "PSX Style Cars" by **GGBot**
   (https://ggbot.itch.io/psx-style-cars, CC0).
+- The map recently grew ~3× in area: the whole square mile around the
+  intersection is in — the residential grids southeast and east, the
+  Lynmar industrial park, collector roads, retention ponds (wadeable,
+  not swimmable), and dense preserve forest out to the new edge.
+  Buildings for the new neighborhoods are arriving next; traffic and
+  pedestrians still keep to the original core for now.
 - The map is finite — a wall rings the city.
 - Watch for traffic; cars hurt.
 - Getting knocked out costs you 25% of your cash.
