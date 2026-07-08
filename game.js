@@ -1840,12 +1840,12 @@ function getMeshySkin(mi) {
       if (!meshySharedDecoded[k]) meshySharedDecoded[k] = { q: new Int16Array(b64Bytes(sh.q).buffer), y: new Int16Array(b64Bytes(sh.y).buffer) };
       var gy = (e.clips[k] && e.clips[k].gy !== undefined) ? e.clips[k].gy : gyWalk;
       var post = sh.bind ? makePost(new Int16Array(b64Bytes(sh.bind).buffer)) : basePost;
-      d.clips[k] = { d: sh.d, f: sh.f, q: meshySharedDecoded[k].q, y: meshySharedDecoded[k].y, gy: gy, map: map, post: post };
+      d.clips[k] = { d: sh.d, f: sh.f, q: meshySharedDecoded[k].q, y: meshySharedDecoded[k].y, gy: gy, map: map, post: post, st: sh.st };
     }
   }
   for (var k2 in e.clips) {
     var c = e.clips[k2];
-    if (c.q) d.clips[k2] = { d: c.d, f: c.f, q: new Int16Array(b64Bytes(c.q).buffer), y: new Int16Array(b64Bytes(c.y).buffer), gy: c.gy || 0 };
+    if (c.q) d.clips[k2] = { d: c.d, f: c.f, q: new Int16Array(b64Bytes(c.q).buffer), y: new Int16Array(b64Bytes(c.y).buffer), gy: c.gy || 0, st: c.st };
   }
   meshySkinCache[mi] = d;
   return d;
@@ -2322,10 +2322,11 @@ scene.add(clerk);
 function enterStore() {
   if (T < gasClosedUntil) { popup2('STORE CLOSED — come back later'); sfx('deny'); return; }
   inside = true; robbedVisit = false; copsCalledVisit = false;
-  playVoiceAny(['clerk_hello_1', 'clerk_hello_2'], 0.55, 'clerkHi', 50);
   setZoom(false);
   player.x = doorIn.x; player.z = doorIn.z; player.y = INT.y + EYE;
   yaw = 0; pitch = 0;   // facing into the store
+  // greet AFTER the teleport — earshot is checked against the interior room
+  playVoiceAny(['clerk_hello_1', 'clerk_hello_2'], 0.55, 'clerkHi', 50, { ref: clerk });
 }
 // robbery lockouts are server-wide: one heist closes the store for everyone.
 // keyed by store so future robbable spots inherit the same sync for free.
@@ -2360,7 +2361,7 @@ function refreshClerk() {
   }
   addBtn('Buy a snack — $20  (+50 hp when eaten)', function () {
     if (state.money < 20) { sfx('deny'); popup2("You can't afford it"); return; }
-    state.money -= 20; state.snacks++; playVoice('clerk_snack', 0.5, 10);
+    state.money -= 20; state.snacks++; playVoice('clerk_snack', 0.5, 10, { ref: clerk });
     sfx('buy'); popup('+1 SNACK (equip it in TAB)');
     if (state.equipped === 'snack') setEquipped('snack');   // refresh the held-count HUD
     refreshClerk();
@@ -2370,14 +2371,14 @@ function refreshClerk() {
     if (armed) {
       var take = 100 + ((Math.random() * 201) | 0);
       state.money += take; robbedVisit = true;
-      playVoiceAny(['clerk_rob_1', 'clerk_rob_2'], 0.6, 'clerkRob', 6);
+      playVoiceAny(['clerk_rob_1', 'clerk_rob_2'], 0.6, 'clerkRob', 6, { ref: clerk });
       popup('ROBBED  +$' + take);
       sfx('alarm');
       if (state.wanted < 2) setWanted(2); else lastCrimeT = T;
       closeMenus();
     } else {
       copsCalledVisit = true; robbedVisit = true;
-      playVoice('clerk_panic', 0.6, 8);
+      playVoice('clerk_panic', 0.6, 8, { ref: clerk });
       popup2('You threaten him with... fists? He hits the panic button!');
       sfx('alarm');
       if (state.wanted < 2) setWanted(2); else lastCrimeT = T;
@@ -2863,7 +2864,7 @@ function copShoot(c, wpn, dt, tgt) {
   c.fireT = wpn.rate;
   if (!c.interior && !copHasLOS(c, tgt)) return;   // interior is one small room — they can always see you
   if (!tgt.id) {   // barks only for the local player
-    var copAt = { x: c.x, z: c.z, y: (c.baseY || 0) + 1.6, yell: true };
+    var copAt = { x: c.x, z: c.z, y: (c.baseY || 0) + 1.6, yell: true, ref: c };
     if (state.wanted >= 4) playVoiceAny(c.fem ? ['cop_fire_f_1', 'cop_fire_f_2'] : ['cop_fire_1', 'cop_fire_2'], 0.6, 'copBark', 12, copAt);
     else if (!playNpcVoice(c.vname, 'quirk', 0.6, 12, copAt)) playVoiceAny(c.fem ? ['cop_engage_f_1', 'cop_engage_f_2'] : ['cop_engage_1', 'cop_engage_2'], 0.6, 'copBark', 12, copAt);
   }
@@ -2925,7 +2926,7 @@ function updateCops(dt) {
       var wc2 = cops[wI];
       if (wc2.state === 'down' || wc2.interior) continue;
       var wdx = wc2.x - player.x, wdz = wc2.z - player.z;
-      if (wdx * wdx + wdz * wdz < 150) { playVoice(wc2.fem ? 'cop_warn_f' : 'cop_warn', 0.55, 30, { x: wc2.x, z: wc2.z, yell: true }); break; }
+      if (wdx * wdx + wdz * wdz < 150) { playVoice(wc2.fem ? 'cop_warn_f' : 'cop_warn', 0.55, 30, { x: wc2.x, z: wc2.z, yell: true, ref: wc2 }); break; }
     }
   }
   if (!isClient()) {
@@ -4003,7 +4004,7 @@ function updateUfo(dt) {
 // ---------------- NPC logic (wander) ----------------
 function damageNPC(n, dmg, kx, kz, silent) {
   if (n.state === 'down') return;
-  if (!silent && !playNpcVoice(n.vname, 'hit', 0.65, 4, { x: n.x, z: n.z, yell: true })) playVoiceAny(n.fem ? ['pedf_hit', 'pedf_hit_2'] : ['pedm_hit_1', 'pedm_hit_2', 'pedo_hit'], 0.6, 'pedHit', 5, { x: n.x, z: n.z, yell: true });
+  if (!silent && !playNpcVoice(n.vname, 'hit', 0.65, 4, { x: n.x, z: n.z, yell: true, ref: n })) playVoiceAny(n.fem ? ['pedf_hit', 'pedf_hit_2'] : ['pedm_hit_1', 'pedm_hit_2', 'pedo_hit'], 0.6, 'pedHit', 5, { x: n.x, z: n.z, yell: true, ref: n });
   n.hp -= dmg; n.hurtFlash = 0.12; n.x += (kx || 0) * 0.5; n.z += (kz || 0) * 0.5;
   lastCrimeT = T;
   if (n.hp <= 0) {
@@ -4026,7 +4027,7 @@ function damageNPC(n, dmg, kx, kz, silent) {
   for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o === n || o.state !== 'walk') continue; var dx = o.x - n.x, dz = o.z - n.z; if (dx * dx + dz * dz < 170) startFlee(o); }
 }
 function startFlee(n) { if (n.state === 'down') return; n.state = 'flee'; n.dodge = false; n.fleeT = 4 + Math.random() * 3; var dx = n.x - player.x, dz = n.z - player.z; var d = Math.sqrt(dx * dx + dz * dz) || 1; n.fleeDX = dx / d; n.fleeDZ = dz / d; }
-function panicNear(x, z, r2) { var fled = null; for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o.state !== 'walk') continue; var dx = o.x - x, dz = o.z - z; if (dx * dx + dz * dz < r2) { startFlee(o); if (!fled || o.vname) fled = o; } } if (fled && !playNpcVoice(fled.vname, 'gunscared', 0.65, 10, { x: fled.x, z: fled.z, yell: true })) playVoiceAny(fled.fem ? ['pedf_gun'] : ['pedm_gun'], 0.6, 'pedGun', 16, { x: fled.x, z: fled.z, yell: true }); }
+function panicNear(x, z, r2) { var fled = null; for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o.state !== 'walk') continue; var dx = o.x - x, dz = o.z - z; if (dx * dx + dz * dz < r2) { startFlee(o); if (!fled || o.vname) fled = o; } } if (fled && !playNpcVoice(fled.vname, 'gunscared', 0.65, 10, { x: fled.x, z: fled.z, yell: true, ref: fled })) playVoiceAny(fled.fem ? ['pedf_gun'] : ['pedm_gun'], 0.6, 'pedGun', 16, { x: fled.x, z: fled.z, yell: true, ref: fled }); }
 
 var npcSocialT = 0, npcBumpT = -99, meleeHit = false;
 function updateNPCs(dt) {
@@ -4058,7 +4059,7 @@ function updateNPCs(dt) {
             a.chatRole = 0; b2.chatRole = 1;
             a.stateT = b2.stateT = 5 + Math.random() * 6;
             a.animT = 0; b2.animT = 1.1;
-            playNpcVoice(a.vname || b2.vname, 'chat', 0.55, 8, { x: a.x, z: a.z });
+            playNpcVoice(a.vname || b2.vname, 'chat', 0.55, 8, { x: a.x, z: a.z, ref: a.vname ? a : b2 });
             break outer;
           }
         }
@@ -4070,7 +4071,7 @@ function updateNPCs(dt) {
         var qn = npcs[qi];
         if (!qn.vname || qn.state !== 'walk') continue;
         var qdx = qn.x - player.x, qdz = qn.z - player.z;
-        if (qdx * qdx + qdz * qdz < 20) { playNpcVoice(qn.vname, 'quirk', 0.55, 25, { x: qn.x, z: qn.z }); break; }
+        if (qdx * qdx + qdz * qdz < 20) { playNpcVoice(qn.vname, 'quirk', 0.55, 25, { x: qn.x, z: qn.z, ref: qn }); break; }
       }
     }
     // bump reaction: player shoving through someone
@@ -4081,7 +4082,7 @@ function updateNPCs(dt) {
         var bdx = bn.x - player.x, bdz = bn.z - player.z;
         if (bdx * bdx + bdz * bdz < 0.9 && T - npcBumpT > 6) {
           npcBumpT = T;
-          if (!playNpcVoice(bn.vname, 'bump', 0.55, 4, { x: bn.x, z: bn.z })) playVoiceAny(bn.fem ? ['pedf_hit', 'pedf_hit_2'] : ['pedm_hit_2', 'pedo_hit'], 0.5, 'pedBump', 6, { x: bn.x, z: bn.z });
+          if (!playNpcVoice(bn.vname, 'bump', 0.55, 4, { x: bn.x, z: bn.z, ref: bn })) playVoiceAny(bn.fem ? ['pedf_hit', 'pedf_hit_2'] : ['pedm_hit_2', 'pedo_hit'], 0.5, 'pedBump', 6, { x: bn.x, z: bn.z, ref: bn });
           bn.state = 'stand'; bn.stateT = 1.4; bn.animT = 0; bn.idleVar = false;
           bn.mesh.rotation.y = Math.atan2(-bdx, -bdz);
         }
@@ -4097,7 +4098,7 @@ function updateNPCs(dt) {
       if (thr) {
         n.state = 'flee'; n.dodge = true; n.fleeT = 0.9 + Math.random() * 0.3;
         n.fleeDX = thr.x; n.fleeDZ = thr.z; n.dodgeCD = T + 2;
-        if (!playNpcVoice(n.vname, 'bump', 0.6, 3, { x: n.x, z: n.z, yell: true })) playVoiceAny(n.fem ? ['pedf_hit', 'pedf_hit_2'] : ['pedm_hit_1', 'pedm_hit_2'], 0.55, 'pedDodge', 4, { x: n.x, z: n.z, yell: true });
+        if (!playNpcVoice(n.vname, 'bump', 0.6, 3, { x: n.x, z: n.z, yell: true, ref: n })) playVoiceAny(n.fem ? ['pedf_hit', 'pedf_hit_2'] : ['pedm_hit_1', 'pedm_hit_2'], 0.55, 'pedDodge', 4, { x: n.x, z: n.z, yell: true, ref: n });
       }
     }
     if (n.state === 'ragdoll') {
@@ -4268,7 +4269,19 @@ function animPersonClip(m, clip, tSec, oneshot) {
 }
 function animPerson(m, spd, dt, phase) {
   var sk = m.userData.skin;
-  if (sk) { if (spd > 0.1) meshyPose(sk, spd > 2.2 ? 'run' : 'walk', (phase || 0) / 6.2832); else meshyPose(sk, 'idle', (T + (m.id % 10)) / (sk.d.clips.idle ? sk.d.clips.idle.d : 4)); return; }
+  if (sk) {
+    if (spd > 0.1) {
+      // callers integrate phase at spd*3.4 rad/s, so phase/3.4 = distance
+      // walked. Advance the clip by distance/stride cycles so the authored
+      // stride matches the ground covered — feet plant instead of skating.
+      // st (game units per gait cycle) is FK-measured offline per clip by
+      // tools/chargen/stridecalc.js; fallbacks match the clip-set averages.
+      var key = spd > 2.9 && sk.d.clips.run ? 'run' : 'walk';
+      var c = sk.d.clips[key] || sk.d.clips.walk;
+      meshyPose(sk, key, (phase || 0) / (3.4 * (c.st || (key === 'run' ? 2.8 : 1.5))));
+    } else meshyPose(sk, 'idle', (T + (m.id % 10)) / (sk.d.clips.idle ? sk.d.clips.idle.d : 4));
+    return;
+  }
   var L = m.userData.limbs; if (!L) return;
   var a = spd > 0.1 ? Math.sin(phase || 0) * 0.65 : 0;
   L.legL.rotation.x = a; L.legR.rotation.x = -a; L.armL.rotation.x = -a * 0.8; L.armR.rotation.x = a * 0.8;
@@ -4777,7 +4790,7 @@ function setZoom(on) {
   document.getElementById('crosshair').style.display = on ? 'none' : '';
 }
 function setEquipped(w) {
-  if (inside && w && w !== 'fists' && w !== 'snack' && w !== 'soda') playVoice('clerk_scared', 0.55, 45);
+  if (inside && w && w !== 'fists' && w !== 'snack' && w !== 'soda') playVoice('clerk_scared', 0.55, 45, { ref: clerk });
   setZoom(false);
   gunBloom = 0;
   if (w !== state.equipped && w !== 'fists' && w !== 'snack' && w !== 'soda') equipT = T;   // draw animation
@@ -5368,13 +5381,29 @@ function updateVoiceAudio(dt) {
       l.setOrientation(audioFwd.x, audioFwd.y, audioFwd.z, 0, 1, 0);
     }
   }
+  var idt = 1 / Math.max(dt, 0.001);
   for (var i = activeVoices.length - 1; i >= 0; i--) {
     var v = activeVoices[i];
     if (v.done) { activeVoices.splice(i, 1); continue; }
+    // follow the live source (or hold its last known spot once it's gone)
+    if (v.at) { voicePos(v.at); v.x = v.at.x; v.z = v.at.z; }
+    if (v.pan) {
+      var py = v.at && v.at.y !== undefined ? v.at.y : 1.6;
+      try {
+        if (v.pan.positionX) { v.pan.positionX.value = v.x; v.pan.positionY.value = py; v.pan.positionZ.value = v.z; }
+        else v.pan.setPosition(v.x, py, v.z);
+      } catch (e) { }
+    }
     var dx = v.x - player.x, dz = v.z - player.z, d = Math.sqrt(dx * dx + dz * dz);
-    var rv = (d - v.lastD) / Math.max(dt, 0.001);   // + = opening range
+    var rv = (d - v.lastD) * idt;   // + = opening range (source AND listener)
     v.lastD = d;
-    var f = DOPPLER_C / (DOPPLER_C + Math.max(-28, Math.min(28, rv)));
+    // the source's own radial velocity comes from its frame-to-frame motion;
+    // the remainder of the range rate is listener motion (formula unchanged)
+    var ux = d > 0.001 ? dx / d : 0, uz = d > 0.001 ? dz / d : 0;
+    var rvS = Math.max(-28, Math.min(28, ((v.x - v.lsx) * ux + (v.z - v.lsz) * uz) * idt));
+    v.lsx = v.x; v.lsz = v.z;
+    var rvL = Math.max(-28, Math.min(28, rv - rvS));
+    var f = (DOPPLER_C / (DOPPLER_C + rvL)) * (DOPPLER_C / (DOPPLER_C + rvS));
     try { v.src.playbackRate.value += (f - v.src.playbackRate.value) * Math.min(1, dt * 10); } catch (e) { }
   }
 }
@@ -5426,7 +5455,7 @@ function refreshShop() {
     if (!w.price) return;   // not for sale (ray gun drops from... something)
     var left = document.createElement('div'); left.innerHTML = '<b>' + w.name + '</b> — <span class="cash">$' + w.price + '</span><small>' + w.desc + '</small>'; row.appendChild(left);
     if (state.owned[k]) { var sp = document.createElement('span'); sp.className = 'owned'; sp.textContent = 'OWNED'; row.appendChild(sp); }
-    else { var btn = document.createElement('button'); btn.textContent = 'BUY'; btn.disabled = state.money < w.price; btn.onclick = function () { if (state.money < w.price) { playVoiceAny(['dealer_nocash_1', 'dealer_nocash_2'], 0.5, 'dealerNo', 5); sfx('deny'); return; } state.money -= w.price; state.owned[k] = true; shopBought = true; playVoiceAny(['dealer_buy_1', 'dealer_buy_2'], 0.5, 'dealerBuy', 4); sfx('buy'); popup(w.name + ' purchased!'); refreshShop(); }; row.appendChild(btn); }
+    else { var btn = document.createElement('button'); btn.textContent = 'BUY'; btn.disabled = state.money < w.price; btn.onclick = function () { if (state.money < w.price) { playVoiceAny(['dealer_nocash_1', 'dealer_nocash_2'], 0.5, 'dealerNo', 5, { ref: dealer }); sfx('deny'); return; } state.money -= w.price; state.owned[k] = true; shopBought = true; playVoiceAny(['dealer_buy_1', 'dealer_buy_2'], 0.5, 'dealerBuy', 4, { ref: dealer }); sfx('buy'); popup(w.name + ' purchased!'); refreshShop(); }; row.appendChild(btn); }
     rows.appendChild(row);
   });
   document.getElementById('shopCash').textContent = '$' + state.money;
@@ -5457,8 +5486,8 @@ function refreshInv() {
   var any = GUN_LIST.some(function (k) { return state.owned[k]; });
   if (!any) { var hint = document.createElement('div'); hint.className = 'row'; hint.innerHTML = '<small>No guns yet — earn cash and visit the dealer ($ on the minimap).</small>'; rows.appendChild(hint); }
 }
-function openMenu(which) { setZoom(false); state.menu = which; document.exitPointerLock && document.exitPointerLock(); if (which === 'shop') { shopBought = false; if (!dealerMet) { dealerMet = true; playVoice('dealer_hello_first', 0.5, 1); } else playVoiceAny(['dealer_hello_1', 'dealer_hello_2'], 0.5, 'dealerHi', 18); refreshShop(); document.getElementById('shopPanel').classList.remove('hidden'); } if (which === 'inv') { refreshInv(); document.getElementById('invPanel').classList.remove('hidden'); } if (which === 'clerk') { refreshClerk(); document.getElementById('clerkPanel').classList.remove('hidden'); } }
-function closeMenus(relock) { if (state.menu === 'shop' && !shopBought) playVoice('dealer_bye', 0.45, 40); state.menu = null; document.getElementById('shopPanel').classList.add('hidden'); document.getElementById('invPanel').classList.add('hidden'); document.getElementById('clerkPanel').classList.add('hidden'); if (relock !== false && state.running) lockPointer(); }
+function openMenu(which) { setZoom(false); state.menu = which; document.exitPointerLock && document.exitPointerLock(); if (which === 'shop') { shopBought = false; if (!dealerMet) { dealerMet = true; playVoice('dealer_hello_first', 0.5, 1, { ref: dealer }); } else playVoiceAny(['dealer_hello_1', 'dealer_hello_2'], 0.5, 'dealerHi', 18, { ref: dealer }); refreshShop(); document.getElementById('shopPanel').classList.remove('hidden'); } if (which === 'inv') { refreshInv(); document.getElementById('invPanel').classList.remove('hidden'); } if (which === 'clerk') { refreshClerk(); document.getElementById('clerkPanel').classList.remove('hidden'); } }
+function closeMenus(relock) { if (state.menu === 'shop' && !shopBought) playVoice('dealer_bye', 0.45, 40, { ref: dealer }); state.menu = null; document.getElementById('shopPanel').classList.add('hidden'); document.getElementById('invPanel').classList.add('hidden'); document.getElementById('clerkPanel').classList.add('hidden'); if (relock !== false && state.running) lockPointer(); }
 
 // ---------------- minimap ----------------
 var mm = document.getElementById('mm');
@@ -5986,7 +6015,8 @@ function updateNet(dt) {
       r.mesh.position.set(r.x, Math.max(-59.9, r.y - EYE), r.z);
       r.mesh.rotation.y = r.yaw + Math.PI;
       r.mesh.rotation.x = r.dead ? -1.5 : 0;
-      animPerson(r.mesh, r.dead ? 0 : (moved / Math.max(dt, 0.001) > 0.5 ? 2 : 0), dt, r.phase);
+      var rspd = moved / Math.max(dt, 0.001);   // real speed so sprinters pick the run clip
+      animPerson(r.mesh, r.dead || rspd <= 0.5 ? 0 : rspd, dt, r.phase);
       r.tag.position.set(r.x, r.y - EYE + 2.5, r.z);
     }
   }
