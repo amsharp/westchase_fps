@@ -40,6 +40,9 @@
   #hud { position:fixed; inset:0; pointer-events:none; z-index:10; }
   #crosshair { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
     color:#fff; font-size:18px; text-shadow:1px 1px 0 #000; }
+  #rocketCd { position:absolute; left:50%; top:calc(50% + 24px); transform:translateX(-50%);
+    width:64px; height:5px; border:1px solid #cfc7b0; background:rgba(0,0,0,.55); }
+  #rocketCdBar { height:100%; width:0%; background:#ffd94a; }
   #statBox { position:absolute; left:16px; top:14px; color:#fff; text-shadow:2px 2px 0 #000; font-size:18px; }
   #money { color:#8ee87f; font-size:22px; letter-spacing:1px; }
   #hpOuter { width:170px; height:14px; border:2px solid #ddd; background:rgba(0,0,0,.55); margin-top:6px; }
@@ -101,6 +104,7 @@
 
 <div id="hud">
   <div id="crosshair">+</div>
+  <div id="rocketCd" class="hidden"><div id="rocketCdBar"></div></div>
   <div id="stars"></div>
   <div id="statBox">
     <div id="money">$0</div>
@@ -187,6 +191,7 @@
 <script src="meshyarms.js"></script>
 <script src="meshyvehs.js"></script>
 <script src="meshyufo.js"></script>
+<script src="meshyguns.js"></script>
 <script src="npcvoices.js"></script>
 <script src="meshychars.js"></script>
 <script src="voicelines.js"></script>
