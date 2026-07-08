@@ -2393,23 +2393,48 @@ function copPickTarget(c) {
   for (var id in net.remotes) { var r = net.remotes[id]; if (!r.dead) cand(r.x, r.z, r.y || EYE, r.w || 0, id); }
   return best;
 }
-// raise the gun arm at the target — post-multiplied AFTER animPerson each
-// frame (same trick as the clerk hands-up) so the walk swing doesn't fight it
-var copAimQ = null;
+// point the gun arm at the target — runs AFTER animPerson each frame (same
+// post-anim bone tweak trick as the clerk hands-up). One-joint measured IK:
+// rotate the shoulder by the world-space delta between the current
+// shoulder->fist line and the shoulder->target line (robust across models and
+// idle/walk clip phases), then snap the gun's world rotation so the barrel
+// (-Z) looks dead at the target — copMuzzle lands exactly on the shot line.
+var copAimQ = null, copAimDQ = null, copAimPQ = null, copAimV1 = null, copAimV2 = null, copAimV3 = null, copAimM = null;
 function copAimArm(c, m, tgt) {
-  var L = m.userData.limbs;
-  if (!L || !L.armR) return;
-  if (!copAimQ) copAimQ = new THREE.Quaternion();
-  var vert = Math.atan2((tgt.y || EYE) - ((c.baseY || 0) + 1.35), tgt.d || 1);
-  copAimQ.setFromAxisAngle(X_AXIS, -1.35 - vert);
-  L.armR.quaternion.multiply(copAimQ);
+  var L = m.userData.limbs, hand = m.userData.handR;
+  if (!L || !L.armR || !hand) return;
+  if (!copAimQ) {
+    copAimQ = new THREE.Quaternion(); copAimDQ = new THREE.Quaternion(); copAimPQ = new THREE.Quaternion();
+    copAimV1 = new THREE.Vector3(); copAimV2 = new THREE.Vector3(); copAimV3 = new THREE.Vector3(); copAimM = new THREE.Matrix4();
+  }
+  m.updateMatrixWorld(true);   // animPerson just re-posed the bones
+  L.armR.getWorldPosition(copAimV1);                       // shoulder
+  hand.getWorldPosition(copAimV2);                         // fist
+  copAimV3.set(tgt.x, (tgt.y || EYE) - 0.15, tgt.z);       // gun rides a touch under the eye line
+  copAimV2.sub(copAimV1).normalize();                      // current arm dir
+  copAimV3.sub(copAimV1).normalize();                      // desired arm dir
+  copAimDQ.setFromUnitVectors(copAimV2, copAimV3);         // world-space delta
+  L.armR.parent.getWorldQuaternion(copAimPQ);
+  copAimQ.copy(copAimPQ).invert().multiply(copAimDQ).multiply(copAimPQ);   // into shoulder-local space
+  L.armR.quaternion.premultiply(copAimQ);
+  var gun = m.userData.heldGun;
+  if (gun) {
+    L.armR.updateMatrixWorld(true);                        // re-derive hand/gun matrices after the swing
+    gun.getWorldPosition(copAimV1);
+    copAimV3.set(tgt.x, (tgt.y || EYE) - 0.15, tgt.z);
+    copAimM.lookAt(copAimV1, copAimV3, Y_UP);              // basis with -Z on the target
+    copAimDQ.setFromRotationMatrix(copAimM);
+    hand.getWorldQuaternion(copAimPQ);
+    gun.quaternion.copy(copAimPQ.invert()).multiply(copAimDQ);
+    gun.updateMatrixWorld(true);
+  }
 }
 // world-space muzzle tip of the cop's held gun (null while holstered)
 function copMuzzle(c) {
   var gun = c.mesh.userData.heldGun;
   if (!gun) return null;
-  c.mesh.updateMatrixWorld(true);   // bones were just posed; matrices are a frame stale
-  return new THREE.Vector3(0, 0, c.mesh.userData.heldKind === 'smg' ? -0.62 : -0.42).applyMatrix4(gun.matrixWorld);
+  c.mesh.updateMatrixWorld(true);   // copAimArm may have just re-rotated the gun
+  return new THREE.Vector3(0, 0, c.mesh.userData.heldKind === 'smg' ? -0.45 : -0.35).applyMatrix4(gun.matrixWorld);
 }
 function copShoot(c, wpn, dt, tgt) {
   c.fireT -= dt;
@@ -3175,8 +3200,8 @@ function attachHeldGun(g, kind) {
   if (!kind || !g.userData.handR) return;
   var gun = dropMesh(kind);
   gun.scale.setScalar(0.85);
-  gun.position.set(0.03, 0.05, -0.02);
-  gun.rotation.set(Math.PI / 2 - 0.35, 0, 0);   // barrel out the front of the fist, grip in palm
+  gun.position.set(0.02, 0.06, 0.0);
+  gun.rotation.set(1.35, 0.3, 0);   // grip in the fist, barrel continuing the aimed forearm (solved w/ copAimArm angles)
   g.userData.handR.add(gun);
   g.userData.heldGun = gun; g.userData.heldKind = kind;
 }
@@ -3855,7 +3880,7 @@ function getGunMesh(name, len) {
     var tp = [], tu = [], wp = [], wu = [];
     for (i = 0; i < fp.length; i += 9) {
       var cx = (fp[i] + fp[i + 3] + fp[i + 6]) / 3;
-      var dp = cx < -0.33 ? wp : tp, du = cx < -0.33 ? wu : tu;
+      var dp = cx < -0.38 ? wp : tp, du = cx < -0.38 ? wu : tu;
       for (var j = 0; j < 9; j++) dp.push(fp[i + j]);
       var ub = (i / 9) * 6;
       for (j = 0; j < 6; j++) du.push(fu[ub + j]);
@@ -3868,7 +3893,8 @@ function getGunMesh(name, len) {
     wg2.setAttribute('position', new THREE.BufferAttribute(new Float32Array(wp), 3));
     wg2.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(wu), 2));
     wg2.computeVertexNormals();
-    var tube = new THREE.Mesh(tg, gunM); tube.scale.set(s, s, s);
+    var tubeM = lamb({ map: tx }); tubeM.side = THREE.DoubleSide;   // open muzzle reads hollow
+    var tube = new THREE.Mesh(tg, tubeM); tube.scale.set(s, s, s);
     var wh = new THREE.Mesh(wg2, gunM); wh.scale.set(s, s, s);
     wh.userData.warhead = true;
     g.add(tube, wh);
@@ -5510,12 +5536,14 @@ function applyWorldSnap(dt) {
     if (nm.userData.shadow) nm.userData.shadow.visible = st < 2;
     if (st === 0) { n.phase += dt * 5; animPerson(nm, 2, dt, n.phase); }
   }
-  var wantGunM = state.wanted >= 4 ? 'smg' : 'pistol';
+  // snapshot cop entries are just [x,z,ry,down] — no engage state — so mirror
+  // cops approximate "gun out" with the LOCAL player's wanted level instead
+  var wantGunM = state.wanted >= 1 ? (state.wanted >= 4 ? 'smg' : 'pistol') : null;
   while (copsM.length < s.cops.length) { var cm2 = buildCop(); cm2.userData.copM = copsM.length; attachHeldGun(cm2, wantGunM); scene.add(cm2); copsM.push({ mesh: cm2, x: 0, z: 0, phase: Math.random() * 9 }); }
   while (copsM.length > s.cops.length) { var oldc = copsM.pop(); scene.remove(oldc.mesh); }
   for (i = 0; i < copsM.length; i++) {
     var cp = copsM[i], cs = s.cops[i];
-    if (!cp.down && cp.mesh.userData.handR && cp.mesh.userData.heldKind !== wantGunM) attachHeldGun(cp.mesh, wantGunM);
+    if (!cp.down && cp.mesh.userData.handR && (cp.mesh.userData.heldKind || null) !== wantGunM) attachHeldGun(cp.mesh, wantGunM);
     cp.x += (cs[0] / 10 - cp.x) * k; cp.z += (cs[1] / 10 - cp.z) * k;
     cp.down = cs[3] === 2;
     cp.mesh.position.set(cp.x, 0, cp.z);
