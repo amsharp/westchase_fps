@@ -1,7 +1,15 @@
 // Convert GGBot "PSX Style Cars" OBJs into the MESHY_VEHS quantized-embed
 // format (see tools/vehgen/genvehs.js + game.js getVehGeo/getMeshyWheel).
-// PROTOTYPE — output goes to tools/ggbotveh/out/ggbotvehs.js and is NOT
-// wired into the game.
+// Writes the SHIPPING repo-root ggbotvehs.js (loaded by index.html before
+// game.js) plus a prototype copy in tools/ggbotveh/out/ for the harness.
+//
+// Adopted set (MIX decision — bodies the Meshy fleet lacks): Car 01 station
+// wagon, Car 05 full-size sedan + POLICE + TAXI liveries, Car 08 step van
+// (+ MAIL livery texture), Car 06 burned-out wreck (explosion husk prop).
+// Each entry embeds ALL shipped color-variant PNGs (`texs`, snow variants
+// skipped) — GGBot entries do NOT use the game's VEH_COLS hue-swap. The
+// step van's MAIL livery index is flagged via `mail` so the game can make
+// it a rare roll instead of an even pick.
 //
 // Key discovery (verified by connected-component analysis + renders): each
 // drivable body ships with FOUR BAKED 3D WHEELS, each a separate 28-tri
@@ -30,13 +38,18 @@ const PACK = process.argv[2] ||
   '/tmp/claude-0/-home-user-westchase-fps/6762ca26-85bb-50ae-aa02-dab118a4400c/scratchpad/ggbot_cars';
 const OUTDIR = path.join(__dirname, 'out');
 
-// name, obj path, texture path
+// name, obj path, texture paths (variant list), optional extras
 const MODELS = [
-  ['GG_WAGON', 'Car 01/Car.obj', 'Car 01/car.png'],
-  ['GG_SALOON', 'Car 02/Car2.obj', 'Car 02/car2.png'],
-  ['GG_MINIVAN', 'Car 04/Car4.obj', 'Car 04/car4.png'],
-  ['GG_POLICE', 'Car 05/Car5_Police.obj', 'Car 05/car5_police.png'],
-  ['GG_WRECK', 'Car 06/Car6.obj', 'Car 06/car6.png'],
+  ['GG_WAGON', 'Car 01/Car.obj',
+    ['Car 01/car.png', 'Car 01/car_blue.png', 'Car 01/car_gray.png', 'Car 01/car_red.png']],
+  ['GG_SEDAN', 'Car 05/Car5.obj',
+    ['Car 05/car5.png', 'Car 05/car5_green.png', 'Car 05/car5_grey.png']],
+  ['GG_TAXI', 'Car 05/Car5_Taxi.obj', ['Car 05/car5_taxi.png']],
+  ['GG_POLICE', 'Car 05/Car5_Police.obj', ['Car 05/car5_police.png']],
+  ['GG_STEPVAN', 'Car 08/Car8.obj',
+    ['Car 08/Car8.png', 'Car 08/Car8_grey.png', 'Car 08/Car8_purple.png', 'Car 08/Car8_mail.png'],
+    { mail: 3 }],   // texs[3] = MAIL livery (rare roll in-game)
+  ['GG_WRECK', 'Car 06/Car6.obj', ['Car 06/car6.png']],
 ];
 
 function parseOBJ(file) {
@@ -79,7 +92,7 @@ function quantize(pos, uv, idx) {
   return out;
 }
 
-function processCar(name, objFile, texFile) {
+function processCar(name, objFile, texFiles, extra) {
   const o = parseOBJ(path.join(PACK, objFile));
 
   // ---- weld by position + union-find into connected components
@@ -179,11 +192,11 @@ function processCar(name, objFile, texFile) {
 
   const entry = Object.assign({ n: name }, quantize(bpos, buv, null), {
     tris: bpos.length / 3,
-    tex: texURL(path.join(PACK, texFile)),
+    texs: texFiles.map(f => texURL(path.join(PACK, f))),
     dims: dimsFull.map(v => +v.toFixed(4)),
     wheels: wheels.length ? wheels : null,
     wg: wg
-  });
+  }, extra || {});
   console.log('  ' + name + ': body ' + entry.tris + ' tris, ' + wheelComps.length +
     ' baked wheels stripped' + (wheels.length ?
       ', pivots ' + wheels.map(w => '(' + w[0] + ',' + w[1] + ',' + w[2] + ' r' + w[3] + ')').join(' ') : ''));
@@ -191,18 +204,22 @@ function processCar(name, objFile, texFile) {
 }
 
 fs.mkdirSync(OUTDIR, { recursive: true });
-const entries = MODELS.map(m => processCar(m[0], m[1], m[2]));
+const entries = MODELS.map(m => processCar(m[0], m[1], m[2], m[3]));
 const out = '// GGBot "PSX Style Cars" (CC0 1.0, https://ggbot.itch.io/psx-style-cars)\n' +
-  '// converted by tools/ggbotveh/genggbot.js — PROTOTYPE, not loaded by the game.\n' +
+  '// converted by tools/ggbotveh/genggbot.js. Optional: game checks typeof GGBOT_VEHS.\n' +
   '// Same decode contract as MESHY_VEHS, but: bodies are wheel-LESS (baked\n' +
-  '// wheels stripped), wheels[] are TRUE pivots, and each entry carries its\n' +
-  '// own wheel mesh `wg` (indexed, axle local +Y, textured by the car atlas).\n' +
+  '// wheels stripped), wheels[] are TRUE pivots ([x,y,z,r], car space, nose +x),\n' +
+  '// each entry carries its own wheel mesh `wg` (indexed, axle local +Y,\n' +
+  '// textured by the car atlas), and `texs` holds the shipped color-variant\n' +
+  '// PNGs verbatim (no VEH_COLS hue-swap; `mail` = rare-livery index).\n' +
   'var GGBOT_VEHS = [\n' + entries.map(e => ' ' + JSON.stringify(e)).join(',\n') + '\n];\n';
 new Function(out); // syntax gate
+const SHIP = '/home/user/westchase_fps/ggbotvehs.js';
+fs.writeFileSync(SHIP, out);
 fs.writeFileSync(path.join(OUTDIR, 'ggbotvehs.js'), out);
 for (const e of entries) {
-  console.log(e.n + ': ' + e.tris + ' body tris, dims [' + e.dims.join(', ') + '], wheels ' +
+  console.log(e.n + ': ' + e.tris + ' body tris, dims [' + e.dims.join(', ') + '], ' +
+    e.texs.length + ' tex, wheels ' +
     (e.wheels ? 'r=[' + e.wheels.map(w => w[3]).join(', ') + '] + own ' + e.wg.tris + '-tri mesh' : 'none'));
 }
-console.log('wrote ' + path.join(OUTDIR, 'ggbotvehs.js') + ' ~' +
-  Math.round(fs.statSync(path.join(OUTDIR, 'ggbotvehs.js')).size / 1024) + 'KB');
+console.log('wrote ' + SHIP + ' ~' + Math.round(fs.statSync(SHIP).size / 1024) + 'KB');

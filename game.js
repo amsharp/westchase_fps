@@ -982,19 +982,24 @@ var VEH_LEN = 4.64;                    // match the procedural car footprint
 var VEH_FLIP = { COMPACT: 1, HATCH: 1, MINIVAN: 1, PICKUP_BIG: 1, PICKUP_FS: 1, PICKUP_HD: 1, SEDAN_FULL: 1, SEDAN_MID: 1, SEDAN_SPORT: 1, SUV_MID: 1 };
 var VEH_COLS = [null, [200, 202, 206], [232, 232, 228], [34, 36, 40], [166, 38, 30]]; // as-is/silver/white/black/red
 var vehGeoCache = {}, vehMatCache = {}, vehEndCache = {};
-// nose/tail x extents at light height (post-flip geo): where to hang the light glows
-function vehEnds(vi) {
-  if (vehEndCache[vi]) return vehEndCache[vi];
-  var pos = getVehGeo(vi).getAttribute('position');
-  var nx = 0, tx = 0;
+// nose/tail x extents at light height (nose-+x geo): where to hang the light
+// glows. Band is proportional to the model height so it works for both the
+// ~0.6u-tall Meshy models and the ~2.2u-tall GGBot models (0.14–0.46 of
+// height reproduces the old absolute 0.10–0.30 band on every Meshy body).
+function scanVehEnds(geo, h) {
+  var pos = geo.getAttribute('position');
+  var nx = 0, tx = 0, lo = h * 0.14, hi = h * 0.46;
   for (var i = 0; i < pos.count; i++) {
     var y = pos.getY(i);
-    if (y < 0.10 || y > 0.30) continue;
+    if (y < lo || y > hi) continue;
     var x = pos.getX(i);
     if (x > nx) nx = x;
     if (x < tx) tx = x;
   }
-  vehEndCache[vi] = { nx: nx, tx: tx };
+  return { nx: nx, tx: tx };
+}
+function vehEnds(vi) {
+  if (!vehEndCache[vi]) vehEndCache[vi] = scanVehEnds(getVehGeo(vi), MESHY_VEHS[vi].dims[1]);
   return vehEndCache[vi];
 }
 function getVehGeo(vi) {
@@ -1044,6 +1049,65 @@ function getVehMat(vi, col) {
   vehMatCache[key] = lamb({ map: tx });
   return vehMatCache[key];
 }
+// ---- GGBot "PSX Style Cars" (optional ggbotvehs.js, CC0): hand-picked
+// bodies the Meshy fleet lacks (wagon/full-size sedan/taxi/step van + the
+// burned-out wreck used as an explosion husk). Entries embed their shipped
+// color-variant textures verbatim in `texs` (no VEH_COLS hue-swap), ship
+// wheel-LESS bodies with TRUE pivots in `wheels` ([x,y,z,r], nose +x, no
+// flip) and carry their own stripped baked-wheel mesh `wg` (indexed, axle
+// local +Y, UV-mapped into the same car atlas) — so no VEH_WHEEL_TUNE.
+var ggGeoCache = {}, ggWheelCache = {}, ggMatCache = {}, ggEndCache = {};
+var GG_TRAFFIC = [];    // roster indices: normal-weight traffic/parked bodies
+var GG_WRECK_I = -1;    // Car 06 husk (explosion leftovers, never a live car)
+if (typeof GGBOT_VEHS !== 'undefined') for (var ggi = 0; ggi < GGBOT_VEHS.length; ggi++) {
+  if (GGBOT_VEHS[ggi].n === 'GG_WRECK') GG_WRECK_I = ggi;
+  // GG_POLICE is reserved for a future cop-car feature — never in rosters
+  else if (GGBOT_VEHS[ggi].n !== 'GG_POLICE') GG_TRAFFIC.push(ggi);
+}
+function getGGGeo(gi) {
+  if (ggGeoCache[gi]) return ggGeoCache[gi];
+  var e = GGBOT_VEHS[gi];
+  var qp = new Int16Array(b64Bytes(e.p).buffer), qu = new Uint16Array(b64Bytes(e.u).buffer);
+  var fp = new Float32Array(qp.length), fu = new Float32Array(qu.length);
+  for (var i = 0; i < qp.length; i++) fp[i] = qp[i] / e.q;
+  for (i = 0; i < qu.length; i += 2) { fu[i] = qu[i] / 8192; fu[i + 1] = 1 - qu[i + 1] / 8192; }
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(fp, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(fu, 2));
+  geo.computeVertexNormals();
+  ggGeoCache[gi] = geo;
+  return geo;
+}
+function getGGWheel(gi) {   // the car's own baked wheel, re-centered, axle local +Y
+  if (ggWheelCache[gi]) return ggWheelCache[gi];
+  var e = GGBOT_VEHS[gi].wg;
+  var qp = new Int16Array(b64Bytes(e.p).buffer), qu = new Uint16Array(b64Bytes(e.u).buffer);
+  var fp = new Float32Array(qp.length), fu = new Float32Array(qu.length);
+  for (var i = 0; i < qp.length; i++) fp[i] = qp[i] / e.q;
+  for (i = 0; i < qu.length; i += 2) { fu[i] = qu[i] / 8192; fu[i + 1] = 1 - qu[i + 1] / 8192; }
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(fp, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(fu, 2));
+  geo.setIndex(new THREE.BufferAttribute(new Uint16Array(b64Bytes(e.i).buffer), 1));
+  geo.computeVertexNormals();
+  ggWheelCache[gi] = geo;
+  return geo;
+}
+function getGGMat(gi, ti) {   // shipped variant texture as-is (no hue-swap)
+  var key = gi + '_' + ti;
+  if (ggMatCache[key]) return ggMatCache[key];
+  var im = new Image();
+  var tx = new THREE.Texture(im);
+  tx.magFilter = THREE.NearestFilter; tx.minFilter = THREE.NearestFilter; tx.generateMipmaps = false;
+  im.onload = function () { tx.needsUpdate = true; };
+  im.src = GGBOT_VEHS[gi].texs[ti];
+  ggMatCache[key] = lamb({ map: tx });
+  return ggMatCache[key];
+}
+function ggEnds(gi) {
+  if (!ggEndCache[gi]) ggEndCache[gi] = scanVehEnds(getGGGeo(gi), GGBOT_VEHS[gi].dims[1]);
+  return ggEndCache[gi];
+}
 // Per-model 3D-wheel placement, hand-measured against the wheels BAKED into the
 // Meshy body meshes so the spinning wheel fully covers the painted one and sits
 // on the ground: [frontX, frontR, rearX, rearR, frontZOut, rearZOut, tireWidth].
@@ -1067,13 +1131,35 @@ function makeCar() {
   var body = new THREE.Group();   // separate so suspension can bounce it over the wheels
   var wheels = [], pivots = [];
   var wheelSpots = [[1.42, 0.34, 0.86, 0.34], [1.42, 0.34, -0.86, 0.34], [-1.42, 0.34, 0.86, 0.34], [-1.42, 0.34, -0.86, 0.34]];
-  if (typeof MESHY_VEHS !== 'undefined' && MESHY_VEHS.length) {
-    var vi = (Math.random() * MESHY_VEHS.length) | 0;
-    var e = MESHY_VEHS[vi];
-    var s = VEH_LEN / e.dims[0];
+  // roster: every Meshy body + every GG_TRAFFIC body at equal weight
+  var nMeshy = typeof MESHY_VEHS !== 'undefined' && MESHY_VEHS.length ? MESHY_VEHS.length : 0;
+  var pickN = (Math.random() * (nMeshy + GG_TRAFFIC.length)) | 0;
+  var e = null, s = 1, ends = null, ggw = null, vname = 'PROC';
+  if (pickN >= nMeshy && GG_TRAFFIC.length) {
+    // GGBot body: shipped variant texture, own wheel mesh at TRUE pivots
+    var gi = GG_TRAFFIC[pickN - nMeshy];
+    e = GGBOT_VEHS[gi];
+    s = VEH_LEN / e.dims[0];
+    // `mail` (always the LAST texs slot) is a rare livery: ~5% of van rolls
+    var ti = e.mail !== undefined && Math.random() < 0.05 ? e.mail :
+      (Math.random() * (e.mail !== undefined ? e.texs.length - 1 : e.texs.length)) | 0;
+    var gmat = getGGMat(gi, ti);
+    var vm3 = new THREE.Mesh(getGGGeo(gi), gmat);
+    vm3.scale.set(s, s, s);
+    body.add(vm3);
+    ggw = { geo: getGGWheel(gi), mat: gmat };
+    wheelSpots = e.wheels.map(function (w) { return [w[0] * s, w[1] * s, w[2] * s, w[3] * s]; });
+    ends = ggEnds(gi);
+    vname = e.n;
+  } else if (nMeshy) {
+    var vi = pickN;
+    e = MESHY_VEHS[vi];
+    s = VEH_LEN / e.dims[0];
     var vm2 = new THREE.Mesh(getVehGeo(vi), getVehMat(vi, (Math.random() * VEH_COLS.length) | 0));
     vm2.scale.set(s, s, s);
     body.add(vm2);
+    ends = vehEnds(vi);
+    vname = e.n;
     // spinning/steering wheel props must fully cover the baked wheels
     wheelSpots = e.wheels.map(function (w) {
       var fx = VEH_FLIP[e.n] ? -1 : 1;
@@ -1103,7 +1189,12 @@ function makeCar() {
   wheelSpots.forEach(function (wp) {
     var pv = new THREE.Group(); pv.position.set(wp[0], wp[1], wp[2]);
     var w;
-    if (mw) {
+    if (ggw) {
+      // GGBot: the car's own baked wheel, same unit space/scale as the body
+      w = new THREE.Mesh(ggw.geo, ggw.mat);
+      w.rotation.x = wp[2] > 0 ? Math.PI / 2 : -Math.PI / 2;   // axle local +Y -> car Z
+      w.scale.set(s, s, s);
+    } else if (mw) {
       w = new THREE.Mesh(mw.geo, mw.mat);
       // spoke face is local -Y: flip per side so the rim always faces out
       w.rotation.x = wp[2] > 0 ? Math.PI / 2 : -Math.PI / 2;
@@ -1125,10 +1216,9 @@ function makeCar() {
   g.add(beam);
   // visible light glows at the nose (warm white) and tail (red, flares on brake)
   var glNX = 2.4, glTX = -2.42, glY = 0.68, glZ = 0.55;
-  if (typeof MESHY_VEHS !== 'undefined' && MESHY_VEHS.length) {
-    var ve = vehEnds(vi);
-    glNX = ve.nx * s + 0.06;   // just proud of the bumper so the quad never
-    glTX = ve.tx * s - 0.06;   // gets swallowed by the body mesh
+  if (ends) {
+    glNX = ends.nx * s + 0.06;   // just proud of the bumper so the quad never
+    glTX = ends.tx * s - 0.06;   // gets swallowed by the body mesh
     glY = Math.min(0.62, e.dims[1] * s * 0.36);
     glZ = e.dims[2] * s * 0.5 * 0.58;
   }
@@ -1145,7 +1235,7 @@ function makeCar() {
   var head1 = glowQuad(headGlowM, glNX, glY, glZ, 0.17), head2 = glowQuad(headGlowM, glNX, glY, -glZ, 0.17);
   var tail1 = glowQuad(tailM, glTX, glY, glZ, 0.15), tail2 = glowQuad(tailM, glTX, glY, -glZ, 0.15);
   g.add(blobShadow(2.4, 1.15, 0.1)); scene.add(g);
-  return { group: g, body: body, wheels: wheels, pivots: pivots, beam: beam, head1: head1, head2: head2, tail1: tail1, tail2: tail2, tailM: tailM, tailS: 0.15, vname: typeof MESHY_VEHS !== 'undefined' && MESHY_VEHS.length ? e.n : 'PROC' };
+  return { group: g, body: body, wheels: wheels, pivots: pivots, beam: beam, head1: head1, head2: head2, tail1: tail1, tail2: tail2, tailM: tailM, tailS: 0.15, vname: vname };
 }
 function staticCar(x, z, ry) { var c = makeCar(); c.group.position.set(x, 0, z); c.group.rotation.y = ry || 0; }
 // suspension spring + accel pitch + steer roll + front-wheel steering (visual only)
@@ -3329,6 +3419,7 @@ function updateCars(dt) {
       c.respawnT -= dt;
       if (c.respawnT <= 0) {
         c.exploded = false; c.car.group.visible = true;
+        removeHusk(c);   // the wreck is "towed" when the replacement shows up
         c.dmgT = 0; c.berserk = false;
         c.stolen = false; c.jacked = false; c.jackCD = 0; c.playerDriven = false;
         c.drivenBy = null;   // stale ids here made respawned traffic read as player-driven
@@ -3906,6 +3997,25 @@ function igniteCar(c) {
   popup2('YOUR CAR IS ON FIRE — GET OUT!');
   sfx('alarm');
 }
+// ---- burned-out husk (GGBot Car 06): every explosion leaves the wreck at
+// the spot until the car respawns (traffic 5 s / lot slot 60 s), so the husk
+// can never outlive or duplicate a respawn — explodeCar guards on c.exploded,
+// so chain explosions get exactly one husk per car. Per-peer visual in MP
+// (like breakables): the host spawns it from explodeCar, clients from the
+// snapshot exploded flag in applyWorldSnap.
+function spawnHusk(c) {
+  if (GG_WRECK_I < 0 || c.husk) return;
+  var e = GGBOT_VEHS[GG_WRECK_I];
+  var hs = VEH_LEN / e.dims[0];
+  var m = new THREE.Mesh(getGGGeo(GG_WRECK_I), getGGMat(GG_WRECK_I, 0));
+  m.scale.set(hs, hs, hs);
+  var g = c.car.group;
+  m.position.set(g.position.x, -0.09, g.position.z);   // slightly sunk into the road
+  m.rotation.y = g.rotation.y;                         // aligned to the dead car
+  scene.add(m);
+  c.husk = m;
+}
+function removeHusk(c) { if (c.husk) { scene.remove(c.husk); c.husk = null; } }
 function explodeCar(c) {
   if (c.exploded) return;
   c.exploded = true; c.berserk = false; c.dmgT = 0; c.burning = false;
@@ -3918,6 +4028,7 @@ function explodeCar(c) {
   }
   boomAt(pos.x, pos.z);
   c.car.group.visible = false;
+  spawnHusk(c);
   c.respawnT = c.slot ? 60 : 5;   // lot cars take a minute to "get replaced"
 }
 
@@ -5528,6 +5639,19 @@ function breakProp(b, dirX, dirZ) {
   sfx('crash', { x: b.x, z: b.z, range: 90 });
   if (b.kind) onStreetPropBreak(b);   // parking meters spill change, hydrants gush
 }
+// OBB push keeping the on-foot player out of a still car shell (parked cars,
+// burned-out husks). Moving traffic keeps its own shove/hurt path.
+function carShellPush(cx2, cz2, ry2) {
+  var pkx = player.x - cx2, pkz = player.z - cz2;
+  var pfx = Math.cos(ry2), pfz = -Math.sin(ry2);
+  var plon = pkx * pfx + pkz * pfz, plat = -pkx * pfz + pkz * pfx;
+  if (Math.abs(plon) < 2.75 && Math.abs(plat) < 1.5) {
+    var pushLon = (plon >= 0 ? 2.75 : -2.75) - plon;
+    var pushLat = (plat >= 0 ? 1.5 : -1.5) - plat;
+    if (Math.abs(pushLat) < Math.abs(pushLon)) { player.x += -pfz * pushLat; player.z += pfx * pushLat; }
+    else { player.x += pfx * pushLon; player.z += pfz * pushLon; }
+  }
+}
 var fallAxis = new THREE.Vector3(), fallQ = new THREE.Quaternion();
 function updateWorldFx(dt) {
   updateSignals(dt);   // traffic-signal cycle (corridor details section)
@@ -5551,21 +5675,14 @@ function updateWorldFx(dt) {
     c._pss = c._sspd;
     var braking = c === driving ? !!c.brakeIn : (c.shoveT > 0 || (dec > 4 && c._sspd > 0.6));
     updateCarLights(c, dt, braking);
-    if (c.exploded) continue;
+    if (c.exploded) {
+      // the leftover wreck husk is solid-ish on foot, same as a parked car
+      if (c.husk && !driving && !state.dead) carShellPush(c.husk.position.x, c.husk.position.z, c.husk.rotation.y);
+      continue;
+    }
     // parked cars are solid-ish to the on-foot player (traffic only shoves/hurts;
     // a still car you can lean on while breaking in must not be a ghost)
-    if (c.parked && !driving && !state.dead) {
-      var pkx = player.x - m.x, pkz = player.z - m.z;
-      var pfy = c.car.group.rotation.y;
-      var pfx = Math.cos(pfy), pfz = -Math.sin(pfy);
-      var plon = pkx * pfx + pkz * pfz, plat = -pkx * pfz + pkz * pfx;
-      if (Math.abs(plon) < 2.75 && Math.abs(plat) < 1.5) {
-        var pushLon = (plon >= 0 ? 2.75 : -2.75) - plon;
-        var pushLat = (plat >= 0 ? 1.5 : -1.5) - plat;
-        if (Math.abs(pushLat) < Math.abs(pushLon)) { player.x += -pfz * pushLat; player.z += pfx * pushLat; }
-        else { player.x += pfx * pushLon; player.z += pfz * pushLon; }
-      }
-    }
+    if (c.parked && !driving && !state.dead) carShellPush(m.x, m.z, c.car.group.rotation.y);
     var v2 = (mvx * mvx + mvz * mvz) / Math.max(dt * dt, 1e-6);
     if (v2 < 9) continue;                       // too slow to snap anything
     for (var j = 0; j < breakables.length; j++) {
@@ -6456,7 +6573,14 @@ function applyWorldSnap(dt) {
     var fl = a[3];
     c.exploded = !!(fl & 1); c.berserk = !!(fl & 2); c.burning = !!(fl & 4); c.stolen = !!(fl & 8); c.playerDriven = !!(fl & 16); c.parked = !!(fl & 32);
     m.visible = !c.exploded;
-    if (c.exploded) { if (c.eng) c.eng.g.gain.value = 0; continue; }
+    if (c.exploded) {
+      // per-peer wreck husk (see spawnHusk): snap to the host's position first
+      // so a husk for a car we never saw explode still lands where it burned
+      m.position.set(a[0] / 10, 0, a[1] / 10); m.rotation.y = a[2] / 100;
+      spawnHusk(c);
+      if (c.eng) c.eng.g.gain.value = 0; continue;
+    }
+    removeHusk(c);
     m.position.x += (a[0] / 10 - m.position.x) * k;
     m.position.z += (a[1] / 10 - m.position.z) * k;
     m.rotation.y = a[2] / 100;
@@ -6896,7 +7020,8 @@ window.__wc = {
   setClock: function (t2) { envT = t2; },
   envState: function () { return { envT: envT, raining: raining, dayFactor: dayFactor(), lampsOn: lampsOn, sun: sun.intensity, fogFar: scene.fog.far }; },
   sigState: function () { return { t: sigClock, main: sigMain, cross: sigCross }; },
-  goBerserk: goBerserk, igniteCar: igniteCar,
+  goBerserk: goBerserk, igniteCar: igniteCar, explodeCar: explodeCar,
+  makeCar: makeCar,   // roster/model-mix testing (remember to scene.remove(.group))
   startBreakIn: startBreakIn,
   breakInState: function () { return breakIn ? { t: Math.round(breakIn.t * 100) / 100, i: cars.indexOf(breakIn.c) } : null; },
   parkedInfo: function () {

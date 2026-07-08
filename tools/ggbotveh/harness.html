@@ -8,7 +8,7 @@
 <body>
 <script src="/three.min.js"></script>
 <script src="/meshyvehs.js"></script>
-<script src="/tools/ggbotveh/out/ggbotvehs.js"></script>
+<script src="/ggbotvehs.js"></script>
 <script>
 var VEH_LEN = 4.64;
 var renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
@@ -57,7 +57,7 @@ function texMat(e) {
     alphaReport.push(e.n + ': ' + im.width + 'px, ' + lo + ' px alpha<250');
     pending--;
   };
-  im.src = e.tex;
+  im.src = e.texs ? e.texs[0] : e.tex;
   return new THREE.MeshLambertMaterial({ map: tx });
 }
 function label(txt, x, z, y) {
@@ -146,18 +146,19 @@ function meshyCar(name, x, z, ry) {
 }
 
 var mode = (location.search.match(/shot=(\w+)/) || [])[1] || 'front';
-var carq = (location.search.match(/car=(\w+)/) || [])[1] || 'GG_SALOON';
+var carq = (location.search.match(/car=(\w+)/) || [])[1] || 'GG_SEDAN';
 if (mode === 'close') {
   ggCar(carq, 0, 0, 0.5);
   camera.position.set(4.6, 1.7, 4.4); camera.lookAt(1.2, 0.7, 0);
 } else {
   meshyCar('SEDAN_MID', -12.5, 0, 0);
   meshyCar('MINIVAN', -7.5, 0, 0);
-  ggCar('GG_SALOON', -2.5, 0, 0);
-  ggCar('GG_MINIVAN', 2.5, 0, 0);
+  ggCar('GG_SEDAN', -2.5, 0, 0);
+  ggCar('GG_TAXI', 2.5, 0, 0);
   ggCar('GG_POLICE', 7.5, 0, 0);
   ggCar('GG_WAGON', 12.5, 0, 0);
-  ggCar('GG_WRECK', 17.5, 0, 0);
+  ggCar('GG_STEPVAN', 17.5, 0, 0);
+  ggCar('GG_WRECK', 22.5, 0, 0);
   camera.position.set(3, 6.5, 17); camera.lookAt(2.5, 0.6, 0);
 }
 

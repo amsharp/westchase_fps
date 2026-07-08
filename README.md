@@ -168,7 +168,13 @@ hurts you too). Shoot a moving car for ~3 seconds and it loses control,
 floors it, and explodes on whatever it hits — killing anything nearby,
 you included. Ramming with your own car is gentler physics: the other car
 gets punted away spinning and dented; keep hitting it and it eventually
-loses control the same way. Wrecks respawn after a few seconds.
+loses control the same way. An exploded car leaves its **burned-out husk**
+sitting at the spot — solid enough to lean on — until the replacement car
+shows up (a few seconds for traffic, about a minute for lot cars).
+
+The fleet mixes the AI-generated bodies with a handful of classic PSX
+shapes: a station wagon, a big 90s sedan, a **yellow cab**, and a step
+van that every so often rolls by in **mail-truck livery**.
 
 The parking lots aren't just paint: **Publix, the strip malls, the
 banks, the RaceTrac and the school all have parked cars** sitting empty
@@ -263,6 +269,9 @@ gets to it first, not to whoever made it show up. Probably nothing.
 
 ## Notes
 
+- Some vehicles (station wagon, sedan, taxi, step van, and the burned
+  wreck) are from "PSX Style Cars" by **GGBot**
+  (https://ggbot.itch.io/psx-style-cars, CC0).
 - The map is finite — a wall rings the city.
 - Watch for traffic; cars hurt.
 - Getting knocked out costs you 25% of your cash.
