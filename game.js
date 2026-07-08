@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.18.0';
+var GAME_VERSION = 'v1.19.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---------------- world constants ----------------
@@ -1512,7 +1512,7 @@ function stopBar(x, z, w, d) {
 }
 function turnArrow(x, z, ry) {
   // texture "up" = direction of travel; head hooks left. ry turns it per approach.
-  var geo = new THREE.PlaneGeometry(1.6, 3.4); geo.rotateX(-Math.PI / 2);
+  var geo = new THREE.PlaneGeometry(2.1, 4.4); geo.rotateX(-Math.PI / 2);
   var m = new THREE.Mesh(geo, turnArrowM); m.position.set(x, 0.155, z); m.rotation.y = ry; scene.add(m);
 }
 // right-hand traffic: each bar spans only the approach half of its road

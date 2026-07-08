@@ -192,6 +192,13 @@ cards with alpha cutouts, from the free "retro nature pack" by
 **ElegantCrow** — and the median crepe myrtles bloom pink off the same
 leaves. They still snap like twigs if you drive through them.
 
+The main intersection is dressed like the real one: galvanized mast-arm
+**traffic signals that actually cycle** (green street-name blades and
+all — traffic doesn't obey them yet), cobra-head streetlights, wood
+utility poles trailing sagging lines down the main road, sabal-palm
+clusters on every corner, and proper road paint — stop bars, ladder
+crosswalks, and left-turn arrows in the pockets.
+
 ## Street furniture
 
 The town is dressed with over a hundred AI-generated props — dumpsters,

@@ -23,7 +23,16 @@
 
 var houseTexCache = {};
 
-// hue in degrees, satMul/lightMul multiplicative; works on canvas pixel data
+// hue in degrees, satMul/lightMul multiplicative; works on canvas pixel data.
+// Near-white (trim/garage doors) and near-dark (windows) pixels are protected
+// so a recolor changes the WALL color without tinting trim pink or windows.
+function houseHue2(p, q, t) {
+  t = (t + 1) % 1;
+  if (t < 1 / 6) return p + (q - p) * 6 * t;
+  if (t < 1 / 2) return q;
+  if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+  return p;
+}
 function houseShiftPixels(px, hueDeg, satMul, lightMul) {
   for (var i = 0; i < px.length; i += 4) {
     var r = px[i] / 255, g = px[i + 1] / 255, b = px[i + 2] / 255;
@@ -35,20 +44,15 @@ function houseShiftPixels(px, hueDeg, satMul, lightMul) {
       else if (mx === g) h = ((b - r) / d + 2) / 6;
       else h = ((r - g) / d + 4) / 6;
     }
-    h = (h + hueDeg / 360 + 1) % 1;
-    s = Math.min(1, Math.max(0, s * satMul));
-    l = Math.min(1, Math.max(0, l * lightMul));
-    var q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
-    function hue2(t) {
-      t = (t + 1) % 1;
-      if (t < 1 / 6) return p + (q - p) * 6 * t;
-      if (t < 1 / 2) return q;
-      if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
-      return p;
-    }
-    px[i] = Math.round(hue2(h + 1 / 3) * 255);
-    px[i + 1] = Math.round(hue2(h) * 255);
-    px[i + 2] = Math.round(hue2(h - 1 / 3) * 255);
+    // protection ramp: 1 in the mid tones, fades to 0 near white/black
+    var f = Math.min(1, Math.max(0, (0.86 - l) / 0.1)) * Math.min(1, Math.max(0, (l - 0.14) / 0.1));
+    var h2 = (h + (hueDeg / 360) * f + 1) % 1;
+    var s2 = Math.min(1, Math.max(0, s * (1 + (satMul - 1) * f)));
+    var l2 = Math.min(1, Math.max(0, l * (1 + (lightMul - 1) * f)));
+    var q = l2 < 0.5 ? l2 * (1 + s2) : l2 + s2 - l2 * s2, p = 2 * l2 - q;
+    px[i] = Math.round(houseHue2(p, q, h2 + 1 / 3) * 255);
+    px[i + 1] = Math.round(houseHue2(p, q, h2) * 255);
+    px[i + 2] = Math.round(houseHue2(p, q, h2 - 1 / 3) * 255);
   }
 }
 
@@ -80,6 +84,9 @@ function houseTex(url, shift, repX, repY) {
       houseShiftPixels(d.data, shift[0], shift[1], shift[2]);
       g.putImageData(d, 0, 0);
     }
+    // r149/WebGL2 allocates immutable texStorage at the placeholder size on
+    // the first render; dispose() forces a re-allocation at the real size.
+    t.dispose();
     t.needsUpdate = true;
   };
   im.src = url;

@@ -28,9 +28,10 @@ function prompt(c) {
     ' create a single image that is a 2x2 GRID of four SEPARATE game textures of THIS house,' +
     ' divided by solid pure-black gutter lines about 16 pixels thick, with a black border around the outside edge.' +
     ' Each tile completely fills its grid cell edge to edge. The four tiles, left-to-right then top-to-bottom:' +
-    ' TILE 1 (top-left): the FRONT WALL of the house as a plain RECTANGULAR wall texture filling the whole tile,' +
-    ' matching the photo - same wall color and trim, its garage door, front door and windows in roughly their real positions,' +
-    ' scaled so the garage door top nearly reaches the top edge of the tile.' +
+    ' TILE 1 (top-left): the COMPLETE FRONT WALL of the house as a plain RECTANGULAR wall texture filling the whole tile,' +
+    ' spanning from the far-LEFT corner to the far-RIGHT corner of the house, matching the photo -' +
+    ' same wall color and trim, with its garage door taking only its true share of the width (roughly one third),' +
+    ' plus the front door and front windows in roughly their real positions, wall tall enough that the garage door top nearly reaches the top edge of the tile.' +
     ' Absolutely NO roofline, NO gable triangle, NO eaves and NO sky inside the tile - flat wall surface edge to edge.' +
     ' TILE 2 (top-right): the SIDE WALL of the house - mostly plain wall texture in the same color with one small window.' +
     ' TILE 3 (bottom-left): the BACK WALL - plain wall in the same color with two windows, no door.' +
