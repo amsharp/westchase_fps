@@ -93,6 +93,15 @@ around, pair up for sidewalk conversations, stagger when you shove them —
 and sometimes a punch is answered with fists. Take the hint and back off,
 or drop them for the cash like always.
 
+Eavesdrop on those sidewalk pairs and you'll hear actual back-and-forth:
+one opens with a question ("Did you see those lights over the lake?"),
+the other reacts and pries ("No WAY. And then what?"), turns alternating
+every few seconds — and now and then somebody launches into a long
+Tampa-flavored story while their friend waits it out. Conversations cut
+off mid-word if a speaker gets punched, shot, run at by a car, or spooked
+by an explosion. (The voice pack ships as several `npcvoicesN.js` chunks;
+only the first loads up front, the rest stream in right after boot.)
+
 ## The loop
 
 You spawn **with no gun**. Punch pedestrians (they drop cash), pick up the
