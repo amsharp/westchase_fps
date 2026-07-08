@@ -71,4 +71,10 @@ if (require.main === module) {
   fs.writeFileSync(process.argv[3], out);
   console.log('wrote', process.argv[3], Math.round(out.length / 1024) + 'KB');
 }
-module.exports = { psxify };
+// Leading "(angry) ..." style tone markers are acting notes for the line
+// author — Fish S1 reads them ALOUD on many voice models, so strip them
+// before synthesis. Keep them in the JSON sources as documentation.
+function speakable(text) {
+  return text.replace(/^\s*\([^)]{1,24}\)\s*/, '');
+}
+module.exports = { psxify, speakable };

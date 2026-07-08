@@ -4,7 +4,7 @@
 // Resumable: crunched WAVs cached in work/npc/, delete one to force a redo.
 const fs = require('fs');
 const path = require('path');
-const { psxify } = require('./psxify.js');
+const { psxify, speakable } = require('./psxify.js');
 
 const KEY = process.env.FISH_API_KEY;
 if (!KEY) { console.error('set FISH_API_KEY'); process.exit(1); }
@@ -42,7 +42,7 @@ console.log(jobs.length, 'lines total,', jobs.filter(j => !fs.existsSync(j.file)
         const r = await fetch('https://api.fish.audio/v1/tts', {
           method: 'POST',
           headers: { Authorization: 'Bearer ' + KEY, 'Content-Type': 'application/json', model: 's1' },
-          body: JSON.stringify({ text: j.text, reference_id: VOICES[j.name].ref, format: 'wav' }),
+          body: JSON.stringify({ text: speakable(j.text), reference_id: VOICES[j.name].ref, format: 'wav' }),
         });
         if (!r.ok) throw new Error('TTS HTTP ' + r.status + ' ' + (await r.text()).slice(0, 120));
         const raw = Buffer.from(await r.arrayBuffer());
