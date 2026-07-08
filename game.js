@@ -10,10 +10,16 @@ var GAME_VERSION = 'v1.22.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---------------- world constants ----------------
-var HALF = 340, TOTAL = HALF * 2;
+var HALF = 600, TOTAL = HALF * 2;   // expanded world (map expansion)
+var CORE = 340;                     // original hand-built map half-size — all
+                                    // pre-expansion content lives in |x|,|z|<=CORE
 var EYE = 1.7, GRAV = 16;
 var MAIN_HW = 14;   // main road (E-W, z=0) half width
 var CROSS_HW = 11;  // cross road (N-S, x=0) half width
+// arterial exits through the NEW perimeter (the bends are in EXP_ROADS):
+// Race Track Rd bends NE at x=CORE and exits the east wall at z=NE_EXIT_Z;
+// Countryway Blvd bends SE at z=CORE and exits the south wall at x=SE_EXIT_X.
+var NE_EXIT_Z = -200, SE_EXIT_X = 278;
 
 var WEAPONS = {
   fists:  { name: 'FISTS',  melee: true, dmg: 34, rate: 0.42, range: 2.4 },
@@ -460,13 +466,17 @@ function drive(cx, cz, w, d) {
 }
 
 // main + cross roads with flanking sidewalks (strips beside the asphalt,
-// not under it — the old full-width slab hid the road texture entirely)
-roadStrip(0, 0, TOTAL, MAIN_HW * 2, false);
-roadStrip(0, 0, CROSS_HW * 2, TOTAL, true);
-sidewalk(0, -(MAIN_HW + 2.5), TOTAL, 5);
-sidewalk(0, MAIN_HW + 2.5, TOTAL, 5);
-sidewalk(-(CROSS_HW + 2.5), 0, 5, TOTAL, true);
-sidewalk(CROSS_HW + 2.5, 0, 5, TOTAL, true);
+// not under it — the old full-width slab hid the road texture entirely).
+// Expansion: the straight asphalt continues WEST (Race Track Rd) and NORTH
+// (Nine Eagles Dr) to the new edge; eastward/southward it stops at x/z=CORE
+// where the EXP_ROADS arterial bends (NE / SE) take over.
+var MAIN_SPAN = HALF + CORE, MAIN_CTR = (CORE - HALF) / 2;
+roadStrip(MAIN_CTR, 0, MAIN_SPAN, MAIN_HW * 2, false);
+roadStrip(0, MAIN_CTR, CROSS_HW * 2, MAIN_SPAN, true);
+sidewalk(MAIN_CTR, -(MAIN_HW + 2.5), MAIN_SPAN, 5);
+sidewalk(MAIN_CTR, MAIN_HW + 2.5, MAIN_SPAN, 5);
+sidewalk(-(CROSS_HW + 2.5), MAIN_CTR, 5, MAIN_SPAN, true);
+sidewalk(CROSS_HW + 2.5, MAIN_CTR, 5, MAIN_SPAN, true);
 
 // crosswalks at the intersection
 var zebraT = (function () {
@@ -834,11 +844,11 @@ function palm(x, z) {
   registerBreakable(g, x, z, 0.8, 'tree');
 }
 
-function forestPatch(x0, x1, z0, z1) {
+function forestPatch(x0, x1, z0, z1, count) {
   mapForest.push({ x0: x0, x1: x1, z0: z0, z1: z1 });
   addCollider((x0 + x1) / 2, (z0 + z1) / 2, x1 - x0, z1 - z0);
   var area = (x1 - x0) * (z1 - z0);
-  var count = Math.min(60, Math.round(area / 260));
+  if (count === undefined) count = Math.min(60, Math.round(area / 260));
   for (var i = 0; i < count; i++) oak(x0 + Math.random() * (x1 - x0), z0 + Math.random() * (z1 - z0));
 }
 
@@ -866,16 +876,19 @@ function forestWall(cx, cz, w, d) {
 }
 (function perimeter() {
   var t = 3;
-  // north (z=-HALF) & south (z=HALF), gap for cross road |x|<CROSS_HW
+  // north (z=-HALF): gap for the cross road (Nine Eagles Dr) at x=0
   forestWall(-(HALF + CROSS_HW) / 2 - 2, -HALF, HALF - CROSS_HW, t);
   forestWall((HALF + CROSS_HW) / 2 + 2, -HALF, HALF - CROSS_HW, t);
-  forestWall(-(HALF + CROSS_HW) / 2 - 2, HALF, HALF - CROSS_HW, t);
-  forestWall((HALF + CROSS_HW) / 2 + 2, HALF, HALF - CROSS_HW, t);
-  // east (x=HALF) & west (x=-HALF), gap for main road |z|<MAIN_HW
-  forestWall(HALF, -(HALF + MAIN_HW) / 2 - 2, t, HALF - MAIN_HW);
-  forestWall(HALF, (HALF + MAIN_HW) / 2 + 2, t, HALF - MAIN_HW);
+  // west (x=-HALF): gap for the main road (Race Track Rd) at z=0
   forestWall(-HALF, -(HALF + MAIN_HW) / 2 - 2, t, HALF - MAIN_HW);
   forestWall(-HALF, (HALF + MAIN_HW) / 2 + 2, t, HALF - MAIN_HW);
+  // east (x=HALF): gap where Race Track Rd exits NE at z=NE_EXIT_Z (+-21,
+  // the road crosses at ~41 degrees so the opening is wider than MAIN_HW)
+  forestWall(HALF, (-HALF + (NE_EXIT_Z - 21)) / 2, t, (NE_EXIT_Z - 21) + HALF);
+  forestWall(HALF, ((NE_EXIT_Z + 21) + HALF) / 2, t, HALF - (NE_EXIT_Z + 21));
+  // south (z=HALF): gap where Countryway Blvd exits SE at x=SE_EXIT_X (+-17)
+  forestWall((-HALF + (SE_EXIT_X - 17)) / 2, HALF, (SE_EXIT_X - 17) + HALF, t);
+  forestWall(((SE_EXIT_X + 17) + HALF) / 2, HALF, HALF - (SE_EXIT_X + 17), t);
 })();
 
 function roadblock(x, z, w, d) {
@@ -895,10 +908,10 @@ function roadblock(x, z, w, d) {
   signPlane(x, 2.2, z + (horizontal ? (z < 0 ? 1.5 : -1.5) : 0), horizontal ? 0 : Math.PI / 2, 6, 1.6, ['ROAD', 'CLOSED'], '#b03018', '#ffffff');
 }
 (function roadblocks() {
-  roadblock(0, -HALF + 8, CROSS_HW * 2, 1.4);   // north cross-road exit
-  roadblock(0, HALF - 8, CROSS_HW * 2, 1.4);    // south
-  roadblock(HALF - 8, 0, 1.4, MAIN_HW * 2);     // east main-road exit
-  roadblock(-HALF + 8, 0, 1.4, MAIN_HW * 2);    // west
+  roadblock(0, -HALF + 8, CROSS_HW * 2, 1.4);        // north: Nine Eagles Dr exit
+  roadblock(-HALF + 8, 0, 1.4, MAIN_HW * 2);         // west: Race Track Rd exit
+  roadblock(HALF - 8, NE_EXIT_Z + 8, 1.4, 40);       // east: Race Track Rd NE exit (road runs diagonal, span padded)
+  roadblock(SE_EXIT_X - 1, HALF - 8, 34, 1.4);       // south: Countryway Blvd SE exit
 })();
 
 // ---------------- car meshes (defined before layout uses staticCar) ----------------
@@ -1366,12 +1379,183 @@ forestPatch(120, 210, 74, 158);
 forestPatch(150, 300, -300, -230);
 forestPatch(-330, -300, -120, 120);
 
+// ---------------- map expansion: outer ring (survey-derived) ----------------
+// Generated offline from the OSM/satellite survey (buildings_merged.json) by
+// scratchpad expansion/gen_plan.js, pre-clipped against every existing
+// building/collider/lot so nothing overlaps the hand-built core.
+// EXP_ROADS entry: [cls, x0,z0, x1,z1, ...] polyline.
+//   cls 0 arterial (hw14, dashed-lane texture — the Race Track Rd NE bend and
+//   the Countryway Blvd SE bend), 1 collector (hw6.5), 2 residential (hw5.5),
+//   3 local lane (hw4.5). Non-arterials get plain asphalt + sidewalks.
+// EXP_PONDS: [x, z, rx, rz] — flat NON-swimmable retention ponds (no bed/
+//   underwater support like the lake; the player just wades ankle-deep).
+// EXP_FOREST: [x0, x1, z0, z1, oakCount] — impassable forest patches.
+var EXP_ROADS = [
+  [0, 340, 0, 430, -35, 520, -115, 600, -200],
+  [0, 0, 340, 60, 375, 200, 428, 248, 462, 272, 510, 278, 600],
+  [1, -71, 40, -77, 52, -98, 118, -110, 142, -124, 162],
+  [3, -124, 162, -158, 197],
+  [3, -158, 197, -130, 204, -121, 220, -120, 235, -140, 244, -200, 250, -283, 246],
+  [1, -283, 246, -303, 223, -332, 196, -355, 143, -372, 137, -394, 77, -397, 14],
+  [3, -355, 143, -352, 100, -358, 80, -370, 64],
+  [1, 457, -59, 457, 120, 452, 300, 457, 530],
+  [1, 216, 162, 199, 171, 189, 222, 261, 261],
+  [1, 457, 160, 552, 158],
+  [2, -382, -101, -338, -100],
+  [2, -382, -164, -377, -129, -381, -98, -381, -14],
+  [2, -219, -326, -140, -327, -74, -344, -16, -344],
+  [2, -159, -257, -109, -316, -79, -345],
+  [2, -147, -318, -102, -262],
+  [2, -95, -211, -73, -198, -16, -198],
+  [2, -129, -163, -100, -183, -79, -187, -68, -170],
+  [2, -154, -42, -154, -14],
+  [2, 11, 121, 34, 101, 50, 90, 60, 86],
+  [2, 60, 86, 82, 92, 108, 92],
+  [2, 11, 152, 48, 144, 79, 140, 103, 144],
+  [2, 11, 190, 99, 179, 106, 175],
+  [2, 86, 97, 65, 117, 41, 132, 24, 140, 16, 148],
+  [2, 103, 144, 110, 202, 106, 230, 89, 245, 44, 261, 31, 280, 22, 298, 16, 270, 16, 156, 11, 152],
+  [2, 261, 261, 266, 277, 295, 280, 357, 278, 366, 264, 367, 262, 357, 247, 325, 246, 295, 248, 270, 252, 261, 261],
+  [2, 367, 262, 452, 262],
+  [2, 165, 358, 261, 378, 255, 430, 249, 460],
+  [2, 227, 507, 254, 508, 271, 511],
+  [2, 361, 520, 390, 506, 422, 511, 457, 530],
+  [2, 388, 450, 431, 444, 457, 454],
+  [2, 460, 436, 498, 441, 543, 428],
+  [2, 456, 470, 550, 463],
+  [2, 489, 541, 531, 493, 543, 466],
+  [2, 378, 367, 457, 368],
+  [2, 402, 367, 403, 404, 409, 430],
+  [2, 514, 357, 519, 396, 531, 430],
+  [2, 457, 364, 511, 360],
+  [2, 457, 377, 510, 374],
+  [2, 457, 391, 515, 391],
+  [2, 457, 244, 498, 240, 544, 250],
+  [2, 399, 184, 432, 201, 432, 244, 449, 266, 457, 268],
+  [2, 305, 97, 293, 123, 291, 142, 295, 160, 305, 173, 328, 194, 399, 184],
+  [2, 370, 80, 394, 60, 422, 23, 457, 20],
+  [2, 370, 80, 365, 130, 365, 190],
+  [2, 422, 23, 442, 42, 457, 44],
+  [2, 457, 25, 552, 26],
+  [2, 537, 26, 539, 116],
+  [2, 552, 158, 539, 131, 539, 116]
+];
+var EXP_PONDS = [[401, -195, 50, 44], [127, 304, 12, 62], [-78, 313, 20, 26], [-319, 275, 23, 18], [-401, 386, 20, 18], [115, 58, 26, 11], [-190, 116, 15, 17], [163, 181, 17, 12], [-253, 376, 14, 12], [315, 484, 8, 16], [239, 280, 9, 9], [304, 66, 8, 13], [539, 279, 8, 10]];
+var EXP_FOREST = [[-564, -360, -576, -396, 21], [60, 324, -576, -396, 21], [-324, -60, -564, -396, 21], [384, 564, -564, -384, 21], [-288, -264, -324, -216, 5], [-264, -228, -312, -252, 4], [-228, -204, -300, -252, 3], [336, 420, -300, -252, 8], [-576, -468, -264, -60, 21], [-264, -240, -252, -216, 2], [12, 36, -108, -60, 3], [216, 300, -108, -48, 10], [-360, -336, -72, -24, 3], [-288, -264, -60, -12, 3], [84, 120, -60, -24, 3], [-264, -168, -48, -24, 4], [-300, -276, 12, 36, 2], [228, 300, 12, 36, 4], [-384, -336, 24, 48, 3], [240, 288, 48, 72, 3], [-576, -456, 60, 264, 21], [12, 36, 60, 84, 2], [-288, -228, 72, 108, 4], [252, 288, 72, 120, 4], [228, 252, 84, 228, 7], [-456, -396, 96, 168, 9], [252, 276, 120, 240, 5], [-264, -228, 156, 192, 3], [-456, -408, 168, 192, 3], [-264, -240, 192, 216, 2], [-204, -168, 192, 240, 4], [-456, -432, 204, 228, 2], [372, 420, 204, 252, 4], [-444, -420, 228, 252, 2], [-264, -144, 264, 360, 21], [60, 96, 264, 348, 6], [-144, -120, 276, 564, 13], [372, 420, 276, 324, 4], [336, 372, 288, 324, 3], [-444, -360, 300, 348, 8], [228, 252, 312, 348, 2], [-348, -312, 324, 408, 6], [-564, -456, 336, 564, 21], [564, 588, 336, 432, 4], [-312, -288, 348, 408, 3], [-108, -72, 348, 384, 3], [-228, -144, 360, 564, 21], [0, 24, 372, 456, 4], [156, 180, 372, 396, 2], [-108, -84, 384, 564, 9], [24, 48, 384, 456, 4], [-84, -36, 396, 564, 16], [48, 72, 396, 456, 3], [-264, -228, 408, 564, 11], [72, 96, 408, 456, 3], [96, 132, 420, 456, 3], [132, 168, 432, 456, 2], [-444, -300, 444, 564, 21], [300, 336, 504, 528, 2]];
+
+// minimap registers for the expansion (drawMinimap reads these)
+var mapRoads = [];   // {x1,z1,x2,z2,hw,cls}
+var mapPonds = [];   // {x,z,rx,rz}
+
+var EXP_HW = [14, 6.5, 5.5, 4.5];
+// plain asphalt for collectors/residentials (no lane paint); arterial bends
+// reuse the dashed roadT so they read like the roads they continue
+var expResT = tex(128, function (g, s) {
+  g.fillStyle = '#3d3e43'; g.fillRect(0, 0, s, s);
+  noise(g, s, 700, 0.14, 0.05);
+});
+var expArtT = roadT.clone(); expArtT.needsUpdate = true;
+var expArtM = lamb({ map: expArtT });
+var expResM = lamb({ map: expResT });
+var expWalkT = walkT.clone(); expWalkT.needsUpdate = true;
+var expWalkM = lamb({ map: expWalkT });
+// distinct y per polyline (ladder) so touching roads never sit coplanar;
+// everything stays above pads (.13) and below the crosswalks (.165)
+function expPolyY(idx) { return 0.137 + ((idx * 7) % 11) * 0.002; }
+function expRoadPoly(idx, data) {
+  var cls = data[0], hw = EXP_HW[cls];
+  var y = cls === 0 ? 0.159 : expPolyY(idx);
+  var sy = 0.1256 + ((idx * 3) % 5) * 0.0016;   // sidewalk layer ladder
+  var nSeg = (data.length - 1) / 2 - 1;
+  for (var s = 0; s < nSeg; s++) {
+    var x1 = data[1 + s * 2], z1 = data[2 + s * 2], x2 = data[3 + s * 2], z2 = data[4 + s * 2];
+    var dx = x2 - x1, dz = z2 - z1, L = Math.sqrt(dx * dx + dz * dz);
+    if (L < 3) continue;
+    var ang = Math.atan2(dz, dx), ux = dx / L, uz = dz / L;
+    var mx = (x1 + x2) / 2, mz = (z1 + z2) / 2;
+    var geo = new THREE.PlaneGeometry(L, hw * 2);
+    var uv = geo.attributes.uv;
+    for (var i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * L / 16);
+    geo.rotateX(-Math.PI / 2);
+    var mesh = new THREE.Mesh(geo, cls === 0 ? expArtM : expResM);
+    mesh.position.set(mx, y, mz); mesh.rotation.y = -ang;
+    scene.add(mesh);
+    mapRoads.push({ x1: x1, z1: z1, x2: x2, z2: z2, hw: hw, cls: cls });
+    // joint disc fills the elbow wedge at interior bends
+    if (s > 0) {
+      var disc = new THREE.Mesh(new THREE.CircleGeometry(hw, 10), cls === 0 ? expArtM : expResM);
+      disc.geometry.rotateX(-Math.PI / 2);
+      disc.position.set(x1, y - 0.0012, z1); disc.rotation.y = -ang;
+      scene.add(disc);
+    }
+    // flanking sidewalks (both sides); trimmed at the polyline's outer ends so
+    // they don't overlap the core roads' own sidewalk strips at junctions
+    var t0 = (s === 0 ? 6 : -1.7), t1 = L - (s === nSeg - 1 ? 6 : -1.7);
+    var SL = t1 - t0;
+    if (SL > 5) {
+      var sw = cls === 0 ? 5 : 3.4, off = hw + sw / 2 + 0.6;
+      var cx2 = x1 + ux * (t0 + t1) / 2, cz2 = z1 + uz * (t0 + t1) / 2;
+      for (var side = -1; side <= 1; side += 2) {
+        var sg = new THREE.PlaneGeometry(SL, sw);
+        var suv = sg.attributes.uv;
+        for (var si = 0; si < suv.count; si++) suv.setX(si, suv.getX(si) * SL / 8);
+        sg.rotateX(-Math.PI / 2);
+        var sm = new THREE.Mesh(sg, expWalkM);
+        sm.position.set(cx2 - uz * off * side, sy, cz2 + ux * off * side);
+        sm.rotation.y = -ang;
+        scene.add(sm);
+      }
+    }
+  }
+}
+for (var eri = 0; eri < EXP_ROADS.length; eri++) expRoadPoly(eri, EXP_ROADS[eri]);
+
+// retention ponds: sandy shore disc + still water disc; .lake-flagged collider
+// blocks NPCs/cops/cars while the player can wade (no swimming — these have
+// no sunken bed / underwater handling like the big lake)
+var expShoreM = lamb({ color: 0xb9a778 });
+var expWaterM = phong({ color: 0x3f82ae, shininess: 90, specular: 0xbbddee, transparent: true, opacity: 0.6, depthWrite: false });
+function expPond(x, z, rx, rz) {
+  var shore = new THREE.Mesh(new THREE.CircleGeometry(1, 22), expShoreM);
+  shore.rotation.x = -Math.PI / 2; shore.scale.set(rx + 2.6, rz + 2.6, 1);
+  shore.position.set(x, 0.045, z); scene.add(shore);
+  var w = new THREE.Mesh(new THREE.CircleGeometry(1, 22), expWaterM);
+  w.rotation.x = -Math.PI / 2; w.scale.set(rx, rz, 1);
+  w.position.set(x, 0.16, z); scene.add(w);
+  colliders.push({ x0: x - rx * 0.92, x1: x + rx * 0.92, z0: z - rz * 0.92, z1: z + rz * 0.92, lake: true });
+  mapPonds.push({ x: x, z: z, rx: rx, rz: rz });
+}
+for (var epi = 0; epi < EXP_PONDS.length; epi++) expPond(EXP_PONDS[epi][0], EXP_PONDS[epi][1], EXP_PONDS[epi][2], EXP_PONDS[epi][3]);
+
+for (var efi = 0; efi < EXP_FOREST.length; efi++) {
+  var ef = EXP_FOREST[efi];
+  forestPatch(ef[0], ef[1], ef[2], ef[3], ef[4]);
+}
+
+// keep random scatter off the new roads/ponds
+function expClear(x, z, m) {
+  var i;
+  for (i = 0; i < mapRoads.length; i++) {
+    var r = mapRoads[i];
+    var ddx = r.x2 - r.x1, ddz = r.z2 - r.z1, L2 = ddx * ddx + ddz * ddz || 1;
+    var t = ((x - r.x1) * ddx + (z - r.z1) * ddz) / L2;
+    t = Math.max(0, Math.min(1, t));
+    var px = r.x1 + ddx * t - x, pz = r.z1 + ddz * t - z;
+    if (px * px + pz * pz < (r.hw + m) * (r.hw + m)) return false;
+  }
+  for (i = 0; i < mapPonds.length; i++) {
+    var p = mapPonds[i];
+    if (Math.abs(x - p.x) < p.rx + m && Math.abs(z - p.z) < p.rz + m) return false;
+  }
+  return true;
+}
+
 // scattered street palms + oaks in the commercial core
 [[20, 20], [-20, 20], [20, -20], [-20, -20], [-90, 22], [90, 22], [-90, -22], [30, -60], [-30, 70]].forEach(function (p) { palm(p[0], p[1]); });
 for (var oi = 0; oi < 40; oi++) {
-  var ox = -HALF + 40 + Math.random() * (TOTAL - 80), oz = -HALF + 40 + Math.random() * (TOTAL - 80);
-  // keep oaks off the roads/core
-  if (Math.abs(oz) > MAIN_HW + 6 && Math.abs(ox) > CROSS_HW + 6 && (Math.abs(ox) > 180 || Math.abs(oz) > 170)) oak(ox, oz);
+  var ox = -CORE + 40 + Math.random() * (CORE * 2 - 80), oz = -CORE + 40 + Math.random() * (CORE * 2 - 80);
+  // keep oaks off the roads/core (and off the expansion roads/ponds)
+  if (Math.abs(oz) > MAIN_HW + 6 && Math.abs(ox) > CROSS_HW + 6 && (Math.abs(ox) > 180 || Math.abs(oz) > 170) && expClear(ox, oz, 4)) oak(ox, oz);
 }
 
 // ---------------- pavement: pads under buildings + access roads ----------------
@@ -1791,6 +1975,9 @@ function updateRainFx(dt) {
 }
 function updateEnv(dt) {
   envT += dt;
+  // the sky dome (r=520) is smaller than the expanded map — keep it centered
+  // on the camera so the far corners never poke outside it
+  if (skyDome) { skyDome.position.x = camera.position.x; skyDome.position.z = camera.position.z; }
   // rain scheduling (clients follow the host's weather instead)
   if (!isClient()) {
     if (raining) {
@@ -3204,7 +3391,9 @@ for (var ci = 0; ci < 3; ci++) spawnCop(false);
 
 // ---------------- cars: traffic ----------------
 var cars = [];
-var EDGE = HALF - 14;
+// traffic stays on the ORIGINAL core roads: the expansion roads have no
+// traffic lanes yet, so cars wrap at the old map edge (next step: extend)
+var EDGE = CORE - 14;
 function addCar(axis, lane, dir) {
   var c = { car: makeCar(), axis: axis, lane: lane, lane0: lane, dir: dir, pos: -EDGE + Math.random() * (EDGE * 2), speed: 8 + Math.random() * 6, dmgT: 0, berserk: false, exploded: false, respawnT: 0, smokeT: 0, eng: null };
   c.car.group.userData.trafficCar = c;
@@ -6037,17 +6226,26 @@ function drawMinimap() {
   // forest
   mg.fillStyle = '#33562c';
   for (var f = 0; f < mapForest.length; f++) { var z = mapForest[f]; mg.fillRect(w2m(z.x0), w2m(z.z0), (z.x1 - z.x0) * MMS, (z.z1 - z.z0) * MMS); }
-  // lake
+  // lake + expansion ponds
   mg.fillStyle = '#3f82ae'; mg.save(); mg.translate(w2m(LAKE.x), w2m(LAKE.z)); mg.scale(1.25, 0.85); mg.beginPath(); mg.arc(0, 0, LAKE.r * MMS, 0, 7); mg.fill(); mg.restore();
+  for (var pq = 0; pq < mapPonds.length; pq++) { var pk = mapPonds[pq]; mg.save(); mg.translate(w2m(pk.x), w2m(pk.z)); mg.scale(1, pk.rz / pk.rx); mg.beginPath(); mg.arc(0, 0, Math.max(1.2, pk.rx * MMS), 0, 7); mg.fill(); mg.restore(); }
   // concrete pads under buildings
   mg.fillStyle = '#b8b3a6'; for (var pv = 0; pv < mapPave.length; pv++) { var pp = mapPave[pv]; mg.fillRect(w2m(pp.x - pp.w / 2), w2m(pp.z - pp.d / 2), pp.w * MMS, pp.d * MMS); }
   // parking + access roads
   mg.fillStyle = '#4a4a50'; for (var p = 0; p < mapParking.length; p++) { var q = mapParking[p]; mg.fillRect(w2m(q.x - q.w / 2), w2m(q.z - q.d / 2), q.w * MMS, q.d * MMS); }
   mg.fillStyle = '#3a3a40'; for (var dr = 0; dr < mapDrives.length; dr++) { var dd = mapDrives[dr]; mg.fillRect(w2m(dd.x - dd.w / 2), w2m(dd.z - dd.d / 2), dd.w * MMS, dd.d * MMS); }
-  // roads
+  // expansion roads (polyline segments)
+  mg.lineCap = 'round';
+  for (var er = 0; er < mapRoads.length; er++) {
+    var rr = mapRoads[er];
+    mg.strokeStyle = rr.cls === 0 ? '#33333a' : '#3f3f46';
+    mg.lineWidth = Math.max(1.4, rr.hw * 2 * MMS);
+    mg.beginPath(); mg.moveTo(w2m(rr.x1), w2m(rr.z1)); mg.lineTo(w2m(rr.x2), w2m(rr.z2)); mg.stroke();
+  }
+  // core roads (the straight asphalt ends at x/z=CORE where the bends begin)
   mg.fillStyle = '#33333a';
-  mg.fillRect(0, w2m(-MAIN_HW), mm.width, MAIN_HW * 2 * MMS);
-  mg.fillRect(w2m(-CROSS_HW), 0, CROSS_HW * 2 * MMS, mm.height);
+  mg.fillRect(0, w2m(-MAIN_HW), (HALF + CORE) * MMS, MAIN_HW * 2 * MMS);
+  mg.fillRect(w2m(-CROSS_HW), 0, CROSS_HW * 2 * MMS, (HALF + CORE) * MMS);
   // buildings
   for (var b = 0; b < mapBuildings.length; b++) { var m = mapBuildings[b]; mg.fillStyle = m.c; mg.fillRect(w2m(m.x - m.w / 2), w2m(m.z - m.d / 2), Math.max(2, m.w * MMS), Math.max(2, m.d * MMS)); }
   // cars
