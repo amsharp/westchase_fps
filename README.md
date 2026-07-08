@@ -70,10 +70,17 @@ these too.
 Every voice, gunshot, scream, crash, and explosion now comes from
 somewhere: sounds pan to where their source is, fade with distance
 (yells and gunfire carry about twice as far as small talk), and
-doppler-shift when you or the source are moving. Wounded pedestrians
-leave a trail of blood drips that slows and clots; kills leave real
-blood pools on the pavement. Only the ambient bed — wind, rain — is
-everywhere at once.
+doppler-shift when you or the source are moving. Voices stick to the
+person speaking — a pedestrian yelling as they run past you pans and
+fades with them, not with where they stood when they started. Wounded
+pedestrians leave a trail of blood drips that slows and clots; kills
+leave real blood pools on the pavement. Only the ambient bed — wind,
+rain — is everywhere at once.
+
+Engines got real too: every car runs a layered synth with gears — revs
+climb as it accelerates, drop on each upshift, and settle to a low
+idle rumble at a stop. Your own stolen ride is louder and richer, and
+answers the throttle.
 
 ## The town talks (and swings back)
 
