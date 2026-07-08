@@ -24,8 +24,9 @@
 var houseTexCache = {};
 
 // hue in degrees, satMul/lightMul multiplicative; works on canvas pixel data.
-// Near-white (trim/garage doors) and near-dark (windows) pixels are protected
-// so a recolor changes the WALL color without tinting trim pink or windows.
+// Only pixels whose CHROMA (color minus its own gray level) is close to the
+// cluster's wallColor chroma are shifted — so a recolor repaints the wall and
+// its shaded variants but leaves trim, garage doors and windows alone.
 function houseHue2(p, q, t) {
   t = (t + 1) % 1;
   if (t < 1 / 6) return p + (q - p) * 6 * t;
@@ -33,9 +34,17 @@ function houseHue2(p, q, t) {
   if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
   return p;
 }
-function houseShiftPixels(px, hueDeg, satMul, lightMul) {
+function houseShiftPixels(px, hueDeg, satMul, lightMul, baseHex) {
+  var bn = parseInt((baseHex || '#c8b89a').slice(1), 16);
+  var br = (bn >> 16 & 255) / 255, bg = (bn >> 8 & 255) / 255, bb = (bn & 255) / 255;
+  var bav = (br + bg + bb) / 3, bcr = br - bav, bcg = bg - bav, bcb = bb - bav;
   for (var i = 0; i < px.length; i += 4) {
     var r = px[i] / 255, g = px[i + 1] / 255, b = px[i + 2] / 255;
+    var av = (r + g + b) / 3;
+    var dr = (r - av) - bcr, dg = (g - av) - bcg, db = (b - av) - bcb;
+    var cd = Math.sqrt(dr * dr + dg * dg + db * db);
+    var f = Math.min(1, Math.max(0, (0.16 - cd) / 0.08)); // 1 near wall chroma, 0 away
+    if (f <= 0) continue;
     var mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2;
     var h = 0, s = 0, d = mx - mn;
     if (d > 0.0001) {
@@ -44,8 +53,6 @@ function houseShiftPixels(px, hueDeg, satMul, lightMul) {
       else if (mx === g) h = ((b - r) / d + 2) / 6;
       else h = ((r - g) / d + 4) / 6;
     }
-    // protection ramp: 1 in the mid tones, fades to 0 near white/black
-    var f = Math.min(1, Math.max(0, (0.86 - l) / 0.1)) * Math.min(1, Math.max(0, (l - 0.14) / 0.1));
     var h2 = (h + (hueDeg / 360) * f + 1) % 1;
     var s2 = Math.min(1, Math.max(0, s * (1 + (satMul - 1) * f)));
     var l2 = Math.min(1, Math.max(0, l * (1 + (lightMul - 1) * f)));
@@ -61,12 +68,12 @@ function houseShiftHex(hex, shift) {
   if (!shift) return hex;
   var n = parseInt(hex.slice(1), 16);
   var px = [n >> 16 & 255, n >> 8 & 255, n & 255, 255];
-  houseShiftPixels(px, shift[0], shift[1], shift[2]);
+  houseShiftPixels(px, shift[0], shift[1], shift[2], hex);
   return '#' + ((1 << 24) + (px[0] << 16) + (px[1] << 8) + px[2]).toString(16).slice(1);
 }
 
 // data-URL -> THREE texture, optional per-instance recolor, cached
-function houseTex(url, shift, repX, repY) {
+function houseTex(url, shift, repX, repY, baseHex) {
   var key = url.length + url.slice(-24) + '|' + (shift ? shift.join(',') : '') + '|' + (repX || 0) + ',' + (repY || 0);
   if (houseTexCache[key]) return houseTexCache[key];
   var cv = document.createElement('canvas'); cv.width = cv.height = 8;
@@ -81,7 +88,7 @@ function houseTex(url, shift, repX, repY) {
     var g = cv.getContext('2d'); g.drawImage(im, 0, 0);
     if (shift) {
       var d = g.getImageData(0, 0, cv.width, cv.height);
-      houseShiftPixels(d.data, shift[0], shift[1], shift[2]);
+      houseShiftPixels(d.data, shift[0], shift[1], shift[2], baseHex);
       g.putImageData(d, 0, 0);
     }
     // r149/WebGL2 allocates immutable texStorage at the placeholder size on
@@ -98,7 +105,7 @@ function buildHouse(cluster, shift) {
   var w = cluster.dims[0], d = cluster.dims[1], h = cluster.dims[2];
   var roofH = cluster.roofH || 2.6, ovh = 1.2;
   var g = new THREE.Group();
-  function wallM(url) { return new THREE.MeshLambertMaterial({ map: houseTex(url, shift) }); }
+  function wallM(url) { return new THREE.MeshLambertMaterial({ map: houseTex(url, shift, 0, 0, cluster.wallColor) }); }
   var frontM = wallM(cluster.tex.front);
   var sideM = wallM(cluster.tex.side);
   var backM = wallM(cluster.tex.back || cluster.tex.side);
