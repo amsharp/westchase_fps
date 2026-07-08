@@ -773,8 +773,11 @@ var oakTrunkM = lamb2(oakBarkT);
 var leafMats = [lamb({ color: 0x3f6f2e }), lamb({ color: 0x4c8038 }), lamb({ color: 0x355f28 }), lamb({ color: 0x568a3e })];
 var canopyGeo = new THREE.SphereGeometry(1, 8, 6);
 // map expansion: the 600-half perimeter + survey forest patches need more
-// trees than the old 240 budget (walls ~180 + core patches ~150 + ring ~320)
-var oakCount = 0, OAK_CAP = 800;
+// trees than the old 240 budget (walls ~180 + core patches ~150 + ring ~320).
+// Headroom raised to 1000: silently starving forestPatch() of trees leaves its
+// impassable collider standing as an invisible wall (dense in-patch visuals
+// come from the instanced expForestFill, which does not count against this).
+var oakCount = 0, OAK_CAP = 1000;
 function oak(x, z, scale) {
   if (oakCount >= OAK_CAP) return;
   oakCount++;
@@ -1533,6 +1536,83 @@ for (var efi = 0; efi < EXP_FOREST.length; efi++) {
   var ef = EXP_FOREST[efi];
   forestPatch(ef[0], ef[1], ef[2], ef[3], ef[4]);
 }
+
+// ---- instanced forest fill (invisible-barrier fix) ----
+// Every EXP_FOREST rect carries an impassable collider, but the budgeted
+// per-patch oak counts above (~1 tree per 3000u^2 on the big ring patches)
+// are far too sparse to read as forest — players walked across open-looking
+// grass and slammed into the rect edge ("invisible walls"). Fill each rect
+// with a dense tree LINE just inside its collider edges plus interior
+// scatter, rendered as per-patch THREE.InstancedMesh chunks (shared pack-prop
+// geometry/material, explicit bounding spheres so frustum culling still
+// works). Fill trees are visuals only — not breakable, no colliders — the
+// patch collider already keeps players/cars/NPCs out of reach.
+var expFillPts = [];   // [x,z] of every fill tree (debug/audit)
+(function expForestFill() {
+  var props = [getPackProp('oak1'), getPackProp('oak2'), getPackProp('oak3')];
+  if (!props[0] || !props[1] || !props[2]) return;   // prop pack absent -> keep old sparse look
+  var m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), pv = new THREE.Vector3(), sv = new THREE.Vector3();
+  for (var i = 0; i < EXP_FOREST.length; i++) {
+    var f = EXP_FOREST[i], x0 = f[0], x1 = f[1], z0 = f[2], z1 = f[3];
+    var w = x1 - x0, d = z1 - z0, pts = [], j;
+    // tree line along each collider edge (the wall the player actually hits)
+    var nx = Math.max(2, Math.round(w / 13)), nz = Math.max(2, Math.round(d / 13));
+    for (j = 0; j < nx; j++) {
+      var ex = x0 + (j + 0.5) / nx * w + (Math.random() - 0.5) * 4;
+      pts.push([ex, z0 + 1.5 + Math.random() * 5]);
+      pts.push([ex, z1 - 1.5 - Math.random() * 5]);
+    }
+    for (j = 0; j < nz; j++) {
+      var ez = z0 + (j + 0.5) / nz * d + (Math.random() - 0.5) * 4;
+      pts.push([x0 + 1.5 + Math.random() * 5, ez]);
+      pts.push([x1 - 1.5 - Math.random() * 5, ez]);
+    }
+    // interior scatter
+    var ni = Math.round(w * d / 650);
+    for (j = 0; j < ni; j++) pts.push([x0 + 2 + Math.random() * (w - 4), z0 + 2 + Math.random() * (d - 4)]);
+    // bucket by prop, one InstancedMesh per prop per patch
+    var buckets = [[], [], []];
+    for (j = 0; j < pts.length; j++) { buckets[(Math.random() * 3) | 0].push(pts[j]); expFillPts.push(pts[j]); }
+    var sphere = new THREE.Sphere(new THREE.Vector3((x0 + x1) / 2, 5, (z0 + z1) / 2), Math.sqrt(w * w + d * d) / 2 + 12);
+    for (var b = 0; b < 3; b++) {
+      var list = buckets[b];
+      if (!list.length) continue;
+      var pp = props[b];
+      // new geometry sharing the prop's attribute arrays, own bounds for culling
+      var cg = new THREE.BufferGeometry();
+      cg.setAttribute('position', pp.geo.getAttribute('position'));
+      cg.setAttribute('uv', pp.geo.getAttribute('uv'));
+      cg.setAttribute('normal', pp.geo.getAttribute('normal'));
+      cg.boundingSphere = sphere;
+      var im = new THREE.InstancedMesh(cg, pp.mat, list.length);
+      for (j = 0; j < list.length; j++) {
+        var sc = 8.5 * (0.85 + Math.random() * 0.5) / pp.h;
+        q.setFromAxisAngle(Y_UP, Math.random() * Math.PI * 2);
+        pv.set(list[j][0], 0, list[j][1]); sv.set(sc, sc, sc);
+        m4.compose(pv, q, sv);
+        im.setMatrixAt(j, m4);
+      }
+      im.instanceMatrix.needsUpdate = true;
+      scene.add(im);
+    }
+    // one instanced shadow blob layer per patch
+    var sg = new THREE.BufferGeometry();
+    sg.setAttribute('position', shadowGeo.getAttribute('position'));
+    sg.setAttribute('uv', shadowGeo.getAttribute('uv'));
+    sg.setAttribute('normal', shadowGeo.getAttribute('normal'));
+    sg.setIndex(shadowGeo.getIndex());
+    sg.boundingSphere = sphere;
+    var sm = new THREE.InstancedMesh(sg, shadowMat, pts.length);
+    for (j = 0; j < pts.length; j++) {
+      var ss = 1.7 + Math.random();
+      q.set(0, 0, 0, 1); pv.set(pts[j][0], 0.05, pts[j][1]); sv.set(ss, 1, ss);
+      m4.compose(pv, q, sv);
+      sm.setMatrixAt(j, m4);
+    }
+    sm.instanceMatrix.needsUpdate = true;
+    scene.add(sm);
+  }
+})();
 
 // keep random scatter off the new roads/ponds
 function expClear(x, z, m) {
@@ -2506,7 +2586,9 @@ function buildPerson(shirtC, pantsC, skinC, opts) {
 }
 
 var npcs = [];
-var NPC_COUNT = 28;
+var NPC_COUNT = 46;   // raised for the expanded map — the core keeps ~the old 28
+// home-zone weights: core intersection / residential neighborhoods / collectors+Lynmar
+var NPC_W_CORE = 0.60, NPC_W_RES = 0.32;   // remainder (~0.08) = collectors
 var WALK = { x0: -270, x1: 150, z0: -160, z1: 150 };
 function randTarget() { return [WALK.x0 + Math.random() * (WALK.x1 - WALK.x0), WALK.z0 + Math.random() * (WALK.z1 - WALK.z0)]; }
 function sidewalkSpot() {
@@ -2520,11 +2602,100 @@ function sidewalkSpot() {
   return [side * (CROSS_HW + 1.5 + Math.random() * 3), z];
 }
 function npcTarget() { return Math.random() < 0.85 ? sidewalkSpot() : randTarget(); }
+// ---- expansion sidewalks: spawn/wander tables for the outer map ----
+// Built from mapRoads (every EXP_ROADS segment registers there at load, above
+// this section). Sidewalk strips flank each segment at hw+0.6 .. hw+0.6+sw
+// (see expRoadPoly); residential streets (cls 2/3) vs collectors/arterial
+// bends incl. Lynmar (cls 0/1) get separate tables.
+var expWalkRes = [], expWalkCol = [];
+(function () {
+  for (var i = 0; i < mapRoads.length; i++) {
+    var r = mapRoads[i];
+    var dx = r.x2 - r.x1, dz = r.z2 - r.z1, L = Math.sqrt(dx * dx + dz * dz);
+    if (L < 16) continue;   // strips are end-trimmed ~6 each side; skip stubs
+    var list = r.cls >= 2 ? expWalkRes : expWalkCol;
+    list.push({ x: r.x1, z: r.z1, ux: dx / L, uz: dz / L, L: L, hw: r.hw, sw: r.cls === 0 ? 5 : 3.4 });
+    list.total = (list.total || 0) + L;
+  }
+})();
+// length-weighted random point on one of the strips (either side of the road)
+function expWalkSpot(list) {
+  var pick = Math.random() * (list.total || 1), e = list[0], i;
+  for (i = 0; i < list.length; i++) { e = list[i]; if (pick < e.L) break; pick -= e.L; }
+  var t = 6 + Math.random() * Math.max(1, e.L - 12);        // match the mesh end-trim
+  var off = e.hw + 1.1 + Math.random() * (e.sw - 1);        // inside the strip
+  var side = Math.random() < 0.5 ? 1 : -1;
+  return [e.x + e.ux * t - e.uz * off * side, e.z + e.uz * t + e.ux * off * side];
+}
+// spawn rejection: refuse points inside house/fence/forest/pond colliders
+function spotClear(x, z) {
+  var p = pushOut(x, z, 0.5);
+  var mx = p.x - x, mz = p.z - z;
+  return mx * mx + mz * mz < 0.01;
+}
+// full accept test for an expansion sidewalk spot: collider-free AND not on
+// the asphalt of a CROSSING road (expClear rechecks every road with margin
+// 0.4 — the spot's own road is ≥ hw+1.1 away by construction, so it passes)
+function expSpotOK(c) { return spotClear(c[0], c[1]) && expClear(c[0], c[1], 0.4); }
+// segments of `list` within R of (x,z) — a neighborhood NPC's roaming turf
+function expSegsNear(list, x, z, R) {
+  var out = [];
+  out.total = 0;
+  for (var i = 0; i < list.length; i++) {
+    var e = list[i];
+    var t = Math.max(0, Math.min(e.L, (x - e.x) * e.ux + (z - e.z) * e.uz));
+    var px = e.x + e.ux * t - x, pz = e.z + e.uz * t - z;
+    if (px * px + pz * pz < R * R) { out.push(e); out.total += e.L; }
+  }
+  return out;
+}
+// roll a home zone (0 core / 1 residential / 2 collector) and outfit `n` with
+// a collider-clear spawn spot + local roaming turf. Used at spawn AND on
+// respawn, so the population keeps the same distribution over time.
+function assignNpcHome(n) {
+  var r = Math.random();
+  var zone = r < NPC_W_CORE ? 0 : (r < NPC_W_CORE + NPC_W_RES ? 1 : 2);
+  var list = zone === 1 ? expWalkRes : expWalkCol;
+  var s = null;
+  if (zone > 0 && list.length) {
+    for (var tr = 0; tr < 12 && !s; tr++) {
+      var c = expWalkSpot(list);
+      if (expSpotOK(c)) s = c;
+    }
+  }
+  if (!s) { zone = 0; s = sidewalkSpot(); }
+  n.zone = zone; n.homeX = s[0]; n.homeZ = s[1];
+  n.turf = zone === 0 ? null : expSegsNear(list, s[0], s[1], 100);
+  if (n.turf && !n.turf.length) { n.zone = 0; n.turf = null; }
+  n.x = s[0]; n.z = s[1];
+}
+// an NPC placed somewhere explicitly (bailed carjack driver) adopts that spot
+// as home so it wanders locally instead of trekking cross-map
+function rehomeNpc(n) {
+  n.homeX = n.x; n.homeZ = n.z;
+  if (Math.abs(n.x) <= CORE && Math.abs(n.z) <= CORE) { n.zone = 0; n.turf = null; return; }
+  var turf = expSegsNear(expWalkRes, n.x, n.z, 110);
+  var col = expSegsNear(expWalkCol, n.x, n.z, 110);
+  for (var i = 0; i < col.length; i++) { turf.push(col[i]); turf.total += col[i].L; }
+  n.zone = turf.length ? 1 : 0;
+  n.turf = turf.length ? turf : null;
+}
+// wander target honoring the NPC's home zone: core NPCs use the old picker,
+// neighborhood NPCs roam their local streets (jaywalking — no crosswalks out
+// there), keeping them within ~100u of their home street
+function npcTargetFor(n) {
+  if (!n || !n.turf) return npcTarget();
+  for (var tr = 0; tr < 8; tr++) {
+    var c = expWalkSpot(n.turf);
+    if (expSpotOK(c)) return c;
+  }
+  return [n.homeX, n.homeZ];
+}
 // pick a fresh wander target for an NPC; if the straight line to it crosses a
 // road, usually route through the intersection crosswalk pads first (single
 // waypoint in n.wayX/n.wayZ — no pathfinding)
 function setNpcTarget(n) {
-  var t = npcTarget(); n.tx = t[0]; n.tz = t[1];
+  var t = npcTargetFor(n); n.tx = t[0]; n.tz = t[1];
   n.wayX = undefined; n.wayZ = undefined;
   if (Math.random() < 0.7) {
     if ((n.z >= MAIN_HW && n.tz <= -MAIN_HW) || (n.z <= -MAIN_HW && n.tz >= MAIN_HW)) {
@@ -2591,8 +2762,8 @@ function spawnNPC() {
     cfg.preset = 1 + PSX_SKINS.length + pool[(Math.random() * pool.length) | 0];
   }
   var mesh = buildCharacter(cfg);
-  var start = sidewalkSpot(), tgt = npcTarget();
-  var n = { mesh: mesh, x: start[0], z: start[1], tx: tgt[0], tz: tgt[1], hp: 100, state: 'walk', speed: 1.5 + Math.random() * 1.1, phase: Math.random() * 9, pause: 0, fleeT: 0, fleeDX: 0, fleeDZ: 0, downT: 0, hurtFlash: 0, vname: meshyNameFromCfg(cfg), fem: femFromCfg(cfg) };
+  var n = { mesh: mesh, x: 0, z: 0, tx: 0, tz: 0, hp: 100, state: 'walk', speed: 1.5 + Math.random() * 1.1, phase: Math.random() * 9, pause: 0, fleeT: 0, fleeDX: 0, fleeDZ: 0, downT: 0, hurtFlash: 0, vname: meshyNameFromCfg(cfg), fem: femFromCfg(cfg) };
+  assignNpcHome(n);
   mesh.position.set(n.x, 0, n.z); mesh.userData.npc = n;
   scene.add(mesh); npcs.push(n); setNpcTarget(n); return n;
 }
@@ -3766,11 +3937,12 @@ function nearestStealableCar() {
 function kickDriver(c) {
   // driver bails and runs away scared
   var g = c.car.group;
-  if (npcs.length < 40 && !isClient()) {
+  if (npcs.length < NPC_COUNT + 12 && !isClient()) {
     var n = spawnNPC();
     n.x = g.position.x + Math.cos(g.rotation.y + Math.PI / 2) * 2.4;
     n.z = g.position.z - Math.sin(g.rotation.y + Math.PI / 2) * 2.4;
     n.mesh.position.set(n.x, 0, n.z);
+    rehomeNpc(n);   // wander near where it bailed, not back to its old street
     startFlee(n);
   }
   sfx('grunt', { x: g.position.x, z: g.position.z, range: 40 });
@@ -4802,7 +4974,7 @@ function updateNPCs(dt) {
     }
     if (n.state === 'down') {
       n.downT -= dt; m.rotation.x = Math.max(-1.45, m.rotation.x - dt * 7);
-      if (n.downT <= 0) { var s = sidewalkSpot(); n.x = s[0]; n.z = s[1]; setNpcTarget(n); n.hp = 100; n.state = 'walk'; m.rotation.x = 0; if (m.userData.shadow) m.userData.shadow.visible = true; }
+      if (n.downT <= 0) { assignNpcHome(n); setNpcTarget(n); n.hp = 100; n.state = 'walk'; m.rotation.x = 0; if (m.userData.shadow) m.userData.shadow.visible = true; }
       m.position.set(n.x, m.position.y, n.z); continue;
     }
     if (n.state === 'stand') {
@@ -4899,7 +5071,7 @@ function updateNPCs(dt) {
       n.stuckT = (n.stuckT || 0) + dt;
       if (n.stuckT > 1) {
         n.stuckT = 0;
-        var back = sidewalkSpot();
+        var back = npcTargetFor(n);
         n.tx = back[0]; n.tz = back[1];
         n.wayX = undefined; n.wayZ = undefined;
         n.fleeDX = -vx; n.fleeDZ = -vz;   // fleeing NPCs bounce back the way they came
@@ -7228,6 +7400,13 @@ window.__wc = {
     return cars.map(function (c, i) { return c.slot ? { i: i, parked: !!c.parked, stolen: !!c.stolen, exploded: !!c.exploded, eng: !!c.eng, respawnT: Math.round(c.respawnT * 10) / 10, x: Math.round(c.car.group.position.x * 10) / 10, z: Math.round(c.car.group.position.z * 10) / 10, ry: Math.round(c.car.group.rotation.y * 100) / 100, slot: c.slot } : null; }).filter(function (e) { return e; });
   },
   breakables: breakables, breakProp: breakProp, lakeBedY: lakeBedY,
+  colliders: colliders, mapForestReg: mapForest, mapBuildingsReg: mapBuildings,
+  spawnNPC: spawnNPC, assignNpcHome: assignNpcHome, npcTargetFor: npcTargetFor, spotClear: spotClear, mapRoadsReg: mapRoads,
+  expWalkInfo: function () { return { res: expWalkRes.length, col: expWalkCol.length, resLen: Math.round(expWalkRes.total || 0), colLen: Math.round(expWalkCol.total || 0) }; },
+  landCollidersRef: function () { return landColliders; }, pushOut: pushOut,
+  solidMeshesReg: solidMeshes,
+  oakInfo: function () { return { count: oakCount, cap: OAK_CAP }; },
+  forestFillPts: expFillPts,
   streetProps: streetPropInteractables, streetPropInteract: streetPropInteract, getStreetProp: getStreetProp, hydrantJets: hydrantJets,
   isUnderwater: function () { return underwater; },
   net: net, startGame: startGame, hostGame: hostGame, joinGame: joinGame, handleNet: handleNet,
