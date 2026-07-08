@@ -27,7 +27,7 @@ const MODELS = [
   ['GG_SALOON', 'Car 02/Car2.obj', 'Car 02/car2.png'],
   ['GG_MINIVAN', 'Car 04/Car4.obj', 'Car 04/car4.png'],
   ['GG_POLICE', 'Car 05/Car5_Police.obj', 'Car 05/car5_police.png'],
-  ['GG_WRECK', 'Car 06/Car6.obj', 'Car 06/car6.png'],
+  ['GG_WRECK', 'Car 06/Car6.obj', 'Car 06/car6.png', true], // burned-out prop: no wheels
 ];
 
 function parseOBJ(file) {
@@ -71,7 +71,7 @@ const texURL = f => 'data:image/png;base64,' + fs.readFileSync(f).toString('base
 // GGBot wheel: width/diameter ratio (measured: 0.274 / 0.917)
 const WHEEL_W_RATIO = 0.274 / 0.917;
 
-function processCar(name, objFile, texFile) {
+function processCar(name, objFile, texFile, noWheels) {
   const o = parseOBJ(path.join(PACK, objFile));
 
   // ---- normalize: long axis (Z in this pack) -> X, minY -> 0, center XZ
@@ -125,10 +125,10 @@ function processCar(name, objFile, texFile) {
     const m = k => sides.reduce((s2, v) => s2 + v[k], 0) / sides.length;
     return { cx: m('cx'), cy: m('cy'), r: m('r'), zOut: m('zOut') };
   }
-  const F = axleFit('f'), R = axleFit('r');
+  const F = noWheels ? null : axleFit('f'), R = noWheels ? null : axleFit('r');
   const wheels = [];
   for (const [fit, tag] of [[F, 'front'], [R, 'rear']]) {
-    if (!fit) { console.log('NOTE ' + name + ': no ' + tag + ' arch fit (wheel-less)'); wheels.push(null, null); continue; }
+    if (!fit) { if (!noWheels) console.log('NOTE ' + name + ': no ' + tag + ' arch fit (wheel-less)'); wheels.push(null, null); continue; }
     // wheel radius: touch ground from the arch-center pivot, but never
     // bigger than the arch opening itself (small ground-contact fudge ok)
     const r = Math.min(fit.cy, fit.r * 0.97);
@@ -210,7 +210,7 @@ function processWheel() {
 }
 
 fs.mkdirSync(OUTDIR, { recursive: true });
-const entries = MODELS.map(m => processCar(m[0], m[1], m[2]));
+const entries = MODELS.map(m => processCar(m[0], m[1], m[2], m[3]));
 const wheel = processWheel();
 const out = '// GGBot "PSX Style Cars" (CC0 1.0, https://ggbot.itch.io/psx-style-cars)\n' +
   '// converted by tools/ggbotveh/genggbot.js — PROTOTYPE, not loaded by the game.\n' +

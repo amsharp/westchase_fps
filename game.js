@@ -613,7 +613,8 @@ function supermarket(x, z) {
   for (var i = -1; i <= 1; i++) {
     scene.add(cyl(0.2, 0.2, 7, 6, lamb({ color: 0x555 }), x + i * 26, 3.5, z + 44));
   }
-  staticCar(x - 20, z + 40, 0); staticCar(x - 12, z + 40, 0); staticCar(x + 14, z + 48, Math.PI);
+  // (decorative staticCars removed — the parked-car pass fills this lot with
+  // real enterable cars; see spawnParkedCars in the traffic section)
 }
 
 function school(x, z) {
