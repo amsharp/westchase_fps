@@ -1715,7 +1715,12 @@ function expClear(x, z, m) {
 // (RM.edges/RM.nodes) that replaces the axis lane spawner, and the core NPC
 // sidewalk table. Venue/building relocation is R3 — legacy landmarks coexist
 // (some straddle the new diagonals; accepted until R3 re-anchors them).
-var RM = null;   // set by buildRemapRoads() when WC_REMAP
+// NOTE: bare declaration — buildRemapRoads() is CALLED earlier (road section,
+// ~L1575) than this line sits textually; `var` hoists so that call is valid,
+// but a `= null` initializer here would re-run at load AFTER the call and
+// clobber the built graph back to null. Leave it uninitialized (undefined ==
+// falsy, same as the old null for the `if (RM …)` guards).
+var RM;   // set by buildRemapRoads() when WC_REMAP
 
 // distance-to-network guards (raw REMAP_ROADS — usable before RM exists).
 // true when (x,z) is at least `pad` outside the asphalt of every true road.
