@@ -3,780 +3,1402 @@
  "MARISOL": {
   "bump": [
    "(angry) Ay! Watch where you're going!",
-   "Careful, papi, these sandals are new."
+   "Careful, papi, these sandals are new.",
+   "(angry) Hey! These hoops are real gold, watch it!",
+   "Papi, you almost broke my heel!",
+   "(sighing) Everybody's blind today, I guess.",
+   "Watch it! I just did my nails!"
   ],
   "hit": [
    "(angry) You did NOT just do that!",
-   "(scared) Ay, somebody help me!"
+   "(scared) Ay, somebody help me!",
+   "(angry) Oh, my sister is gonna hear about you!",
+   "(scared) Ay dios mio, get away from me!",
+   "(angry) You hit me? In THIS outfit?",
+   "(shouting) Somebody call the cops! Now!"
   ],
   "gunscared": [
-   "(scared) No no no, put that away!"
+   "(scared) No no no, put that away!",
+   "(scared) Ay, I'm too cute to die!",
+   "(scared) Okay okay, I'm leaving, I'm leaving!"
   ],
   "chat": [
    "This humidity is destroying my ponytail, I swear.",
-   "You tried that new sushi place yet?"
+   "You tried that new sushi place yet?",
+   "My cousin's quinceañera is gonna be huge.",
+   "That Dunkin line was around the block, I swear.",
+   "I need a beach day like yesterday.",
+   "(laughing) My abuela texts in all caps. All caps."
   ],
   "quirk": [
    "My hoops are bigger than your future, honey.",
-   "(laughing) I told my sister, that is SO Tampa."
+   "(laughing) I told my sister, that is SO Tampa.",
+   "This ponytail took forty minutes. Respect it.",
+   "(laughing) I run this sidewalk, honey.",
+   "Coral is MY color. I invented it.",
+   "Tampa traffic is my villain origin story, honey."
   ]
  },
  "TYRELL": {
   "bump": [
    "Yo, easy on the windbreaker, man.",
-   "(angry) Watch the sneakers, dawg."
+   "(angry) Watch the sneakers, dawg.",
+   "(angry) Yo, this windbreaker is irreplaceable, man.",
+   "Easy, man. You'll wrinkle the vintage.",
+   "Whoa, watch it, playa.",
+   "(sighing) Man, everybody's in a rush."
   ],
   "hit": [
-   "(angry) Oh, you wanna go? For real?"
+   "(angry) Oh, you wanna go? For real?",
+   "(angry) Man, you done messed up now!",
+   "(scared) Yo, chill! What's wrong with you?!"
   ],
   "gunscared": [
-   "(scared) Whoa whoa, it ain't that serious!"
+   "(scared) Whoa whoa, it ain't that serious!",
+   "(scared) Man, I'm out! I'm OUT!",
+   "(scared) Not the jacket, man, not the jacket!"
   ],
   "chat": [
    "You hear that new track on the radio?",
-   "Heat like this, you walk slow on purpose."
+   "Heat like this, you walk slow on purpose.",
+   "Ninety-two was the best year for everything. Facts.",
+   "They don't make windbreakers like this no more.",
+   "Barber says the flat-top's coming back. It never left.",
+   "(laughing) My playlist? Straight classics, no skips."
   ],
   "quirk": [
    "This jacket? Vintage, my man. Ninety-two.",
-   "Flat-top stays crispy, rain or shine."
+   "Flat-top stays crispy, rain or shine.",
+   "Fresh from the barber. Don't touch.",
+   "Teal and purple, baby. That's a statement.",
+   "(laughing) I moonwalked outta my last job.",
+   "Style ain't bought, my man. It's born."
   ]
  },
  "BRAD": {
   "bump": [
    "Hey, watch the rod arm, buddy!",
-   "(sighing) Tourists. I swear."
+   "(sighing) Tourists. I swear.",
+   "Hey! You'll tangle my line, man!",
+   "(angry) Watch the tackle box, buddy!",
+   "Whoa there, chief. Reel it in.",
+   "(sighing) City folks. No spatial awareness."
   ],
   "hit": [
-   "(angry) That's it, you scared off my luck!"
+   "(angry) That's it, you scared off my luck!",
+   "(angry) You just chummed the wrong water, pal!",
+   "(scared) Hey, hey! I got bait money, that's it!"
   ],
   "gunscared": [
-   "(scared) Whoa there, hoss, I'm just fishin'!"
+   "(scared) Whoa there, hoss, I'm just fishin'!",
+   "(scared) Whoa, I'm catch and release, buddy!",
+   "(scared) Take the cooler! Fish ain't even legal size!"
   ],
   "chat": [
    "Snook are bitin' off Rocky Creek, I'm tellin' ya.",
-   "Hot enough to fry a mullet out here."
+   "Hot enough to fry a mullet out here.",
+   "Redfish were tailing at dawn. Beautiful thing.",
+   "Storm's coming. My sunburn can tell.",
+   "Lost a thirty-pounder at the dock. Thirty!",
+   "(laughing) Wife says it's fishing or her. Gonna miss her."
   ],
   "quirk": [
    "Caught a marlin THIS big. No lie.",
-   "(laughing) Sunscreen's for quitters, buddy."
+   "(laughing) Sunscreen's for quitters, buddy.",
+   "This bucket hat's seen things, buddy.",
+   "(laughing) I smell like victory. And mullet.",
+   "Fish fear me. Women also fear me.",
+   "Every cast is a prayer, hoss."
   ]
  },
  "KEISHA": {
   "bump": [
    "Excuse you, I just pulled a double.",
-   "(sighing) Careful, hon."
+   "(sighing) Careful, hon.",
+   "(sighing) Hon, I lift patients bigger than you.",
+   "Watch it! I'm running on two hours sleep.",
+   "Careful, baby, I'm still on the clock.",
+   "(angry) Excuse you! These scrubs were clean."
   ],
   "hit": [
-   "(angry) I patch people up. Don't make me one!"
+   "(angry) I patch people up. Don't make me one!",
+   "(angry) I know exactly where that's gonna bruise!",
+   "(scared) Okay, somebody call security! Anybody!"
   ],
   "gunscared": [
-   "(scared) I'm a nurse! Please, put it down!"
+   "(scared) I'm a nurse! Please, put it down!",
+   "(scared) I save lives, don't take mine!",
+   "(scared) Lord, not after the shift I had!"
   ],
   "chat": [
    "Twelve-hour shift and these clogs are done.",
-   "Drink water, baby. This heat is no joke."
+   "Drink water, baby. This heat is no joke.",
+   "Third code blue this week. I need a vacation.",
+   "These braids took six hours. Worth every one.",
+   "Night shift pays more, but at what cost, baby?",
+   "(laughing) Doctors write like toddlers, I swear."
   ],
   "quirk": [
    "I've seen worse in the ER, trust me.",
-   "(sighing) Your posture is stressing ME out."
+   "(sighing) Your posture is stressing ME out.",
+   "I can find a vein from across the street.",
+   "(sighing) Everybody's got a rash story for me. Everybody.",
+   "Coffee, scrubs, repeat, honey.",
+   "(laughing) I chart in my sleep now."
   ]
  },
  "ERNESTO": {
   "bump": [
    "(sighing) Oye, respect your elders, eh?",
-   "Careful, mijo. I'm not so fast anymore."
+   "Careful, mijo. I'm not so fast anymore.",
+   "Oye! These bones are original parts, mijo.",
+   "(sighing) In my day, we said excuse me.",
+   "Ay, careful! I just had my cafecito.",
+   "(angry) Oye! Watch the fedora, eh?"
   ],
   "hit": [
-   "(angry) Fifty years I walk here! Never this!"
+   "(angry) Fifty years I walk here! Never this!",
+   "(angry) I fought roosters meaner than you, mijo!",
+   "(scared) Ay! Mi corazón! Somebody help!"
   ],
   "gunscared": [
-   "(scared) Tranquilo, tranquilo! I have grandchildren!"
+   "(scared) Tranquilo, tranquilo! I have grandchildren!",
+   "(scared) Ay no, I'm too old for this, mijo!",
+   "(scared) Take my wallet! It's mostly pictures anyway!"
   ],
   "chat": [
    "This heat? This is nothing. Try August.",
-   "My wife makes the best coffee, eh."
+   "My wife makes the best coffee, eh.",
+   "Cafecito at three o'clock. Every day. Fifty years.",
+   "My knees predict rain better than the TV.",
+   "Mi esposa still dances like nineteen sixty-five.",
+   "(laughing) The grandkids call me el jefe. They're right."
   ],
   "quirk": [
    "I iron this guayabera myself. Forty years.",
-   "(laughing) Dominoes on Sunday. I never lose."
+   "(laughing) Dominoes on Sunday. I never lose.",
+   "This fedora is older than your father.",
+   "(laughing) Double nines, mijo. Always bet double nines.",
+   "Slow down. The good things wait.",
+   "A guayabera never wrinkles. Only surrenders."
   ]
  },
  "SKYLER": {
   "bump": [
    "Duuude, you totally ruined my line.",
-   "(sighing) Bro. Seriously?"
+   "(sighing) Bro. Seriously?",
+   "Bro, you almost snapped my deck!",
+   "(sighing) Walkers, man. So random.",
+   "Dude, my ollie! You killed my ollie.",
+   "Whoa, gnarly collision, bro."
   ],
   "hit": [
-   "(angry) Not cool, man! So not cool!"
+   "(angry) Not cool, man! So not cool!",
+   "(angry) Dude! I bruise easy, okay?!",
+   "(scared) Ow ow ow, I'm telling my mom!"
   ],
   "gunscared": [
-   "(scared) Dude, whoa, I'm just a kid!"
+   "(scared) Dude, whoa, I'm just a kid!",
+   "(scared) Bro, I only got like eight dollars!",
+   "(scared) Duuude, that's so illegal!"
   ],
   "chat": [
    "That parking lot curb? Butter. So buttery.",
-   "Almost landed a kickflip down the bank steps."
+   "Almost landed a kickflip down the bank steps.",
+   "Gas station rail? Totally grindable. Don't tell anyone.",
+   "Filmed a sick clip this morning. Check the grip tape.",
+   "Broke two boards this month. Mom's furious, bro.",
+   "(laughing) Concrete's lava hot today, dude."
   ],
   "quirk": [
    "Security guards fear me, bro.",
-   "(laughing) My mom thinks I'm at study hall."
+   "(laughing) My mom thinks I'm at study hall.",
+   "Sidewalks are just free skateparks, bro.",
+   "(laughing) I've eaten pavement on every street here.",
+   "Kickflip. Heelflip. Hospital. In that order.",
+   "My shins are like ninety percent scar tissue."
   ]
  },
  "DENISE": {
   "bump": [
    "(angry) Excuse ME? The perm, honey!",
-   "Watch it, sugar. This blouse is dry-clean only."
+   "Watch it, sugar. This blouse is dry-clean only.",
+   "(angry) The PERM, honey! We talked about this!",
+   "Watch it, sugar! This is genuine leopard print!",
+   "(sighing) Some people were raised in a barn.",
+   "Careful! These sunglasses are designer. Ish."
   ],
   "hit": [
-   "(shouting) Somebody get the manager! Of the street!"
+   "(shouting) Somebody get the manager! Of the street!",
+   "(shouting) Assault! In broad daylight! With witnesses!",
+   "(angry) I have a lawyer, sugar! Two, actually!"
   ],
   "gunscared": [
-   "(scared) Take my coupons, just don't shoot!"
+   "(scared) Take my coupons, just don't shoot!",
+   "(scared) Not the face, honey, ANYTHING but the face!",
+   "(scared) I'll scream! I did jazzercise, I have LUNGS!"
   ],
   "chat": [
    "I heard the Hendersons got a pool. Tacky.",
-   "This humidity is a hairspray emergency, I swear."
+   "This humidity is a hairspray emergency, I swear.",
+   "Carol's daughter eloped. With a DRUMMER.",
+   "My book club is really a wine club, honey.",
+   "Hairspray stock should be through the roof, I swear.",
+   "(laughing) I've been thirty-nine for sixteen years."
   ],
   "quirk": [
    "I was Miss Citrus County, nineteen seventy-eight.",
-   "(laughing) Leopard print is a neutral, honey."
+   "(laughing) Leopard print is a neutral, honey.",
+   "This perm survived three hurricanes, honey.",
+   "(laughing) Gossip is just news with flavor.",
+   "Big hair, bigger opinions, sugar.",
+   "I hear EVERYTHING at the nail salon."
   ]
  },
  "ANDRE": {
   "bump": [
    "Whoa, watch the gains, bro.",
-   "(angry) You almost spilled my protein shake."
+   "(angry) You almost spilled my protein shake.",
+   "Careful, bro. These delts are load-bearing.",
+   "(angry) You walked into a wall of muscle, bro.",
+   "Whoa, easy. It's rest day, you're lucky.",
+   "(sighing) Watch the shaker bottle, man."
   ],
   "hit": [
-   "(angry) Big mistake. HUGE mistake, little man."
+   "(angry) Big mistake. HUGE mistake, little man.",
+   "(angry) That's your warm-up? Pathetic, bro.",
+   "(scared) Yo, my trainer said no street fights!"
   ],
   "gunscared": [
-   "(scared) Easy, bro! Muscles can't stop bullets!"
+   "(scared) Easy, bro! Muscles can't stop bullets!",
+   "(scared) Bro, gains can't grow back from THAT!",
+   "(scared) Whoa! Cardio time! Cardio time!"
   ],
   "chat": [
    "Leg day today. Pray for me, bro.",
-   "You even lift, man? Serious question."
+   "You even lift, man? Serious question.",
+   "Hit a new PR this morning. Nobody clapped, bro.",
+   "Creatine is basically a food group, man.",
+   "Rest days are the hardest reps, bro.",
+   "(laughing) I flexed and my shirt gave up."
   ],
   "quirk": [
    "This body? One hundred percent chicken and rice.",
-   "(shouting) LIGHT WEIGHT, BABY!"
+   "(shouting) LIGHT WEIGHT, BABY!",
+   "Mirrors love me, bro. It's mutual.",
+   "(shouting) ONE MORE REP! Sorry. Habit.",
+   "I don't walk. I lunge with purpose.",
+   "The pump is temporary. The lifestyle is forever."
   ]
  },
  "PHUONG": {
   "bump": [
    "(angry) Hey! You break it, you buy it!",
-   "Careful! I am carrying eggs here!"
+   "Careful! I am carrying eggs here!",
+   "(angry) Hey! You spill my broth, you pay!",
+   "Careful! Fresh produce coming through!",
+   "(sighing) So rushed! Nobody eats properly either.",
+   "Watch out! These lemongrass bundles bruise!"
   ],
   "hit": [
-   "(shouting) Help! This crazy person is attacking me!"
+   "(shouting) Help! This crazy person is attacking me!",
+   "(angry) I chop faster than you punch! Remember that!",
+   "(shouting) Police! Right now! POLICE!"
   ],
   "gunscared": [
-   "(scared) Please! I have a family! Take nothing!"
+   "(scared) Please! I have a family! Take nothing!",
+   "(scared) Please! The lunch rush needs me!",
+   "(scared) No no no! I have soup on the stove!"
   ],
   "chat": [
    "Lunch special today. Best noodles this side of town.",
-   "My daughter made honor roll again."
+   "My daughter made honor roll again.",
+   "Secret is the broth. Twelve hours. No shortcuts.",
+   "My daughter wants to study in Gainesville. So far away!",
+   "Everyone wants spicy until it's actually spicy.",
+   "(laughing) My husband cannot even boil water."
   ],
   "quirk": [
    "You look skinny. You eat something. Now.",
-   "(sighing) Nobody appreciates fresh herbs anymore."
+   "(sighing) Nobody appreciates fresh herbs anymore.",
+   "You look tired. Pho fixes tired.",
+   "(sighing) People put sriracha on everything. Barbarians.",
+   "Fresh basil or nothing. That's the rule.",
+   "My spring rolls have a waiting list."
   ]
  },
  "COLT": {
   "bump": [
    "Watch the boots, partner.",
-   "(angry) You scuff these, we got a problem."
+   "(angry) You scuff these, we got a problem.",
+   "Whoa there. This ain't a rodeo, friend.",
+   "(angry) Mind the hat, partner. Mind the hat.",
+   "Easy, hoss. Plenty of sidewalk for everybody.",
+   "(sighing) City folk walk like spooked cattle."
   ],
   "hit": [
-   "(angry) Now you've gone and spilled my patience!"
+   "(angry) Now you've gone and spilled my patience!",
+   "(angry) You just poked a rattlesnake, friend.",
+   "(angry) That earns a whuppin' where I come from!"
   ],
   "gunscared": [
-   "(scared) Easy now, friend. Ain't no quarrel here."
+   "(scared) Easy now, friend. Ain't no quarrel here.",
+   "(scared) Whoa now! I left my iron at home, partner!",
+   "(scared) Easy, friend! This ain't high noon!"
   ],
   "chat": [
    "Florida ain't got mountains, but she's got character.",
-   "This hat's older than you, probably."
+   "This hat's older than you, probably.",
+   "A man's only as good as his boot leather.",
+   "Humidity's just rain that ain't committed yet.",
+   "I two-step every Friday. Alone, mostly.",
+   "(laughing) Traded my horse for a pickup. Regret it daily."
   ],
   "quirk": [
    "Ain't a horse in this county. And yet, here I am.",
-   "(laughing) My mustache has its own zip code."
+   "(laughing) My mustache has its own zip code.",
+   "Yeehaw is a state of mind, partner.",
+   "(laughing) This belt buckle's won arguments, friend.",
+   "Slow walkin', straight talkin'. That's the code.",
+   "Every sunset deserves a cowboy watchin' it."
   ]
  },
  "JAMAL": {
   "bump": [
    "Yo, watch the kicks! These are new!",
-   "(angry) Man, you almost fouled me."
+   "(angry) Man, you almost fouled me.",
+   "Yo, that's a moving screen, man!",
+   "(angry) Watch it! These ankles are my money makers!",
+   "Careful, man, I got a game tonight!",
+   "(sighing) Man, y'all walk like refs. Blind."
   ],
   "hit": [
-   "(angry) Flagrant! That's a flagrant foul, man!"
+   "(angry) Flagrant! That's a flagrant foul, man!",
+   "(angry) Yo, that's a flagrant two! Ejected!",
+   "(scared) Man, chill! I got a scout watching me!"
   ],
   "gunscared": [
-   "(scared) Yo chill, chill! I got practice tomorrow!"
+   "(scared) Yo chill, chill! I got practice tomorrow!",
+   "(scared) Yo, I'm going pro, man, don't do this!",
+   "(scared) Chill chill chill, I'm GONE!"
   ],
   "chat": [
    "Dropped thirty at the park yesterday. Easy.",
-   "You watch the game last night? Unreal."
+   "You watch the game last night? Unreal.",
+   "My jumper's automatic now. Wet. Every time.",
+   "Coach says pass more. Coach doesn't get it.",
+   "New kicks dropping Friday. Don't touch 'em.",
+   "(laughing) I crossed my cousin so hard he apologized."
   ],
   "quirk": [
    "Number twenty-three. Just like Mike.",
-   "(laughing) I'm going pro. Watch. Two years."
+   "(laughing) I'm going pro. Watch. Two years.",
+   "Twenty-three points last game. The number works.",
+   "(laughing) I dunked once. Rim was nine feet. Still counts.",
+   "Ball is life. School is the backup plan.",
+   "Fourth quarter? That's MY quarter."
   ]
  },
  "GLORIA": {
   "bump": [
    "Oh! Goodness gracious, young man.",
-   "(sighing) Everyone is in such a hurry."
+   "(sighing) Everyone is in such a hurry.",
+   "Oh my! Careful, sweetheart.",
+   "(sighing) These old hips, dear. Do be gentle.",
+   "Goodness! Nearly dropped my glasses, dear.",
+   "Oh! You gave me such a start, sweetheart."
   ],
   "hit": [
-   "(scared) Oh! Oh my word! Help!"
+   "(scared) Oh! Oh my word! Help!",
+   "(scared) Oh! Somebody! This ruffian is hurting me!",
+   "(angry) Young man, your mother would be ASHAMED!"
   ],
   "gunscared": [
-   "(scared) Sweet mercy! I'm somebody's grandmother!"
+   "(scared) Sweet mercy! I'm somebody's grandmother!",
+   "(scared) Oh heavens! Take the purse, dear, take it!",
+   "(scared) I've got a casserole in the oven, please!"
   ],
   "chat": [
    "Lovely weather, isn't it? Before the storms.",
-   "My grandson never calls. Do you call yours?"
+   "My grandson never calls. Do you call yours?",
+   "Bingo night got rowdy again. Marlene cheats, you know.",
+   "My hibiscus bloomed twice this year. Twice!",
+   "Church potluck Sunday. I'm making my famous ambrosia.",
+   "(laughing) The doctor says I'll outlive him. Poor thing."
   ],
   "quirk": [
    "I've got butterscotch candies somewhere in this purse.",
-   "(laughing) I once outran a gator, dear. Nineteen sixty-two."
+   "(laughing) I once outran a gator, dear. Nineteen sixty-two.",
+   "You look just like my Harold, dear. Before the navy.",
+   "(laughing) I still drive, dear. The mailbox disagrees.",
+   "A little lipstick fixes most days, sweetheart.",
+   "These pearls have been to every wedding in Tampa."
   ]
  },
  "DIEGO": {
   "bump": [
    "Oye, careful. I got grease all over.",
-   "(sighing) Watch it, man. Long day."
+   "(sighing) Watch it, man. Long day.",
+   "Oye! These coveralls are the clean pair.",
+   "(angry) Hey! I got a torque wrench and no patience.",
+   "Careful, amigo. Long shift, short fuse.",
+   "(sighing) Everybody's got somewhere to be. Except their car."
   ],
   "hit": [
-   "(angry) You want a wrench upside the head?"
+   "(angry) You want a wrench upside the head?",
+   "(angry) You just voided your warranty, amigo!",
+   "(scared) Whoa, okay! Take it easy, man!"
   ],
   "gunscared": [
-   "(scared) Whoa, amigo! I just fix cars!"
+   "(scared) Whoa, amigo! I just fix cars!",
+   "(scared) Amigo, I got three cars on lifts, don't!",
+   "(scared) Okay okay! The tools are in the truck!"
   ],
   "chat": [
    "That sound your car makes? Not good. Bring it by.",
-   "Transmission season, my friend. Everybody's dying."
+   "Transmission season, my friend. Everybody's dying.",
+   "Everybody ignores the noise until the noise wins.",
+   "Brakes first, paint job later. Always.",
+   "My back sounds like a ratchet these days.",
+   "(laughing) Guy said it drives fine. It had no oil."
   ],
   "quirk": [
    "I can fix anything except my marriage.",
-   "(laughing) Check engine light? Just tape over it."
+   "(laughing) Check engine light? Just tape over it.",
+   "I diagnose engines by ear. And marriages.",
+   "(laughing) Duct tape passed inspection once. Once.",
+   "Hands clean, conscience clean. One outta two.",
+   "Every car's got a story. Usually a sad one."
   ]
  },
  "AISHA": {
   "bump": [
    "Hey now, watch the dress!",
-   "(sighing) It is too hot for this, honestly."
+   "(sighing) It is too hot for this, honestly.",
+   "Hey! This dress wrinkles if you LOOK at it.",
+   "(sighing) Baby, watch where you're going.",
+   "Careful now! Almost lost a sandal.",
+   "(angry) Excuse me?! The audacity today."
   ],
   "hit": [
-   "(angry) Oh no you did NOT!"
+   "(angry) Oh no you did NOT!",
+   "(angry) Oh, you picked the WRONG one today!",
+   "(scared) Somebody! Anybody! Help!"
   ],
   "gunscared": [
-   "(scared) Okay, okay! I'm walking away, see?"
+   "(scared) Okay, okay! I'm walking away, see?",
+   "(scared) Okay! Sunshine's over, I'm gone!",
+   "(scared) Please! I got a picnic at four!"
   ],
   "chat": [
    "This sun is everything today, isn't it?",
-   "Farmers market Saturday. You should go."
+   "Farmers market Saturday. You should go.",
+   "Fresh mangoes at the market today. Heaven.",
+   "I made sun tea on the porch. Perfect batch.",
+   "Golden hour in this dress? Unstoppable.",
+   "(laughing) My houseplants have names. All forty."
   ],
   "quirk": [
    "Yellow is my color. Don't even try it.",
-   "(laughing) I match my headwrap to my mood."
+   "(laughing) I match my headwrap to my mood.",
+   "I dress like the weather I want.",
+   "(laughing) Sunflowers turn to face ME, honey.",
+   "Good vibes only. It's on my tote bag.",
+   "This headwrap? Ten minutes and a prayer."
   ]
  },
  "VLAD": {
   "bump": [
    "(angry) You touch tracksuit? Bold move.",
-   "In my country, this is declaration of war."
+   "In my country, this is declaration of war.",
+   "(angry) Careful. Chain is real. Temper also.",
+   "In my country, we walk in straight line.",
+   "(sighing) Is fine. Tracksuit forgives. Once.",
+   "You bump Vlad? Interesting choice."
   ],
   "hit": [
-   "(angry) Now I am upset. This is problem for you."
+   "(angry) Now I am upset. This is problem for you.",
+   "(angry) Now we have situation. Congratulations.",
+   "(angry) I was having good day. WAS."
   ],
   "gunscared": [
-   "Is nice gun. I had better one. Once."
+   "Is nice gun. I had better one. Once.",
+   "Pfft. In my country this is greeting.",
+   "(scared) Okay, okay. Even Vlad respects hardware."
   ],
   "chat": [
    "This Florida heat. Is like sauna, but worse.",
-   "You want fitness tip? Eat more. Simple."
+   "You want fitness tip? Eat more. Simple.",
+   "Squat is answer. Question does not matter.",
+   "Florida winter? Ha. Is Russian summer.",
+   "My grandmother lifted tractor. Is true story.",
+   "(laughing) American mayonnaise is coward mayonnaise."
   ],
   "quirk": [
    "Tracksuit is not casual. Is lifestyle.",
-   "(laughing) I have cousin who can fix this. Any this."
+   "(laughing) I have cousin who can fix this. Any this.",
+   "Three stripes. Zero fear.",
+   "(laughing) Cousin ships me real kvass. Do not ask how.",
+   "I squat while waiting. Life is gym.",
+   "Gold chain is retirement plan."
   ]
  },
  "SUMMER": {
   "bump": [
    "Oh my god, watch it, dude.",
-   "(laughing) Whoa, easy there, sunshine."
+   "(laughing) Whoa, easy there, sunshine.",
+   "Whoa, dude, my aura!",
+   "(laughing) Collision! That's so random.",
+   "Careful, my toes are basically bare here.",
+   "(sighing) Someone's got chaotic energy today."
   ],
   "hit": [
-   "(scared) That is like, SO not chill!"
+   "(scared) That is like, SO not chill!",
+   "(scared) Ow! Violence is like, SO last century!",
+   "(angry) Dude! That is NOT beach behavior!"
   ],
   "gunscared": [
-   "(scared) Okay, that's a whole gun. Bye!"
+   "(scared) Okay, that's a whole gun. Bye!",
+   "(scared) Whoa, dark energy alert! Bye bye!",
+   "(scared) Namaste AWAY from me, dude!"
   ],
   "chat": [
    "The beach was, like, unreal this morning.",
-   "Mercury's in retrograde. Explains literally everything."
+   "Mercury's in retrograde. Explains literally everything.",
+   "Saw a dolphin this morning. We totally connected.",
+   "Salt water fixes everything, dude. Everything.",
+   "My horoscope said avoid drama. So far, failing.",
+   "(laughing) I lost my sandals again. The ocean keeps them."
   ],
   "quirk": [
    "I don't tan. I photosynthesize.",
-   "(laughing) My puka shells? Spiritual armor, basically."
+   "(laughing) My puka shells? Spiritual armor, basically.",
+   "Tan lines are just sun tattoos, dude.",
+   "The waves know me by name, basically.",
+   "(laughing) I put crystals in my water bottle. It's science.",
+   "Flip flops are formal wear here."
   ]
  },
  "WENDELL": {
   "bump": [
    "Easy there, young blood.",
-   "(sighing) Everybody's rushing. Nobody's arriving."
+   "(sighing) Everybody's rushing. Nobody's arriving.",
+   "Careful, son. I move slow but I remember fast.",
+   "(sighing) That's a blunder, young blood.",
+   "Easy now. These knees are past their opening.",
+   "Watch yourself. Even pawns deserve respect."
   ],
   "hit": [
-   "(angry) Boy, I've got grandkids tougher than you!"
+   "(angry) Boy, I've got grandkids tougher than you!",
+   "(angry) You just sacrificed your future, boy!",
+   "(angry) I took worse in sixty-eight! Try again!"
   ],
   "gunscared": [
-   "(scared) Son, put that away 'fore somebody gets hurt."
+   "(scared) Son, put that away 'fore somebody gets hurt.",
+   "(scared) Easy, son! Ain't no winning this move!",
+   "(scared) Lord! Resign, Wendell, resign!"
   ],
   "chat": [
    "Chess in the park, noon sharp. Bring your loss.",
-   "Hot today. Real chess weather."
+   "Hot today. Real chess weather.",
+   "Youngster brought a chess app to the park. An APP.",
+   "Patience wins games. And most everything else.",
+   "The park tables need new paint. I filed a complaint.",
+   "(laughing) My bishop's seen more action than the navy."
   ],
   "quirk": [
    "Checkmate in four. I saw it yesterday already.",
-   "(laughing) I let somebody win once. Nineteen eighty-five."
+   "(laughing) I let somebody win once. Nineteen eighty-five.",
+   "Life's just chess with worse lighting.",
+   "(laughing) I trash talk in algebraic notation.",
+   "Knight to F3. That's a lifestyle, son.",
+   "Every stranger's a puzzle. Most are easy ones."
   ]
  },
  "RIKO": {
   "bump": [
    "Hey, hey. This hoodie is limited edition, man.",
-   "(sighing) So clumsy. Wow."
+   "(sighing) So clumsy. Wow.",
+   "Whoa! Do you know what resale on this is?",
+   "(angry) Man, these are grails! GRAILS!",
+   "Careful! I creased once. Never again.",
+   "(sighing) People bump like clothes grow on trees."
   ],
   "hit": [
-   "(angry) Do you know what this hoodie costs?!"
+   "(angry) Do you know what this hoodie costs?!",
+   "(angry) You scuffed a collab piece! A COLLAB!",
+   "(scared) Not the face! The face is also limited edition!"
   ],
   "gunscared": [
-   "(scared) Whoa! Okay! Not the hoodie, please!"
+   "(scared) Whoa! Okay! Not the hoodie, please!",
+   "(scared) Take the wallet! The fit stays with me!",
+   "(scared) Whoa whoa! Do NOT put holes in this hoodie!"
   ],
   "chat": [
    "This koi print? One of fifty ever made.",
-   "Tampa needs better sneaker shops, honestly."
+   "Tampa needs better sneaker shops, honestly.",
+   "Dropped two hundred on a sneaker raffle. Lost.",
+   "This colorway? Discontinued. I own three.",
+   "Tokyo street style would eat Tampa alive, man.",
+   "(laughing) My closet is my retirement fund."
   ],
   "quirk": [
    "Silver hair is self-expression. My mom disagrees.",
-   "(laughing) I skipped rent for these shoes."
+   "(laughing) I skipped rent for these shoes.",
+   "Fit check? Immaculate. Always.",
+   "(laughing) I insured the hoodie. Not the car.",
+   "Silver hair, platinum taste, man.",
+   "If it's not limited, why even wear it?"
   ]
  },
  "PATTY": {
   "bump": [
    "Watch it, hon. I've dropped enough trays today.",
-   "(sighing) Lord, give me strength."
+   "(sighing) Lord, give me strength.",
+   "Whoa, hon! Nearly took us both down.",
+   "(sighing) Twelve tables and now this.",
+   "Careful, sugar. I got muscle memory and elbows.",
+   "Watch it, hon. I spill for a living already."
   ],
   "hit": [
-   "(angry) I've thrown out bigger fellas than you, sugar!"
+   "(angry) I've thrown out bigger fellas than you, sugar!",
+   "(angry) I've broken up bar fights bigger than you, hon!",
+   "(shouting) Earl! EARL! Bring the bat!"
   ],
   "gunscared": [
-   "(scared) Sugar, the tips ain't worth shooting me for!"
+   "(scared) Sugar, the tips ain't worth shooting me for!",
+   "(scared) Sugar, I make two-fifteen an hour plus tips!",
+   "(scared) Lord, the lunch rush ain't worth this!"
   ],
   "chat": [
    "My feet quit an hour before I do, hon.",
-   "Pie's fresh today. Key lime. Just saying."
+   "Pie's fresh today. Key lime. Just saying.",
+   "Table six tipped in coupons again. Bless 'em.",
+   "My feet got their own union now, hon.",
+   "Decaf drinkers are the politest liars, sugar.",
+   "(laughing) I can carry five plates and a grudge."
   ],
   "quirk": [
    "Coffee's only good if it can stand up by itself.",
-   "(laughing) Been slinging hash since before you were born, sweetie."
+   "(laughing) Been slinging hash since before you were born, sweetie.",
+   "The regulars keep me young. And furious.",
+   "(laughing) I've heard every diner joke twice, hon.",
+   "Sweet tea solves most of life, sugar.",
+   "This apron's got more stories than the paper."
   ]
  },
  "OMAR": {
   "bump": [
    "(sighing) These are Italian shoes, my friend.",
-   "Careful. The watch alone outvalues your car."
+   "Careful. The watch alone outvalues your car.",
+   "(sighing) Careful. This polo is Milanese cotton.",
+   "Mind the watch, friend. It's a Geneva piece.",
+   "Whoa. Do you know who I almost am?",
+   "(angry) These are boat shoes. For my BOAT."
   ],
   "hit": [
-   "(angry) You have made an expensive mistake."
+   "(angry) You have made an expensive mistake.",
+   "(angry) My attorney eats people like you at brunch!",
+   "(scared) Not the face! I have headshots Monday!"
   ],
   "gunscared": [
-   "(scared) Take the watch! It's insured anyway!"
+   "(scared) Take the watch! It's insured anyway!",
+   "(scared) The watch is yours! It's last season anyway!",
+   "(scared) Let's negotiate! I'm EXCELLENT at negotiating!"
   ],
   "chat": [
    "The market has been good to me. Very good.",
-   "Boat's in the marina. The small one. Forty feet."
+   "Boat's in the marina. The small one. Forty feet.",
+   "Bought the dip. Sold the peak. Standard Tuesday.",
+   "The marina raised my slip fees again. Criminal.",
+   "Golf at seven, brunch at ten. Life is discipline.",
+   "(laughing) My accountant flinches when I call."
   ],
   "quirk": [
    "I don't sweat. I glisten. Professionally.",
-   "(laughing) I retired at thirty-four. Twice."
+   "(laughing) I retired at thirty-four. Twice.",
+   "Money talks. Mine mostly brags.",
+   "(laughing) I tip in stock advice.",
+   "Mirrored shades. So I can watch myself win.",
+   "Success smells like sunscreen and compound interest."
   ]
  },
  "BECCA": {
   "bump": [
    "Dude, my water bottle almost fell!",
-   "(sighing) Okay, personal space?"
+   "(sighing) Okay, personal space?",
+   "Dude! My iced coffee almost died!",
+   "(sighing) I cannot handle one more thing today.",
+   "Careful! I'm running on vibes and caffeine.",
+   "Watch it! My group project is due, like, NOW."
   ],
   "hit": [
-   "(shouting) HELP! This is NOT okay!"
+   "(shouting) HELP! This is NOT okay!",
+   "(scared) OW! I'm literally calling campus police!",
+   "(angry) That's it, you're going on my story!"
   ],
   "gunscared": [
-   "(scared) Oh my god, I have a midterm Monday!"
+   "(scared) Oh my god, I have a midterm Monday!",
+   "(scared) I still have student loans! Wait, take those!",
+   "(scared) Nope nope nope, big nope!"
   ],
   "chat": [
    "Go Gators! Sorry, reflex.",
-   "Four coffees, zero sleep. Thriving."
+   "Four coffees, zero sleep. Thriving.",
+   "My professor lost our finals. Icon behavior, honestly.",
+   "Game day Saturday. My voice is pre-gone.",
+   "I annotated the whole textbook. Read none of it.",
+   "(laughing) My roommate microwaved fish AGAIN."
   ],
   "quirk": [
    "Hydration is a personality, actually.",
-   "(laughing) My GPA and I are on a break."
+   "(laughing) My GPA and I are on a break.",
+   "Emotional support water bottle. Don't judge.",
+   "(laughing) My planner is decorative at this point.",
+   "Chomp chomp, baby. It's a lifestyle.",
+   "I nap competitively."
   ]
  },
  "LEON": {
   "bump": [
    "Easy, brother. No need for all that rushing.",
-   "(sighing) Everything moves too fast, man."
+   "(sighing) Everything moves too fast, man.",
+   "Easy, brother. The sidewalk provides for all.",
+   "(sighing) Hurry is a cage, man.",
+   "Peace, brother. Walk soft.",
+   "Whoa. Even the wind says excuse me, man."
   ],
   "hit": [
-   "(angry) Violence poisons the man who carries it!"
+   "(angry) Violence poisons the man who carries it!",
+   "(angry) You struck a peaceful man! The universe saw!",
+   "(sighing) I forgive you, brother. My ribs do not."
   ],
   "gunscared": [
-   "(scared) Peace, brother, peace! Put it down."
+   "(scared) Peace, brother, peace! Put it down.",
+   "(scared) Brother, no! Violence echoes, man!",
+   "(scared) Easy, easy! I walk in peace, man!"
   ],
   "chat": [
    "Sun's blessing us today, man.",
-   "You ever just listen to the palm trees?"
+   "You ever just listen to the palm trees?",
+   "The lake speaks, man. Mostly it says relax.",
+   "Mangoes taste better shared, brother.",
+   "I don't own a watch. Time owns itself, man.",
+   "(laughing) My plants grow better when I sing. Fact."
   ],
   "quirk": [
    "These beads? Each one is a story, man.",
-   "(laughing) Stress is a choice. I chose no."
+   "(laughing) Stress is a choice. I chose no.",
+   "Barefoot is best foot, brother.",
+   "(laughing) I meditated through a hurricane once, man.",
+   "The sun rises for free, man. Remember that.",
+   "Slow living, long life, brother."
   ]
  },
  "TINA": {
   "bump": [
    "Ay! Watch the fanny pack, please!",
-   "(sighing) Careful, careful!"
+   "(sighing) Careful, careful!",
+   "Ay! You broke my pace! My PACE!",
+   "(sighing) Three thousand steps, gone. Restarting.",
+   "Careful! There's snacks in this pack!",
+   "Watch it! My heart rate monitor just spiked!"
   ],
   "hit": [
-   "(shouting) Somebody help! This guy is crazy!"
+   "(shouting) Somebody help! This guy is crazy!",
+   "(angry) I do kickboxing on Thursdays, buddy!",
+   "(scared) Ay! Help! Where's my pepper spray!"
   ],
   "gunscared": [
-   "(scared) Take the fanny pack! Not the cat shirt!"
+   "(scared) Take the fanny pack! Not the cat shirt!",
+   "(scared) Ay! I walk FAST, you'll never catch me!",
+   "(scared) Take the granola bars! Not the cat photos!"
   ],
   "chat": [
    "I power-walk this loop twice a day. Join me!",
-   "My cat did the funniest thing this morning."
+   "My cat did the funniest thing this morning.",
+   "Mister Whiskers knocked over the good vase. Again.",
+   "Ten thousand steps by noon. New record!",
+   "This loop is exactly two-point-three miles. I measured.",
+   "(laughing) My cat has more followers than me."
   ],
   "quirk": [
    "The fanny pack has everything. EVERYTHING.",
-   "(laughing) Cardio is cheaper than therapy."
+   "(laughing) Cardio is cheaper than therapy.",
+   "The fanny pack stays ON during emergencies.",
+   "(laughing) Band-aids, snacks, cat treats. Prepared!",
+   "Arms up, heart rate up! Whoo!",
+   "Speed-walking is a martial art, basically."
   ]
  },
  "COP_BROOKS": {
   "bump": [
    "Watch yourself, citizen.",
-   "(angry) You bumping a police officer now?"
+   "(angry) You bumping a police officer now?",
+   "(angry) That's contact with an officer, pal.",
+   "Walk much, citizen?",
+   "(sighing) Ten feet of sidewalk and you found me.",
+   "Personal space. It's the law. Basically."
   ],
   "hit": [
-   "(shouting) Officer needs assistance! Assault in progress!"
+   "(shouting) Officer needs assistance! Assault in progress!",
+   "(shouting) Ten-thirty-three! Suspect swinging!",
+   "(angry) You just made my report REAL easy."
   ],
   "gunscared": [
-   "(shouting) GUN! Drop it! Drop it NOW!"
+   "(shouting) GUN! Drop it! Drop it NOW!",
+   "(shouting) Firearm! Everybody down!",
+   "(shouting) Drop it! Three! Two!"
   ],
   "chat": [
    "Keep it moving. Nothing to see.",
-   "Stay hydrated out here, folks."
+   "Stay hydrated out here, folks.",
+   "Block's been quiet. I keep it that way.",
+   "Radio's been dead all day. I like dead.",
+   "That gas station gets robbed way too often.",
+   "(sighing) Overtime again. The wife's thrilled."
   ],
   "quirk": [
    "I see everything on this block. Everything.",
-   "(angry) Go ahead. Surprise me."
+   "(angry) Go ahead. Surprise me.",
+   "I count faces. Yours is filed.",
+   "(angry) Blink wrong and I'll know.",
+   "I've got eyes like a hawk with binoculars.",
+   "Nothing happens on Countryway without me knowing."
   ]
  },
  "COP_DIAZ": {
   "bump": [
-   "(angry) Hey! Watch it! That's a badge!"
+   "(angry) Hey! Watch it! That's a badge!",
+   "(angry) Hey! Ten feet of sidewalk, use it!",
+   "(sighing) Careful. I write these up, you know."
   ],
   "hit": [
-   "(shouting) Oh, you just earned the cuffs!"
+   "(shouting) Oh, you just earned the cuffs!",
+   "(shouting) Suspect assaulted an officer! Moving in!",
+   "(angry) Big mistake. I NEEDED cardio today."
   ],
   "gunscared": [
-   "(shouting) Weapon! Drop it or I drop you!"
+   "(shouting) Weapon! Drop it or I drop you!",
+   "(shouting) Gun gun gun! Drop it!",
+   "(shouting) Put it down! Última vez!"
   ],
   "chat": [
    "Quiet shift so far. Don't jinx it.",
-   "My abuela still asks when I'm making sergeant."
+   "My abuela still asks when I'm making sergeant.",
+   "Sergeant's exam is next month. I'm ready.",
+   "Abuela packs my lunch. Best cop food in Tampa.",
+   "Chased a guy in flip flops once. HE wore them.",
+   "(laughing) My cousin thinks I write parking tickets. Cute."
   ],
   "quirk": [
    "I run faster in boots than you do scared.",
-   "(laughing) Paperwork scares me more than perps."
+   "(laughing) Paperwork scares me more than perps.",
+   "Fastest boots in the precinct. Ask anyone.",
+   "(laughing) My handcuffs have frequent flyer miles.",
+   "I clocked a jogger once. Out of habit.",
+   "Try me. I stretch every morning."
   ]
  },
  "COP_SULLIVAN": {
   "bump": [
-   "(angry) Eyes forward, taxpayer!"
+   "(angry) Eyes forward, taxpayer!",
+   "(angry) You bumped a sergeant, genius.",
+   "(sighing) Thirty years and they still walk into me."
   ],
   "hit": [
-   "(shouting) Assaulting a sergeant?! Bad career move, son!"
+   "(shouting) Assaulting a sergeant?! Bad career move, son!",
+   "(shouting) That's a felony, sunshine!",
+   "(angry) My mustache has seniority over you, punk!"
   ],
   "gunscared": [
-   "(shouting) DROP THE WEAPON! I won't ask twice!"
+   "(shouting) DROP THE WEAPON! I won't ask twice!",
+   "(shouting) GUN! Everybody get down!",
+   "(shouting) Lower it NOW or eat pavement!"
   ],
   "chat": [
    "Thirty years on this beat. Thirty.",
-   "Coffee's the only backup I trust."
+   "Coffee's the only backup I trust.",
+   "Crime's down. Coffee's up. Balance.",
+   "Rookies these days salute the vending machine.",
+   "My knees retired in oh-nine. I stayed.",
+   "(sighing) The paperwork outlives us all, kid."
   ],
   "quirk": [
    "The mustache is regulation. I checked. I wrote it.",
-   "(sighing) Kids today can't even loiter properly."
+   "(sighing) Kids today can't even loiter properly.",
+   "This mustache made detective before I did.",
+   "(laughing) I've got arrest stories older than you.",
+   "Regulations exist because of guys like you.",
+   "Sarge isn't a rank. It's a personality."
   ]
  },
  "COP_NGUYEN": {
   "bump": [
    "Careful. That was nearly a citation.",
-   "(sighing) Watch your step, please."
+   "(sighing) Watch your step, please.",
+   "Careful. Section seven-eighty-four covers that, technically.",
+   "(sighing) Please maintain a reasonable walking interval.",
+   "That's a warning. Verbal. Documented mentally.",
+   "Mind your vector, citizen."
   ],
   "hit": [
-   "(shouting) Code three! Suspect is combative!"
+   "(shouting) Code three! Suspect is combative!",
+   "(shouting) Battery on an officer! Textbook case!",
+   "(angry) That violates several statutes. SEVERAL."
   ],
   "gunscared": [
-   "(shouting) Firearm! Put it on the ground! Slowly!"
+   "(shouting) Firearm! Put it on the ground! Slowly!",
+   "(shouting) Weapon! Comply per procedure! NOW!",
+   "(shouting) Ground! Weapon! Immediately! In that order!"
   ],
   "chat": [
    "Procedure keeps everyone alive. Everyone.",
-   "Nice evening. Statistically low crime hour."
+   "Nice evening. Statistically low crime hour.",
+   "Crosswalk compliance is up four percent. Progress.",
+   "I recalibrated my radar gun for fun.",
+   "Statistically, this is the safest hour. I hope.",
+   "(sighing) Jaywalking. Right in front of me. Bold."
   ],
   "quirk": [
    "I memorized the entire penal code. Twice.",
-   "(sighing) Yes, the glasses are shatterproof. I asked."
+   "(sighing) Yes, the glasses are shatterproof. I asked.",
+   "I cite code sections in my dreams.",
+   "(sighing) Nobody reads the municipal bulletins. Nobody.",
+   "Order is a public service. You're welcome.",
+   "My reports have footnotes."
   ]
  },
  "COP_WASHINGTON": {
   "bump": [
-   "You want to try that again, differently?"
+   "You want to try that again, differently?",
+   "Careful now. Let's both walk away wiser.",
+   "(sighing) Everybody's in a hurry to nowhere."
   ],
   "hit": [
-   "(angry) Wrong officer. Wrong day."
+   "(angry) Wrong officer. Wrong day.",
+   "(angry) Okay. Now we do this MY way.",
+   "(shouting) Suspect's got hands! Requesting backup!"
   ],
   "gunscared": [
-   "(shouting) Gun! Hands where I can see them!"
+   "(shouting) Gun! Hands where I can see them!",
+   "(shouting) Firearm! Down! NOW!",
+   "(angry) Put it down. I won't say please."
   ],
   "chat": [
    "Community first. That's the whole job.",
-   "You call your mother lately? Do that."
+   "You call your mother lately? Do that.",
+   "I know every kid on this block by name.",
+   "De-escalation works. So does my stare.",
+   "Coached little league Saturday. We lost. Beautifully.",
+   "(laughing) The rookies think I'm psychic. I just listen."
   ],
   "quirk": [
    "I don't raise my voice. I don't need to.",
-   "(laughing) The badge is heavy. I make it look easy."
+   "(laughing) The badge is heavy. I make it look easy.",
+   "Calm is a weapon too.",
+   "(laughing) My grandmother patrolled harder than this.",
+   "Respect goes both ways. Start walking yours.",
+   "I've talked down more people than any taser."
   ]
  },
  "COP_ROMERO": {
   "bump": [
-   "(angry) Oye, personal space, amigo."
+   "(angry) Oye, personal space, amigo.",
+   "(angry) Watch the aviators, amigo.",
+   "(sighing) Everyone's blind today. Except me."
   ],
   "hit": [
-   "(shouting) Now it's resisting! Now it's a thing!"
+   "(shouting) Now it's resisting! Now it's a thing!",
+   "(shouting) Ay! Now we got assault, amigo!",
+   "(angry) You hit the mustache. Bad move."
   ],
   "gunscared": [
-   "(shouting) Gun! Drop it, ahora!"
+   "(shouting) Gun! Drop it, ahora!",
+   "(shouting) Arma! Drop it, drop it!",
+   "(shouting) Gun! You do NOT want this dance!"
   ],
   "chat": [
    "The aviators? Standard issue. For me.",
-   "Too quiet today. I don't trust quiet."
+   "Too quiet today. I don't trust quiet.",
+   "Pulled over a guy doing twelve. TWELVE.",
+   "The aviators stay on. Even at night. ESPECIALLY at night.",
+   "My tío was a cop in Miami. Amateur hour.",
+   "(laughing) I gave my own mother a warning once."
   ],
   "quirk": [
    "I can smell a fake ID from forty feet.",
-   "(laughing) The mustache does the interrogating."
+   "(laughing) The mustache does the interrogating.",
+   "I see through lies AND tinted windows.",
+   "(laughing) The mustache never blinks.",
+   "Nobody outruns the radio, amigo.",
+   "Suspicion is a sixth sense. Mine's ripped."
   ]
  },
  "COP_OBRIEN": {
   "bump": [
-   "(scared) Oh! Sorry! I mean, YOU watch it!"
+   "(scared) Oh! Sorry! I mean, YOU watch it!",
+   "(scared) Whoa! Officer contact! Is that a thing?",
+   "Careful, citizen! Please? Thank you!"
   ],
   "hit": [
-   "(shouting) Backup! I need backup! Anyone!"
+   "(shouting) Backup! I need backup! Anyone!",
+   "(scared) Ow! That's assault! I think! It IS!",
+   "(shouting) Sarge! SARGE! It's happening!"
   ],
   "gunscared": [
-   "(scared) Gun! GUN! Okay, breathe, like training!"
+   "(scared) Gun! GUN! Okay, breathe, like training!",
+   "(scared) GUN! Okay, hands steady, hands steady!",
+   "(scared) Whoa whoa! Nobody move! Especially me!"
   ],
   "chat": [
    "First month on the job. Loving it. Mostly.",
-   "Sarge says I salute too much. Is that possible?"
+   "Sarge says I salute too much. Is that possible?",
+   "I practiced my radio voice all weekend.",
+   "Wrote my first ticket Tuesday. Framed a copy.",
+   "The siren button is SO tempting, honestly.",
+   "(laughing) I wave at other cop cars. They don't wave back."
   ],
   "quirk": [
    "I got sunburned through my hat. Twice.",
-   "(laughing) My mom irons my uniform. Don't tell Sarge."
+   "(laughing) My mom irons my uniform. Don't tell Sarge.",
+   "Day forty-two. Still no high-speed chase. Good. GOOD.",
+   "(laughing) My handcuff key has a lanyard. Two lanyards.",
+   "I memorized the oath. Wanna hear it?",
+   "Protect, serve, and please like me."
   ]
  },
  "COP_PATEL": {
   "bump": [
-   "Mind yourself, please. We're all walking here."
+   "Mind yourself, please. We're all walking here.",
+   "(sighing) Let's call that an accident. This time.",
+   "Steady on. No harm done. Probably."
   ],
   "hit": [
-   "(angry) That was genuinely unwise of you."
+   "(angry) That was genuinely unwise of you.",
+   "(angry) I gave you every chance. EVERY chance.",
+   "(shouting) Officer struck! Suspect fleeing soon, guaranteed!"
   ],
   "gunscared": [
-   "(shouting) Weapon drawn! Comply immediately!"
+   "(shouting) Weapon drawn! Comply immediately!",
+   "(shouting) Weapon down! Let's all go home tonight!",
+   "(shouting) Firearm! Final warning, friend!"
   ],
   "chat": [
    "Fifteen years of service. The beard is twelve.",
-   "Traffic is the real crime in this town."
+   "Traffic is the real crime in this town.",
+   "Talked a guy out of road rage today. Words work.",
+   "The beard gets more compliments than the badge.",
+   "Traffic duty teaches patience. Or it breaks you.",
+   "(laughing) My kids think the siren is my ringtone."
   ],
   "quirk": [
    "I de-escalate. It's a gift, honestly.",
-   "(sighing) Everyone asks about the beard. Everyone."
+   "(sighing) Everyone asks about the beard. Everyone.",
+   "Fifteen years, zero regrets, one great beard.",
+   "(sighing) I've heard every excuse. Ranked them, even.",
+   "Calm voice, firm boundaries. Works on perps and toddlers.",
+   "Tea, not coffee. That's my edge."
   ]
  },
  "COP_KOWALSKI": {
   "bump": [
-   "(angry) You bounced off ME, pal."
+   "(angry) You bounced off ME, pal.",
+   "(laughing) You okay? Walls hit back sometimes.",
+   "(angry) Careful. I dent things back."
   ],
   "hit": [
-   "(laughing) Did you just hit me? Adorable."
+   "(laughing) Did you just hit me? Adorable.",
+   "(laughing) I've been hit by trucks with more heart.",
+   "(angry) That tickled. Now it's MY turn."
   ],
   "gunscared": [
-   "(shouting) Weapon! Big mistake, little person!"
+   "(shouting) Weapon! Big mistake, little person!",
+   "(shouting) Gun! Big man moving in!",
+   "(shouting) Weapon! You can't outrun THIS truck!"
   ],
   "chat": [
    "The doorframes in this town are too short.",
-   "Bench press? All of it. Next question."
+   "Bench press? All of it. Next question.",
+   "Squad car seats go back. Mine doesn't. I don't fit.",
+   "Lost a shirt button saluting. Again.",
+   "Perps just give up when I get out the car.",
+   "(laughing) The K-9 unit's scared of ME."
   ],
   "quirk": [
    "They only made the uniform in extra large. Once.",
-   "(laughing) I AM the backup."
+   "(laughing) I AM the backup.",
+   "Doorways duck for me, pal.",
+   "(laughing) My shadow needs its own permit.",
+   "Six-eight in socks. The boots are just rude.",
+   "I don't chase. I intercept."
   ]
  },
  "COP_JACKSON": {
   "bump": [
-   "(sighing) Son, I'm too old for bumping."
+   "(sighing) Son, I'm too old for bumping.",
+   "(sighing) Eighteen months, Jackson. Eighteen months.",
+   "Careful, son. This body's on its farewell tour."
   ],
   "hit": [
-   "(angry) Twenty-eight years and you pick TODAY?"
+   "(angry) Twenty-eight years and you pick TODAY?",
+   "(angry) I got a boat picked out, and you swing on me?!",
+   "(shouting) Assault on a veteran officer! Send the young guys!"
   ],
   "gunscared": [
-   "(shouting) Gun! Don't make me run! I WILL regret it!"
+   "(shouting) Gun! Don't make me run! I WILL regret it!",
+   "(shouting) Gun! Aw, NOT this close to my pension!",
+   "(shouting) Drop it, son! My knees can't do dramatic!"
   ],
   "chat": [
    "Retirement's in eighteen months. Not that I'm counting.",
-   "Best donuts are on Countryway. That's intel."
+   "Best donuts are on Countryway. That's intel.",
+   "The boat's named Overtime. Paid for herself.",
+   "Rookie asked my secret. Comfortable insoles, son.",
+   "I remember when this corner was all orange groves.",
+   "(laughing) My retirement countdown has a countdown."
   ],
   "quirk": [
    "I've seen everything twice. Bored now.",
-   "(sighing) My knees file their own police reports."
+   "(sighing) My knees file their own police reports.",
+   "Wisdom is just fatigue with seniority, son.",
+   "(sighing) They keep making criminals younger.",
+   "Donut intel is real intel. Write that down.",
+   "Eighteen months to fishing. Don't ruin it."
   ]
  },
  "CLERK": {
   "bump": [
-   "(scared) Whoa! Sorry! My bad. Wait, YOUR bad."
+   "(scared) Whoa! Sorry! My bad. Wait, YOUR bad.",
+   "(scared) Oof! Sorry! Force of habit.",
+   "(sighing) The slushee machine hits me softer than that."
   ],
   "hit": [
-   "(scared) Ow! I don't even make hourly for this!"
+   "(scared) Ow! I don't even make hourly for this!",
+   "(scared) OW! Corporate says I can't fight back!",
+   "(scared) Not the face! I got a shift at six!"
   ],
   "gunscared": [
-   "(scared) Register's open! Take it! Take everything!"
+   "(scared) Register's open! Take it! Take everything!",
+   "(scared) The safe's on a timer, man! I just work here!",
+   "(scared) Please! I haven't even had my break!"
   ],
   "chat": [
    "Slushee machine's fixed. Today's a good day.",
-   "You want a receipt? Nobody wants the receipt."
+   "You want a receipt? Nobody wants the receipt.",
+   "Two-for-one hot dogs today. They're technically food.",
+   "Someone microwaved a burrito for nine minutes. NINE.",
+   "The icee machine and I have an understanding now.",
+   "(sighing) Lottery tickets. It's always lottery tickets."
   ],
   "quirk": [
    "Assistant night manager. Acting. Unpaid.",
-   "(sighing) The visor is mandatory. The dignity is not."
+   "(sighing) The visor is mandatory. The dignity is not.",
+   "Employee of the month. Nobody else entered.",
+   "(sighing) The name tag says trainee. Three years now.",
+   "I can mop and cry at the same time. Efficiency.",
+   "Corporate calls it a team. It's me. I'm the team."
   ]
  },
  "DEALER": {
   "bump": [
    "Watch it. I'm holding merchandise.",
-   "(sighing) Easy, man. Easy."
+   "(sighing) Easy, man. Easy.",
+   "Watch the merchandise, man. All sales final.",
+   "(sighing) Bumping me is bad for YOUR insurance.",
+   "Easy. This corner's load-bearing for my business.",
+   "Careful, man. Witnesses everywhere."
   ],
   "hit": [
-   "(angry) Bad idea. Terrible for business. Yours."
+   "(angry) Bad idea. Terrible for business. Yours.",
+   "(angry) You just lost your discount. Forever.",
+   "(angry) I know people. I AM people."
   ],
   "gunscared": [
-   "(laughing) That's cute. I SOLD you that."
+   "(laughing) That's cute. I SOLD you that.",
+   "(laughing) Man, I got a guy who sells holsters too.",
+   "Pointing that at your only supplier? Bold economics."
   ],
   "chat": [
    "Business is boomin'. Don't ask what business.",
-   "Grocery lot. Best office in Tampa."
+   "Grocery lot. Best office in Tampa.",
+   "Location, location, location. This lot's prime real estate.",
+   "I don't do refunds. I do apologies. Sometimes.",
+   "Everybody's a customer eventually, man.",
+   "(laughing) My prices beat inflation. Barely."
   ],
   "quirk": [
    "I got a customer loyalty program. Stay alive.",
-   "(laughing) Cash only. Obviously."
+   "(laughing) Cash only. Obviously.",
+   "Word of mouth only. Word stays IN mouth.",
+   "(laughing) I take Venmo now. Kidding. Cash.",
+   "Business degree? Street campus, man.",
+   "Supply, demand, and don't ask questions."
   ]
  },
  "DON": {
   "bump": [
    "Whoa there, partner.",
-   "(annoyed) Hey! I just had knee surgery."
+   "(annoyed) Hey! I just had knee surgery.",
+   "Easy there, bud. Watch the knee.",
+   "(annoyed) Hey now, I'm walking here. Slowly, but still.",
+   "Whoa! Almost dropped my sunglasses, bud.",
+   "(chuckling) You bump like your mother drives."
   ],
   "hit": [
    "(angry) Big mistake, bud. BIG mistake.",
    "(pained) Aw, right in the rotator cuff!",
    "(angry) I'm taking away a Lego, damnit!",
    "(angry) You're acting like fucking Patrick!",
-   "(angry) What are they going to say about those Sharp boys!"
+   "(angry) What are they going to say about those Sharp boys!",
+   "(angry) That's it, you're grounded! Whoever you are!",
+   "(pained) Aw hell, there goes the other rotator cuff!",
+   "(angry) You don't hit a man with a bad knee!",
+   "(pained) Ow! Dammit, I JUST saw the chiropractor!",
+   "(angry) Keep it up and I'm turning this street around!",
+   "(pained) Right in the lower back! You little shit!",
+   "(angry) Wait till your father hears about this!",
+   "(pained) Aw jeez, that's gonna need ice. And a beer.",
+   "(angry) I've split firewood tougher than you, bud!",
+   "(shouting) Somebody get this kid a timeout!"
   ],
   "gunscared": [
-   "(scared) Whoa whoa, easy now, son. Nobody needs that."
+   "(scared) Whoa whoa, easy now, son. Nobody needs that.",
+   "(scared) Whoa now, bud, let's talk this over at the grill.",
+   "(scared) Easy, son! I got burgers on at six!"
   ],
   "chat": [
    "You know, back in Montana we never locked our doors.",
-   "I keep telling the boys, nothing beats a charcoal grill. Nothing."
+   "I keep telling the boys, nothing beats a charcoal grill. Nothing.",
+   "Propane? In MY backyard? Not while I'm alive.",
+   "Montana winters build character. Florida just builds sweat.",
+   "The boys never season the meat right. Breaks my heart.",
+   "(chuckling) I fixed the fence myself. Twice. Same fence."
   ],
   "quirk": [
    "(chuckling) Hi hungry, I'm Don.",
-   "Gas was a buck twenty when I was your age. A buck twenty!"
+   "Gas was a buck twenty when I was your age. A buck twenty!",
+   "(chuckling) Why don't skeletons fight? No guts!",
+   "Back in Montana we called this humidity soup.",
+   "(chuckling) Reading a book on anti-gravity. Can't put it down.",
+   "Medium rare or you're outta the will, bud."
   ]
  },
  "ALEX": {
   "bump": [
    "Oh - sorry, my bad, my bad.",
-   "(annoyed) Dude, watch it, I'm walking here."
+   "(annoyed) Dude, watch it, I'm walking here.",
+   "Whoa, collision detected. My bad. Or yours.",
+   "(annoyed) Dude! The launch stream almost dropped!",
+   "Oof, trajectory error. Sorry, man.",
+   "(annoyed) Watch it, this hoodie's from actual Kennedy Space Center."
   ],
   "hit": [
    "(angry) Bro, what is your problem?!",
-   "(pained) Okay, ow, NOT cool!"
+   "(pained) Okay, ow, NOT cool!",
+   "(pained) Ow! That's structural damage, dude!",
+   "(angry) Dude, what the heck, I'm non-hostile!",
+   "(pained) Mayday, mayday, ow!",
+   "(angry) Okay, initiating self-defense protocol! It's mostly running!"
   ],
   "gunscared": [
-   "(scared) Whoa, hey, I'm just a nerd, put that down!"
+   "(scared) Whoa, hey, I'm just a nerd, put that down!",
+   "(scared) Whoa! Rapid unscheduled disassembly, NO thanks!",
+   "(scared) Abort, abort, ABORT!"
   ],
   "chat": [
    "Did you see the launch last night? Absolutely textbook booster landing.",
-   "I'm telling you, we are SO going back to the moon."
+   "I'm telling you, we are SO going back to the moon.",
+   "Orbital mechanics is easy. Parking is hard.",
+   "There's a Starlink pass at nine forty. Set an alarm.",
+   "Mars is only twenty years away. Always has been.",
+   "(excited) Dude, they static-fired the new booster today!"
   ],
   "quirk": [
    "One day I'm gonna put all this in a video game, I swear.",
-   "(excited) Sixty-eight percent humidity and rising. I love telemetry."
+   "(excited) Sixty-eight percent humidity and rising. I love telemetry.",
+   "Per aspera ad astra, dude.",
+   "(excited) The ISS is overhead RIGHT now. Probably.",
+   "Space is cool, man. Literally. Three kelvin.",
+   "One game dev tutorial a night. Any day now."
   ]
  },
  "DERIK": {
   "bump": [
    "(chill) Whoa, easy, man.",
-   "Dude. Personal space. It's a thing."
+   "Dude. Personal space. It's a thing.",
+   "Whoa, dude. Traffic check.",
+   "(chill) It's cool, it's cool. Mostly cool.",
+   "Bro, my balance is the ONE thing I got.",
+   "(sighing) Pedestrians, man. No board sense."
   ],
   "hit": [
    "(angry) Bro?! Not the tee, man, it's vintage!",
-   "(pained) Ugh, that's gonna bruise, dude."
+   "(pained) Ugh, that's gonna bruise, dude.",
+   "(angry) Dude! I NEED these elbows!",
+   "(pained) Bro, I've bailed off roofs softer than that.",
+   "(angry) Not cool, man! This tee is one of one!",
+   "(pained) Okay, ow. Adding you to the list, dude."
   ],
   "gunscared": [
-   "(scared) Whoa whoa, chill, chill, I'm nobody!"
+   "(scared) Whoa whoa, chill, chill, I'm nobody!",
+   "(scared) Whoa dude! I'll skate away, watch, I'm gone!",
+   "(scared) Bro, I got a board and vibes! That's it!"
   ],
   "chat": [
    "This whole town is basically one giant parking lot. Zero good skate spots.",
-   "I almost landed a tre flip off the Publix curb this morning. Almost."
+   "I almost landed a tre flip off the Publix curb this morning. Almost.",
+   "Waxed the Dunkin curb myself. You're welcome.",
+   "My knees pop in three languages, dude.",
+   "Filmed a line today. Landed HALF of it, man.",
+   "(laid back) Boards break, dude. Spirits don't."
   ],
   "quirk": [
    "(laid back) Everything heals except pride, dude.",
-   "My board cost more than my car, and honestly? Worth it."
+   "My board cost more than my car, and honestly? Worth it.",
+   "Grip tape and gravity, man. That's the whole religion.",
+   "(laid back) Falling's free, dude. That's why I'm rich.",
+   "Every curb here owes me blood, dude.",
+   "Push mongo once and I WILL notice."
   ]
  },
  "DYLAN": {
   "bump": [
    "(soft) Hm. We were all somewhere else a second ago.",
-   "(annoyed) Man, I was having a moment here."
+   "(annoyed) Man, I was having a moment here.",
+   "(soft) Whoa. Two paths crossed. Heavy.",
+   "Careful, man. We're all fragile arrangements.",
+   "(annoyed) Man, you scattered my whole train of thought.",
+   "(soft) It's cool. Collisions are just physics saying hi."
   ],
   "hit": [
    "(angry) Okay, that was genuinely uncalled for.",
-   "(pained) Great. Pain. My old friend."
+   "(pained) Great. Pain. My old friend.",
+   "(pained) Ow. The body keeps the score, man.",
+   "(angry) Hey! I'm one of the GENTLE ones, man!",
+   "(pained) That echoed, man. Like, in my bones.",
+   "(angry) Not cool. I was at total peace, dude."
   ],
   "gunscared": [
-   "(scared) Hey hey, peace, man, peace. I'm just vibing."
+   "(scared) Hey hey, peace, man, peace. I'm just vibing.",
+   "(scared) Whoa, hey, we're on the same side of the prism!",
+   "(scared) Easy, man! Nothing's worth breaking the vibe forever!"
   ],
   "chat": [
    "You ever actually LISTEN to the rain on the gas station roof? Incredible.",
-   "Sunsets here go crazy, man. Like the sky's showing off."
+   "Sunsets here go crazy, man. Like the sky's showing off.",
+   "Dark Side turned fifty and still sounds like tomorrow, man.",
+   "I watched a cloud for an hour today. Ten outta ten.",
+   "Vinyl just breathes different, man. It breathes.",
+   "(dreamy) Time's the same song looped, man. Great track though."
   ],
   "quirk": [
    "(dreamy) We're all just riding one big prism of light, man.",
-   "I left my glasses somewhere... oh. They're on my face."
+   "I left my glasses somewhere... oh. They're on my face.",
+   "(dreamy) Shine on, you crazy diamond.",
+   "The moon's always full, man. We just see it wrong.",
+   "(soft) Wish you were here, man. Whoever you are.",
+   "Comfortably numb? Man, I'm comfortably EVERYTHING."
   ]
  }
 }

@@ -4133,6 +4133,21 @@ var vmSnack = new THREE.Group();
 })();
 
 var flash = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.3), new THREE.MeshBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0.95, depthTest: false }));
+// AI sprite flash (optional muzzleflash.js): 4 starburst frames on black,
+// additive-blended so the black vanishes; cycled while the flash lives
+var flashTexs = [];
+if (typeof MUZZLE_FLASH !== 'undefined') {
+  MUZZLE_FLASH.forEach(function (u) {
+    var fim = new Image();
+    var ftx = new THREE.Texture(fim);
+    ftx.magFilter = THREE.NearestFilter; ftx.minFilter = THREE.NearestFilter; ftx.generateMipmaps = false;
+    fim.onload = function () { ftx.needsUpdate = true; };
+    fim.src = u;
+    flashTexs.push(ftx);
+  });
+  flash.geometry = new THREE.PlaneGeometry(0.44, 0.44);   // sprites carry black margins
+  flash.material = new THREE.MeshBasicMaterial({ map: flashTexs[0], transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false });
+}
 flash.visible = false; vm.add(flash); var flashT = 0;
 var rocketCdEl = document.getElementById('rocketCd'), rocketCdBar = document.getElementById('rocketCdBar');
 var vmMap = { fists: vmFists, pistol: vmPistol, smg: vmSmg, rifle: vmRifle, auto: vmAuto, rocket: vmRocket, raygun: vmRaygun, snack: vmSnack };
@@ -4157,7 +4172,7 @@ function setEquipped(w) {
   // the skinned arms ride inside the equipped viewmodel group so the
   // draw/reload animations move the hands with the gun
   if (psxArms) {
-    if (w === 'fists') { vmFists.add(psxArms.root); armsPose(psxArms, 'idle', T); }
+    if (w === 'fists') { vmFists.add(psxArms.root); vmFists.rotation.set(0, 0, 0); armsPose(psxArms, 'idle', T); }
     else if (GUNHOLD_GROUPS[w]) { vmMap[w].add(psxArms.root); armsPose(psxArms, gunHold.clip, gunHold.t, true); }
   }
   vm.visible = !zoomed && !driving;
@@ -4233,7 +4248,8 @@ function tryAttack() {
     return;
   }
   if (T - lastShot < w.rate) return;
-  lastShot = T; recoil = 1; flash.visible = true; flash.position.set(w.flashAt[0], w.flashAt[1], w.flashAt[2]); flash.rotation.z = Math.random() * Math.PI; flash.scale.setScalar(w.flashScale || 1); flashT = 0.045;
+  lastShot = T; recoil = 1; flash.visible = true; flash.position.set(w.flashAt[0], w.flashAt[1], w.flashAt[2]); flash.rotation.z = Math.random() * Math.PI; flash.scale.setScalar((w.flashScale || 1) * (0.85 + Math.random() * 0.35)); flashT = 0.045;
+  if (flashTexs.length) flash.material.map = flashTexs[(Math.random() * flashTexs.length) | 0];
   if (w.rocket) {
     recoil = 2.2;
     fireRocket();
@@ -5563,6 +5579,27 @@ function updatePlayer(dt) {
       pcn.x -= pcx / pcd * pcp * 0.35; pcn.z -= pcz / pcd * pcp * 0.35;   // they give a little too
     }
   }
+  // cops are solid too — but they hold the line (player gives most of the ground)
+  if (!state.dead) for (var cci = 0; cci < cops.length; cci++) {
+    var ccc = cops[cci];
+    if (ccc.state === 'down') continue;
+    if (inside ? !ccc.interior : ccc.interior) continue;   // interior cops share x/z space at another floor
+    var ccx = player.x - ccc.x, ccz = player.z - ccc.z, cc2 = ccx * ccx + ccz * ccz;
+    if (cc2 < 0.6 && cc2 > 0.0001) {
+      var ccd = Math.sqrt(cc2), ccp = 0.78 - ccd;
+      player.x += ccx / ccd * ccp * 0.85; player.z += ccz / ccd * ccp * 0.85;
+      ccc.x -= ccx / ccd * ccp * 0.2; ccc.z -= ccz / ccd * ccp * 0.2;   // cops barely budge
+    }
+  }
+  if (!inside && !state.dead && isClient()) for (var cmi = 0; cmi < copsM.length; cmi++) {
+    var cmc = copsM[cmi];
+    if (cmc.down) continue;
+    var cmx = player.x - cmc.x, cmz = player.z - cmc.z, cm2 = cmx * cmx + cmz * cmz;
+    if (cm2 < 0.6 && cm2 > 0.0001) {
+      var cmd = Math.sqrt(cm2), cmp = 0.78 - cmd;
+      player.x += cmx / cmd * cmp; player.z += cmz / cmd * cmp;   // mirror positions are host-authoritative
+    }
+  }
   if (mouseDown && !WEAPONS[state.equipped].melee && WEAPONS[state.equipped].auto) tryAttack();
   if (state.hp < 100 && T - state.lastHurt > 5) state.hp = Math.min(100, state.hp + 5 * dt);
   camera.position.set(player.x, player.y, player.z); camera.rotation.y = yaw; camera.rotation.x = pitch;
@@ -5624,7 +5661,12 @@ function updatePlayer(dt) {
     } else if (pt < 0.28) { var kk = Math.sin((pt / 0.28) * Math.PI); punchArm.position.z = punchArmBase.z - kk * 0.5; punchArm.position.x = punchArmBase.x - kk * 0.14; punchArm.rotation.x = -kk * 0.4; }
     else { punchArm.position.copy(punchArmBase); punchArm.rotation.x = 0; }
   } else if (psxArms && GUNHOLD_GROUPS[state.equipped]) armsPose(psxArms, gunHold.clip, gunHold.t, true);
-  if (flashT > 0) { flashT -= dt; if (flashT <= 0) flash.visible = false; }
+  if (flashT > 0) {
+    flashT -= dt;
+    if (flashT <= 0) flash.visible = false;
+    // frame-cycle the sprite while it lives (2-3 frames over ~45ms)
+    else if (flashTexs.length) flash.material.map = flashTexs[(Math.random() * flashTexs.length) | 0];
+  }
   // context prompt
   var prompt = document.getElementById('prompt');
   if (state.menu) { prompt.textContent = ''; }
