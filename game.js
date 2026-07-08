@@ -3779,6 +3779,11 @@ vmFists.add(armLf, punchArm);
 // PSX skinned first-person arms (optional meshyarms.js) — replaces the
 // capsule fists; texture is re-tinted to the player's skin tone.
 var psxArms = null;
+// arms also hold the Meshy gun viewmodels: the root reparents into the
+// equipped gun group (so draw/reload anims carry the hands along) and is
+// posed each frame on a static frame of the 'grab' clip
+var GUNHOLD_GROUPS = { pistol: 1, smg: 1, rifle: 1, auto: 1, rocket: 1 };
+var gunHold = { clip: 'relax', t: 0.75 };   // relax mid-frame: right palm sits on the grips
 function armsTintTex(skinHex) {
   var cv = document.createElement('canvas');
   cv.width = 1; cv.height = 1;   // valid upload before the image decodes
@@ -3911,6 +3916,11 @@ function initPSXArms() {
       armLf.visible = false; punchArm.visible = false;
       vmFists.add(psxArms.root);
       armsPose(psxArms, 'idle', 0);
+      // the skinned hands take over from the capsule arms on the gun viewmodels
+      [vmPistol, vmSmg, vmRifle, vmAuto, vmRocket].forEach(function (g) {
+        g.children.forEach(function (c) { if (c.userData.gunArm) c.visible = false; });
+      });
+      if (GUNHOLD_GROUPS[state.equipped]) { vmMap[state.equipped].add(psxArms.root); armsPose(psxArms, gunHold.clip, gunHold.t, true); }
     }
   } catch (e) { psxArms = null; }
 }
@@ -3927,7 +3937,7 @@ var vmPistol = new THREE.Group();
     mg.rotation.y = -Math.PI / 2 + 0.22;   // nose forward (-z), classic inward cant
     mg.rotation.x = 0.05;
     vmPistol.add(mg);
-    vmPistol.add(vmArm(0.29, -0.47, -0.34, 0.18));
+    var pAr = vmArm(0.29, -0.47, -0.34, 0.18); pAr.userData.gunArm = 1; vmPistol.add(pAr);
     WEAPONS.pistol.flashAt = gunFlashAt(0.27, -0.33, -0.5, 0.30, 0.06);
     WEAPONS.pistol.flashScale = 0.55;   // muzzle sits closer to camera than the old model
     return;
@@ -3950,7 +3960,7 @@ var vmSmg = new THREE.Group();
     mg.rotation.y = -Math.PI / 2 + 0.22;
     mg.rotation.x = 0.05;
     vmSmg.add(mg);
-    vmSmg.add(vmArm(0.29, -0.47, -0.24, 0.18));
+    var sAr = vmArm(0.29, -0.47, -0.24, 0.18); sAr.userData.gunArm = 1; vmSmg.add(sAr);
     WEAPONS.smg.flashAt = gunFlashAt(0.27, -0.29, -0.55, 0.5, 0.08);
     WEAPONS.smg.flashScale = 0.65;
     return;
@@ -3994,7 +4004,8 @@ var vmRifle = new THREE.Group();
     mg.rotation.y = -Math.PI / 2 + 0.22;
     mg.rotation.x = 0.05;
     vmRifle.add(mg);
-    vmRifle.add(vmArm(0.27, -0.47, -0.34, 0.18)); vmRifle.add(vmArm(0.11, -0.44, -0.82, -0.32));
+    var rAr1 = vmArm(0.27, -0.47, -0.34, 0.18); rAr1.userData.gunArm = 1; vmRifle.add(rAr1);
+    var rAr2 = vmArm(0.11, -0.44, -0.82, -0.32); rAr2.userData.gunArm = 1; vmRifle.add(rAr2);
     WEAPONS.rifle.flashAt = gunFlashAt(0.25, -0.29, -0.72, 0.95, 0.04);
     WEAPONS.rifle.flashScale = 0.8;
     return;
@@ -4019,8 +4030,8 @@ var vmAuto = new THREE.Group();
     mg.rotation.y = -Math.PI / 2 + 0.22;
     mg.rotation.x = 0.05;
     vmAuto.add(mg);
-    vmAuto.add(vmArm(0.29, -0.47, -0.3, 0.18));
-    vmAuto.add(vmArm(0.13, -0.44, -0.72, -0.3));
+    var aAr1 = vmArm(0.29, -0.47, -0.3, 0.18); aAr1.userData.gunArm = 1; vmAuto.add(aAr1);
+    var aAr2 = vmArm(0.13, -0.44, -0.72, -0.3); aAr2.userData.gunArm = 1; vmAuto.add(aAr2);
     WEAPONS.auto.flashAt = gunFlashAt(0.26, -0.30, -0.62, 0.8, 0.05);
     WEAPONS.auto.flashScale = 0.75;
     return;
@@ -4052,8 +4063,8 @@ var rocketHead = null, rocketSeat = new THREE.Vector3(0.3, -0.24, -1.06), rocket
     mg.rotation.order = 'YXZ';
     mg.rotation.y = -Math.PI / 2 + 0.22;
     vmRocket.add(mg);
-    vmRocket.add(vmArm(0.32, -0.48, -0.32, 0.18));
-    vmRocket.add(vmArm(0.16, -0.46, -0.6, -0.3));
+    var kAr1 = vmArm(0.32, -0.48, -0.32, 0.18); kAr1.userData.gunArm = 1; vmRocket.add(kAr1);
+    var kAr2 = vmArm(0.16, -0.46, -0.6, -0.3); kAr2.userData.gunArm = 1; vmRocket.add(kAr2);
     var fa = gunFlashAt(0.3, -0.26, -0.6, 0.95, 0.02);
     WEAPONS.rocket.flashAt = fa;
     headCant = 0.22;
@@ -4143,6 +4154,12 @@ function setEquipped(w) {
   gunBloom = 0;
   if (w !== state.equipped && w !== 'fists' && w !== 'snack') equipT = T;   // draw animation
   state.equipped = w;
+  // the skinned arms ride inside the equipped viewmodel group so the
+  // draw/reload animations move the hands with the gun
+  if (psxArms) {
+    if (w === 'fists') { vmFists.add(psxArms.root); armsPose(psxArms, 'idle', T); }
+    else if (GUNHOLD_GROUPS[w]) { vmMap[w].add(psxArms.root); armsPose(psxArms, gunHold.clip, gunHold.t, true); }
+  }
   vm.visible = !zoomed && !driving;
   Object.keys(vmMap).forEach(function (k) { vmMap[k].visible = (k === w); });
   var sub = w === 'fists' ? 'punch for cash' : (w === 'rifle' ? 'right-click: scope' : (w === 'rocket' ? '5s reload' : (w === 'snack' ? 'left-click: eat (+50 hp) — x' + state.snacks : 'ammo: &#8734;')));
@@ -4572,7 +4589,7 @@ function playVoiceAny(ids, gain, cdKey, cd, at) {
 }
 // per-NPC voice lines (optional npcvoices.js) — returns false when the
 // character has no pack entry so callers can fall back to the generic barks
-var npcVoiceBufs = {}, npcVoiceLive = {}, npcVoiceSrc = {};
+var npcVoiceBufs = {}, npcVoiceLive = {}, npcVoiceSrc = {}, npcVoiceCycle = {};
 function stopNpcVoice(name) {   // cut a character's line short (death)
   if (!name) return;
   npcVoiceLive[name] = null;    // cancels a play still waiting on decode
@@ -4587,7 +4604,11 @@ function playNpcVoice(name, cat, gain, cd, at) {
   voiceGroupT[key] = T;
   if (!ac) return true;
   var arr = NPC_VOICES[name][cat];
-  var idx = (Math.random() * arr.length) | 0;
+  // cycle through the lines so you don't hear the same one twice in a row
+  var ck = name + '_' + cat;
+  if (npcVoiceCycle[ck] === undefined) npcVoiceCycle[ck] = (Math.random() * arr.length) | 0;
+  else npcVoiceCycle[ck] = (npcVoiceCycle[ck] + 1) % arr.length;
+  var idx = npcVoiceCycle[ck];
   var id = name + '_' + cat + '_' + idx;
   var token = {};
   npcVoiceLive[name] = token;
@@ -5585,15 +5606,24 @@ function updatePlayer(dt) {
   var pt = T - punchT;
   if (WEAPONS[state.equipped].melee) {
     if (psxArms) {
-      // 1 in 5 swings is an open-hand slap (the arms rig's 'push' clip)
-      var jabWant = punchSlap && psxArms.clips.push ? 'push' : (punchSide ? 'jabR' : 'jabL');
+      // 1 in 5 swings is an open-hand BITCH SLAP: jabR silhouette swept
+      // horizontally across the screen by rolling the whole fists group
+      var jabWant = punchSlap && psxArms.clips.jabR ? 'jabR' : (punchSide ? 'jabR' : 'jabL');
       var jabKey = psxArms.clips[jabWant] ? jabWant : 'idle';
       var jd = psxArms.clips[jabKey] ? psxArms.clips[jabKey].d : 0.3;
-      if (pt >= 0 && pt < jd) armsPose(psxArms, jabKey, pt, true);
-      else armsPose(psxArms, 'idle', T);
+      if (pt >= 0 && pt < jd) {
+        armsPose(psxArms, jabKey, pt, true);
+        if (punchSlap) {
+          var sk = Math.min(1, pt / (jd * 0.55));         // sweep leads the clip
+          var se = sk * sk * (3 - 2 * sk);
+          vmFists.rotation.y = -0.7 + 1.6 * se;           // right-to-left arc across the view
+          vmFists.rotation.z = -0.3 + 0.6 * se;           // wrist roll
+        } else { vmFists.rotation.y = 0; vmFists.rotation.z = 0; }
+      }
+      else { armsPose(psxArms, 'idle', T); vmFists.rotation.y = 0; vmFists.rotation.z = 0; }
     } else if (pt < 0.28) { var kk = Math.sin((pt / 0.28) * Math.PI); punchArm.position.z = punchArmBase.z - kk * 0.5; punchArm.position.x = punchArmBase.x - kk * 0.14; punchArm.rotation.x = -kk * 0.4; }
     else { punchArm.position.copy(punchArmBase); punchArm.rotation.x = 0; }
-  }
+  } else if (psxArms && GUNHOLD_GROUPS[state.equipped]) armsPose(psxArms, gunHold.clip, gunHold.t, true);
   if (flashT > 0) { flashT -= dt; if (flashT <= 0) flash.visible = false; }
   // context prompt
   var prompt = document.getElementById('prompt');
@@ -5648,6 +5678,8 @@ window.__wc = {
   storeState: function () { return { robbed: robbedVisit, copsCalled: copsCalledVisit, closedUntil: gasClosedUntil, now: T }; },
   resetCooldowns: function () { punchT = -99; lastShot = -99; },
   gunBloom: function () { return gunBloom; },
+  setGunHold: function (c, t) { gunHold.clip = c; gunHold.t = t; },   // debug: tune the arms hold pose
+
   spawnUfo: spawnUfo, damageUfo: damageUfo, damageAlien: damageAlien,
   ufoRef: function () { return ufo; }, alienRef: function () { return alien; },
   ufoState: function () { return ufo ? { mode: ufo.mode, hp: ufo.hp, net: !!ufo.net, pos: ufo.group.position.toArray().map(function (v) { return Math.round(v * 10) / 10; }), crashT: ufo.crashT, alienAt: ufo.alienAt } : null; },
