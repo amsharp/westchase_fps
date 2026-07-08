@@ -276,8 +276,11 @@ gets to it first, not to whoever made it show up. Probably nothing.
   intersection is in — the residential grids southeast and east, the
   Lynmar industrial park, collector roads, retention ponds (wadeable,
   not swimmable), and dense preserve forest out to the new edge.
-  Buildings for the new neighborhoods are arriving next; traffic and
-  pedestrians still keep to the original core for now.
+  Buildings for the new neighborhoods are arriving next. Pedestrians now
+  roam the whole map: the junction stays the busiest, but you'll meet
+  people walking the residential sidewalks (they stick to their own
+  neighborhood, and jaywalk — no crosswalks out there) and the odd
+  soul trudging along a collector or through Lynmar.
 - The map is finite — a wall rings the city.
 - Watch for traffic; cars hurt.
 - Getting knocked out costs you 25% of your cash.

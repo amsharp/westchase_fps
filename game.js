@@ -3281,7 +3281,8 @@ function npcTargetFor(n) {
 function setNpcTarget(n) {
   var t = npcTargetFor(n); n.tx = t[0]; n.tz = t[1];
   n.wayX = undefined; n.wayZ = undefined;
-  if (Math.random() < 0.7) {
+  // core crosswalk routing only — neighborhood walkers jaywalk their streets
+  if (!n.turf && Math.random() < 0.7) {
     if ((n.z >= MAIN_HW && n.tz <= -MAIN_HW) || (n.z <= -MAIN_HW && n.tz >= MAIN_HW)) {
       // crossing the E-W main road: pads at (+-13.5, 0)
       n.wayX = (n.x < 0 ? -1 : 1) * (CROSS_HW + 2.5); n.wayZ = 0;
