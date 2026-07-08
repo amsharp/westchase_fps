@@ -172,6 +172,11 @@ bed runs under everything.
 - **Tab** — inventory: equip or unequip weapons (you must unequip to punch)
 - **Esc** — release mouse / close menus
 
+## Rumors
+
+Old-timers at the Dunkin swear that folks who get *seriously* rich around
+here start seeing strange lights over town. Probably nothing.
+
 ## Notes
 
 - The map is finite — a wall rings the city.

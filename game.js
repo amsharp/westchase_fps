@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.9.3';
+var GAME_VERSION = 'v1.10.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---------------- world constants ----------------
@@ -22,15 +22,16 @@ var WEAPONS = {
   rifle:  { name: 'RIFLE',  price: 600, dmg: 95, rate: 0.8,  auto: false, spread: 0.004, desc: 'One shot, one nap. Right-click to scope.', flashAt: [0.24, -0.235, -1.38] },
   auto:   { name: 'AK-47',  price: 1000, dmg: 34, rate: 0.11, auto: true, spread: 0.012, desc: 'Full auto, long range.', flashAt: [0.26, -0.255, -1.2] },
   rocket: { name: 'ROCKET LAUNCHER', price: 2000, rate: 5, rocket: true, desc: 'Danger close. 5s reload.', flashAt: [0.3, -0.28, -1.0] },
+  raygun: { name: 'RAY GUN', price: 0, dmg: 70, rate: 0.22, auto: false, spread: 0, laser: true, desc: 'Alien tech. Semi-auto. Never misses.', flashAt: [0.26, -0.25, -0.95] },
   snack:  { name: 'SNACK', snack: true, rate: 0.8 }
 };
-var GUN_LIST = ['pistol', 'smg', 'rifle', 'auto', 'rocket'];
+var GUN_LIST = ['pistol', 'smg', 'rifle', 'auto', 'rocket', 'raygun'];
 
 // ---------------- state ----------------
 var state = {
   running: false, menu: null,
   money: 400, hp: 100, dead: false,
-  owned: { pistol: false, smg: false, rifle: false, auto: false, rocket: false },
+  owned: { pistol: false, smg: false, rifle: false, auto: false, rocket: false, raygun: false },
   equipped: 'fists',
   lastHurt: -99, lastCarHit: -99, lastRob: -99,
   wanted: 0, civKills: 0, snacks: 0
@@ -2908,6 +2909,13 @@ function dropMesh(kind) {
   else if (kind === 'smg') { g.add(box(0.1, 0.13, 0.6, metalM, 0, 0, 0)); g.add(box(0.07, 0.34, 0.1, metalM, 0, -0.2, -0.1)); }
   else if (kind === 'rifle') { g.add(box(0.09, 0.11, 0.95, woodM, 0, 0, 0)); var sc = cyl(0.04, 0.04, 0.3, 8, darkMetalM, 0, 0.1, 0.1); sc.rotation.x = Math.PI / 2; g.add(sc); }
   else if (kind === 'auto') { g.add(box(0.09, 0.12, 0.85, woodM, 0, 0, 0)); var mg = box(0.07, 0.24, 0.11, metalM, 0, -0.15, -0.05); mg.rotation.x = 0.5; g.add(mg); }
+  else if (kind === 'raygun') {
+    if (hasMeshyProp('raygun')) { var rg = getUfoMesh('raygun', 0.85); rg.position.y = -0.3; g.add(rg); return g; }
+    var rb = cyl(0.07, 0.1, 0.5, 8, metalM, 0, 0, 0); rb.rotation.x = Math.PI / 2; g.add(rb);
+    g.add(sph(0.09, new THREE.MeshBasicMaterial({ color: 0x66ff88 }), 0, 0, -0.3, 8, 6));
+    g.add(box(0.03, 0.2, 0.16, lamb({ color: 0xb02030 }), 0, 0.12, 0.1));
+    g.add(box(0.08, 0.2, 0.1, gripM, 0, -0.16, 0.16));
+  }
   else { var tb = cyl(0.09, 0.09, 1.0, 10, rocketBodyM, 0, 0, 0); tb.rotation.x = Math.PI / 2; g.add(tb); }
   return g;
 }
@@ -2926,10 +2934,10 @@ function updateDrops(dt) {
     var dx = player.x - d.mesh.position.x, dz = player.z - d.mesh.position.z;
     if (!state.dead && dx * dx + dz * dz < 2.6) {
       if (state.owned[d.kind]) {
-        var refund = Math.floor(WEAPONS[d.kind].price / 2);
+        var refund = Math.floor((WEAPONS[d.kind].price || 0) / 2);
         state.money += refund;
-        popup('+$' + refund + ' (sold ' + WEAPONS[d.kind].name + ')');
-        sfx('cash');
+        popup(refund ? '+$' + refund + ' (sold ' + WEAPONS[d.kind].name + ')' : 'Already have a ' + WEAPONS[d.kind].name);
+        if (refund) sfx('cash');
       } else {
         state.owned[d.kind] = true;
         popup('Picked up ' + WEAPONS[d.kind].name);
@@ -2939,6 +2947,243 @@ function updateDrops(dt) {
       continue;
     }
     if (d.life <= 0) { scene.remove(d.mesh); drops.splice(i, 1); }
+  }
+}
+
+// ---------------- UFO easter egg (local-only, like drops/interiors) ----------
+// Someone hits $100k -> a saucer drifts low over town. Shoot it down, wait by
+// the wreck, survive the survivor, take its gun.
+var UFO_MONEY = 100000;
+var ufo = null, ufoTriggered = false, alien = null;
+var beams = [];
+function spawnBeam(x1, y1, z1, x2, y2, z2, color) {
+  var dx = x2 - x1, dy = y2 - y1, dz = z2 - z1;
+  var len = Math.sqrt(dx * dx + dy * dy + dz * dz) || 0.001;
+  var m = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, len, 5),
+    new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: 0.95 }));
+  m.position.set((x1 + x2) / 2, (y1 + y2) / 2, (z1 + z2) / 2);
+  m.quaternion.setFromUnitVectors(Y_UP, new THREE.Vector3(dx / len, dy / len, dz / len));
+  scene.add(m);
+  beams.push({ mesh: m, life: 0.1 });
+}
+var ufoMeshCache = {};
+function hasMeshyProp(name) {
+  if (typeof MESHY_UFO === 'undefined') return false;
+  for (var i = 0; i < MESHY_UFO.length; i++) if (MESHY_UFO[i].n === name) return true;
+  return false;
+}
+function getUfoMesh(name, len) {
+  // real Meshy model when meshyufo.js is loaded, procedural saucer otherwise
+  var ck = name + '_' + (len || 13);
+  if (ufoMeshCache[ck]) return ufoMeshCache[ck].clone();
+  var g = new THREE.Group();
+  var e = null;
+  if (typeof MESHY_UFO !== 'undefined') for (var i = 0; i < MESHY_UFO.length; i++) if (MESHY_UFO[i].n === name) e = MESHY_UFO[i];
+  if (e) {
+    var qp = new Int16Array(b64Bytes(e.p).buffer), qu = new Uint16Array(b64Bytes(e.u).buffer);
+    var fp = new Float32Array(qp.length), fu = new Float32Array(qu.length);
+    for (i = 0; i < qp.length; i++) fp[i] = qp[i] / e.q;
+    for (i = 0; i < qu.length; i += 2) { fu[i] = qu[i] / 8192; fu[i + 1] = 1 - qu[i + 1] / 8192; }
+    var geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(fp, 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(fu, 2));
+    geo.computeVertexNormals();
+    var im = new Image();
+    var tx = new THREE.Texture(im);
+    tx.magFilter = THREE.NearestFilter; tx.minFilter = THREE.NearestFilter; tx.generateMipmaps = false;
+    im.onload = function () { tx.needsUpdate = true; };
+    im.src = e.tex;
+    var mm = new THREE.Mesh(geo, lamb({ map: tx }));
+    var s = (len || 13) / (e.dims && e.dims[0] || 13);
+    mm.scale.set(s, s, s);
+    g.add(mm);
+  } else {
+    // placeholder saucer
+    var hullM = phong({ color: 0x9aa4b0, shininess: 80, specular: 0xccddee });
+    var top = cyl(1.2, 6.4, 1.4, 14, hullM, 0, 0.7, 0);
+    var bot = cyl(6.4, 2.2, 1.1, 14, hullM, 0, -0.5, 0);
+    g.add(top, bot);
+    g.add(sph(1.7, phong({ color: name === 'ufo_dead' ? 0x333a40 : 0x3f82ae, shininess: 100, specular: 0xffffff, transparent: true, opacity: 0.8 }), 0, 1.7, 0, 12, 9));
+    for (var li = 0; li < 8; li++) {
+      var a2 = li / 8 * Math.PI * 2;
+      g.add(sph(0.28, new THREE.MeshBasicMaterial({ color: name === 'ufo_dead' ? 0x442222 : 0xffe08a }), Math.cos(a2) * 5.4, 0.1, Math.sin(a2) * 5.4, 6, 5));
+    }
+    if (name === 'ufo_dead') { g.rotation.z = 0; g.traverse(function (o) { if (o.material && o.material.color && o.material.shininess) o.material.color.multiplyScalar(0.55); }); }
+  }
+  ufoMeshCache[ck] = g;
+  return g.clone();
+}
+var ufoHum = null;
+function startUfoHum() {
+  if (!ac || ufoHum) return;
+  var o1 = ac.createOscillator(), o2 = ac.createOscillator(), lfo = ac.createOscillator(), lg = ac.createGain();
+  var f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 500;
+  var g = ac.createGain(); g.gain.value = 0;
+  o1.type = 'sawtooth'; o1.frequency.value = 58;
+  o2.type = 'sine'; o2.frequency.value = 87;
+  lfo.type = 'sine'; lfo.frequency.value = 5.5; lg.gain.value = 22;
+  lfo.connect(lg); lg.connect(o1.frequency);
+  o1.connect(f); o2.connect(f); f.connect(g); g.connect(ac.destination);
+  o1.start(); o2.start(); lfo.start();
+  ufoHum = { g: g, nodes: [o1, o2, lfo] };
+}
+function stopUfoHum() {
+  if (!ufoHum) return;
+  var h = ufoHum; ufoHum = null;
+  h.g.gain.value = 0;
+  h.nodes.forEach(function (n) { try { n.stop(); } catch (e) { } });
+}
+function spawnUfo() {
+  if (ufo) return;
+  var a = Math.random() * Math.PI * 2;
+  var sx = Math.cos(a) * (HALF + 60), sz = Math.sin(a) * (HALF + 60);
+  var tx2 = -Math.cos(a) * (HALF + 60) + (Math.random() - 0.5) * 160;
+  var tz2 = -Math.sin(a) * (HALF + 60) + (Math.random() - 0.5) * 160;
+  var d = Math.sqrt((tx2 - sx) * (tx2 - sx) + (tz2 - sz) * (tz2 - sz));
+  var g = getUfoMesh('ufo');
+  g.position.set(sx, 30, sz);
+  g.userData.ufo = true;
+  g.traverse(function (o) { o.userData.ufo = true; });
+  scene.add(g);
+  ufo = { mode: 'fly', group: g, hp: 280, vx: (tx2 - sx) / d * 6.5, vz: (tz2 - sz) / d * 6.5, dist: 0, maxDist: d, vy: 0, spin: 1, smokeT: 0, crashT: 0, alienAt: 0 };
+  startUfoHum();
+}
+function damageUfo(dmg, hitPoint) {
+  if (!ufo || ufo.mode !== 'fly') return;
+  ufo.hp -= dmg;
+  if (hitPoint) puff(hitPoint, 0xffe08a);
+  if (ufo.hp <= 0) {
+    ufo.mode = 'falling'; ufo.spin = 4.5;
+    popup2('UFO HIT!');
+  }
+}
+function crashUfo() {
+  var p = ufo.group.position;
+  var x = Math.max(-HALF + 20, Math.min(HALF - 20, p.x));
+  var z = Math.max(-HALF + 20, Math.min(HALF - 20, p.z));
+  scene.remove(ufo.group);
+  var g = getUfoMesh('ufo_dead');
+  g.position.set(x, 0.6, z);
+  g.rotation.set(0.16, Math.random() * Math.PI * 2, -0.12);
+  scene.add(g);
+  ufo.group = g; ufo.mode = 'crashed'; ufo.crashT = T; ufo.alienAt = T + 20;
+  boomAt(x, z);
+  panicNear(x, z, 2400);
+  stopUfoHum();
+}
+function spawnAlien(x, z) {
+  var mesh = null;
+  if (typeof MESHY_ROLE !== 'undefined' && MESHY_ROLE.alien !== undefined) {
+    mesh = buildMeshySkinned(randomCharConfig(seededRng(51)), MESHY_ROLE.alien);
+  } else {
+    mesh = buildPerson('#9aa2ac', '#8a8f94', 0xaeb6be, { hairColor: 0x9aa2ac });   // placeholder
+  }
+  var p = pushOut(x, z, 0.6);
+  mesh.position.set(p.x, 0, p.z);
+  mesh.userData.alien = true;
+  mesh.traverse(function (o) { o.userData.alien = true; });
+  scene.add(mesh);
+  alien = { mesh: mesh, x: p.x, z: p.z, hp: 600, state: 'hunt', fireT: 2.5, phase: Math.random() * 9, deadT: 0, hurtFlash: 0 };
+  popup2('SOMETHING CRAWLED OUT OF THE WRECK');
+}
+function damageAlien(dmg, kx, kz) {
+  if (!alien || alien.state === 'dead') return;
+  alien.hp -= dmg;
+  alien.hurtFlash = 0.12;
+  alien.x += (kx || 0) * 0.15; alien.z += (kz || 0) * 0.15;
+  if (alien.hp <= 0) {
+    alien.state = 'dead'; alien.deadT = T;
+    dropWeapon('raygun', alien.x, alien.z);
+    drops[drops.length - 1].life = 9999;   // the prize doesn't despawn
+    popup2('ALIEN DOWN — IT DROPPED SOMETHING');
+    spawnCash(alien.x, alien.z, 200 + ((Math.random() * 300) | 0));
+  }
+}
+function updateAlien(dt) {
+  if (!alien) return;
+  var m = alien.mesh;
+  if (alien.hurtFlash > 0) { alien.hurtFlash -= dt; m.position.y = alien.hurtFlash > 0 ? 0.06 : 0; }
+  if (alien.state === 'dead') {
+    // keel over, then fade out
+    var k = Math.min(1, (T - alien.deadT) / 0.7);
+    m.rotation.x = -1.5 * k;
+    m.position.y = 0.25 * k;
+    if (T - alien.deadT > 12) { scene.remove(m); alien = null; }
+    return;
+  }
+  var dx = player.x - alien.x, dz = player.z - alien.z;
+  var d = Math.sqrt(dx * dx + dz * dz) || 1;
+  var moving = d > 13;
+  if (moving) {
+    var sp = 2.6;
+    var np2 = pushOut(alien.x + dx / d * sp * dt, alien.z + dz / d * sp * dt, 0.55);
+    alien.x = np2.x; alien.z = np2.z;
+    alien.phase += sp * dt * 3.4;
+  }
+  m.position.set(alien.x, m.position.y, alien.z);
+  m.rotation.y = Math.atan2(dx, dz);
+  animPerson(m, moving ? 2.6 : 0, dt, alien.phase);
+  m.updateMatrixWorld(true);
+  // laser fire: hurts more than any bullet in town
+  alien.fireT -= dt;
+  if (alien.fireT <= 0 && d < 60 && !state.dead && !inside) {
+    alien.fireT = 1.35;
+    var hy = 1.5;
+    sfx('laser');
+    var hitChance = 0.8 * Math.max(0.25, 1 - d / 70);
+    if (Math.random() < hitChance && !driving) {
+      spawnBeam(alien.x, hy, alien.z, player.x, player.y - 0.1, player.z, 0xd050ff);
+      hurtPlayer(45);
+    } else {
+      // miss (or slammed into your car) — beam goes wide
+      var mx = player.x + (Math.random() - 0.5) * 4, mz = player.z + (Math.random() - 0.5) * 4;
+      spawnBeam(alien.x, hy, alien.z, mx, player.y - 0.4 + Math.random(), mz, 0xd050ff);
+      if (driving) {
+        driving.carHP = (driving.carHP === undefined ? 100 : driving.carHP) - 24;
+        if (driving.carHP <= 0) igniteCar(driving);
+      }
+    }
+  }
+}
+function updateUfo(dt) {
+  for (var bi = beams.length - 1; bi >= 0; bi--) {
+    var b = beams[bi];
+    b.life -= dt;
+    b.mesh.material.opacity = Math.max(0, b.life / 0.1) * 0.95;
+    if (b.life <= 0) { scene.remove(b.mesh); beams.splice(bi, 1); }
+  }
+  if (!ufoTriggered && state.money >= UFO_MONEY && state.running) { ufoTriggered = true; spawnUfo(); }
+  updateAlien(dt);
+  if (!ufo) return;
+  var g = ufo.group, p = g.position;
+  if (ufo.mode === 'fly') {
+    p.x += ufo.vx * dt; p.z += ufo.vz * dt;
+    ufo.dist += Math.sqrt(ufo.vx * ufo.vx + ufo.vz * ufo.vz) * dt;
+    p.y = 30 + Math.sin(T * 0.7) * 1.6;
+    g.rotation.y += dt * ufo.spin;
+    if (ufoHum) {
+      var hd = Math.sqrt((p.x - player.x) * (p.x - player.x) + (p.z - player.z) * (p.z - player.z) + (p.y - player.y) * (p.y - player.y));
+      ufoHum.g.gain.value = Math.max(0, 1 - hd / 220) * 0.4;
+    }
+    if (ufo.dist > ufo.maxDist + 80) { scene.remove(g); stopUfoHum(); ufo = null; }   // got away
+  } else if (ufo.mode === 'falling') {
+    ufo.vy -= 12 * dt;
+    p.x += ufo.vx * 0.6 * dt; p.z += ufo.vz * 0.6 * dt;
+    p.y += ufo.vy * dt;
+    g.rotation.y += dt * ufo.spin;
+    g.rotation.z = Math.min(0.5, (g.rotation.z || 0) + dt * 0.35);
+    ufo.smokeT -= dt;
+    if (ufo.smokeT <= 0) { ufo.smokeT = 0.08; puff(new THREE.Vector3(p.x, p.y + 1, p.z), 0x333333); }
+    if (ufoHum) ufoHum.g.gain.value = Math.max(0, 1 - Math.abs(p.y) / 60) * 0.5;
+    if (p.y <= 1.2) crashUfo();
+  } else if (ufo.mode === 'crashed') {
+    ufo.smokeT -= dt;
+    if (ufo.smokeT <= 0 && T - ufo.crashT < 90) {
+      ufo.smokeT = 0.35;
+      puff(new THREE.Vector3(p.x + (Math.random() - 0.5) * 5, 1.5 + Math.random() * 2, p.z + (Math.random() - 0.5) * 5), 0x2a2a2a);
+    }
+    if (!alien && ufo.alienAt && T >= ufo.alienAt) { ufo.alienAt = 0; spawnAlien(p.x + 6, p.z + 2); }
+    if (T - ufo.crashT > 300) { scene.remove(g); ufo = null; }   // wreck recovered by, uh, nobody
   }
 }
 
@@ -3395,6 +3640,30 @@ var vmRocket = new THREE.Group();
   vmRocket.add(vmArm(0.16, -0.46, -0.6, -0.3));
 })();
 
+// ray gun: Meshy model (user-designed) when meshyufo.js carries it,
+// procedural chrome pistol otherwise
+var vmRaygun = new THREE.Group();
+(function () {
+  if (hasMeshyProp('raygun')) {
+    var mg = getUfoMesh('raygun', 0.5);
+    mg.position.set(0.27, -0.36, -0.5);
+    mg.rotation.order = 'YXZ';
+    mg.rotation.y = -Math.PI / 2 + 0.22;  // nose forward (-z) with a classic inward cant
+    mg.rotation.x = 0.1;                  // level the slight baked-in tilt
+    vmRaygun.add(mg);
+    vmRaygun.add(vmArm(0.29, -0.47, -0.3, 0.18));
+    return;
+  }
+  var chromeM = phong({ color: 0xc8ccd4, shininess: 110, specular: 0xffffff });
+  var bodyR = cyl(0.05, 0.075, 0.42, 10, chromeM, 0.26, -0.27, -0.62); bodyR.rotation.x = Math.PI / 2; vmRaygun.add(bodyR);
+  var ringR = cyl(0.085, 0.085, 0.03, 10, darkMetalM, 0.26, -0.27, -0.72); ringR.rotation.x = Math.PI / 2; vmRaygun.add(ringR);
+  vmRaygun.add(sph(0.055, new THREE.MeshBasicMaterial({ color: 0x66ff88 }), 0.26, -0.27, -0.86, 10, 8));
+  var finR = box(0.016, 0.14, 0.22, lamb({ color: 0xb02030 }), 0.26, -0.175, -0.56); vmRaygun.add(finR);
+  var grip = box(0.055, 0.17, 0.09, gripM, 0.26, -0.4, -0.44); grip.rotation.x = 0.32; vmRaygun.add(grip);
+  var guard = new THREE.Mesh(new THREE.TorusGeometry(0.035, 0.008, 6, 10, Math.PI * 1.1), darkMetalM); guard.position.set(0.26, -0.35, -0.52); guard.rotation.y = Math.PI / 2; vmRaygun.add(guard);
+  vmRaygun.add(vmArm(0.29, -0.47, -0.32, 0.18));
+})();
+
 // snack: chip bag in hand
 var vmSnack = new THREE.Group();
 (function () {
@@ -3411,7 +3680,7 @@ var vmSnack = new THREE.Group();
 
 var flash = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.3), new THREE.MeshBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0.95, depthTest: false }));
 flash.visible = false; vm.add(flash); var flashT = 0;
-var vmMap = { fists: vmFists, pistol: vmPistol, smg: vmSmg, rifle: vmRifle, auto: vmAuto, rocket: vmRocket, snack: vmSnack };
+var vmMap = { fists: vmFists, pistol: vmPistol, smg: vmSmg, rifle: vmRifle, auto: vmAuto, rocket: vmRocket, raygun: vmRaygun, snack: vmSnack };
 Object.keys(vmMap).forEach(function (k) { vm.add(vmMap[k]); vmMap[k].visible = false; });
 vmFists.visible = true;
 var zoomed = false;
@@ -3511,18 +3780,33 @@ function tryAttack() {
   if (isClient()) for (k = 0; k < copsM.length; k++) npcRootsAlive.push(copsM[k].mesh);
   for (k = 0; k < cars.length; k++) if (!cars[k].exploded) npcRootsAlive.push(cars[k].car.group);
   for (var rid in net.remotes) { var rr = net.remotes[rid]; if (rr.dead) continue; npcRootsAlive.push(rr.drv && rr.car ? rr.car.group : rr.mesh); }
+  if (ufo && ufo.mode === 'fly') npcRootsAlive.push(ufo.group);
+  if (alien && alien.state !== 'dead') npcRootsAlive.push(alien.mesh);
   var hits = raycaster.intersectObjects(npcRootsAlive.concat(solidMeshes), true);
+  // laser weapons draw the whole beam to wherever it lands
+  if (w.laser) {
+    var bp = hits.length ? hits[0].point : camera.position.clone().add(dir.clone().multiplyScalar(160));
+    // start at the muzzle corner so the beam is visible in first person
+    // (a dead-on-axis cylinder renders as a dot)
+    var rgt = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+    var mo = camera.position.clone().add(dir.clone().multiplyScalar(1.3)).add(rgt.multiplyScalar(0.24));
+    spawnBeam(mo.x, mo.y - 0.3, mo.z, bp.x, bp.y, bp.z, 0x66ff88);
+  }
   if (hits.length) {
-    var h = hits[0], o = h.object, npcHit = null, copHit = null, carHit = null, remoteHit = null, copMHit = -1;
+    var h = hits[0], o = h.object, npcHit = null, copHit = null, carHit = null, remoteHit = null, copMHit = -1, ufoHit = false, alienHit = false;
     while (o) {
       if (o.userData && o.userData.npc) { npcHit = o.userData.npc; break; }
       if (o.userData && o.userData.cop) { copHit = o.userData.cop; break; }
       if (o.userData && o.userData.copM !== undefined) { copMHit = o.userData.copM; break; }
       if (o.userData && o.userData.remoteId) { remoteHit = o.userData.remoteId; break; }
       if (o.userData && o.userData.trafficCar) { carHit = o.userData.trafficCar; break; }
+      if (o.userData && o.userData.ufo) { ufoHit = true; break; }
+      if (o.userData && o.userData.alien) { alienHit = true; break; }
       o = o.parent;
     }
-    if (npcHit) {
+    if (ufoHit) { damageUfo(w.dmg, h.point); }
+    else if (alienHit) { puff(h.point, 0x66ff88); damageAlien(w.dmg, dir.x, dir.z); }
+    else if (npcHit) {
       puff(h.point, 0xd93a2a);
       meleeHit = state.equipped === 'fists';
       if (isClient()) netToHost({ t: 'dmgNpc', i: npcs.indexOf(npcHit), dmg: w.dmg, kx: dir.x, kz: dir.z });
@@ -3860,6 +4144,8 @@ function sfx(kind) {
   switch (kind) {
     case 'pistol': noiseBurst(0.14, 1700, 0.5); beep(220, 0.08, 0.12, 'square', 90); break;
     case 'smg': noiseBurst(0.09, 2100, 0.35); break;
+    case 'raygun': beep(1750, 0.14, 0.22, 'square', 420); beep(880, 0.1, 0.1, 'sawtooth', 220); break;
+    case 'laser': beep(1350, 0.2, 0.22, 'sawtooth', 240); noiseBurst(0.06, 3000, 0.12); break;
     case 'rifle': noiseBurst(0.3, 900, 0.8); beep(120, 0.18, 0.2, 'sawtooth', 45); break;
     case 'whoosh': beep(280, 0.1, 0.1, 'sine', 90); break;
     case 'hit': beep(140, 0.09, 0.3, 'square', 70); noiseBurst(0.05, 900, 0.2); break;
@@ -3889,6 +4175,7 @@ function refreshShop() {
   var rows = document.getElementById('shopRows'); rows.innerHTML = '';
   GUN_LIST.forEach(function (k) {
     var w = WEAPONS[k], row = document.createElement('div'); row.className = 'row';
+    if (!w.price) return;   // not for sale (ray gun drops from... something)
     var left = document.createElement('div'); left.innerHTML = '<b>' + w.name + '</b> — <span class="cash">$' + w.price + '</span><small>' + w.desc + '</small>'; row.appendChild(left);
     if (state.owned[k]) { var sp = document.createElement('span'); sp.className = 'owned'; sp.textContent = 'OWNED'; row.appendChild(sp); }
     else { var btn = document.createElement('button'); btn.textContent = 'BUY'; btn.disabled = state.money < w.price; btn.onclick = function () { if (state.money < w.price) { playVoiceAny(['dealer_nocash_1', 'dealer_nocash_2'], 0.5, 'dealerNo', 5); sfx('deny'); return; } state.money -= w.price; state.owned[k] = true; shopBought = true; playVoiceAny(['dealer_buy_1', 'dealer_buy_2'], 0.5, 'dealerBuy', 4); sfx('buy'); popup(w.name + ' purchased!'); refreshShop(); }; row.appendChild(btn); }
@@ -4599,7 +4886,7 @@ function loop(now) {
   var dt = Math.min(0.05, (now - last) / 1000); last = now;
   if (!state.running) { renderer.render(scene, camera); renderCreatorFrame(dt); return; }
   T += dt;
-  updatePlayer(dt); updateNPCs(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateEnv(dt); updateNet(dt); updateHUD(); drawMinimap();
+  updatePlayer(dt); updateNPCs(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateUfo(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateEnv(dt); updateNet(dt); updateHUD(); drawMinimap();
   renderer.render(scene, camera);
 }
 setEquipped('fists');
@@ -4622,6 +4909,10 @@ window.__wc = {
   storeState: function () { return { robbed: robbedVisit, copsCalled: copsCalledVisit, closedUntil: gasClosedUntil, now: T }; },
   resetCooldowns: function () { punchT = -99; lastShot = -99; },
   gunBloom: function () { return gunBloom; },
+  spawnUfo: spawnUfo, damageUfo: damageUfo, damageAlien: damageAlien,
+  ufoRef: function () { return ufo; }, alienRef: function () { return alien; },
+  ufoState: function () { return ufo ? { mode: ufo.mode, hp: ufo.hp, pos: ufo.group.position.toArray().map(function (v) { return Math.round(v * 10) / 10; }), crashT: ufo.crashT, alienAt: ufo.alienAt } : null; },
+  alienState: function () { return alien ? { hp: alien.hp, state: alien.state, x: Math.round(alien.x), z: Math.round(alien.z) } : null; },
   openMenu: openMenu, closeMenus: closeMenus, spawnCashAt: spawnCash,
   renderer: renderer, scene: scene, camera: camera,
   cars: cars, boomAt: boomAt, killNpcRagdoll: killNpcRagdoll,
@@ -4643,7 +4934,7 @@ window.__wc = {
   creatorSpin: function (v) { if (cprev) cprev.spin = v; },
   getPlayerChar: function () { return playerChar; },
   setPlayerChar: function (c) { playerChar = c; },
-  tick: function (dt) { T += dt; updatePlayer(dt); updateNPCs(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateEnv(dt); updateNet(dt); renderer.render(scene, camera); }
+  tick: function (dt) { T += dt; updatePlayer(dt); updateNPCs(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateUfo(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateEnv(dt); updateNet(dt); renderer.render(scene, camera); }
 };
 
 })();
