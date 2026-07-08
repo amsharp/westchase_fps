@@ -2102,7 +2102,7 @@ function spawnNPC() {
   var start = sidewalkSpot(), tgt = npcTarget();
   var n = { mesh: mesh, x: start[0], z: start[1], tx: tgt[0], tz: tgt[1], hp: 100, state: 'walk', speed: 1.5 + Math.random() * 1.1, phase: Math.random() * 9, pause: 0, fleeT: 0, fleeDX: 0, fleeDZ: 0, downT: 0, hurtFlash: 0, vname: meshyNameFromCfg(cfg), fem: femFromCfg(cfg) };
   mesh.position.set(n.x, 0, n.z); mesh.userData.npc = n;
-  scene.add(mesh); npcs.push(n); return n;
+  scene.add(mesh); npcs.push(n); setNpcTarget(n); return n;
 }
 for (var ni = 0; ni < NPC_COUNT; ni++) spawnNPC();
 
@@ -2350,7 +2350,9 @@ function spawnCop(nearPlayer) {
   var p = pushOut(x, z, 0.6); x = p.x; z = p.z;
   var t2 = randTarget();
   var c = { mesh: mesh, x: x, z: z, hp: 100, state: 'patrol', tx: t2[0], tz: t2[1], phase: Math.random() * 9, fireT: 0.5 + Math.random(), downT: 0, hurtFlash: 0, vname: mesh.userData.vname || null, fem: MESHY_FEM.indexOf(mesh.userData.vname || '') >= 0 };
-  attachHeldGun(mesh, state.wanted >= 4 ? 'smg' : 'pistol');
+  // no gun at spawn: patrol cops keep it holstered, updateCops draws it on
+  // 'engage'. (This also dodges a load-order trap: the boot-time spawnCop
+  // calls ran before the var gun materials existed -> all-white pistols.)
   mesh.position.set(x, 0, z); mesh.userData.cop = c;
   scene.add(mesh); cops.push(c); return c;
 }
@@ -2391,6 +2393,24 @@ function copPickTarget(c) {
   for (var id in net.remotes) { var r = net.remotes[id]; if (!r.dead) cand(r.x, r.z, r.y || EYE, r.w || 0, id); }
   return best;
 }
+// raise the gun arm at the target — post-multiplied AFTER animPerson each
+// frame (same trick as the clerk hands-up) so the walk swing doesn't fight it
+var copAimQ = null;
+function copAimArm(c, m, tgt) {
+  var L = m.userData.limbs;
+  if (!L || !L.armR) return;
+  if (!copAimQ) copAimQ = new THREE.Quaternion();
+  var vert = Math.atan2((tgt.y || EYE) - ((c.baseY || 0) + 1.35), tgt.d || 1);
+  copAimQ.setFromAxisAngle(X_AXIS, -1.35 - vert);
+  L.armR.quaternion.multiply(copAimQ);
+}
+// world-space muzzle tip of the cop's held gun (null while holstered)
+function copMuzzle(c) {
+  var gun = c.mesh.userData.heldGun;
+  if (!gun) return null;
+  c.mesh.updateMatrixWorld(true);   // bones were just posed; matrices are a frame stale
+  return new THREE.Vector3(0, 0, c.mesh.userData.heldKind === 'smg' ? -0.62 : -0.42).applyMatrix4(gun.matrixWorld);
+}
 function copShoot(c, wpn, dt, tgt) {
   c.fireT -= dt;
   if (c.fireT > 0) return;
@@ -2403,7 +2423,8 @@ function copShoot(c, wpn, dt, tgt) {
   }
   sfx(wpn.sfx, { x: c.x, z: c.z, y: (c.baseY || 0) + 1.4, range: 150 });
   var dx = tgt.x - c.x, dz = tgt.z - c.z, d = Math.sqrt(dx * dx + dz * dz) || 1;
-  puff(new THREE.Vector3(c.x + dx / d * 0.5, (c.baseY || 0) + 1.45, c.z + dz / d * 0.5), 0xffe08a);
+  // muzzle flash at the gun's barrel tip; chest-height fallback if holstered
+  puff(copMuzzle(c) || new THREE.Vector3(c.x + dx / d * 0.5, (c.baseY || 0) + 1.45, c.z + dz / d * 0.5), 0xffe08a);
   var hitChance = wpn.acc * Math.max(0.1, 1 - d / wpn.range);
   if (Math.random() < hitChance) {
     if (tgt.id) { netSendHit(tgt.id, wpn.dmg); return; }   // remote player: their client applies (car redirect included)
@@ -2467,11 +2488,10 @@ function updateCops(dt) {
     for (var i0 = 0; i0 < cops.length; i0++) if (cops[i0].state !== 'down' && !cops[i0].interior) alive++;
     if (alive < desiredCops() && copSpawnT <= 0) { spawnCop(state.wanted >= 2); copSpawnT = 2.6; }
   }
-  var wantGun = state.wanted >= 4 ? 'smg' : 'pistol';
+  var tierGun = state.wanted >= 4 ? 'smg' : 'pistol';   // 4-star tier swaps sidearms for SMGs
   for (var i = 0; i < cops.length; i++) {
     var c = cops[i], m = c.mesh;
     if (isClient() && !c.interior) { scene.remove(m); cops.splice(i, 1); i--; continue; }   // street cops come from the host
-    if (c.state !== 'down' && m.userData.handR && m.userData.heldKind !== wantGun) attachHeldGun(m, wantGun);   // 4-star tier swaps sidearms for SMGs
     var baseY = c.baseY || 0;
     if (c.interior && !inside && c.state !== 'down') { scene.remove(m); cops.splice(i, 1); i--; continue; }
     if (c.hurtFlash > 0) c.hurtFlash -= dt;
@@ -2486,12 +2506,16 @@ function updateCops(dt) {
     var tgt;
     if (c.interior) tgt = (inside && !state.dead) ? { x: player.x, z: player.z, y: player.y, id: null, d: Math.sqrt((player.x - c.x) * (player.x - c.x) + (player.z - c.z) * (player.z - c.z)) } : null;
     else tgt = copPickTarget(c);
-    var vx = 0, vz = 0, spd = 0, moving = false;
+    if (!c.interior) { if (tgt) c.state = 'engage'; else if (c.state === 'engage') c.state = 'patrol'; }
+    // holstered until they mean it: gun out only while engaging (interior cops always)
+    var wantGun = (c.state === 'engage' || c.interior) ? tierGun : null;
+    if (m.userData.handR && (m.userData.heldKind || null) !== wantGun) attachHeldGun(m, wantGun);
+    var vx = 0, vz = 0, spd = 0, moving = false, aimTgt = null;
     if (tgt) {
       var dx = tgt.x - c.x, dz = tgt.z - c.z, d = tgt.d;
       if (d > wpn.range * 0.65 || (c.interior && d > 5)) { vx = dx / d; vz = dz / d; spd = 4.4; moving = true; }
       m.rotation.y = Math.atan2(dx, dz);
-      if (d < wpn.range) copShoot(c, wpn, dt, tgt);
+      if (d < wpn.range) aimTgt = tgt;   // aim + fire below, after animPerson poses the bones
     } else {
       if (c.interior) { animPerson(m, 0, dt); m.position.set(c.x, baseY, c.z); continue; }
       var tdx = c.tx - c.x, tdz = c.tz - c.z, td = Math.sqrt(tdx * tdx + tdz * tdz);
@@ -2507,6 +2531,7 @@ function updateCops(dt) {
     }
     m.position.set(c.x, baseY + (c.hurtFlash > 0 ? 0.06 : 0), c.z);
     animPerson(m, moving ? spd : 0, dt, c.phase);
+    if (aimTgt) { copAimArm(c, m, aimTgt); copShoot(c, wpn, dt, aimTgt); }
   }
   // lose the heat: 18s with no crimes and no cops within 50 units
   if (state.wanted > 0 && T - lastCrimeT > 18) {
@@ -3140,14 +3165,18 @@ function dropMesh(kind) {
   else { var tb = cyl(0.09, 0.09, 1.0, 10, rocketBodyM, 0, 0, 0); tb.rotation.x = Math.PI / 2; g.add(tb); }
   return g;
 }
-// put a gun in a skinned character's right hand (cops, armed remote players)
+// put a gun in a skinned character's right hand (cops, armed remote players).
+// kind = null/undefined removes it (holstered). NOTE: must only be called at
+// runtime, never during script load — dropMesh's gun materials are vars
+// defined below and an early call bakes white default materials in.
 function attachHeldGun(g, kind) {
-  if (g.userData.heldGun) { g.userData.heldGun.parent.remove(g.userData.heldGun); g.userData.heldGun = null; g.userData.heldKind = null; }
+  if (g.userData.heldGun) { g.userData.heldGun.parent.remove(g.userData.heldGun); g.userData.heldGun = null; }
+  g.userData.heldKind = null;
   if (!kind || !g.userData.handR) return;
   var gun = dropMesh(kind);
   gun.scale.setScalar(0.85);
-  gun.position.set(0.02, 0.08, 0.02);
-  gun.rotation.set(Math.PI / 2 - 0.35, 0, 0);   // low-ready carry, barrel forward-down
+  gun.position.set(0.03, 0.05, -0.02);
+  gun.rotation.set(Math.PI / 2 - 0.35, 0, 0);   // barrel out the front of the fist, grip in palm
   g.userData.handR.add(gun);
   g.userData.heldGun = gun; g.userData.heldKind = kind;
 }
@@ -3524,12 +3553,20 @@ function damageNPC(n, dmg, kx, kz, silent) {
   }
   for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o === n || o.state !== 'walk') continue; var dx = o.x - n.x, dz = o.z - n.z; if (dx * dx + dz * dz < 170) startFlee(o); }
 }
-function startFlee(n) { if (n.state === 'down') return; n.state = 'flee'; n.fleeT = 4 + Math.random() * 3; var dx = n.x - player.x, dz = n.z - player.z; var d = Math.sqrt(dx * dx + dz * dz) || 1; n.fleeDX = dx / d; n.fleeDZ = dz / d; }
+function startFlee(n) { if (n.state === 'down') return; n.state = 'flee'; n.dodge = false; n.fleeT = 4 + Math.random() * 3; var dx = n.x - player.x, dz = n.z - player.z; var d = Math.sqrt(dx * dx + dz * dz) || 1; n.fleeDX = dx / d; n.fleeDZ = dz / d; }
 function panicNear(x, z, r2) { var fled = null; for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o.state !== 'walk') continue; var dx = o.x - x, dz = o.z - z; if (dx * dx + dz * dz < r2) { startFlee(o); if (!fled || o.vname) fled = o; } } if (fled && !playNpcVoice(fled.vname, 'gunscared', 0.65, 10, { x: fled.x, z: fled.z, yell: true })) playVoiceAny(fled.fem ? ['pedf_gun'] : ['pedm_gun'], 0.6, 'pedGun', 16, { x: fled.x, z: fled.z, yell: true }); }
 
 var npcSocialT = 0, npcBumpT = -99, meleeHit = false;
 function updateNPCs(dt) {
   if (isClient()) { updateNPCExtras(); return; }   // npcs mirrored from host snapshot
+  // sample car velocities (player/remote-driven cars have no analytic speed —
+  // approximate from last frame's position delta, same idea as _bx/_bz in
+  // updateWorldFx but sampled here so the delta isn't already consumed)
+  if (dt > 0) for (var vci = 0; vci < cars.length; vci++) {
+    var vc = cars[vci], vm = vc.car.group.position;
+    if (vc._nx !== undefined) { vc._pvx = (vm.x - vc._nx) / dt; vc._pvz = (vm.z - vc._nz) / dt; }
+    vc._nx = vm.x; vc._nz = vm.z;
+  }
   npcSocialT -= dt;
   if (npcSocialT <= 0) {
     npcSocialT = 1.2;
@@ -3582,6 +3619,15 @@ function updateNPCs(dt) {
   for (var i = 0; i < npcs.length; i++) {
     var n = npcs[i], m = n.mesh;
     if (n.hurtFlash > 0) { n.hurtFlash -= dt; m.position.y = n.hurtFlash > 0 ? 0.06 : 0; }
+    // street smarts: bail out perpendicular when a car bears down on you
+    if ((n.state === 'walk' || n.state === 'stand') && T > (n.dodgeCD || 0)) {
+      var thr = npcCarThreat(n);
+      if (thr) {
+        n.state = 'flee'; n.dodge = true; n.fleeT = 0.9 + Math.random() * 0.3;
+        n.fleeDX = thr.x; n.fleeDZ = thr.z; n.dodgeCD = T + 2;
+        if (!playNpcVoice(n.vname, 'bump', 0.6, 3, { x: n.x, z: n.z, yell: true })) playVoiceAny(n.fem ? ['pedf_hit', 'pedf_hit_2'] : ['pedm_hit_1', 'pedm_hit_2'], 0.55, 'pedDodge', 4, { x: n.x, z: n.z, yell: true });
+      }
+    }
     if (n.state === 'ragdoll') {
       n.vy -= 24 * dt;
       n.airY += n.vy * dt;
@@ -3600,13 +3646,13 @@ function updateNPCs(dt) {
     }
     if (n.state === 'down') {
       n.downT -= dt; m.rotation.x = Math.max(-1.45, m.rotation.x - dt * 7);
-      if (n.downT <= 0) { var s = sidewalkSpot(); n.x = s[0]; n.z = s[1]; var t = npcTarget(); n.tx = t[0]; n.tz = t[1]; n.hp = 100; n.state = 'walk'; m.rotation.x = 0; if (m.userData.shadow) m.userData.shadow.visible = true; }
+      if (n.downT <= 0) { var s = sidewalkSpot(); n.x = s[0]; n.z = s[1]; setNpcTarget(n); n.hp = 100; n.state = 'walk'; m.rotation.x = 0; if (m.userData.shadow) m.userData.shadow.visible = true; }
       m.position.set(n.x, m.position.y, n.z); continue;
     }
     if (n.state === 'stand') {
       n.stateT -= dt; n.animT += dt;
       animPersonClip(m, n.idleVar ? 'idle2' : 'idle', n.animT);
-      if (n.stateT <= 0) { n.state = 'walk'; var st2 = npcTarget(); n.tx = st2[0]; n.tz = st2[1]; }
+      if (n.stateT <= 0) { n.state = 'walk'; setNpcTarget(n); }
       m.position.set(n.x, 0, n.z);
       continue;
     }
@@ -3650,12 +3696,14 @@ function updateNPCs(dt) {
     }
     var vx = 0, vz = 0, spd = n.speed;
     if (n.state === 'flee') {
-      n.fleeT -= dt; spd = 4.6; vx = n.fleeDX; vz = n.fleeDZ; if (n.fleeT <= 0) n.state = 'walk';
+      n.fleeT -= dt; spd = n.dodge ? 7.4 : 4.6; vx = n.fleeDX; vz = n.fleeDZ; if (n.fleeT <= 0) { n.state = 'walk'; n.dodge = false; }
     } else {
       if (n.pause > 0) { n.pause -= dt; animPerson(m, 0, dt); continue; }
-      var dx = n.tx - n.x, dz = n.tz - n.z, d = Math.sqrt(dx * dx + dz * dz);
+      var gx = n.wayX !== undefined ? n.wayX : n.tx, gz = n.wayX !== undefined ? n.wayZ : n.tz;
+      var dx = gx - n.x, dz = gz - n.z, d = Math.sqrt(dx * dx + dz * dz);
       if (d < 1) {
-        var tt = npcTarget(); n.tx = tt[0]; n.tz = tt[1];
+        if (n.wayX !== undefined) { n.wayX = undefined; n.wayZ = undefined; continue; }   // crosswalk reached: carry on to the real target
+        setNpcTarget(n);
         if (Math.random() < 0.3) { n.state = 'stand'; n.stateT = 2.5 + Math.random() * 6; n.animT = Math.random() * 3; n.idleVar = Math.random() < 0.4; }
         continue;
       }
@@ -3674,9 +3722,24 @@ function updateNPCs(dt) {
         n.stuckT = 0;
         var back = sidewalkSpot();
         n.tx = back[0]; n.tz = back[1];
+        n.wayX = undefined; n.wayZ = undefined;
         n.fleeDX = -vx; n.fleeDZ = -vz;   // fleeing NPCs bounce back the way they came
       }
     } else n.stuckT = 0;
+    // sidewalk discipline: loitering on road asphalt (off the intersection /
+    // crosswalk area) for 2s steers the target to the nearest sidewalk band
+    if (n.state === 'walk') {
+      var onMainRd = Math.abs(n.z) < MAIN_HW && Math.abs(n.x) > CROSS_HW;
+      var onCrossRd = Math.abs(n.x) < CROSS_HW && Math.abs(n.z) > MAIN_HW;
+      if (onMainRd || onCrossRd) {
+        n.roadT = (n.roadT || 0) + dt;
+        if (n.roadT > 2) {
+          n.roadT = 0; n.wayX = undefined; n.wayZ = undefined;
+          if (onMainRd) { n.tx = n.x; n.tz = (n.z >= 0 ? 1 : -1) * (MAIN_HW + 2 + Math.random() * 2); }
+          else { n.tx = (n.x >= 0 ? 1 : -1) * (CROSS_HW + 2 + Math.random() * 2); n.tz = n.z; }
+        }
+      } else n.roadT = 0;
+    }
     if (n.bleedT > 0) {
       // wounded and on the move: a drip trail that slows and finally clots
       n.bleedT -= dt;
@@ -3779,20 +3842,46 @@ function getGunMesh(name, len) {
   var fp = new Float32Array(qp.length), fu = new Float32Array(qu.length);
   for (i = 0; i < qp.length; i++) fp[i] = qp[i] / e.q;
   for (i = 0; i < qu.length; i += 2) { fu[i] = qu[i] / 8192; fu[i + 1] = 1 - qu[i + 1] / 8192; }
-  var geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(fp, 3));
-  geo.setAttribute('uv', new THREE.BufferAttribute(fu, 2));
-  if (e.i) geo.setIndex(new THREE.BufferAttribute(new Uint16Array(b64Bytes(e.i).buffer), 1));
-  geo.computeVertexNormals();
   var im = new Image();
   var tx = new THREE.Texture(im);
   tx.magFilter = THREE.NearestFilter; tx.minFilter = THREE.NearestFilter; tx.generateMipmaps = false;
   im.onload = function () { tx.needsUpdate = true; };
   im.src = e.tex;
-  var mm = new THREE.Mesh(geo, lamb({ map: tx }));
+  var gunM = lamb({ map: tx });
   var s = len / (e.dims && e.dims[0] || 1);
-  mm.scale.set(s, s, s);
-  g.add(mm);
+  if (name === 'rpg7' && !e.i) {
+    // split the baked launcher into tube + warhead (the front ~0.3m of the
+    // -x muzzle end) so firing can leave the tube visibly empty during reload
+    var tp = [], tu = [], wp = [], wu = [];
+    for (i = 0; i < fp.length; i += 9) {
+      var cx = (fp[i] + fp[i + 3] + fp[i + 6]) / 3;
+      var dp = cx < -0.33 ? wp : tp, du = cx < -0.33 ? wu : tu;
+      for (var j = 0; j < 9; j++) dp.push(fp[i + j]);
+      var ub = (i / 9) * 6;
+      for (j = 0; j < 6; j++) du.push(fu[ub + j]);
+    }
+    var tg = new THREE.BufferGeometry();
+    tg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(tp), 3));
+    tg.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(tu), 2));
+    tg.computeVertexNormals();
+    var wg2 = new THREE.BufferGeometry();
+    wg2.setAttribute('position', new THREE.BufferAttribute(new Float32Array(wp), 3));
+    wg2.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(wu), 2));
+    wg2.computeVertexNormals();
+    var tube = new THREE.Mesh(tg, gunM); tube.scale.set(s, s, s);
+    var wh = new THREE.Mesh(wg2, gunM); wh.scale.set(s, s, s);
+    wh.userData.warhead = true;
+    g.add(tube, wh);
+  } else {
+    var geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(fp, 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(fu, 2));
+    if (e.i) geo.setIndex(new THREE.BufferAttribute(new Uint16Array(b64Bytes(e.i).buffer), 1));
+    geo.computeVertexNormals();
+    var mm = new THREE.Mesh(geo, gunM);
+    mm.scale.set(s, s, s);
+    g.add(mm);
+  }
   gunMeshCache[ck] = g;
   return g.clone();
 }
@@ -4096,10 +4185,12 @@ var vmRocket = new THREE.Group();
 // spare rocket head: visible when loaded; slides back into the muzzle
 // during the 5s reload (see the vm block in updatePlayer)
 var rocketHead = null, rocketSeat = new THREE.Vector3(0.3, -0.24, -1.06), rocketFwd = new THREE.Vector3(0, 0, -1);
+var rpgWarhead = null;   // the Meshy launcher's own warhead mesh (hidden while the tube is empty)
 (function () {
   var headCant = 0;
   if (hasMeshyGun('rpg7')) {
     var mg = getGunMesh('rpg7', 0.95);
+    mg.traverse(function (o) { if (o.userData && o.userData.warhead) rpgWarhead = o; });
     mg.position.set(0.3, -0.26, -0.6);
     mg.rotation.order = 'YXZ';
     mg.rotation.y = -Math.PI / 2 + 0.22;
@@ -4289,14 +4380,21 @@ function tryAttack() {
     return;
   }
   if (T - lastShot < w.rate) return;
-  lastShot = T; recoil = 1; flash.visible = true; flash.position.set(w.flashAt[0], w.flashAt[1], w.flashAt[2]); flash.rotation.z = Math.random() * Math.PI; flash.scale.setScalar((w.flashScale || 1) * (0.85 + Math.random() * 0.35)); flashT = 0.045;
-  if (flashTexs.length) flash.material.map = flashTexs[(Math.random() * flashTexs.length) | 0];
+  lastShot = T; recoil = 1;
   if (w.rocket) {
+    // RPG: no front muzzle flash — the launch kicks smoke out the REAR tube
     recoil = 2.2;
+    if (rpgWarhead) rpgWarhead.visible = false;   // tube empties instantly
+    var bbDir = new THREE.Vector3(); camera.getWorldDirection(bbDir);
+    var bbP = camera.position.clone().addScaledVector(bbDir, -0.9);
+    puff(new THREE.Vector3(bbP.x, bbP.y - 0.3, bbP.z), 0x9a9a94);
+    puff(new THREE.Vector3(bbP.x - bbDir.x * 0.5, bbP.y - 0.35, bbP.z - bbDir.z * 0.5), 0x767670);
     fireRocket();
     pitch = Math.min(1.45, pitch + 0.04);
     return;
   }
+  flash.visible = true; flash.position.set(w.flashAt[0], w.flashAt[1], w.flashAt[2]); flash.rotation.z = Math.random() * Math.PI; flash.scale.setScalar((w.flashScale || 1) * (0.85 + Math.random() * 0.35)); flashT = 0.045;
+  if (flashTexs.length) flash.material.map = flashTexs[(Math.random() * flashTexs.length) | 0];
   sfx(state.equipped);
   var dir = new THREE.Vector3(); camera.getWorldDirection(dir);
   // bloom weapons (SMG): tight while tapping, blossoms under sustained fire
@@ -5673,11 +5771,13 @@ function updatePlayer(dt) {
       rocketHead.visible = rf >= 0.45 && (sl > 0 || rocketHead.userData.seatVisible);
       rocketHead.position.copy(rocketSeat).addScaledVector(rocketFwd, sl * 0.42);
       rocketHead.position.y += sl * 0.05;
+      if (rpgWarhead) rpgWarhead.visible = rf >= 0.75;   // seated = loaded again
       rocketCdEl.classList.remove('hidden');
       rocketCdBar.style.width = (rf * 100).toFixed(1) + '%';
     } else {
       rocketHead.visible = rocketHead.userData.seatVisible;
       rocketHead.position.copy(rocketSeat);
+      if (rpgWarhead) rpgWarhead.visible = true;
       rocketCdEl.classList.add('hidden');
     }
   } else rocketCdEl.classList.add('hidden');
