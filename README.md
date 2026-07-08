@@ -65,6 +65,16 @@ characters (unique meshes and outfits, graphic tees and all) built
 offline through an image-to-3D pipeline. Some pedestrians wear all of
 these too.
 
+## Sound with a place in the world
+
+Every voice, gunshot, scream, crash, and explosion now comes from
+somewhere: sounds pan to where their source is, fade with distance
+(yells and gunfire carry about twice as far as small talk), and
+doppler-shift when you or the source are moving. Wounded pedestrians
+leave a trail of blood drips that slows and clots; kills leave real
+blood pools on the pavement. Only the ambient bed — wind, rain — is
+everywhere at once.
+
 ## The town talks (and swings back)
 
 Everyone with a name has a voice: the dealer greets you (and remembers
@@ -120,6 +130,8 @@ double the mayhem the last one did:
 - Robbing the register at gunpoint → instantly 2 stars.
 - Civilian knockouts: 5 kills → 1 star, 10 more → 2 stars, 20 more → 3
   stars, 40 more → 4 stars, 80 more → the full 5.
+- Wrecking a car (shooting or ramming it until it loses control) counts
+  the same as a knockout.
 - Cops: just **hurting** one earns your first star. Downing 3 → 2 stars,
   6 more → 3 stars, 12 more → 4 stars, 24 more → 5.
 
@@ -133,11 +145,14 @@ your wanted level.
 
 ## Traffic & driving
 
-Cars hum with engine noise as they pass. Don't stand in the road — getting
-run over ragdolls pedestrians sky-high with a blood splatter (and hurts
-you too). Shoot a moving car for ~3 seconds and it loses control, floors
-it, and explodes on whatever it hits — killing anything nearby, you
-included. Wrecks respawn after a few seconds.
+Cars hum with engine noise as they pass — and the pitch bends as they
+close in and blow by, like the real thing. Don't stand in the road —
+getting run over ragdolls pedestrians sky-high with a blood splatter (and
+hurts you too). Shoot a moving car for ~3 seconds and it loses control,
+floors it, and explodes on whatever it hits — killing anything nearby,
+you included. Ramming with your own car is gentler physics: the other car
+gets punted away spinning and dented; keep hitting it and it eventually
+loses control the same way. Wrecks respawn after a few seconds.
 
 Press **E** next to a passing car to carjack it — the driver bails and
 runs off screaming (and yes, that's a crime). Driving is third-person:

@@ -31,6 +31,15 @@ with wheels stays under ~600 — comparable to one PSX character (ours run
 ~1600 tris, which is already the Tekken-3 "hero model" tier of the era;
 vehicles must NOT outweigh characters).
 
+**Remesh gotcha (learned on the pickups):** Meshy's standalone remesh
+down to 450 tris can CRUSH thin cab geometry (pickup roofs/pillars
+collapse inward — PICKUP_BIG and PICKUP_FS both shipped broken this
+way; the pre-remesh gens were fine). Always eyeball the remeshed GLB
+before converting. If the cab caves in, re-remesh the SAME gen task
+(`input_task_id`, ~5 credits) at a higher polycount within the 720
+accept ceiling (700 fixed PICKUP_FS) instead of re-rolling the whole
+generation.
+
 ## Texture
 
 GGBot cars: **128x128** PNG per car (whole car atlased into one page,
