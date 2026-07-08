@@ -2442,7 +2442,7 @@ var SP_PLACES = [
   // --- RaceTrac (SE corner; store front wall z=43.5, door zone x 59.5..62.5 kept clear)
   ['newsbox', 54.8, 42.4, 'N'], ['icechest', 57.2, 42.6, 'N'],
   ['trashcan', 63.3, 42.5, 'N'], ['payphone', 65.2, 42.6, 'N'],
-  ['vendingmachine', 67.2, 42.6, 'N'], ['propanecage', 68.5, 44.9, 'W'],
+  ['vendingmachine', 67.2, 42.6, 'N'], ['propanecage', 69.9, 46, 'E'],
   ['cone', 44, 45, 0.4], ['cone', 50, 55, 1.2],
   // --- Dollar Tree (front wall z=38)
   ['vendingmachine', -62, 36.8, 'N'], ['atm', -59, 36.8, 'N'],
@@ -2460,7 +2460,7 @@ var SP_PLACES = [
   ['parkingmeter', -100, 16.3, 'N'], ['parkingmeter', -110, 16.3, 'N'], ['parkingmeter', -120, 16.3, 'N'],
   ['parkingmeter', -130, 16.3, 'N'], ['parkingmeter', -140, 16.3, 'N'],
   // --- self-storage backlot (rows end z=134)
-  ['pallet', -62, 136.5, 0.3], ['pallet', -59.6, 139, 1.1], ['tirestack', -47, 137, 0],
+  ['pallet', -62, 139.2, 0.3], ['pallet', -59.6, 141.6, 1.1], ['tirestack', -47, 139.5, 0],
   // --- Publix (front wall z=-118, entrance x=-72; lot z -116..-76; spawn (-72,-97) kept clear)
   ['bikerack', -77, -116.5, 'S'], ['bench', -66, -116.3, 'S'],
   ['planter', -84, -116.3, 'S'], ['planter', -59, -116.3, 'S'],
@@ -3653,6 +3653,13 @@ function dropWeapon(kind, x, z) {
   drops.push({ mesh: g, kind: kind, life: kind === 'raygun' ? 9999 : 120 });
 }
 function applyDropPickup(kind) {
+  if (kind === 'soda') {   // streetprops vending soda — stacks like snacks
+    state.sodas++;
+    popup('+1 SODA (equip it in TAB)');
+    sfx('buy');
+    if (state.equipped === 'soda') setEquipped('soda');   // refresh held-count HUD
+    return;
+  }
   if (!WEAPONS[kind]) return;
   if (state.owned[kind]) {
     var refund = Math.floor((WEAPONS[kind].price || 0) / 2);
@@ -4749,6 +4756,14 @@ if (typeof MUZZLE_FLASH !== 'undefined') {
 flash.visible = false; vm.add(flash); var flashT = 0;
 var rocketCdEl = document.getElementById('rocketCd'), rocketCdBar = document.getElementById('rocketCdBar');
 var vmMap = { fists: vmFists, pistol: vmPistol, smg: vmSmg, rifle: vmRifle, auto: vmAuto, rocket: vmRocket, raygun: vmRaygun, snack: vmSnack };
+// streetprops soda: red can in hand (registered before the add/hide pass below)
+var vmSoda = new THREE.Group();
+(function () {
+  vmSoda.add(cyl(0.045, 0.045, 0.17, 10, lamb({ color: 0xc0392b }), 0.26, -0.37, -0.5));
+  vmSoda.add(cyl(0.047, 0.047, 0.012, 10, phong({ color: 0xd8dce0, shininess: 90 }), 0.26, -0.283, -0.5));
+  vmSoda.add(vmArm(0.27, -0.45, -0.32, 0.15));
+})();
+vmMap.soda = vmSoda;
 Object.keys(vmMap).forEach(function (k) { vm.add(vmMap[k]); vmMap[k].visible = false; });
 vmFists.visible = true;
 var zoomed = false;
@@ -4762,10 +4777,10 @@ function setZoom(on) {
   document.getElementById('crosshair').style.display = on ? 'none' : '';
 }
 function setEquipped(w) {
-  if (inside && w && w !== 'fists' && w !== 'snack') playVoice('clerk_scared', 0.55, 45);
+  if (inside && w && w !== 'fists' && w !== 'snack' && w !== 'soda') playVoice('clerk_scared', 0.55, 45);
   setZoom(false);
   gunBloom = 0;
-  if (w !== state.equipped && w !== 'fists' && w !== 'snack') equipT = T;   // draw animation
+  if (w !== state.equipped && w !== 'fists' && w !== 'snack' && w !== 'soda') equipT = T;   // draw animation
   state.equipped = w;
   // the skinned arms ride inside the equipped viewmodel group so the
   // draw/reload animations move the hands with the gun
@@ -4775,7 +4790,7 @@ function setEquipped(w) {
   }
   vm.visible = !zoomed && !driving;
   Object.keys(vmMap).forEach(function (k) { vmMap[k].visible = (k === w); });
-  var sub = w === 'fists' ? 'punch for cash' : (w === 'rifle' ? 'right-click: scope' : (w === 'rocket' ? '5s reload' : (w === 'snack' ? 'left-click: eat (+50 hp) — x' + state.snacks : 'ammo: &#8734;')));
+  var sub = w === 'fists' ? 'punch for cash' : (w === 'rifle' ? 'right-click: scope' : (w === 'rocket' ? '5s reload' : (w === 'snack' ? 'left-click: eat (+50 hp) — x' + state.snacks : (w === 'soda' ? 'left-click: drink (+25 hp) — x' + state.sodas : 'ammo: &#8734;'))));
   document.getElementById('weaponBox').innerHTML = WEAPONS[w].name + '<br><small>' + sub + '</small>';
 }
 
@@ -5412,6 +5427,7 @@ function refreshInv() {
     else { sbtn.textContent = 'EQUIP'; sbtn.onclick = function () { setEquipped('snack'); refreshInv(); }; }
     srow.appendChild(sbtn); rows.appendChild(srow);
   }
+  sodaInvRow(rows);   // streetprops vending sodas
   var any = GUN_LIST.some(function (k) { return state.owned[k]; });
   if (!any) { var hint = document.createElement('div'); hint.className = 'row'; hint.innerHTML = '<small>No guns yet — earn cash and visit the dealer ($ on the minimap).</small>'; rows.appendChild(hint); }
 }
@@ -6136,6 +6152,7 @@ function cycleEquip(dir) {
   var list = ['fists'];
   for (var i = 0; i < GUN_LIST.length; i++) if (state.owned[GUN_LIST[i]]) list.push(GUN_LIST[i]);
   if (state.snacks > 0) list.push('snack');
+  if (state.sodas > 0) list.push('soda');
   if (list.length < 2) return;
   var idx = list.indexOf(state.equipped);
   if (idx < 0) idx = 0;
@@ -6164,6 +6181,7 @@ document.addEventListener('keydown', function (e) {
     if (ddx * ddx + ddz * ddz < 36) { openMenu('shop'); return; }
     var gdx = player.x - gasRob.x, gdz = player.z - gasRob.z;
     if (gdx * gdx + gdz * gdz < 40) { enterStore(); return; }
+    if (streetPropInteract()) return;   // vending / payphone / ATM / newsbox
     var sc = nearestStealableCar();
     if (sc) enterCar(sc);
   }
@@ -6233,7 +6251,7 @@ function updatePlayer(dt) {
   gunBloom = Math.max(0, gunBloom - dt * 0.06);   // spread recovers ~0.7s after easing off
   // weapon draw + rocket reload animations (procedural, PS1-cheap)
   var wg = vmMap[state.equipped];
-  if (wg && state.equipped !== 'fists' && state.equipped !== 'snack') {
+  if (wg && state.equipped !== 'fists' && state.equipped !== 'snack' && state.equipped !== 'soda') {
     wg.position.set(0, 0, 0); wg.rotation.set(0, 0, 0);
     var det = T - equipT;
     if (det >= 0 && det < 0.45) {   // draw: rise from below with a rolling rack
@@ -6309,8 +6327,10 @@ function updatePlayer(dt) {
     if (ddx * ddx + ddz * ddz < 36) prompt.textContent = '[E] BUY GUNS';
     else if (gdx * gdx + gdz * gdz < 40) prompt.textContent = (T < gasClosedUntil) ? 'STORE CLOSED' : '[E] ENTER GAS STATION';
     else {
-      var nsc = nearestStealableCar();
-      if (nsc) prompt.textContent = carDrivenByPlayer(nsc) ? '[E] HIJACK CAR' : '[E] STEAL CAR';
+      var spp = streetPropPrompt();   // streetprops: vending/atm/payphone/newsbox
+      var nsc = spp ? null : nearestStealableCar();
+      if (spp) prompt.textContent = spp;
+      else if (nsc) prompt.textContent = carDrivenByPlayer(nsc) ? '[E] HIJACK CAR' : '[E] STEAL CAR';
       else prompt.textContent = '';
     }
   }
@@ -6324,7 +6344,7 @@ function loop(now) {
   var dt = Math.min(0.05, (now - last) / 1000); last = now;
   if (!state.running) { renderer.render(scene, camera); renderCreatorFrame(dt); return; }
   T += dt;
-  updatePlayer(dt); updateNPCs(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateUfo(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateEnv(dt); updateVoiceAudio(dt); updateNet(dt); updateHUD(); drawMinimap();
+  updatePlayer(dt); updateNPCs(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateUfo(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateStreetProps(dt); updateEnv(dt); updateVoiceAudio(dt); updateNet(dt); updateHUD(); drawMinimap();
   renderer.render(scene, camera);
 }
 setEquipped('fists');
@@ -6369,6 +6389,7 @@ window.__wc = {
   envState: function () { return { envT: envT, raining: raining, dayFactor: dayFactor(), lampsOn: lampsOn, sun: sun.intensity, fogFar: scene.fog.far }; },
   goBerserk: goBerserk, igniteCar: igniteCar,
   breakables: breakables, breakProp: breakProp, lakeBedY: lakeBedY,
+  streetProps: streetPropInteractables, streetPropInteract: streetPropInteract, getStreetProp: getStreetProp, hydrantJets: hydrantJets,
   isUnderwater: function () { return underwater; },
   net: net, startGame: startGame, hostGame: hostGame, joinGame: joinGame, handleNet: handleNet,
   buildIceConfig: buildIceConfig, hmacSha1B64: hmacSha1B64,
@@ -6378,7 +6399,7 @@ window.__wc = {
   creatorSpin: function (v) { if (cprev) cprev.spin = v; },
   getPlayerChar: function () { return playerChar; },
   setPlayerChar: function (c) { playerChar = c; },
-  tick: function (dt) { T += dt; updatePlayer(dt); updateNPCs(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateUfo(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateEnv(dt); updateVoiceAudio(dt); updateNet(dt); renderer.render(scene, camera); }
+  tick: function (dt) { T += dt; updatePlayer(dt); updateNPCs(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateUfo(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateStreetProps(dt); updateEnv(dt); updateVoiceAudio(dt); updateNet(dt); renderer.render(scene, camera); }
 };
 
 })();
