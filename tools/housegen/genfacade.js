@@ -28,12 +28,13 @@ function prompt(c) {
     ' create a single image that is a 2x2 GRID of four SEPARATE game textures of THIS house,' +
     ' divided by solid pure-black gutter lines about 16 pixels thick, with a black border around the outside edge.' +
     ' Each tile completely fills its grid cell edge to edge. The four tiles, left-to-right then top-to-bottom:' +
-    ' TILE 1 (top-left): the FRONT WALL of the house as a flat orthographic elevation, matching the photo -' +
-    ' same wall color and trim, its garage door, front door and windows in roughly their real positions;' +
-    ' wall only, cropped below the roofline (no roof, no ground).' +
+    ' TILE 1 (top-left): the FRONT WALL of the house as a plain RECTANGULAR wall texture filling the whole tile,' +
+    ' matching the photo - same wall color and trim, its garage door, front door and windows in roughly their real positions,' +
+    ' scaled so the garage door top nearly reaches the top edge of the tile.' +
+    ' Absolutely NO roofline, NO gable triangle, NO eaves and NO sky inside the tile - flat wall surface edge to edge.' +
     ' TILE 2 (top-right): the SIDE WALL of the house - mostly plain wall texture in the same color with one small window.' +
     ' TILE 3 (bottom-left): the BACK WALL - plain wall in the same color with two windows, no door.' +
-    ' TILE 4 (bottom-right): the ROOF surface as a flat seamless straight-down texture of ' + (c.roofDesc || 'its shingles') + ', uniform rows, matching the photo roof color.' +
+    ' TILE 4 (bottom-right): a seamless MATERIAL SWATCH of ' + (c.roofDesc || 'its roof shingles') + ' seen straight down from above, uniform rows of shingles covering the ENTIRE tile edge to edge, matching the photo roof color - NO wall, NO eave, NO trim, nothing but shingles.' +
     ' Do not blend the tiles; each is a distinct texture.';
 }
 

@@ -3691,6 +3691,7 @@ function boomAt(x, z, fromNet, creditConn) {
         if (creditConn && cp.state === 'down') { try { creditConn.send({ t: 'kill', kind: 'cop' }); } catch (e) { } }
       }
     }
+    panicNear(x, z, 900);   // survivors within ~30m scatter (aborts sidewalk chats too)
   }
   var pdx = player.x - x, pdz = player.z - z, pd = Math.sqrt(pdx * pdx + pdz * pdz);
   if (pd < 10 && !state.dead) hurtPlayer(Math.round(80 * (1 - pd / 10) + 15));
@@ -5497,8 +5498,9 @@ function playVoiceAny(ids, gain, cdKey, cd, at) {
   voiceGroupT[cdKey] = T;
   playVoice(ids[(Math.random() * ids.length) | 0], gain, 0, at);
 }
-// per-NPC voice lines (optional npcvoices.js) — returns false when the
-// character has no pack entry so callers can fall back to the generic barks
+// per-NPC voice lines (optional npcvoices1..N.js chunks) — returns false when
+// the character has no pack entry (or its chunk hasn't late-loaded yet) so
+// callers can fall back to the generic barks
 var npcVoiceBufs = {}, npcVoiceLive = {}, npcVoiceSrc = {}, npcVoiceCycle = {};
 function stopNpcVoice(name) {   // cut a character's line short (death)
   if (!name) return;
