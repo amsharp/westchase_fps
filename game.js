@@ -3010,14 +3010,104 @@ function addCar(axis, lane, dir) {
 [4, 8].forEach(function (l) { addCar('z', l, 1); addCar('z', l, 1); });
 [-4, -8].forEach(function (l) { addCar('z', l, -1); addCar('z', l, -1); });
 
+// ---- procedural car engine (layered synth driven by an RPM model) ----
+// speed maps to revs through gear steps, so an accelerating car audibly
+// climbs and then drops on each upshift. Every car runs a cheap 5-node
+// stack (two detuned saws + a sine sub -> lowpass -> gain); the player's
+// car lazily adds an exhaust-noise band + roughness LFO on top.
+var ENG_SHIFTS = [6.5, 12.5, 19, 26.5];   // upshift speeds (world units/s)
+var ENG_IDLE = 850, ENG_MAX = 4200;       // rpm span of the model
+function engineRPM(sp) {
+  sp = Math.abs(sp);
+  var lo = 0, gi = 0;
+  while (gi < ENG_SHIFTS.length - 1 && sp > ENG_SHIFTS[gi]) { lo = ENG_SHIFTS[gi]; gi++; }
+  var t = Math.min(1, (sp - lo) / (ENG_SHIFTS[gi] - lo));
+  // each gear starts a little higher but tops out at the same redline
+  return ENG_IDLE + gi * 220 + t * (2900 - gi * 220);
+}
+var engNoiseBuf = null;
+function engNoise() {   // one shared noise second for every exhaust layer
+  if (!engNoiseBuf) {
+    var n = ac.sampleRate, b = ac.createBuffer(1, n, ac.sampleRate), d = b.getChannelData(0);
+    for (var i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+    engNoiseBuf = b;
+  }
+  return engNoiseBuf;
+}
 function ensureEngine(c) {
   if (c.eng || !ac) return;
-  var o = ac.createOscillator(); o.type = 'sawtooth';
-  var f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 320;
+  var o = ac.createOscillator(); o.type = 'sawtooth'; o.frequency.value = 40;
+  var o2 = ac.createOscillator(); o2.type = 'sawtooth'; o2.frequency.value = 81;  // ~2x, detuned for beating
+  var sub = ac.createOscillator(); sub.type = 'sine'; sub.frequency.value = 20;   // body
+  var f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 280; f.Q.value = 1.2;
   var g = ac.createGain(); g.gain.value = 0;
-  o.connect(f); f.connect(g); g.connect(ac.destination);
-  o.start();
-  c.eng = { o: o, g: g };
+  o.connect(f); o2.connect(f); sub.connect(f); f.connect(g); g.connect(ac.destination);
+  o.start(); o2.start(); sub.start();
+  c.eng = { o: o, o2: o2, sub: sub, f: f, g: g, rpm: ENG_IDLE };
+}
+function ensureEngineRich(c) {
+  // the player's car earns the full stack: band-passed combustion noise
+  // that follows the revs, plus a per-rev amplitude LFO for roughness
+  ensureEngine(c);
+  if (!c.eng || c.eng.rich || !ac) return;
+  var ns = ac.createBufferSource(); ns.buffer = engNoise(); ns.loop = true;
+  var nf = ac.createBiquadFilter(); nf.type = 'bandpass'; nf.frequency.value = 500; nf.Q.value = 1.2;
+  var ng = ac.createGain(); ng.gain.value = 0;
+  ns.connect(nf); nf.connect(ng); ng.connect(c.eng.g);   // rides the master gain (distance/mute)
+  var lfo = ac.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 28;
+  var lg = ac.createGain(); lg.gain.value = 0;
+  lfo.connect(lg); lg.connect(c.eng.g.gain);
+  ns.start(); lfo.start();
+  c.eng.rich = { ns: ns, nf: nf, ng: ng, lfo: lfo, lg: lg };
+}
+function engineTick(c, dt, sp, throttle, dist, drivenLoud) {
+  if (!c.eng) return;
+  var e = c.eng;
+  // revs chase the gear model; throttle blips them up, lift-off sags slower
+  var target = engineRPM(sp) + (throttle > 0 ? 260 : 0);
+  if (c.berserk) target = ENG_MAX * 0.92;
+  target = Math.max(ENG_IDLE * 0.9, Math.min(ENG_MAX, target));
+  e.rpm += (target - e.rpm) * Math.min(1, dt * (target > e.rpm ? 4.5 : 2.2));
+  // one doppler factor scales the whole layer stack
+  var dop = dopplerShift(c, dist, dt);
+  var f0 = Math.max(20, Math.min(400, (e.rpm / 22) * dop));   // firing fundamental
+  e.o.frequency.value = f0;
+  e.o2.frequency.value = Math.min(820, f0 * 2.04);
+  e.sub.frequency.value = Math.max(14, f0 * 0.5);
+  e.f.frequency.value = Math.max(140, Math.min(1400, 150 + e.rpm * 0.16));
+  // loudness: distance falloff x rev-dependent presence (all gains clamped)
+  var revs = Math.min(1, (e.rpm - ENG_IDLE) / 2600);
+  var base;
+  if (drivenLoud) base = 0.05 + revs * 0.085 + (throttle > 0 ? 0.02 : 0);
+  else {
+    var vol = Math.max(0, 1 - dist / 80);
+    base = vol * vol * (c.berserk ? 0.1 : 0.05) * (0.45 + 0.55 * revs);
+  }
+  e.g.gain.value = Math.max(0, Math.min(0.16, base));
+  if (e.rich) {
+    var on = drivenLoud ? 1 : 0;
+    e.rich.ng.gain.value = Math.min(0.4, on * (0.1 + (throttle > 0 ? 0.18 : 0.05) * Math.min(1, e.rpm / 3000)));
+    e.rich.nf.frequency.value = Math.max(160, Math.min(3000, (260 + e.rpm * 0.5) * dop));
+    e.rich.lfo.frequency.value = Math.max(8, Math.min(75, e.rpm / 60));
+    e.rich.lg.gain.value = on * e.g.gain.value * 0.3;   // subtle AM roughness
+  }
+}
+function engineTickMirror(c, dt) {
+  // cars we don't sim (host snapshot mirrors, remote-driven cars): estimate
+  // speed from frame-to-frame movement, keep the lighter traffic voicing
+  var m = c.car.group.position;
+  var edx = player.x - m.x, edz = player.z - m.z;
+  var ed = Math.sqrt(edx * edx + edz * edz);
+  var msp = 0;
+  if (c._ex !== undefined && dt > 0.0005) {
+    var mdx = m.x - c._ex, mdz = m.z - c._ez;
+    msp = Math.sqrt(mdx * mdx + mdz * mdz) / dt;
+  }
+  c._ex = m.x; c._ez = m.z;
+  c.espd = (c.espd || 0) + (Math.min(30, msp) - (c.espd || 0)) * Math.min(1, dt * 3);
+  // a stolen car sitting still is PARKED — engine off, not idling forever
+  if (c.stolen && c.espd < 0.8) { if (c.eng) c.eng.g.gain.value = 0; return; }
+  engineTick(c, dt, c.espd, 0, ed, false);
 }
 function updateCars(dt) {
   if (isClient()) return;   // world traffic is mirrored from the host snapshot
@@ -3058,7 +3148,8 @@ function updateCars(dt) {
         c.car.group.position.set(drv.x, 0, drv.z);
         c.car.group.rotation.y = drv.h;
       }
-      if (c.eng && c !== driving) c.eng.g.gain.value = 0;
+      // a moving remote-driven car still sounds; a parked one is engine-off
+      if (c.eng && c !== driving) engineTickMirror(c, dt);
       continue;
     }
     var m = c.car.group;
@@ -3094,14 +3185,10 @@ function updateCars(dt) {
     for (var wi = 0; wi < 4; wi++) c.car.wheels[wi].rotation.y -= spin;
     updateCarFeel(c, dt, c.berserk ? 14 : c.speed, 0, c.berserk ? Math.sin(T * 5 + i) : 0);
 
-    // engine noise: pitch by speed, volume by distance
+    // engine: rpm-layered synth — pitch by speed+gears+doppler, volume by distance
     var edx = player.x - m.position.x, edz = player.z - m.position.z;
     var ed = Math.sqrt(edx * edx + edz * edz);
-    if (c.eng) {
-      var vol = Math.max(0, 1 - ed / 80);
-      c.eng.g.gain.value = vol * vol * (c.berserk ? 0.12 : 0.055);
-      c.eng.o.frequency.value = (42 + c.speed * 3.4 + Math.sin(T * 9 + i) * 3) * dopplerShift(c, ed, dt);
-    }
+    if (c.eng) engineTick(c, dt, c.speed, 0, ed, false);
     // smoke when shot up
     if (c.dmgT > 1.2) {
       c.smokeT -= dt;
@@ -3268,12 +3355,10 @@ function updateDriving(dt) {
   var spin = (c.pspeed * dt) / 0.34;
   for (var wi = 0; wi < 4; wi++) c.car.wheels[wi].rotation.y -= spin;
   updateCarFeel(c, dt, c.pspeed, accel, steer);
-  ensureEngine(c);
-  if (c.eng) {
-    var sp = Math.abs(c.pspeed);
-    c.eng.g.gain.value = 0.02 + Math.min(1, sp / 26) * 0.09;
-    c.eng.o.frequency.value = 45 + sp * 4.5;
-  }
+  // the driver's seat gets the full engine: idle rumble when stopped,
+  // throttle swell on W, gear steps on the way up, exhaust noise on top
+  ensureEngineRich(c);
+  if (c.eng) engineTick(c, dt, c.pspeed, keys['KeyW'] ? 1 : 0, 0, true);
   var moving = Math.abs(c.pspeed) > 3;
   if (moving) {
     var sgn = c.pspeed > 0 ? 1 : -1;
@@ -6046,7 +6131,7 @@ function applyWorldSnap(dt) {
     var edx = player.x - m.position.x, edz = player.z - m.position.z;
     var ed = Math.sqrt(edx * edx + edz * edz);
     ensureEngine(c);
-    if (c.eng) { var vol = Math.max(0, 1 - ed / 80); c.eng.g.gain.value = c.stolen ? 0 : vol * vol * 0.055; c.eng.o.frequency.value = 62 * dopplerShift(c, ed, dt); }
+    if (c.eng) engineTickMirror(c, dt);   // speed estimated from mirrored motion
     if (!driving && !c.stolen && Math.abs(edx) < 2.6 && Math.abs(edz) < 2.6 && !state.dead) {
       var dd = ed || 1;
       player.x += (edx / dd) * 2.4; player.z += (edz / dd) * 2.4;
@@ -6418,6 +6503,9 @@ window.__wc = {
   teleport: function (x, z) { player.x = x; player.z = z; },
   tryAttack: tryAttack, setEquipped: setEquipped, cycleEquip: cycleEquip,
   enterStore: enterStore, exitStore: exitStore, refreshClerk: refreshClerk, animPerson: animPerson, animPersonClip: animPersonClip, playVoice: playVoice, oak: oak, bush: bush, getPackProp: getPackProp,
+  initAudio: initAudio, playNpcVoice: playNpcVoice, playVoiceAny: playVoiceAny,
+  audioVoices: function () { return activeVoices; }, getAC: function () { return ac; },
+  engineRPM: engineRPM, ensureEngineRich: ensureEngineRich,
   armsInfo: function () { return psxArms ? { clips: Object.keys(psxArms.clips), np: psxArms.np, anchor: psxArms.root.position.toArray().map(function (v) { return Math.round(v * 100) / 100; }) } : null; },
   isInside: function () { return inside; },
   storeState: function () { return { robbed: robbedVisit, copsCalled: copsCalledVisit, closedUntil: gasClosedUntil, now: T }; },
