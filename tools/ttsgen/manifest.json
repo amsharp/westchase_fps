@@ -1,29 +1,134 @@
 {
-  "dealer_hello_first": { "text": "Well well, a fresh face. (confident) Looking for hardware? I got what you need.", "voice": "78eda55526de4a1aa02d5f1ff5b0112b" },
-  "dealer_hello_1": { "text": "(laughing) Back again? Business is good.", "voice": "78eda55526de4a1aa02d5f1ff5b0112b" },
-  "dealer_hello_2": { "text": "What can I get you this time?", "voice": "78eda55526de4a1aa02d5f1ff5b0112b" },
-  "dealer_buy_1": { "text": "(confident) Pleasure doing business.", "voice": "78eda55526de4a1aa02d5f1ff5b0112b" },
-  "dealer_buy_2": { "text": "(laughing) Hey, don't point it at me.", "voice": "78eda55526de4a1aa02d5f1ff5b0112b" },
-  "dealer_nocash_1": { "text": "Come back when you got the cash.", "voice": "78eda55526de4a1aa02d5f1ff5b0112b" },
-  "dealer_nocash_2": { "text": "(sighing) No money, no hardware. Simple as that.", "voice": "78eda55526de4a1aa02d5f1ff5b0112b" },
-  "dealer_bye": { "text": "Yeah, keep walking.", "voice": "78eda55526de4a1aa02d5f1ff5b0112b" },
-  "clerk_hello_1": { "text": "(happy) Welcome to RaceTrac. Let me know if you need anything.", "voice": "3c9dcc58d40a45c2b60f5361294068ea" },
-  "clerk_hello_2": { "text": "Hey there. Coffee machine's fresh.", "voice": "3c9dcc58d40a45c2b60f5361294068ea" },
-  "clerk_snack": { "text": "Good choice. Anything else?", "voice": "3c9dcc58d40a45c2b60f5361294068ea" },
-  "clerk_scared": { "text": "(scared) P-please don't try anything, man. I just work here.", "voice": "3c9dcc58d40a45c2b60f5361294068ea" },
-  "clerk_rob_1": { "text": "(scared) Okay okay! Take it! Take the money, man!", "voice": "3c9dcc58d40a45c2b60f5361294068ea" },
-  "clerk_rob_2": { "text": "(scared) Don't shoot! The register's open, just go!", "voice": "3c9dcc58d40a45c2b60f5361294068ea" },
-  "clerk_panic": { "text": "(shouting) Robbery! Somebody call the cops!", "voice": "3c9dcc58d40a45c2b60f5361294068ea" },
-  "cop_warn": { "text": "Keep it moving, citizen.", "voice": "f1c45fba3963441cba626504086e5e12" },
-  "cop_engage_1": { "text": "(shouting) Police! Freeze!", "voice": "f1c45fba3963441cba626504086e5e12" },
-  "cop_engage_2": { "text": "(shouting) Stop right there, punk!", "voice": "f1c45fba3963441cba626504086e5e12" },
-  "cop_fire_1": { "text": "(shouting) He's got a gun! Open fire!", "voice": "f1c45fba3963441cba626504086e5e12" },
-  "cop_fire_2": { "text": "(shouting) Take him down! Take him down!", "voice": "f1c45fba3963441cba626504086e5e12" },
-  "cop_down": { "text": "Suspect down. Somebody clean up this mess.", "voice": "f1c45fba3963441cba626504086e5e12" },
-  "pedm_hit_1": { "text": "(scared) Ow! What the hell, man?!", "voice": "95ba5325b3e04dc5ab75592f7d4710d5" },
-  "pedm_hit_2": { "text": "(angry) Hey! You crazy?!", "voice": "95ba5325b3e04dc5ab75592f7d4710d5" },
-  "pedm_gun": { "text": "(scared) He's got a gun! Run!", "voice": "95ba5325b3e04dc5ab75592f7d4710d5" },
-  "pedf_hit": { "text": "(scared) Ah! Get away from me!", "voice": "ff975879e00d4cb891ac5f4e7f9acf15" },
-  "pedf_gun": { "text": "(scared) Oh my god, he's got a gun!", "voice": "ff975879e00d4cb891ac5f4e7f9acf15" },
-  "pedo_hit": { "text": "(angry) Hooligans! In my day we had manners!", "voice": "afd158c7502846f7954b71ade6e7b4b2" }
+ "dealer_hello_first": {
+  "text": "Well well, a fresh face. (confident) Looking for hardware? I got what you need.",
+  "voice": "78eda55526de4a1aa02d5f1ff5b0112b"
+ },
+ "dealer_hello_1": {
+  "text": "(laughing) Back again? Business is good.",
+  "voice": "78eda55526de4a1aa02d5f1ff5b0112b"
+ },
+ "dealer_hello_2": {
+  "text": "What can I get you this time?",
+  "voice": "78eda55526de4a1aa02d5f1ff5b0112b"
+ },
+ "dealer_buy_1": {
+  "text": "(confident) Pleasure doing business.",
+  "voice": "78eda55526de4a1aa02d5f1ff5b0112b"
+ },
+ "dealer_buy_2": {
+  "text": "(laughing) Hey, don't point it at me.",
+  "voice": "78eda55526de4a1aa02d5f1ff5b0112b"
+ },
+ "dealer_nocash_1": {
+  "text": "Come back when you got the cash.",
+  "voice": "78eda55526de4a1aa02d5f1ff5b0112b"
+ },
+ "dealer_nocash_2": {
+  "text": "(sighing) No money, no hardware. Simple as that.",
+  "voice": "78eda55526de4a1aa02d5f1ff5b0112b"
+ },
+ "dealer_bye": {
+  "text": "Yeah, keep walking.",
+  "voice": "78eda55526de4a1aa02d5f1ff5b0112b"
+ },
+ "clerk_hello_1": {
+  "text": "(happy) Welcome to RaceTrac. Let me know if you need anything.",
+  "voice": "3c9dcc58d40a45c2b60f5361294068ea"
+ },
+ "clerk_hello_2": {
+  "text": "Hey there. Coffee machine's fresh.",
+  "voice": "3c9dcc58d40a45c2b60f5361294068ea"
+ },
+ "clerk_snack": {
+  "text": "Good choice. Anything else?",
+  "voice": "3c9dcc58d40a45c2b60f5361294068ea"
+ },
+ "clerk_scared": {
+  "text": "(scared) P-please don't try anything, man. I just work here.",
+  "voice": "3c9dcc58d40a45c2b60f5361294068ea"
+ },
+ "clerk_rob_1": {
+  "text": "(scared) Okay okay! Take it! Take the money, man!",
+  "voice": "3c9dcc58d40a45c2b60f5361294068ea"
+ },
+ "clerk_rob_2": {
+  "text": "(scared) Don't shoot! The register's open, just go!",
+  "voice": "3c9dcc58d40a45c2b60f5361294068ea"
+ },
+ "clerk_panic": {
+  "text": "(shouting) Robbery! Somebody call the cops!",
+  "voice": "3c9dcc58d40a45c2b60f5361294068ea"
+ },
+ "cop_warn": {
+  "text": "Keep it moving, citizen.",
+  "voice": "f1c45fba3963441cba626504086e5e12"
+ },
+ "cop_engage_1": {
+  "text": "(shouting) Police! Freeze!",
+  "voice": "f1c45fba3963441cba626504086e5e12"
+ },
+ "cop_engage_2": {
+  "text": "(shouting) Stop right there, punk!",
+  "voice": "f1c45fba3963441cba626504086e5e12"
+ },
+ "cop_fire_1": {
+  "text": "(shouting) He's got a gun! Open fire!",
+  "voice": "f1c45fba3963441cba626504086e5e12"
+ },
+ "cop_fire_2": {
+  "text": "(shouting) Take him down! Take him down!",
+  "voice": "f1c45fba3963441cba626504086e5e12"
+ },
+ "cop_down": {
+  "text": "Suspect down. Somebody clean up this mess.",
+  "voice": "f1c45fba3963441cba626504086e5e12"
+ },
+ "pedm_hit_1": {
+  "text": "(scared) Ow! What the hell, man?!",
+  "voice": "95ba5325b3e04dc5ab75592f7d4710d5"
+ },
+ "pedm_hit_2": {
+  "text": "(angry) Hey! You crazy?!",
+  "voice": "95ba5325b3e04dc5ab75592f7d4710d5"
+ },
+ "pedm_gun": {
+  "text": "(scared) He's got a gun! Run!",
+  "voice": "95ba5325b3e04dc5ab75592f7d4710d5"
+ },
+ "pedf_hit": {
+  "text": "(scared) Ah! Get away from me!",
+  "voice": "ff975879e00d4cb891ac5f4e7f9acf15"
+ },
+ "pedf_gun": {
+  "text": "(scared) Oh my god, he's got a gun!",
+  "voice": "ff975879e00d4cb891ac5f4e7f9acf15"
+ },
+ "pedo_hit": {
+  "text": "(angry) Hooligans! In my day we had manners!",
+  "voice": "afd158c7502846f7954b71ade6e7b4b2"
+ },
+ "pedf_hit_2": {
+  "text": "(angry) Are you insane?! Get away!",
+  "voice": "ff975879e00d4cb891ac5f4e7f9acf15"
+ },
+ "cop_warn_f": {
+  "text": "Keep it moving, citizen.",
+  "voice": "26e845cdffb84aa0a7dedfe46f216905"
+ },
+ "cop_engage_f_1": {
+  "text": "(shouting) Police! Freeze!",
+  "voice": "26e845cdffb84aa0a7dedfe46f216905"
+ },
+ "cop_engage_f_2": {
+  "text": "(shouting) Stop right there, punk!",
+  "voice": "26e845cdffb84aa0a7dedfe46f216905"
+ },
+ "cop_fire_f_1": {
+  "text": "(shouting) He's got a gun! Open fire!",
+  "voice": "26e845cdffb84aa0a7dedfe46f216905"
+ },
+ "cop_fire_f_2": {
+  "text": "(shouting) Take him down! Take him down!",
+  "voice": "26e845cdffb84aa0a7dedfe46f216905"
+ }
 }

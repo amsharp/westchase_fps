@@ -1,27 +1,31 @@
 {
-  "_comment": "Character -> Fish Audio voice registry. ALWAYS reuse the same reference_id for a character so their voice stays consistent across lines and sessions. Find new voices with findvoice.js before assigning.",
-  "dealer": {
-    "ref": "78eda55526de4a1aa02d5f1ff5b0112b",
-    "desc": "gangster — aggressive gritty middle-aged male"
-  },
-  "clerk": {
-    "ref": "3c9dcc58d40a45c2b60f5361294068ea",
-    "desc": "store clerk — energetic young male"
-  },
-  "cop": {
-    "ref": "f1c45fba3963441cba626504086e5e12",
-    "desc": "GTA5-style angry police officer"
-  },
-  "ped_m": {
-    "ref": "95ba5325b3e04dc5ab75592f7d4710d5",
-    "desc": "pedestrian male — relaxed young man"
-  },
-  "ped_f": {
-    "ref": "ff975879e00d4cb891ac5f4e7f9acf15",
-    "desc": "pedestrian female — casual young woman"
-  },
-  "ped_old": {
-    "ref": "afd158c7502846f7954b71ade6e7b4b2",
-    "desc": "pedestrian old man — deep raspy"
-  }
+ "_comment": "Character -> Fish Audio voice registry. ALWAYS reuse the same reference_id for a character so their voice stays consistent across lines and sessions. Find new voices with findvoice.js before assigning.",
+ "dealer": {
+  "ref": "78eda55526de4a1aa02d5f1ff5b0112b",
+  "desc": "gangster — aggressive gritty middle-aged male"
+ },
+ "clerk": {
+  "ref": "3c9dcc58d40a45c2b60f5361294068ea",
+  "desc": "store clerk — energetic young male"
+ },
+ "cop": {
+  "ref": "f1c45fba3963441cba626504086e5e12",
+  "desc": "GTA5-style angry police officer"
+ },
+ "ped_m": {
+  "ref": "95ba5325b3e04dc5ab75592f7d4710d5",
+  "desc": "pedestrian male — relaxed young man"
+ },
+ "ped_f": {
+  "ref": "ff975879e00d4cb891ac5f4e7f9acf15",
+  "desc": "pedestrian female — casual young woman"
+ },
+ "ped_old": {
+  "ref": "afd158c7502846f7954b71ade6e7b4b2",
+  "desc": "pedestrian old man — deep raspy"
+ },
+ "COP_GENERIC_F": {
+  "ref": "26e845cdffb84aa0a7dedfe46f216905",
+  "note": "Calm Female Officer - generic female cop barks (cop_*_f lines)"
+ }
 }

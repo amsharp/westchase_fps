@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.12.3';
+var GAME_VERSION = 'v1.13.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---------------- world constants ----------------
@@ -1990,11 +1990,27 @@ function sidewalkSpot() {
   return [side * (CROSS_HW + 1.5 + Math.random() * 3), z];
 }
 function npcTarget() { return Math.random() < 0.6 ? sidewalkSpot() : randTarget(); }
+// which roster characters are women — keeps generic yelps/barks gender-true
+// (must sit ABOVE the load-time spawnNPC loop: vars don't hoist)
+var MESHY_FEM = ['MARISOL', 'KEISHA', 'DENISE', 'PHUONG', 'GLORIA', 'AISHA', 'SUMMER', 'PATTY', 'BECCA', 'TINA', 'NIA', 'RAVEN', 'YUKI', 'COP_DIAZ', 'COP_WASHINGTON'];
+function femFromCfg(cfg) {
+  var mn = meshyNameFromCfg(cfg);
+  if (mn) return MESHY_FEM.indexOf(mn) >= 0;
+  if (cfg.preset === 1) return true;                       // JESS
+  if (cfg.preset === 2 || cfg.preset === 3) return false;  // MARCUS, SPIKE
+  if (cfg.faceX === 3 || cfg.extra === 1) return true;     // lipstick / purse
+  if (cfg.faceX === 1) return false;                       // stubble
+  if (cfg.hair === 3 || cfg.hair === 6) return Math.random() < 0.75;   // long / ponytail
+  return Math.random() < 0.35;   // ambiguous look: rolled once, stored, consistent for life
+}
 function spawnNPC() {
   var cfg = randomCharConfig();
+  // pedestrians always wear the Meshy roster — the old blocky PSX bodies
+  // (custom + JESS/MARCUS/SPIKE) are player-creator-only now
+  if (MESHY_CIVS.length) cfg.preset = 1 + PSX_SKINS.length + ((Math.random() * MESHY_CIVS.length) | 0);
   var mesh = buildCharacter(cfg);
   var start = sidewalkSpot(), tgt = npcTarget();
-  var n = { mesh: mesh, x: start[0], z: start[1], tx: tgt[0], tz: tgt[1], hp: 100, state: 'walk', speed: 1.5 + Math.random() * 1.1, phase: Math.random() * 9, pause: 0, fleeT: 0, fleeDX: 0, fleeDZ: 0, downT: 0, hurtFlash: 0, vname: meshyNameFromCfg(cfg) };
+  var n = { mesh: mesh, x: start[0], z: start[1], tx: tgt[0], tz: tgt[1], hp: 100, state: 'walk', speed: 1.5 + Math.random() * 1.1, phase: Math.random() * 9, pause: 0, fleeT: 0, fleeDX: 0, fleeDZ: 0, downT: 0, hurtFlash: 0, vname: meshyNameFromCfg(cfg), fem: femFromCfg(cfg) };
   mesh.position.set(n.x, 0, n.z); mesh.userData.npc = n;
   scene.add(mesh); npcs.push(n); return n;
 }
@@ -2242,14 +2258,14 @@ function spawnCop(nearPlayer) {
   } else { var t = randTarget(); x = t[0]; z = t[1]; }
   var p = pushOut(x, z, 0.6); x = p.x; z = p.z;
   var t2 = randTarget();
-  var c = { mesh: mesh, x: x, z: z, hp: 100, state: 'patrol', tx: t2[0], tz: t2[1], phase: Math.random() * 9, fireT: 0.5 + Math.random(), downT: 0, hurtFlash: 0, vname: mesh.userData.vname || null };
+  var c = { mesh: mesh, x: x, z: z, hp: 100, state: 'patrol', tx: t2[0], tz: t2[1], phase: Math.random() * 9, fireT: 0.5 + Math.random(), downT: 0, hurtFlash: 0, vname: mesh.userData.vname || null, fem: MESHY_FEM.indexOf(mesh.userData.vname || '') >= 0 };
   mesh.position.set(x, 0, z); mesh.userData.cop = c;
   scene.add(mesh); cops.push(c); return c;
 }
 function spawnInteriorCops(n) {
   for (var i = 0; i < n; i++) {
     var mesh = buildCop();
-    var c = { mesh: mesh, x: doorIn.x - 2 + i * 4, z: doorIn.z - 1, hp: 100, state: 'engage', tx: 0, tz: 0, phase: Math.random() * 9, fireT: 0.7 + i * 0.5, downT: 0, hurtFlash: 0, interior: true, baseY: INT.y };
+    var c = { mesh: mesh, x: doorIn.x - 2 + i * 4, z: doorIn.z - 1, hp: 100, state: 'engage', tx: 0, tz: 0, phase: Math.random() * 9, fireT: 0.7 + i * 0.5, downT: 0, hurtFlash: 0, interior: true, baseY: INT.y, vname: mesh.userData.vname || null, fem: MESHY_FEM.indexOf(mesh.userData.vname || '') >= 0 };
     mesh.position.set(c.x, INT.y, c.z);
     mesh.userData.cop = c;
     scene.add(mesh); cops.push(c);
@@ -2288,8 +2304,9 @@ function copShoot(c, wpn, dt, tgt) {
   c.fireT = wpn.rate;
   if (!c.interior && !copHasLOS(c, tgt)) return;   // interior is one small room — they can always see you
   if (!tgt.id) {   // barks only for the local player
-    if (state.wanted >= 4) playVoiceAny(['cop_fire_1', 'cop_fire_2'], 0.45, 'copBark', 12);
-    else if (!playNpcVoice(c.vname, 'quirk', npcVoiceGain(c.x, c.z), 12)) playVoiceAny(['cop_engage_1', 'cop_engage_2'], 0.45, 'copBark', 12);
+    var copAt = { x: c.x, z: c.z, y: (c.baseY || 0) + 1.6, yell: true };
+    if (state.wanted >= 4) playVoiceAny(c.fem ? ['cop_fire_f_1', 'cop_fire_f_2'] : ['cop_fire_1', 'cop_fire_2'], 0.6, 'copBark', 12, copAt);
+    else if (!playNpcVoice(c.vname, 'quirk', 0.6, 12, copAt)) playVoiceAny(c.fem ? ['cop_engage_f_1', 'cop_engage_f_2'] : ['cop_engage_1', 'cop_engage_2'], 0.6, 'copBark', 12, copAt);
   }
   sfx(wpn.sfx);
   var dx = tgt.x - c.x, dz = tgt.z - c.z, d = Math.sqrt(dx * dx + dz * dz) || 1;
@@ -2332,7 +2349,7 @@ function updateCops(dt) {
       var wc2 = cops[wI];
       if (wc2.state === 'down' || wc2.interior) continue;
       var wdx = wc2.x - player.x, wdz = wc2.z - player.z;
-      if (wdx * wdx + wdz * wdz < 150) { playVoice('cop_warn', 0.45, 30); break; }
+      if (wdx * wdx + wdz * wdz < 150) { playVoice(wc2.fem ? 'cop_warn_f' : 'cop_warn', 0.55, 30, { x: wc2.x, z: wc2.z, yell: true }); break; }
     }
   }
   if (!isClient()) {
@@ -2488,7 +2505,7 @@ function updateCars(dt) {
     if (c.eng) {
       var vol = Math.max(0, 1 - ed / 80);
       c.eng.g.gain.value = vol * vol * (c.berserk ? 0.12 : 0.055);
-      c.eng.o.frequency.value = 42 + c.speed * 3.4 + Math.sin(T * 9 + i) * 3;
+      c.eng.o.frequency.value = (42 + c.speed * 3.4 + Math.sin(T * 9 + i) * 3) * dopplerShift(c, ed, dt);
     }
     // smoke when shot up
     if (c.dmgT > 1.2) {
@@ -3293,7 +3310,7 @@ function updateUfo(dt) {
 // ---------------- NPC logic (wander) ----------------
 function damageNPC(n, dmg, kx, kz, silent) {
   if (n.state === 'down') return;
-  if (!silent && !playNpcVoice(n.vname, 'hit', npcVoiceGain(n.x, n.z))) playVoiceAny(['pedm_hit_1', 'pedm_hit_2', 'pedf_hit', 'pedo_hit'], 0.42, 'pedHit', 5);
+  if (!silent && !playNpcVoice(n.vname, 'hit', 0.65, 4, { x: n.x, z: n.z, yell: true })) playVoiceAny(n.fem ? ['pedf_hit', 'pedf_hit_2'] : ['pedm_hit_1', 'pedm_hit_2', 'pedo_hit'], 0.6, 'pedHit', 5, { x: n.x, z: n.z, yell: true });
   n.hp -= dmg; n.hurtFlash = 0.12; n.x += (kx || 0) * 0.5; n.z += (kz || 0) * 0.5;
   lastCrimeT = T;
   if (n.hp <= 0) {
@@ -3315,7 +3332,7 @@ function damageNPC(n, dmg, kx, kz, silent) {
   for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o === n || o.state !== 'walk') continue; var dx = o.x - n.x, dz = o.z - n.z; if (dx * dx + dz * dz < 170) startFlee(o); }
 }
 function startFlee(n) { if (n.state === 'down') return; n.state = 'flee'; n.fleeT = 4 + Math.random() * 3; var dx = n.x - player.x, dz = n.z - player.z; var d = Math.sqrt(dx * dx + dz * dz) || 1; n.fleeDX = dx / d; n.fleeDZ = dz / d; }
-function panicNear(x, z, r2) { var fled = null; for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o.state !== 'walk') continue; var dx = o.x - x, dz = o.z - z; if (dx * dx + dz * dz < r2) { startFlee(o); if (!fled || o.vname) fled = o; } } if (fled && !playNpcVoice(fled.vname, 'gunscared', npcVoiceGain(fled.x, fled.z), 10)) playVoiceAny(['pedm_gun', 'pedf_gun'], 0.4, 'pedGun', 16); }
+function panicNear(x, z, r2) { var fled = null; for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o.state !== 'walk') continue; var dx = o.x - x, dz = o.z - z; if (dx * dx + dz * dz < r2) { startFlee(o); if (!fled || o.vname) fled = o; } } if (fled && !playNpcVoice(fled.vname, 'gunscared', 0.65, 10, { x: fled.x, z: fled.z, yell: true })) playVoiceAny(fled.fem ? ['pedf_gun'] : ['pedm_gun'], 0.6, 'pedGun', 16, { x: fled.x, z: fled.z, yell: true }); }
 
 var npcSocialT = 0, npcBumpT = -99, meleeHit = false;
 function updateNPCs(dt) {
@@ -3339,7 +3356,7 @@ function updateNPCs(dt) {
             a.chatRole = 0; b2.chatRole = 1;
             a.stateT = b2.stateT = 5 + Math.random() * 6;
             a.animT = 0; b2.animT = 1.1;
-            playNpcVoice(a.vname || b2.vname, 'chat', npcVoiceGain(a.x, a.z), 8);
+            playNpcVoice(a.vname || b2.vname, 'chat', 0.55, 8, { x: a.x, z: a.z });
             break outer;
           }
         }
@@ -3351,7 +3368,7 @@ function updateNPCs(dt) {
         var qn = npcs[qi];
         if (!qn.vname || qn.state !== 'walk') continue;
         var qdx = qn.x - player.x, qdz = qn.z - player.z;
-        if (qdx * qdx + qdz * qdz < 20) { playNpcVoice(qn.vname, 'quirk', npcVoiceGain(qn.x, qn.z), 25); break; }
+        if (qdx * qdx + qdz * qdz < 20) { playNpcVoice(qn.vname, 'quirk', 0.55, 25, { x: qn.x, z: qn.z }); break; }
       }
     }
     // bump reaction: player shoving through someone
@@ -3362,7 +3379,7 @@ function updateNPCs(dt) {
         var bdx = bn.x - player.x, bdz = bn.z - player.z;
         if (bdx * bdx + bdz * bdz < 0.9 && T - npcBumpT > 6) {
           npcBumpT = T;
-          if (!playNpcVoice(bn.vname, 'bump', npcVoiceGain(bn.x, bn.z))) playVoiceAny(['pedm_hit_2', 'pedo_hit', 'pedf_hit'], 0.4, 'pedBump', 6);
+          if (!playNpcVoice(bn.vname, 'bump', 0.55, 4, { x: bn.x, z: bn.z })) playVoiceAny(bn.fem ? ['pedf_hit', 'pedf_hit_2'] : ['pedm_hit_2', 'pedo_hit'], 0.5, 'pedBump', 6, { x: bn.x, z: bn.z });
           bn.state = 'stand'; bn.stateT = 1.4; bn.animT = 0; bn.idleVar = false;
           bn.mesh.rotation.y = Math.atan2(-bdx, -bdz);
         }
@@ -3459,6 +3476,8 @@ function updateNPCs(dt) {
   }
   updateNPCExtras();
 }
+var handsUpQ = new THREE.Quaternion();
+var X_AXIS = new THREE.Vector3(1, 0, 0);
 function updateNPCExtras() {
   var ddx = player.x - dealerPos.x, ddz = player.z - dealerPos.z;
   if (dealer.userData.skin) animPersonClip(dealer, 'idle', T);
@@ -3469,9 +3488,22 @@ function updateNPCExtras() {
     var kdx = player.x - clerkPos.x, kdz = player.z - clerkPos.z;
     clerk.rotation.y = Math.atan2(kdx, kdz);
     if (robbedVisit || copsCalledVisit) { // hands up
-      clerk.userData.limbs.armL.rotation.x = Math.PI * 0.9;
-      clerk.userData.limbs.armR.rotation.x = Math.PI * 0.9;
-    } else {
+      if (clerk.userData.skin) {
+        // skinned rig: pose the frozen idle first, then raise both arm bones
+        // on top of it (writing .rotation directly wipes the clip quaternion
+        // and leaves the whole rig in bind T-pose). The arms tremble — he is
+        // not having a good shift.
+        animPersonClip(clerk, 'idle2', 0);
+        handsUpQ.setFromAxisAngle(X_AXIS, -2.2 + Math.sin(T * 21) * 0.07 + Math.sin(T * 33.7) * 0.04);
+        clerk.userData.limbs.armL.quaternion.multiply(handsUpQ);
+        handsUpQ.setFromAxisAngle(X_AXIS, -2.2 + Math.sin(T * 24 + 1.7) * 0.07 + Math.sin(T * 29.3) * 0.04);
+        clerk.userData.limbs.armR.quaternion.multiply(handsUpQ);
+        clerk.rotation.y += Math.sin(T * 27) * 0.012;   // whole-body shiver
+      } else {
+        clerk.userData.limbs.armL.rotation.x = Math.PI * 0.9;
+        clerk.userData.limbs.armR.rotation.x = Math.PI * 0.9;
+      }
+    } else if (!clerk.userData.skin) {
       clerk.userData.limbs.armL.rotation.x = 0;
       clerk.userData.limbs.armR.rotation.x = 0;
     }
@@ -4202,24 +4234,26 @@ function startAmbient() {
 }
 // ---- PS1-crunched TTS dialogue (optional voicelines.js) ----
 var voiceBufs = {}, voiceLastT = {}, dealerMet = false, shopBought = false, clerkScaredT = -99;
-function playVoice(id, gain, cd) {
+function playVoice(id, gain, cd, at) {
   if (typeof VOICE_LINES === 'undefined' || !VOICE_LINES[id] || !ac) return;
+  if (!voiceEarshot(at)) return;
   if (voiceLastT[id] !== undefined && T - voiceLastT[id] < (cd || 5)) return;
   voiceLastT[id] = T;
   function playBuf(buf) {
     var src = ac.createBufferSource(); src.buffer = buf;
-    var g = ac.createGain(); g.gain.value = gain || 0.5;
-    src.connect(g); g.connect(ac.destination); src.start();
+    src.connect(voiceOut(gain || 0.5, at)); src.start();
+    trackVoice(src, at);
   }
   if (voiceBufs[id]) { playBuf(voiceBufs[id]); return; }
   var bytes = b64Bytes(VOICE_LINES[id].split(',')[1]);
   ac.decodeAudioData(bytes.buffer, function (buf) { voiceBufs[id] = buf; playBuf(buf); }, function () { });
 }
 var voiceGroupT = {};
-function playVoiceAny(ids, gain, cdKey, cd) {
+function playVoiceAny(ids, gain, cdKey, cd, at) {
+  if (!voiceEarshot(at)) return;
   if (voiceGroupT[cdKey] !== undefined && T - voiceGroupT[cdKey] < cd) return;
   voiceGroupT[cdKey] = T;
-  playVoice(ids[(Math.random() * ids.length) | 0], gain, 0);
+  playVoice(ids[(Math.random() * ids.length) | 0], gain, 0, at);
 }
 // per-NPC voice lines (optional npcvoices.js) — returns false when the
 // character has no pack entry so callers can fall back to the generic barks
@@ -4230,8 +4264,9 @@ function stopNpcVoice(name) {   // cut a character's line short (death)
   var s = npcVoiceSrc[name];
   if (s) { try { s.stop(); } catch (e) { } npcVoiceSrc[name] = null; }
 }
-function playNpcVoice(name, cat, gain, cd) {
+function playNpcVoice(name, cat, gain, cd, at) {
   if (!name || typeof NPC_VOICES === 'undefined' || !NPC_VOICES[name] || !NPC_VOICES[name][cat]) return false;
+  if (!voiceEarshot(at)) return true;   // too far to hear ANY voice — suppress fallback too
   var key = 'npcv_' + name;
   if (voiceGroupT[key] !== undefined && T - voiceGroupT[key] < (cd || 4)) return true;
   voiceGroupT[key] = T;
@@ -4246,8 +4281,8 @@ function playNpcVoice(name, cat, gain, cd) {
     var prev = npcVoiceSrc[name];
     if (prev) { try { prev.stop(); } catch (e) { } }
     var src = ac.createBufferSource(); src.buffer = buf;
-    var g = ac.createGain(); g.gain.value = gain || 0.45;
-    src.connect(g); g.connect(ac.destination); src.start();
+    src.connect(voiceOut(gain || 0.45, at)); src.start();
+    trackVoice(src, at);
     npcVoiceSrc[name] = src;
     src.onended = function () { if (npcVoiceSrc[name] === src) npcVoiceSrc[name] = null; };
   }
@@ -4261,7 +4296,73 @@ function meshyNameFromCfg(cfg) {
   var mi = MESHY_CIVS[cfg.preset - 1 - PSX_SKINS.length];
   return mi !== undefined ? MESHY_LIST[mi].n : null;
 }
-function npcVoiceGain(x, z) { var dx = x - player.x, dz = z - player.z; return Math.max(0, 1 - Math.sqrt(dx * dx + dz * dz) / 26) * 0.55; }
+// ---- positional voice audio ----
+// Lines emanate from the speaker (stereo pan + linear falloff), yells carry
+// twice as far, and everything doppler-shifts as the range opens or closes.
+var VOICE_RANGE = 26;    // how far normal speech carries; yells reach double
+var DOPPLER_C = 60;      // game "speed of sound": lower = more dramatic shift
+var activeVoices = [];
+var audioFwd = new THREE.Vector3();
+function voiceEarshot(at) {
+  if (!at) return true;
+  var range = at.yell ? VOICE_RANGE * 2 : VOICE_RANGE;
+  var dx = at.x - player.x, dz = at.z - player.z, dy = (at.y === undefined ? 1.6 : at.y) - player.y;
+  return dx * dx + dz * dz + dy * dy <= range * range;
+}
+function voiceOut(gain, at) {
+  // entry node for a voice chain: plain gain, or gain -> panner when placed
+  var g = ac.createGain(); g.gain.value = gain;
+  if (!at) { g.connect(ac.destination); return g; }
+  var range = at.yell ? VOICE_RANGE * 2 : VOICE_RANGE;
+  var y = at.y === undefined ? 1.6 : at.y;
+  var p = ac.createPanner();
+  p.panningModel = 'equalpower';
+  p.distanceModel = 'linear';
+  p.refDistance = 3; p.maxDistance = range; p.rolloffFactor = 1;
+  if (p.positionX) { p.positionX.value = at.x; p.positionY.value = y; p.positionZ.value = at.z; }
+  else p.setPosition(at.x, y, at.z);
+  g.connect(p); p.connect(ac.destination);
+  return g;
+}
+function trackVoice(src, at) {
+  if (!at) return;
+  var dx = at.x - player.x, dz = at.z - player.z;
+  var v = { src: src, x: at.x, z: at.z, lastD: Math.sqrt(dx * dx + dz * dz), done: false };
+  src.addEventListener('ended', function () { v.done = true; });
+  activeVoices.push(v);
+}
+function dopplerShift(o, d, dt) {
+  // o carries its own dopD/dopF state; returns a smoothed pitch multiplier
+  var rv = o.dopD === undefined ? 0 : (d - o.dopD) / Math.max(dt, 0.001);
+  o.dopD = d;
+  var f = DOPPLER_C / (DOPPLER_C + Math.max(-40, Math.min(40, rv)));
+  o.dopF = (o.dopF || 1) + (f - (o.dopF || 1)) * Math.min(1, dt * 8);
+  return o.dopF;
+}
+function updateVoiceAudio(dt) {
+  if (!ac) return;
+  var l = ac.listener;
+  if (l) {
+    audioFwd.set(0, 0, -1).applyQuaternion(camera.quaternion);
+    if (l.positionX) {
+      l.positionX.value = camera.position.x; l.positionY.value = camera.position.y; l.positionZ.value = camera.position.z;
+      l.forwardX.value = audioFwd.x; l.forwardY.value = audioFwd.y; l.forwardZ.value = audioFwd.z;
+      l.upX.value = 0; l.upY.value = 1; l.upZ.value = 0;
+    } else {
+      l.setPosition(camera.position.x, camera.position.y, camera.position.z);
+      l.setOrientation(audioFwd.x, audioFwd.y, audioFwd.z, 0, 1, 0);
+    }
+  }
+  for (var i = activeVoices.length - 1; i >= 0; i--) {
+    var v = activeVoices[i];
+    if (v.done) { activeVoices.splice(i, 1); continue; }
+    var dx = v.x - player.x, dz = v.z - player.z, d = Math.sqrt(dx * dx + dz * dz);
+    var rv = (d - v.lastD) / Math.max(dt, 0.001);   // + = opening range
+    v.lastD = d;
+    var f = DOPPLER_C / (DOPPLER_C + Math.max(-40, Math.min(40, rv)));
+    try { v.src.playbackRate.value += (f - v.src.playbackRate.value) * Math.min(1, dt * 10); } catch (e) { }
+  }
+}
 function noiseBurst(dur, freq, gain) { if (!ac) return; var n = ac.sampleRate * dur, buf = ac.createBuffer(1, n, ac.sampleRate), d = buf.getChannelData(0); for (var i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n); var src = ac.createBufferSource(); src.buffer = buf; var f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = freq; var g = ac.createGain(); g.gain.value = gain; src.connect(f); f.connect(g); g.connect(ac.destination); src.start(); }
 function beep(freq, dur, gain, type, slide) { if (!ac) return; var o = ac.createOscillator(), g = ac.createGain(); o.type = type || 'square'; o.frequency.setValueAtTime(freq, ac.currentTime); if (slide) o.frequency.exponentialRampToValueAtTime(slide, ac.currentTime + dur); g.gain.setValueAtTime(gain, ac.currentTime); g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + dur); o.connect(g); g.connect(ac.destination); o.start(); o.stop(ac.currentTime + dur); }
 function sfx(kind) {
@@ -4859,7 +4960,7 @@ function applyWorldSnap(dt) {
     var edx = player.x - m.position.x, edz = player.z - m.position.z;
     var ed = Math.sqrt(edx * edx + edz * edz);
     ensureEngine(c);
-    if (c.eng) { var vol = Math.max(0, 1 - ed / 80); c.eng.g.gain.value = c.stolen ? 0 : vol * vol * 0.055; c.eng.o.frequency.value = 62; }
+    if (c.eng) { var vol = Math.max(0, 1 - ed / 80); c.eng.g.gain.value = c.stolen ? 0 : vol * vol * 0.055; c.eng.o.frequency.value = 62 * dopplerShift(c, ed, dt); }
     if (!driving && !c.stolen && Math.abs(edx) < 2.6 && Math.abs(edz) < 2.6 && !state.dead) {
       var dd = ed || 1;
       player.x += (edx / dd) * 2.4; player.z += (edz / dd) * 2.4;
@@ -5120,7 +5221,7 @@ function loop(now) {
   var dt = Math.min(0.05, (now - last) / 1000); last = now;
   if (!state.running) { renderer.render(scene, camera); renderCreatorFrame(dt); return; }
   T += dt;
-  updatePlayer(dt); updateNPCs(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateUfo(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateEnv(dt); updateNet(dt); updateHUD(); drawMinimap();
+  updatePlayer(dt); updateNPCs(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateUfo(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateEnv(dt); updateVoiceAudio(dt); updateNet(dt); updateHUD(); drawMinimap();
   renderer.render(scene, camera);
 }
 setEquipped('fists');
@@ -5172,7 +5273,7 @@ window.__wc = {
   creatorSpin: function (v) { if (cprev) cprev.spin = v; },
   getPlayerChar: function () { return playerChar; },
   setPlayerChar: function (c) { playerChar = c; },
-  tick: function (dt) { T += dt; updatePlayer(dt); updateNPCs(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateUfo(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateEnv(dt); updateNet(dt); renderer.render(scene, camera); }
+  tick: function (dt) { T += dt; updatePlayer(dt); updateNPCs(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateUfo(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateEnv(dt); updateVoiceAudio(dt); updateNet(dt); renderer.render(scene, camera); }
 };
 
 })();
