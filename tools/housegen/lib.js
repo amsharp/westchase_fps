@@ -127,6 +127,7 @@ const SLICE_FN = `async (arg) => {
 }`;
 
 // Downscale to size px, posterize (PSX crunch), return JPEG data-URL.
+// arg.crop (optional): [xFrac, yFrac, wFrac, hFrac] source crop before scaling.
 const CRUNCH_FN = `async (arg) => {
   const img = new Image();
   await new Promise((ok, bad) => { img.onload = ok; img.onerror = bad; img.src = arg.src; });
@@ -134,7 +135,8 @@ const CRUNCH_FN = `async (arg) => {
   const w = arg.w || s, h = arg.h || s;
   const c = document.createElement('canvas'); c.width = w; c.height = h;
   const g = c.getContext('2d'); g.imageSmoothingEnabled = true;
-  g.drawImage(img, 0, 0, w, h);
+  const cr = arg.crop || [0, 0, 1, 1];
+  g.drawImage(img, cr[0] * img.width, cr[1] * img.height, cr[2] * img.width, cr[3] * img.height, 0, 0, w, h);
   const d = g.getImageData(0, 0, w, h);
   const lv = arg.levels || 24, q = 255 / (lv - 1);
   for (let i = 0; i < d.data.length; i++) if ((i & 3) !== 3) d.data[i] = Math.round(Math.round(d.data[i] / q) * q);

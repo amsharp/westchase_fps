@@ -170,6 +170,16 @@ you included. Ramming with your own car is gentler physics: the other car
 gets punted away spinning and dented; keep hitting it and it eventually
 loses control the same way. Wrecks respawn after a few seconds.
 
+The parking lots aren't just paint: **Publix, the strip malls, the
+banks, the RaceTrac and the school all have parked cars** sitting empty
+in their stalls, engines off, lights dark. Press **E** on one to **break
+in** — about a second of jimmying the door (glass crunch included), then
+you drive off in it. Breaking in doesn't earn a wanted star by itself
+(cops only care about chaos they can see), but any bystander who watches
+you do it runs off in a panic. Once you're in, it's your stolen ride like
+any other: park it wherever, lose it, blow it up — a wrecked lot car gets
+"replaced" back in its slot after about a minute.
+
 Press **E** next to a passing car to carjack it — the driver bails and
 runs off screaming (and yes, that's a crime). Driving is third-person:
 WASD to drive, **E** to get out. You can't shoot from the driver's seat,
