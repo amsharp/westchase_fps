@@ -9,6 +9,16 @@
 var GAME_VERSION = 'v1.23.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
+// ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
+// false (shipping default) = the current axis-road world, every remap code
+// path dormant. true = build the TRUE satellite geometry from remapdata.js
+// (Race Track Rd as a smoothed diagonal through the origin, Countryway SE,
+// Nine Eagles N — a 3-leg Y) instead of the perpendicular axis roads.
+// Tests force it on via window.WC_REMAP_OVERRIDE (set before game.js loads).
+var WC_REMAP = false;
+if (typeof window !== 'undefined' && window.WC_REMAP_OVERRIDE !== undefined) WC_REMAP = !!window.WC_REMAP_OVERRIDE;
+if (typeof REMAP_ROADS === 'undefined') WC_REMAP = false;   // data file missing -> legacy world
+
 // ---------------- world constants ----------------
 var HALF = 600, TOTAL = HALF * 2;   // expanded world (map expansion)
 var CORE = 340;                     // original hand-built map half-size — all
@@ -378,6 +388,18 @@ function blobShadow(sx, sz, y) { var m = new THREE.Mesh(shadowGeo, shadowMat); m
 var colliders = [], solidMeshes = [];
 var landColliders = null;   // colliders minus the lake block — the player may wade in
 function addCollider(cx, cz, w, d) { colliders.push({ x0: cx - w / 2, x1: cx + w / 2, z0: cz - d / 2, z1: cz + d / 2 }); }
+// oriented-bounding-box collider (remap roadside furniture, rotated venue
+// footprints in R3/R4). Carries its world-space AABB bounds too, so every
+// legacy reader that iterates colliders (berserk cars, parked-slot rejection,
+// spawn checks) keeps working — conservatively — without changes; only
+// pushOut resolves the exact OBB. yaw follows THREE rotation.y convention.
+function addColliderOBB(cx, cz, hw, hd, yaw) {
+  var c = Math.cos(yaw), s = Math.sin(yaw);
+  var bx = hw * Math.abs(c) + hd * Math.abs(s), bz = hw * Math.abs(s) + hd * Math.abs(c);
+  var o = { obb: 1, x: cx, z: cz, hx: hw, hz: hd, c: c, s: s, x0: cx - bx, x1: cx + bx, z0: cz - bz, z1: cz + bz };
+  colliders.push(o);
+  return o;
+}
 
 var hipGeo = new THREE.ConeGeometry(Math.SQRT1_2, 1, 4); hipGeo.rotateY(Math.PI / 4);
 
@@ -471,12 +493,16 @@ function drive(cx, cz, w, d) {
 // (Nine Eagles Dr) to the new edge; eastward/southward it stops at x/z=CORE
 // where the EXP_ROADS arterial bends (NE / SE) take over.
 var MAIN_SPAN = HALF + CORE, MAIN_CTR = (CORE - HALF) / 2;
-roadStrip(MAIN_CTR, 0, MAIN_SPAN, MAIN_HW * 2, false);
-roadStrip(0, MAIN_CTR, CROSS_HW * 2, MAIN_SPAN, true);
-sidewalk(MAIN_CTR, -(MAIN_HW + 2.5), MAIN_SPAN, 5);
-sidewalk(MAIN_CTR, MAIN_HW + 2.5, MAIN_SPAN, 5);
-sidewalk(-(CROSS_HW + 2.5), MAIN_CTR, 5, MAIN_SPAN, true);
-sidewalk(CROSS_HW + 2.5, MAIN_CTR, 5, MAIN_SPAN, true);
+if (!WC_REMAP) {
+  roadStrip(MAIN_CTR, 0, MAIN_SPAN, MAIN_HW * 2, false);
+  roadStrip(0, MAIN_CTR, CROSS_HW * 2, MAIN_SPAN, true);
+  sidewalk(MAIN_CTR, -(MAIN_HW + 2.5), MAIN_SPAN, 5);
+  sidewalk(MAIN_CTR, MAIN_HW + 2.5, MAIN_SPAN, 5);
+  sidewalk(-(CROSS_HW + 2.5), MAIN_CTR, 5, MAIN_SPAN, true);
+  sidewalk(CROSS_HW + 2.5, MAIN_CTR, 5, MAIN_SPAN, true);
+}
+// (WC_REMAP: the core legs render as true-geometry ribbons with everything
+// else — see buildRemapWorld in the remap-engine section)
 
 // crosswalks at the intersection
 var zebraT = (function () {
@@ -487,6 +513,7 @@ var zebraT = (function () {
   var t = new THREE.CanvasTexture(c); t.magFilter = THREE.LinearFilter; return t;
 })();
 (function crosswalks() {
+  if (WC_REMAP) return;   // axis crosswalks die with the axis roads (Y-junction furniture = R3)
   // pads sit ABOVE the sidewalk strips (0.125) — at 0.13 they z-fought and
   // shimmered; spans now match the road they cross instead of poking past it
   var za = new THREE.PlaneGeometry(CROSS_HW * 2 - 2, 3); za.rotateX(-Math.PI / 2);   // across the N-S road
@@ -850,6 +877,17 @@ function palm(x, z) {
 }
 
 function forestPatch(x0, x1, z0, z1, count) {
+  // remap: forest rects were authored/pre-clipped against the AXIS roads —
+  // several now straddle the true diagonals (their colliders would wall off
+  // the road). Split rects that touch a true road and keep the clear halves.
+  if (WC_REMAP && !remapRectClear(x0, x1, z0, z1, 2.5)) {
+    if (Math.max(x1 - x0, z1 - z0) > 56) {
+      var cnt2 = count === undefined ? undefined : Math.ceil(count / 2);
+      if (x1 - x0 >= z1 - z0) { forestPatch(x0, (x0 + x1) / 2, z0, z1, cnt2); forestPatch((x0 + x1) / 2, x1, z0, z1, cnt2); }
+      else { forestPatch(x0, x1, z0, (z0 + z1) / 2, cnt2); forestPatch(x0, x1, (z0 + z1) / 2, z1, cnt2); }
+    }
+    return;
+  }
   mapForest.push({ x0: x0, x1: x1, z0: z0, z1: z1 });
   // Collider inset 2.5u per side: the edge tree line straddles the rect
   // boundary, so the player stops among visible trunks instead of on an
@@ -890,6 +928,7 @@ function forestWall(cx, cz, w, d) {
   }
 }
 (function perimeter() {
+  if (WC_REMAP) { remapPerimeter(); return; }   // 6 true exits (remap engine section)
   var t = 3;
   // north (z=-HALF): gap for the cross road (Nine Eagles Dr) at x=0
   forestWall(-(HALF + CROSS_HW) / 2 - 2, -HALF, HALF - CROSS_HW, t);
@@ -923,6 +962,7 @@ function roadblock(x, z, w, d) {
   signPlane(x, 2.2, z + (horizontal ? (z < 0 ? 1.5 : -1.5) : 0), horizontal ? 0 : Math.PI / 2, 6, 1.6, ['ROAD', 'CLOSED'], '#b03018', '#ffffff');
 }
 (function roadblocks() {
+  if (WC_REMAP) return;   // remapPerimeter places rotated barriers at the 6 true exits
   roadblock(0, -HALF + 8, CROSS_HW * 2, 1.4);        // north: Nine Eagles Dr exit
   roadblock(-HALF + 8, 0, 1.4, MAIN_HW * 2);         // west: Race Track Rd exit
   roadblock(HALF - 8, NE_EXIT_Z + 8, 1.4, 40);       // east: Race Track Rd NE exit (road runs diagonal, span padded)
@@ -1527,7 +1567,12 @@ function expRoadPoly(idx, data) {
     }
   }
 }
-for (var eri = 0; eri < EXP_ROADS.length; eri++) expRoadPoly(eri, EXP_ROADS[eri]);
+// WC_REMAP: EVERY road (core legs + outer ring) renders from remapdata.js
+// true polylines instead — buildRemapRoads registers the same mapRoads
+// entries, so every downstream consumer (expClear, NPC walk tables, minimap)
+// follows the true network automatically.
+if (!WC_REMAP) { for (var eri = 0; eri < EXP_ROADS.length; eri++) expRoadPoly(eri, EXP_ROADS[eri]); }
+else buildRemapRoads();
 
 // retention ponds: sandy shore disc + still water disc; .lake-flagged collider
 // blocks NPCs/cops/cars while the player can wade (no swimming — these have
@@ -1544,7 +1589,13 @@ function expPond(x, z, rx, rz) {
   colliders.push({ x0: x - rx * 0.92, x1: x + rx * 0.92, z0: z - rz * 0.92, z1: z + rz * 0.92, lake: true });
   mapPonds.push({ x: x, z: z, rx: rx, rz: rz });
 }
-for (var epi = 0; epi < EXP_PONDS.length; epi++) expPond(EXP_PONDS[epi][0], EXP_PONDS[epi][1], EXP_PONDS[epi][2], EXP_PONDS[epi][3]);
+for (var epi = 0; epi < EXP_PONDS.length; epi++) {
+  var epd = EXP_PONDS[epi];
+  // remap: drop ponds the true roads now run through (they were placed
+  // against the axis network); the survey re-stamp (R3/R4) re-sites them
+  if (WC_REMAP && !remapRectClear(epd[0] - epd[2], epd[0] + epd[2], epd[1] - epd[3], epd[1] + epd[3], 1)) continue;
+  expPond(epd[0], epd[1], epd[2], epd[3]);
+}
 
 for (var efi = 0; efi < EXP_FOREST.length; efi++) {
   var ef = EXP_FOREST[efi];
@@ -1588,6 +1639,10 @@ var expFillPts = [];   // [x,z] of every fill tree (debug/audit)
     // interior scatter
     var ni = Math.round(w * d / 650);
     for (j = 0; j < ni; j++) pts.push([x0 + 2 + Math.random() * (w - 4), z0 + 2 + Math.random() * (d - 4)]);
+    // remap: keep fill trees off the true road ribbons (visual-only trees
+    // standing on the new diagonals would read as broken; the patch colliders
+    // are already split around the roads by the forestPatch guard)
+    if (WC_REMAP) pts = pts.filter(function (fp) { return remapPointClear(fp[0], fp[1], 2.5); });
     // bucket by prop, one InstancedMesh per prop per patch
     var buckets = [[], [], []];
     for (j = 0; j < pts.length; j++) { buckets[(Math.random() * 3) | 0].push(pts[j]); expFillPts.push(pts[j]); }
@@ -1650,8 +1705,500 @@ function expClear(x, z, m) {
   return true;
 }
 
+// ---------------- remap engine (R2): true-geometry world ----------------
+// DORMANT unless WC_REMAP (flag at the top of the file). Data contract:
+// remapdata.js — REMAP_ROADS (85 smoothed/densified polylines with per-class
+// half-widths), REMAP_EXITS (6 perimeter exits + inward road direction),
+// REMAP_CLEAR (venue footprints/parking polys the sidewalks leave gaps for).
+// Provides: triangulated road ribbons + junction pads, sidewalk ribbons,
+// perimeter walls/barriers at the true exits, a polyline traffic lane graph
+// (RM.edges/RM.nodes) that replaces the axis lane spawner, and the core NPC
+// sidewalk table. Venue/building relocation is R3 — legacy landmarks coexist
+// (some straddle the new diagonals; accepted until R3 re-anchors them).
+var RM = null;   // set by buildRemapRoads() when WC_REMAP
+
+// distance-to-network guards (raw REMAP_ROADS — usable before RM exists).
+// true when (x,z) is at least `pad` outside the asphalt of every true road.
+function remapPointClear(x, z, pad) {
+  if (typeof REMAP_ROADS === 'undefined') return true;
+  for (var i = 0; i < REMAP_ROADS.length; i++) {
+    var r = REMAP_ROADS[i], pts = r.pts, lim = r.hw + pad;
+    for (var j = 0; j < pts.length - 1; j++) {
+      var ax = pts[j][0], az = pts[j][1], bx = pts[j + 1][0], bz = pts[j + 1][1];
+      if (x < (ax < bx ? ax : bx) - lim || x > (ax > bx ? ax : bx) + lim ||
+          z < (az < bz ? az : bz) - lim || z > (az > bz ? az : bz) + lim) continue;
+      var dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz || 1;
+      var t = ((x - ax) * dx + (z - az) * dz) / L2;
+      t = t < 0 ? 0 : (t > 1 ? 1 : t);
+      var px = ax + dx * t - x, pz = az + dz * t - z;
+      if (px * px + pz * pz < lim * lim) return false;
+    }
+  }
+  return true;
+}
+// true when the axis rect keeps `pad` clearance from every true road
+// (segments sampled every 4u — load-time checks only)
+function remapRectClear(x0, x1, z0, z1, pad) {
+  if (typeof REMAP_ROADS === 'undefined') return true;
+  for (var i = 0; i < REMAP_ROADS.length; i++) {
+    var r = REMAP_ROADS[i], pts = r.pts, lim = r.hw + pad;
+    var ex0 = x0 - lim, ex1 = x1 + lim, ez0 = z0 - lim, ez1 = z1 + lim;
+    for (var j = 0; j < pts.length - 1; j++) {
+      var ax = pts[j][0], az = pts[j][1], bx = pts[j + 1][0], bz = pts[j + 1][1];
+      if ((ax < ex0 && bx < ex0) || (ax > ex1 && bx > ex1) || (az < ez0 && bz < ez0) || (az > ez1 && bz > ez1)) continue;
+      var L = Math.sqrt((bx - ax) * (bx - ax) + (bz - az) * (bz - az));
+      var n = Math.max(1, Math.ceil(L / 4));
+      for (var k = 0; k <= n; k++) {
+        var sx = ax + (bx - ax) * k / n, sz = az + (bz - az) * k / n;
+        if (sx > ex0 && sx < ex1 && sz > ez0 && sz < ez1) return false;
+      }
+    }
+  }
+  return true;
+}
+// point inside one of the venue clearance shapes (footprint OBBs expanded by
+// `grow`, parking polys) — sidewalk ribbons break here so R3's aprons fit
+function remapInClear(x, z, grow) {
+  if (typeof REMAP_CLEAR === 'undefined') return false;
+  for (var i = 0; i < REMAP_CLEAR.length; i++) {
+    var c = REMAP_CLEAR[i];
+    if (c.poly) {
+      var inP = false, p = c.poly;
+      for (var a = 0, b = p.length - 1; a < p.length; b = a++) {
+        if ((p[a][1] > z) !== (p[b][1] > z) && x < (p[b][0] - p[a][0]) * (z - p[a][1]) / (p[b][1] - p[a][1]) + p[a][0]) inP = !inP;
+      }
+      if (inP) return true;
+    } else {
+      if (c._c === undefined) { var ra = (c.rot || 0) * Math.PI / 180; c._c = Math.cos(ra); c._s = Math.sin(ra); }
+      var dx = x - c.x, dz = z - c.z;
+      var u = dx * c._c - dz * c._s, v = dx * c._s + dz * c._c;
+      if (Math.abs(u) < c.w / 2 + grow && Math.abs(v) < c.d / 2 + grow) return true;
+    }
+  }
+  return false;
+}
+// project (x,z) on a polyline -> {s: chainage, d: distance}
+function rmProject(pts, cum, x, z) {
+  var bs = 0, bd = 1e9;
+  for (var j = 0; j < pts.length - 1; j++) {
+    var ax = pts[j][0], az = pts[j][1], bx = pts[j + 1][0], bz = pts[j + 1][1];
+    var dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz || 1;
+    var t = ((x - ax) * dx + (z - az) * dz) / L2;
+    t = t < 0 ? 0 : (t > 1 ? 1 : t);
+    var px = ax + dx * t - x, pz = az + dz * t - z;
+    var d2 = px * px + pz * pz;
+    if (d2 < bd) { bd = d2; bs = cum[j] + Math.sqrt(L2) * t; }
+  }
+  return { s: bs, d: Math.sqrt(bd) };
+}
+function rmCum(pts) {
+  var cum = [0];
+  for (var i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.sqrt((pts[i][0] - pts[i - 1][0]) * (pts[i][0] - pts[i - 1][0]) + (pts[i][1] - pts[i - 1][1]) * (pts[i][1] - pts[i - 1][1])));
+  return cum;
+}
+// point + unit tangent at chainage s of a polyline (clamped)
+function rmAt(pts, cum, s) {
+  var n = pts.length, len = cum[n - 1];
+  if (s <= 0) s = 0; if (s >= len) s = len;
+  var lo = 0, hi = n - 1;
+  while (hi - lo > 1) { var mid = (lo + hi) >> 1; if (cum[mid] <= s) lo = mid; else hi = mid; }
+  var segL = cum[lo + 1] - cum[lo] || 1;
+  var t = (s - cum[lo]) / segL;
+  var ax = pts[lo][0], az = pts[lo][1], bx = pts[lo + 1][0], bz = pts[lo + 1][1];
+  var ux = (bx - ax) / segL, uz = (bz - az) / segL;
+  return { x: ax + (bx - ax) * t, z: az + (bz - az) * t, ux: ux, uz: uz };
+}
+// per-vertex averaged (miter) normals of a polyline: returns [[nx,nz,scale]…]
+function rmNormals(pts) {
+  var out = [], n = pts.length;
+  for (var i = 0; i < n; i++) {
+    var p = pts[i > 0 ? i - 1 : 0], q = pts[i < n - 1 ? i + 1 : n - 1];
+    var t1x = pts[i][0] - p[0], t1z = pts[i][1] - p[1];
+    var t2x = q[0] - pts[i][0], t2z = q[1] - pts[i][1];
+    var l1 = Math.sqrt(t1x * t1x + t1z * t1z) || 1, l2 = Math.sqrt(t2x * t2x + t2z * t2z) || 1;
+    t1x /= l1; t1z /= l1; t2x /= l2; t2z /= l2;
+    var mx = t1x + t2x, mz = t1z + t2z, ml = Math.sqrt(mx * mx + mz * mz);
+    if (ml < 0.001) { mx = t2x; mz = t2z; ml = 1; }
+    mx /= ml; mz /= ml;
+    // miter compensation so the ribbon keeps width through bends (clamped —
+    // the polylines are arc-smoothed, so this stays near 1)
+    var sc = 1 / Math.max(0.667, mx * t2x + mz * t2z);
+    out.push([-mz, mx, Math.min(1.5, sc)]);
+  }
+  return out;
+}
+// triangulated ribbon along a polyline. uScale: texture repeats per unit of
+// chainage (baked into UVs); vMax: across-ribbon V at the +normal edge.
+function remapRibbon(pts, hw, y, mat, uScale, vMax) {
+  var n = pts.length;
+  if (n < 2) return null;
+  var nor = rmNormals(pts), cum = rmCum(pts);
+  var pos = new Float32Array(n * 6), nrm = new Float32Array(n * 6), uv = new Float32Array(n * 4);
+  for (var i = 0; i < n; i++) {
+    var w = hw * nor[i][2], nx = nor[i][0], nz = nor[i][1];
+    pos[i * 6] = pts[i][0] - nx * w; pos[i * 6 + 1] = y; pos[i * 6 + 2] = pts[i][1] - nz * w;
+    pos[i * 6 + 3] = pts[i][0] + nx * w; pos[i * 6 + 4] = y; pos[i * 6 + 5] = pts[i][1] + nz * w;
+    nrm[i * 6 + 1] = 1; nrm[i * 6 + 4] = 1;
+    var u = cum[i] * uScale;
+    uv[i * 4] = u; uv[i * 4 + 1] = 0; uv[i * 4 + 2] = u; uv[i * 4 + 3] = vMax || 1;
+  }
+  var idx = [];
+  for (i = 0; i < n - 1; i++) {
+    var a = i * 2;
+    idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+  }
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  geo.setIndex(idx);
+  var mesh = new THREE.Mesh(geo, mat);
+  scene.add(mesh);
+  return mesh;
+}
+// offset copy of a polyline (side*dist along the averaged normals)
+function rmOffsetPts(pts, off) {
+  var nor = rmNormals(pts), out = [];
+  for (var i = 0; i < pts.length; i++) out.push([pts[i][0] + nor[i][0] * off * nor[i][2], pts[i][1] + nor[i][1] * off * nor[i][2]]);
+  return out;
+}
+
+function buildRemapRoads() {
+  RM = { roads: [], edges: [], nodes: [], pads: [], coreWalk: [], laneLen: 0 };
+  RM.coreWalk.total = 0;
+  var dirtT = tex(128, function (g, s) {
+    g.fillStyle = '#8a744f'; g.fillRect(0, 0, s, s);
+    noise(g, s, 700, 0.18, 0.08);
+    g.fillStyle = 'rgba(60,48,30,0.25)';
+    g.fillRect(0, s * 0.32 - 3, s, 6); g.fillRect(0, s * 0.68 - 3, s, 6);   // wheel ruts
+  });
+  var dirtM = lamb({ map: dirtT });
+  var i, j, r;
+  // parsed roads with cumulative chainage
+  for (i = 0; i < REMAP_ROADS.length; i++) {
+    r = REMAP_ROADS[i];
+    RM.roads.push({ id: r.id, cls: r.cls, hw: r.hw, dirt: !!r.dirt, pts: r.pts, cum: rmCum(r.pts) });
+  }
+  // ---- stitch points: road endpoints touching another road (<=3.5u) ----
+  // every stitch gets a junction pad; stitches between lane-graph roads
+  // (cls<=1) also split the traffic edges so cars can turn there
+  var stitches = [];   // {x,z,ri (touched road), s, hw (max of pair), lane:bool}
+  for (i = 0; i < RM.roads.length; i++) {
+    var re = RM.roads[i];
+    var ends = [re.pts[0], re.pts[re.pts.length - 1]];
+    for (var ei = 0; ei < 2; ei++) {
+      for (j = 0; j < RM.roads.length; j++) {
+        if (j === i) continue;
+        var ro = RM.roads[j];
+        var pr = rmProject(ro.pts, ro.cum, ends[ei][0], ends[ei][1]);
+        if (pr.d > 3.5) continue;
+        stitches.push({ x: ends[ei][0], z: ends[ei][1], ri: j, s: pr.s, hw: Math.max(re.hw, ro.hw), lane: re.cls <= 1 && ro.cls <= 1 });
+      }
+    }
+  }
+  // ---- junction pads (merged within 8u; radius from the widest road) ----
+  for (i = 0; i < stitches.length; i++) {
+    var st = stitches[i], merged = false;
+    for (j = 0; j < RM.pads.length; j++) {
+      var pd = RM.pads[j];
+      var ddx = pd.x - st.x, ddz = pd.z - st.z;
+      if (ddx * ddx + ddz * ddz < 64) { pd.r = Math.max(pd.r, st.hw * 1.8); merged = true; break; }
+    }
+    if (!merged) RM.pads.push({ x: st.x, z: st.z, r: st.hw * 1.8 });
+  }
+  // ---- render ribbons + registers ----
+  for (i = 0; i < RM.roads.length; i++) {
+    r = RM.roads[i];
+    var y = 0.14 + ((i * 7) % 11) * 0.0018;   // per-road y ladder: no coplanar overlaps
+    var mat = r.dirt ? dirtM : (r.cls === 0 ? expArtM : expResM);
+    remapRibbon(r.pts, r.hw, y, mat, 1 / 16, 1);
+    // minimap / walk-table / scatter-clearance register (decimated polyline)
+    var cum = r.cum, len = cum[cum.length - 1];
+    var li = 0;
+    for (j = 1; j < r.pts.length; j++) {
+      var isLast = j === r.pts.length - 1;
+      var ax2 = r.pts[li][0], az2 = r.pts[li][1], bx2 = r.pts[j][0], bz2 = r.pts[j][1];
+      var chord = Math.sqrt((bx2 - ax2) * (bx2 - ax2) + (bz2 - az2) * (bz2 - az2));
+      if (!isLast && cum[j] - cum[li] < 12 && cum[j] - cum[li] - chord < 0.35) continue;
+      if (chord > 2) {
+        mapRoads.push({ x1: ax2, z1: az2, x2: bx2, z2: bz2, hw: r.hw, cls: r.cls });
+        // core NPC walk table: walkable-class segments near the junction
+        var mx2 = (ax2 + bx2) / 2, mz2 = (az2 + bz2) / 2;
+        if (r.cls <= 2 && !r.dirt && mx2 * mx2 + mz2 * mz2 < 190 * 190 && chord > 14) {
+          RM.coreWalk.push({ x: ax2, z: az2, ux: (bx2 - ax2) / chord, uz: (bz2 - az2) / chord, L: chord, hw: r.hw, sw: r.cls === 0 ? 5 : 3.4 });
+          RM.coreWalk.total += chord;
+        }
+      }
+      li = j;
+    }
+    // ---- sidewalk ribbons (arterials/collectors/residentials, not tracks) ----
+    if (r.cls <= 2 && !r.dirt) {
+      var sw = r.cls === 0 ? 5 : 3.4, off = r.hw + sw / 2 + 0.6;
+      var sy = 0.1225 + ((i * 3) % 5) * 0.0014;
+      for (var side = -1; side <= 1; side += 2) {
+        var opts = rmOffsetPts(r.pts, off * side);
+        // break the ribbon at junction pads and venue clearance shapes
+        var run = [];
+        for (j = 0; j < opts.length; j++) {
+          var keep = !remapInClear(opts[j][0], opts[j][1], 1.2);
+          if (keep) {
+            for (var pj = 0; pj < RM.pads.length; pj++) {
+              var pd2 = RM.pads[pj];
+              var pdx = opts[j][0] - pd2.x, pdz = opts[j][1] - pd2.z;
+              if (pdx * pdx + pdz * pdz < (pd2.r + 2) * (pd2.r + 2)) { keep = false; break; }
+            }
+          }
+          if (keep) run.push(opts[j]);
+          else { if (run.length > 1) remapRibbon(run, sw / 2, sy, expWalkM, 1 / 8, sw / 8); run = []; }
+        }
+        if (run.length > 1) remapRibbon(run, sw / 2, sy, expWalkM, 1 / 8, sw / 8);
+      }
+    }
+  }
+  // junction pad discs (below every ribbon rung so lane paint runs onto them)
+  var padGeo = new THREE.CircleGeometry(1, 20); padGeo.rotateX(-Math.PI / 2);
+  for (i = 0; i < RM.pads.length; i++) {
+    var pad = new THREE.Mesh(padGeo, expResM);
+    pad.scale.set(RM.pads[i].r, 1, RM.pads[i].r);
+    pad.position.set(RM.pads[i].x, 0.134, RM.pads[i].z);
+    scene.add(pad);
+  }
+  buildRemapLanes(stitches);
+}
+
+// ---- traffic lane graph: polyline edges + junction nodes ----
+function buildRemapLanes(stitches) {
+  var i, j;
+  // split chainages per lane-graph road (cls<=1)
+  var splits = {};
+  for (i = 0; i < stitches.length; i++) {
+    var st = stitches[i];
+    if (!st.lane) continue;
+    (splits[st.ri] = splits[st.ri] || []).push(st.s);
+  }
+  for (i = 0; i < RM.roads.length; i++) {
+    var r = RM.roads[i];
+    if (r.cls > 1 || r.dirt) continue;
+    var len = r.cum[r.cum.length - 1];
+    var cuts = [0].concat(splits[i] || []).concat([len]);
+    cuts.sort(function (a, b) { return a - b; });
+    for (j = 0; j < cuts.length - 1; j++) {
+      var s0 = cuts[j], s1 = cuts[j + 1];
+      if (s1 - s0 < 10) continue;   // merged / duplicate stitches
+      // cut the polyline at [s0,s1]
+      var pts = [], k;
+      var a0 = rmAt(r.pts, r.cum, s0), a1 = rmAt(r.pts, r.cum, s1);
+      pts.push([a0.x, a0.z]);
+      for (k = 0; k < r.pts.length; k++) if (r.cum[k] > s0 + 0.5 && r.cum[k] < s1 - 0.5) pts.push(r.pts[k]);
+      pts.push([a1.x, a1.z]);
+      var cum = rmCum(pts);
+      // lanes: arterials 2/dir at |4.5|,|9.5|; collectors (+Nine Eagles) 1/dir
+      var lanes = r.hw >= 11 ? [4.5, 9.5] : [r.hw * 0.55];
+      // U-turn margin: stop short of the perimeter walls (barrier sits ~14 in)
+      var m0 = Math.max(Math.abs(pts[0][0]), Math.abs(pts[0][1])) > HALF - 8 ? 30 : 3;
+      var m1 = Math.max(Math.abs(pts[pts.length - 1][0]), Math.abs(pts[pts.length - 1][1])) > HALF - 8 ? 30 : 3;
+      RM.edges.push({ rid: r.id, cls: r.cls, hw: r.hw, pts: pts, cum: cum, len: cum[cum.length - 1], lanes: lanes, m0: m0, m1: m1, node: [null, null], spdA: r.cls === 0 ? 10 : 6.5, spdB: r.cls === 0 ? 5 : 3 });
+    }
+  }
+  // nodes: cluster edge endpoints within 5u
+  for (i = 0; i < RM.edges.length; i++) {
+    var e = RM.edges[i];
+    var ends = [e.pts[0], e.pts[e.pts.length - 1]];
+    for (var en = 0; en < 2; en++) {
+      var nd = null;
+      for (j = 0; j < RM.nodes.length; j++) {
+        var dx = RM.nodes[j].x - ends[en][0], dz = RM.nodes[j].z - ends[en][1];
+        if (dx * dx + dz * dz < 25) { nd = RM.nodes[j]; break; }
+      }
+      if (!nd) { nd = { x: ends[en][0], z: ends[en][1], legs: [] }; RM.nodes.push(nd); }
+      nd.legs.push({ e: i, end: en });
+      e.node[en] = nd;
+    }
+  }
+  for (i = 0; i < RM.edges.length; i++) RM.laneLen += RM.edges[i].len;
+}
+
+// lane-frame sample: world pos/tangent for car c at chainage s on its edge.
+// Lane offset rides the LEFT-normal frame: lateral = dir * off keeps traffic
+// on its right-hand side for both directions.
+function rmLanePos(c, s) {
+  var e = RM.edges[c.rEdge];
+  var p = rmAt(e.pts, e.cum, s);
+  var lat = c.rDir * c.rOff;
+  return { x: p.x - p.uz * lat, z: p.z + p.ux * lat, tx: p.ux * c.rDir, tz: p.uz * c.rDir };
+}
+function remapSeedCar(c, rng) {
+  var rnd = rng || Math.random;
+  // length-weighted edge pick
+  var pick = rnd() * RM.laneLen, e = RM.edges[0], ei = 0;
+  for (var i = 0; i < RM.edges.length; i++) { e = RM.edges[i]; ei = i; if (pick < e.len) break; pick -= e.len; }
+  c.rEdge = ei;
+  c.rDir = rnd() < 0.5 ? 1 : -1;
+  c.rLane = (rnd() * e.lanes.length) | 0;
+  c.rOff = e.lanes[c.rLane];
+  c.rS = e.m0 + rnd() * Math.max(1, e.len - e.m0 - e.m1);
+  c.speed = e.spdA + rnd() * e.spdB;
+  var p = rmLanePos(c, c.rS);
+  c.rTx = p.tx; c.rTz = p.tz;
+  c.car.group.position.set(p.x, 0, p.z);
+  c.car.group.rotation.y = Math.atan2(-p.tz, p.tx);
+}
+// advance chainage; at an edge end hop to a random continuing leg of the
+// node (turn across the junction) or U-turn at dead ends / perimeter exits
+function remapAdvance(c, dt) {
+  var e = RM.edges[c.rEdge];
+  c.rS += c.rDir * c.speed * dt;
+  var lo = e.m0, hi = e.len - e.m1;
+  if (c.rDir > 0 ? c.rS < hi : c.rS > lo) return;
+  var nd = e.node[c.rDir > 0 ? 1 : 0];
+  var opts = [];
+  if (nd) for (var i = 0; i < nd.legs.length; i++) if (nd.legs[i].e !== c.rEdge) opts.push(nd.legs[i]);
+  if (opts.length) {
+    var pk = opts[(Math.random() * opts.length) | 0];
+    var ne = RM.edges[pk.e];
+    c.rEdge = pk.e;
+    c.rDir = pk.end === 0 ? 1 : -1;
+    c.rLane = Math.min(c.rLane, ne.lanes.length - 1);
+    c.rOff = ne.lanes[c.rLane];
+    c.rS = pk.end === 0 ? ne.m0 : ne.len - ne.m1;
+    c.speed = ne.spdA + Math.random() * ne.spdB;
+  } else {
+    c.rDir = -c.rDir;   // dead end / ROAD CLOSED barrier: turn around
+    c.rS = Math.max(lo, Math.min(hi, c.rS));
+  }
+}
+// per-tick lane follower: chainage clock + pure-pursuit steer toward a
+// lookahead point, with a soft spring to the exact lane point so deviation
+// stays bounded (<~1u on the smoothed arcs)
+function remapDriveCar(c, dt) {
+  remapAdvance(c, dt);
+  var look = 3.5 + c.speed * 0.4;
+  var tgt = rmLanePos(c, c.rS + c.rDir * look);
+  var base = rmLanePos(c, c.rS);
+  var g = c.car.group;
+  var px = g.position.x, pz = g.position.z;
+  var dx = tgt.x - px, dz = tgt.z - pz, d = Math.sqrt(dx * dx + dz * dz);
+  if (d > 0.01) {
+    px += dx / d * c.speed * dt; pz += dz / d * c.speed * dt;
+    c.rTx = dx / d; c.rTz = dz / d;
+  } else { c.rTx = base.tx; c.rTz = base.tz; }
+  var k = Math.min(1, dt * 2.4);
+  px += (base.x - px) * k; pz += (base.z - pz) * k;
+  g.position.set(px, 0, pz);
+  // heading eases toward the travel direction
+  var want = Math.atan2(-c.rTz, c.rTx);
+  var dy = want - g.rotation.y;
+  while (dy > Math.PI) dy -= Math.PI * 2; while (dy < -Math.PI) dy += Math.PI * 2;
+  g.rotation.y += dy * Math.min(1, dt * 6);
+}
+// after a shove, rejoin the lane from wherever the car skidded to
+function remapRejoinLane(c) {
+  var e = RM.edges[c.rEdge];
+  var pr = rmProject(e.pts, e.cum, c.sx, c.sz);
+  c.rS = Math.max(e.m0, Math.min(e.len - e.m1, pr.s));
+}
+
+// ---- perimeter: +-600 walls with the 6 true exits ----
+function remapPerimeter() {
+  var t = 3, i, j;
+  // gap half-width along the wall: road half-width over the crossing angle
+  var gaps = { N: [], S: [], E: [], W: [] };
+  for (i = 0; i < REMAP_EXITS.length; i++) {
+    var e = REMAP_EXITS[i];
+    var horiz = e.edge === 'N' || e.edge === 'S';
+    var cosI = Math.abs(horiz ? e.dz : e.dx);   // inward component normal to the wall
+    var g = e.hw / Math.max(0.35, cosI) + 8;
+    gaps[e.edge].push({ at: horiz ? e.x : e.z, g: g });
+  }
+  var EDGES = [
+    { k: 'N', horiz: true, c: -HALF }, { k: 'S', horiz: true, c: HALF },
+    { k: 'W', horiz: false, c: -HALF }, { k: 'E', horiz: false, c: HALF }
+  ];
+  for (i = 0; i < EDGES.length; i++) {
+    var ed = EDGES[i];
+    var list = gaps[ed.k].slice().sort(function (a, b) { return a.at - b.at; });
+    var cur = -HALF;
+    for (j = 0; j <= list.length; j++) {
+      var end = j < list.length ? list[j].at - list[j].g : HALF;
+      if (end - cur > 8) {
+        var mid = (cur + end) / 2, span = end - cur;
+        if (ed.horiz) forestWall(mid, ed.c, span, t);
+        else forestWall(ed.c, mid, t, span);
+      }
+      if (j < list.length) cur = list[j].at + list[j].g;
+    }
+  }
+  // rotated ROAD CLOSED barriers ~14u inside each exit, square to the road
+  for (i = 0; i < REMAP_EXITS.length; i++) remapBarrier(REMAP_EXITS[i]);
+}
+function remapBarrier(e) {
+  var bx = e.x + e.dx * 14, bz = e.z + e.dz * 14;
+  var rowX = -e.dz, rowZ = e.dx;              // barrier row runs square to the road
+  var yaw = Math.atan2(-rowZ, rowX);          // OBB/box local +x along the row
+  var half = e.hw + 4;
+  var bm = lamb({ color: 0xdadada }), stripe = lamb({ color: 0xd88018 });
+  var n = Math.max(2, Math.round(half * 2 / 3));
+  for (var i = 0; i < n; i++) {
+    var o = -half + (i + 0.5) / n * half * 2;
+    var b = box(2.6, 1.1, 1, i % 2 ? stripe : bm, bx + rowX * o, 0.55, bz + rowZ * o);
+    b.rotation.y = yaw;
+    scene.add(b);
+  }
+  addColliderOBB(bx, bz, half, 0.8, yaw);
+  signPlane(bx + e.dx * 1.2, 2.2, bz + e.dz * 1.2, Math.atan2(e.dx, e.dz), 6, 1.6, ['ROAD', 'CLOSED'], '#b03018', '#ffffff');
+}
+
+// ---- streetlight rows along the true arterials/collectors ----
+// (replaces the axis rows; venue/lot spot lights stay as-is)
+function remapStreetlightRows() {
+  var side = 1;
+  for (var i = 0; i < RM.roads.length; i++) {
+    var r = RM.roads[i];
+    if (r.cls > 1 || r.dirt) continue;
+    var len = r.cum[r.cum.length - 1];
+    for (var s = 30; s < len - 20; s += 55) {
+      var p = rmAt(r.pts, r.cum, s);
+      var off = r.hw + 5.5;
+      var lx = p.x - p.uz * off * side, lz = p.z + p.ux * off * side;
+      if (spotClear(lx, lz)) streetlight(lx, lz, p.uz * side, -p.ux * side);
+      side = -side;
+    }
+  }
+}
+// NPC standing on true-road asphalt? return the nearest curb-side escape
+// point (sidewalk band beside the closest road), else null. Scans mapRoads —
+// with WC_REMAP on those ARE the decimated true-road segments.
+function remapRoadEscape(x, z) {
+  var best = null, bestD = 1e9;
+  for (var i = 0; i < mapRoads.length; i++) {
+    var r = mapRoads[i];
+    var dx = r.x2 - r.x1, dz = r.z2 - r.z1, L2 = dx * dx + dz * dz || 1;
+    var t = ((x - r.x1) * dx + (z - r.z1) * dz) / L2;
+    t = t < 0 ? 0 : (t > 1 ? 1 : t);
+    var cx = r.x1 + dx * t, cz = r.z1 + dz * t;
+    var px = x - cx, pz = z - cz, d2 = px * px + pz * pz;
+    if (d2 < r.hw * r.hw && d2 < bestD) {
+      bestD = d2;
+      var d = Math.sqrt(d2);
+      var nx, nz;
+      if (d > 0.3) { nx = px / d; nz = pz / d; }
+      else { var L = Math.sqrt(L2); nx = -dz / L; nz = dx / L; }   // dead-center: pick a side
+      var off = r.hw + 2 + Math.random() * 2;
+      best = [cx + nx * off, cz + nz * off];
+    }
+  }
+  return best;
+}
+// remap core NPC sidewalk spot (RM.coreWalk shares the expWalk entry shape)
+function remapCoreSpot() {
+  if (RM && RM.coreWalk.length) return expWalkSpot(RM.coreWalk);
+  return [WALK.x0 + Math.random() * (WALK.x1 - WALK.x0), WALK.z0 + Math.random() * (WALK.z1 - WALK.z0)];
+}
+
 // scattered street palms + oaks in the commercial core
-[[20, 20], [-20, 20], [20, -20], [-20, -20], [-90, 22], [90, 22], [-90, -22], [30, -60], [-30, 70]].forEach(function (p) { palm(p[0], p[1]); });
+// (remap: the hand-placed list hugs the axis intersection — several would
+// stand on the Y-junction asphalt; keep only the ones clear of true roads)
+[[20, 20], [-20, 20], [20, -20], [-20, -20], [-90, 22], [90, 22], [-90, -22], [30, -60], [-30, 70]].forEach(function (p) { if (!WC_REMAP || remapPointClear(p[0], p[1], 2)) palm(p[0], p[1]); });
 for (var oi = 0; oi < 40; oi++) {
   var ox = -CORE + 40 + Math.random() * (CORE * 2 - 80), oz = -CORE + 40 + Math.random() * (CORE * 2 - 80);
   // keep oaks off the roads/core (and off the expansion roads/ponds)
@@ -1803,21 +2350,31 @@ function houseAtlasMat(ci, vi) {
   if (typeof MAXANISO !== 'undefined') t.anisotropy = MAXANISO;
   var mat = lamb({ map: t });
   houseAtlases[key] = { canvas: cv, tex: t, mat: mat };
-  // kick off (or reuse) this cluster's tile decode
+  // kick off (or reuse) this cluster's tile decode; the atlas is drawn ONCE
+  // per cluster when every tile has decoded (per-tile redraws were 9x the
+  // canvas + recolor + texture-upload work)
   if (!houseTileImgs[ci]) {
     var tiles = {};
     houseTileImgs[ci] = tiles;
     var names = ['front', 'side', 'back', 'roof', 'garage', 'door', 'trim', 'gable', 'concrete'];
+    var want = 0, got = 0;
     names.forEach(function (name) {
       var url = cl.tex[name];
       if (!url) return;
+      want++;
       var im = new Image();
       tiles[name] = { img: im, ok: false };
-      im.onload = function () { tiles[name].ok = true; houseDrawAtlas(ci); };
+      im.onload = function () {
+        tiles[name].ok = true;
+        got++;
+        if (got === want) houseDrawAtlas(ci);
+      };
       im.src = url;
     });
   } else {
-    houseDrawAtlas(ci);
+    var ready = true;
+    for (var tk in houseTileImgs[ci]) if (!houseTileImgs[ci][tk].ok) ready = false;
+    if (ready) houseDrawAtlas(ci);
   }
   return mat;
 }
@@ -2333,10 +2890,14 @@ function mastArm(px, pz, ax, az, len, nHeads, fx, fz, sign, signRy) {
   scene.add(g);
 }
 // main road (arms span the lanes in z); cross road (arms span in x)
-mastArm(CROSS_HW + 9, -MAIN_HW - 7, 0, 1, 2 * MAIN_HW + 13, 4, -1, 0, 'RACE TRACK RD', -Math.PI / 2);
-mastArm(-(CROSS_HW + 9), MAIN_HW + 7, 0, -1, 2 * MAIN_HW + 13, 4, 1, 0, 'RACE TRACK RD', Math.PI / 2);
-mastArm(CROSS_HW + 7, MAIN_HW + 9, -1, 0, 2 * CROSS_HW + 13, 3, 0, -1, 'COUNTRYWAY BLVD', Math.PI);
-mastArm(-(CROSS_HW + 7), -(MAIN_HW + 9), 1, 0, 2 * CROSS_HW + 13, 3, 0, 1, 'COUNTRYWAY BLVD', 0);
+// (remap: the axis-aligned arms would hang over the wrong asphalt at the
+// 3-leg Y — the per-leg arms are R3 junction furniture)
+if (!WC_REMAP) {
+  mastArm(CROSS_HW + 9, -MAIN_HW - 7, 0, 1, 2 * MAIN_HW + 13, 4, -1, 0, 'RACE TRACK RD', -Math.PI / 2);
+  mastArm(-(CROSS_HW + 9), MAIN_HW + 7, 0, -1, 2 * MAIN_HW + 13, 4, 1, 0, 'RACE TRACK RD', Math.PI / 2);
+  mastArm(CROSS_HW + 7, MAIN_HW + 9, -1, 0, 2 * CROSS_HW + 13, 3, 0, -1, 'COUNTRYWAY BLVD', Math.PI);
+  mastArm(-(CROSS_HW + 7), -(MAIN_HW + 9), 1, 0, 2 * CROSS_HW + 13, 3, 0, 1, 'COUNTRYWAY BLVD', 0);
+}
 
 // utility poles + power lines along the main road (south side, like the
 // Street Views). Poles are breakable ('light'); the strung wires are static
@@ -2361,6 +2922,7 @@ function wire(a, b) {
   scene.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 8, 0.03, 4, false), wireM));
 }
 (function powerline() {
+  if (WC_REMAP) return;   // the pole line runs along the vanished axis road (re-routed in R3)
   function onDrive(x, z) {   // driveway mouths cross the pole line — dodge them
     for (var i = 0; i < mapDrives.length; i++) {
       var d = mapDrives[i];
@@ -2389,14 +2951,16 @@ function medianSeg(x0, x1) {
   scene.add(box(w, 0.34, 0.28, curbM, cx, 0.28, 1.5));
   for (var px = x0 + 7; px < x1 - 5; px += 32) { if (Math.random() < 0.6) palm(px, 0); else crepeMyrtle(px, 0); }
 }
-medianSeg(CROSS_HW + 11, 300);
-medianSeg(-300, -(CROSS_HW + 11));
+if (!WC_REMAP) {   // median + corner islands are axis-junction furniture (R3 re-authors)
+  medianSeg(CROSS_HW + 11, 300);
+  medianSeg(-300, -(CROSS_HW + 11));
 
-// corner landscaping
-[[1, 1], [1, -1], [-1, 1], [-1, -1]].forEach(function (s) {
-  var cx = s[0] * (CROSS_HW + 8), cz = s[1] * (MAIN_HW + 8);
-  bush(cx, cz); bush(cx + s[0] * 2.2, cz + s[1] * 1.6); crepeMyrtle(cx + s[0] * 4, cz + s[1] * 3.2);
-});
+  // corner landscaping
+  [[1, 1], [1, -1], [-1, 1], [-1, -1]].forEach(function (s) {
+    var cx = s[0] * (CROSS_HW + 8), cz = s[1] * (MAIN_HW + 8);
+    bush(cx, cz); bush(cx + s[0] * 2.2, cz + s[1] * 1.6); crepeMyrtle(cx + s[0] * 4, cz + s[1] * 3.2);
+  });
+}
 // bushes fronting a few landmarks
 [[52, -37], [-48, -37], [-72, -116], [-52, 37], [-116, -22]].forEach(function (p) { bush(p[0], p[1]); bush(p[0] + 3, p[1]); bush(p[0] - 3, p[1]); });
 
@@ -2426,11 +2990,13 @@ function updateSignals(dt) {
 // corner sabal-palm clusters — 3 per junction corner island (staggered heights
 // & yaw come free from palm()), placed outside the sidewalks, crosswalks,
 // mast-arm poles and corner bushes.
-[[1, 1], [1, -1], [-1, 1], [-1, -1]].forEach(function (s) {
-  palm(s[0] * 26, s[1] * 29);
-  palm(s[0] * 29.5, s[1] * 26.5);
-  palm(s[0] * 27.6, s[1] * 32.4);
-});
+if (!WC_REMAP) {
+  [[1, 1], [1, -1], [-1, 1], [-1, -1]].forEach(function (s) {
+    palm(s[0] * 26, s[1] * 29);
+    palm(s[0] * 29.5, s[1] * 26.5);
+    palm(s[0] * 27.6, s[1] * 32.4);
+  });
+}
 
 // intersection paint: white stop bars behind each crosswalk + left-turn
 // stencil arrows in the turn pockets (satellite z19 reference). Thin planes
@@ -2456,14 +3022,17 @@ function turnArrow(x, z, ry) {
   var m = new THREE.Mesh(geo, turnArrowM); m.position.set(x, 0.155, z); m.rotation.y = ry; scene.add(m);
 }
 // right-hand traffic: each bar spans only the approach half of its road
-stopBar(-16.4, 7.25, 1.1, 12.1);      // eastbound approach (from the west)
-stopBar(16.4, -7.25, 1.1, 12.1);      // westbound
-stopBar(-5.9, -19.4, 10.0, 1.1);      // southbound
-stopBar(5.9, 19.4, 10.0, 1.1);        // northbound
-turnArrow(-19.5, 2.4, -Math.PI / 2);  // eastbound left-turn pocket
-turnArrow(19.5, -2.4, Math.PI / 2);   // westbound
-turnArrow(-2.2, -22, Math.PI);        // southbound
-turnArrow(2.2, 22, 0);                // northbound
+// (remap: painted onto the axis junction — per-leg re-paint is R3)
+if (!WC_REMAP) {
+  stopBar(-16.4, 7.25, 1.1, 12.1);      // eastbound approach (from the west)
+  stopBar(16.4, -7.25, 1.1, 12.1);      // westbound
+  stopBar(-5.9, -19.4, 10.0, 1.1);      // southbound
+  stopBar(5.9, 19.4, 10.0, 1.1);        // northbound
+  turnArrow(-19.5, 2.4, -Math.PI / 2);  // eastbound left-turn pocket
+  turnArrow(19.5, -2.4, Math.PI / 2);   // westbound
+  turnArrow(-2.2, -22, Math.PI);        // southbound
+  turnArrow(2.2, 22, 0);                // northbound
+}
 
 // ---------------- street lights ----------------
 var streetLights = [];
@@ -2512,15 +3081,18 @@ function streetlight(x, z, ax, az) {
   registerBreakable(g, x, z, 0.6, 'light', entry);
 }
 (function placeStreetlights() {
-  for (var x = -290; x <= 290; x += 58) {
-    if (Math.abs(x) < CROSS_HW + 10) continue;
-    streetlight(x, -(MAIN_HW + 5.5), 0, 1);
-    streetlight(x + 29 <= 290 ? x + 29 : x - 29, MAIN_HW + 5.5, 0, -1);
-  }
-  for (var z = -290; z <= 290; z += 64) {
-    if (Math.abs(z) < MAIN_HW + 10) continue;
-    streetlight(-(CROSS_HW + 5.5), z, 1, 0);
-    streetlight(CROSS_HW + 5.5, z + 32 <= 290 ? z + 32 : z - 32, -1, 0);
+  if (WC_REMAP) remapStreetlightRows();   // chainage rows along the true arterials/collectors
+  else {
+    for (var x = -290; x <= 290; x += 58) {
+      if (Math.abs(x) < CROSS_HW + 10) continue;
+      streetlight(x, -(MAIN_HW + 5.5), 0, 1);
+      streetlight(x + 29 <= 290 ? x + 29 : x - 29, MAIN_HW + 5.5, 0, -1);
+    }
+    for (var z = -290; z <= 290; z += 64) {
+      if (Math.abs(z) < MAIN_HW + 10) continue;
+      streetlight(-(CROSS_HW + 5.5), z, 1, 0);
+      streetlight(CROSS_HW + 5.5, z + 32 <= 290 ? z + 32 : z - 32, -1, 0);
+    }
   }
   // parking lots
   streetlight(-92, -96, 1, 0); streetlight(-52, -96, -1, 0);        // Publix lot
@@ -2557,6 +3129,14 @@ function dayFactor() {
 function groundHeightAt(x, z) {
   for (var i = 0; i < mapBuildings.length; i++) {
     var b = mapBuildings[i];
+    if (b.rot) {
+      // rotated footprint (remap venues, R3+): probe in building-local frame
+      if (b._c === undefined) { var ra = b.rot * Math.PI / 180; b._c = Math.cos(ra); b._s = Math.sin(ra); }
+      var dx = x - b.x, dz = z - b.z;
+      var u = dx * b._c - dz * b._s, v = dx * b._s + dz * b._c;
+      if (Math.abs(u) < b.w / 2 && Math.abs(v) < b.d / 2) return (b.h || 5) + 0.2;
+      continue;
+    }
     if (x > b.x - b.w / 2 && x < b.x + b.w / 2 && z > b.z - b.d / 2 && z < b.z + b.d / 2) return (b.h || 5) + 0.2;
   }
   return 0.16;
@@ -3165,9 +3745,12 @@ var npcs = [];
 var NPC_COUNT = 46;   // raised for the expanded map — the core keeps ~the old 28
 // home-zone weights: core intersection / residential neighborhoods / collectors+Lynmar
 var NPC_W_CORE = 0.60, NPC_W_RES = 0.32;   // remainder (~0.08) = collectors
-var WALK = { x0: -270, x1: 150, z0: -160, z1: 150 };
+var WALK = WC_REMAP ? { x0: -240, x1: 120, z0: -180, z1: 170 }   // recentred on the true venue span
+                    : { x0: -270, x1: 150, z0: -160, z1: 150 };
 function randTarget() { return [WALK.x0 + Math.random() * (WALK.x1 - WALK.x0), WALK.z0 + Math.random() * (WALK.z1 - WALK.z0)]; }
 function sidewalkSpot() {
+  // remap: length-weighted pick over the core-leg sidewalk ribbons
+  if (WC_REMAP) return remapCoreSpot();
   // random point on the sidewalk strips flanking the two roads
   var side = Math.random() < 0.5 ? 1 : -1;
   if (Math.random() < 0.55) {
@@ -3282,7 +3865,9 @@ function setNpcTarget(n) {
   var t = npcTargetFor(n); n.tx = t[0]; n.tz = t[1];
   n.wayX = undefined; n.wayZ = undefined;
   // core crosswalk routing only — neighborhood walkers jaywalk their streets
-  if (!n.turf && Math.random() < 0.7) {
+  // (remap: the axis crosswalk pads don't exist — everyone jaywalks; the
+  // 3-leg Y crosswalk pads are R3 junction furniture)
+  if (!WC_REMAP && !n.turf && Math.random() < 0.7) {
     if ((n.z >= MAIN_HW && n.tz <= -MAIN_HW) || (n.z <= -MAIN_HW && n.tz >= MAIN_HW)) {
       // crossing the E-W main road: pads at (+-13.5, 0)
       n.wayX = (n.x < 0 ? -1 : 1) * (CROSS_HW + 2.5); n.wayZ = 0;
@@ -4157,10 +4742,25 @@ function addCar(axis, lane, dir) {
   c.car.group.userData.trafficCar = c;
   cars.push(c);
 }
-[5, 10].forEach(function (l) { addCar('x', l, 1); addCar('x', l, 1); });
-[-5, -10].forEach(function (l) { addCar('x', l, -1); addCar('x', l, -1); });
-[4, 8].forEach(function (l) { addCar('z', l, 1); addCar('z', l, 1); });
-[-4, -8].forEach(function (l) { addCar('z', l, -1); addCar('z', l, -1); });
+// remap traffic car: same entry shape as addCar, but driven by the lane
+// graph (RM.edges) instead of the axis lanes. Seeded placement keeps
+// host/client cars[] identical in count/order for world-snapshot mapping.
+function addRemapCar(rng) {
+  var c = { car: makeCar(), axis: 'x', lane: 0, lane0: 0, dir: 1, pos: 0, speed: 10, dmgT: 0, berserk: false, exploded: false, respawnT: 0, smokeT: 0, eng: null };
+  c.car.group.userData.trafficCar = c;
+  remapSeedCar(c, rng);
+  cars.push(c);
+}
+if (!WC_REMAP) {
+  [5, 10].forEach(function (l) { addCar('x', l, 1); addCar('x', l, 1); });
+  [-5, -10].forEach(function (l) { addCar('x', l, -1); addCar('x', l, -1); });
+  [4, 8].forEach(function (l) { addCar('z', l, 1); addCar('z', l, 1); });
+  [-4, -8].forEach(function (l) { addCar('z', l, -1); addCar('z', l, -1); });
+} else {
+  // same 16-car budget, spread length-weighted over arterial+collector edges
+  var rmCarRng = seededRng(0x52454D01);
+  for (var rmci = 0; rmci < 16; rmci++) addRemapCar(rmCarRng);
+}
 
 // ---- parked cars: the lots hold empty cars you can break into (E, 0.9s) ----
 // Deterministic layout (seeded RNG + deterministic slot rejection) so host and
@@ -4193,6 +4793,8 @@ var PARKED_ROWS = [
   { x: -24, z: -255, dx: 0, dz: 3.3, slots: 11, ry: Math.PI, n: 4 }
 ];
 var PARKED_CLEAR = [[-72, -97], [-72, -106]];   // player spawn + gun dealer
+// survey-neighborhood lots contribute extra deterministic rows (houses.js)
+if (typeof HOUSE_PARKED_ROWS !== 'undefined') PARKED_ROWS = PARKED_ROWS.concat(HOUSE_PARKED_ROWS);
 function parkedHalfExt(ry) {
   var co = Math.abs(Math.cos(ry)), si = Math.abs(Math.sin(ry));
   return { hx: 2.5 * co + 1.3 * si, hz: 2.5 * si + 1.3 * co };
@@ -5443,7 +6045,7 @@ function damageNPC(n, dmg, kx, kz, silent) {
 function startFlee(n) { if (n.state === 'down') return; breakNpcChat(n); n.state = 'flee'; n.dodge = false; n.fleeT = 4 + Math.random() * 3; var dx = n.x - player.x, dz = n.z - player.z; var d = Math.sqrt(dx * dx + dz * dz) || 1; n.fleeDX = dx / d; n.fleeDZ = dz / d; }
 function panicNear(x, z, r2) { var fled = null; for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o.state !== 'walk' && o.state !== 'chat') continue; var dx = o.x - x, dz = o.z - z; if (dx * dx + dz * dz < r2) { startFlee(o); if (!fled || o.vname) fled = o; } } if (fled && !playNpcVoice(fled.vname, 'gunscared', 0.65, 10, { x: fled.x, z: fled.z, yell: true, ref: fled })) playVoiceAny(fled.fem ? ['pedf_gun'] : ['pedm_gun'], 0.6, 'pedGun', 16, { x: fled.x, z: fled.z, yell: true, ref: fled }); }
 
-var npcSocialT = 0, npcBumpT = -99, meleeHit = false;
+var npcSocialT = 0, npcBumpT = -99, meleeHit = false, npcAnimF = 0;
 // hard-stop a sidewalk conversation (participant hit/killed/fleeing/dodging a
 // car): both sides go back to wandering, the turn timer dies with the pair
 // owner, and any in-flight chat/story line is cut short.
@@ -5528,8 +6130,14 @@ function updateNPCs(dt) {
       }
     }
   }
+  npcAnimF++;   // LOD frame counter: distant NPCs repose every 3rd frame
   for (var i = 0; i < npcs.length; i++) {
     var n = npcs[i], m = n.mesh;
+    // anim LOD: skinned repose is the NPC sim's hot path — NPCs >120u from
+    // the player hold their last pose 2 of every 3 frames (phase/animT keep
+    // accumulating, so the pose stays correct when it does update)
+    var adx2 = n.x - player.x, adz2 = n.z - player.z;
+    var animSkip = adx2 * adx2 + adz2 * adz2 > 14400 && (npcAnimF + i) % 3 !== 0;
     if (n.hurtFlash > 0) { n.hurtFlash -= dt; m.position.y = n.hurtFlash > 0 ? 0.06 : 0; }
     // street smarts: bail out perpendicular when a car bears down on you
     if ((n.state === 'walk' || n.state === 'stand' || n.state === 'chat') && T > (n.dodgeCD || 0)) {
@@ -5564,7 +6172,7 @@ function updateNPCs(dt) {
     }
     if (n.state === 'stand') {
       n.stateT -= dt; n.animT += dt;
-      animPersonClip(m, n.idleVar ? 'idle2' : 'idle', n.animT);
+      if (!animSkip) animPersonClip(m, n.idleVar ? 'idle2' : 'idle', n.animT);
       if (n.stateT <= 0) { n.state = 'walk'; setNpcTarget(n); }
       m.position.set(n.x, 0, n.z);
       continue;
@@ -5579,7 +6187,7 @@ function updateNPCs(dt) {
         continue;
       }
       m.rotation.y = Math.atan2(prx, prz);
-      animPersonClip(m, n.chatRole ? 'talk' : 'chat', n.animT);
+      if (!animSkip) animPersonClip(m, n.chatRole ? 'talk' : 'chat', n.animT);
       // conversation turns (owner side only): every ~3-4.5s the next speaker
       // reacts with a chatA line; ~15% of turns become a story instead, and
       // the reply then waits ~9-12s so the anecdote can finish.
@@ -5634,7 +6242,7 @@ function updateNPCs(dt) {
     if (n.state === 'flee') {
       n.fleeT -= dt; spd = n.dodge ? 7.4 : 4.6; vx = n.fleeDX; vz = n.fleeDZ; if (n.fleeT <= 0) { n.state = 'walk'; n.dodge = false; }
     } else {
-      if (n.pause > 0) { n.pause -= dt; animPerson(m, 0, dt); continue; }
+      if (n.pause > 0) { n.pause -= dt; if (!animSkip) animPerson(m, 0, dt); continue; }
       var gx = n.wayX !== undefined ? n.wayX : n.tx, gz = n.wayX !== undefined ? n.wayZ : n.tz;
       var dx = gx - n.x, dz = gz - n.z, d = Math.sqrt(dx * dx + dz * dz);
       if (d < 1) {
@@ -5664,7 +6272,15 @@ function updateNPCs(dt) {
     } else n.stuckT = 0;
     // sidewalk discipline: loitering on road asphalt (off the intersection /
     // crosswalk area) for 2s steers the target to the nearest sidewalk band
-    if (n.state === 'walk') {
+    if (n.state === 'walk' && WC_REMAP) {
+      // remap version: loitering on any true-road ribbon steers to the
+      // nearest curb (perpendicular escape off the polyline)
+      var esc = remapRoadEscape(n.x, n.z);
+      if (esc) {
+        n.roadT = (n.roadT || 0) + dt;
+        if (n.roadT > 2) { n.roadT = 0; n.wayX = undefined; n.wayZ = undefined; n.tx = esc[0]; n.tz = esc[1]; }
+      } else n.roadT = 0;
+    } else if (n.state === 'walk') {
       var onMainRd = Math.abs(n.z) < MAIN_HW && Math.abs(n.x) > CROSS_HW;
       var onCrossRd = Math.abs(n.x) < CROSS_HW && Math.abs(n.z) > MAIN_HW;
       if (onMainRd || onCrossRd) {
@@ -5686,7 +6302,8 @@ function updateNPCs(dt) {
       }
     }
     m.position.set(n.x, m.position.y === 0.06 ? 0.06 : 0, n.z);
-    m.rotation.y = Math.atan2(vx, vz); n.phase += spd * dt * 3.4; animPerson(m, spd, dt, n.phase);
+    m.rotation.y = Math.atan2(vx, vz); n.phase += spd * dt * 3.4;
+    if (!animSkip) animPerson(m, spd, dt, n.phase);
   }
   updateNPCExtras();
 }
@@ -5756,6 +6373,19 @@ function pushOut(px, pz, r, list) {
   for (var i = 0; i < L.length; i++) {
     var b = L[i];
     if (px < b.x0 - r || px > b.x1 + r || pz < b.z0 - r || pz > b.z1 + r) continue;
+    if (b.obb) {
+      // oriented box: solve in the box's local frame (u along its width axis),
+      // same slab logic as the AABB branch below, then rotate back out
+      var odx = px - b.x, odz = pz - b.z;
+      var u = odx * b.c - odz * b.s, v = odx * b.s + odz * b.c;
+      if (u < -b.hx - r || u > b.hx + r || v < -b.hz - r || v > b.hz + r) continue;
+      var cu = Math.max(-b.hx, Math.min(u, b.hx)), cv = Math.max(-b.hz, Math.min(v, b.hz));
+      var du = u - cu, dv = v - cv, dq = du * du + dv * dv;
+      if (dq > 0.0001) { if (dq < r * r) { var dd = Math.sqrt(dq); u = cu + (du / dd) * r; v = cv + (dv / dd) * r; } else continue; }
+      else { var el = u + b.hx, er = b.hx - u, et = v + b.hz, eb = b.hz - v; var em = Math.min(el, er, et, eb); if (em === el) u = -b.hx - r; else if (em === er) u = b.hx + r; else if (em === et) v = -b.hz - r; else v = b.hz + r; }
+      px = u * b.c + v * b.s + b.x; pz = -u * b.s + v * b.c + b.z;
+      continue;
+    }
     var cx = Math.max(b.x0, Math.min(px, b.x1)), cz = Math.max(b.z0, Math.min(pz, b.z1));
     var dx = px - cx, dz = pz - cz, d2 = dx * dx + dz * dz;
     if (d2 > 0.0001) { if (d2 < r * r) { var d = Math.sqrt(d2); px = cx + (dx / d) * r; pz = cz + (dz / d) * r; } }
@@ -7005,8 +7635,9 @@ function drawMinimap() {
   mg.fillStyle = '#33333a';
   mg.fillRect(0, w2m(-MAIN_HW), (HALF + CORE) * MMS, MAIN_HW * 2 * MMS);
   mg.fillRect(w2m(-CROSS_HW), 0, CROSS_HW * 2 * MMS, (HALF + CORE) * MMS);
-  // buildings
-  for (var b = 0; b < mapBuildings.length; b++) { var m = mapBuildings[b]; mg.fillStyle = m.c; mg.fillRect(w2m(m.x - m.w / 2), w2m(m.z - m.d / 2), Math.max(2, m.w * MMS), Math.max(2, m.d * MMS)); }
+  // buildings (survey houses come from a pre-rendered layer — ~600 rects)
+  if (typeof HOUSE_CLUSTERS !== 'undefined') mg.drawImage(houseMMLayer(w2m, mm.width, MMS), 0, 0);
+  for (var b = 0; b < mapBuildings.length; b++) { var m = mapBuildings[b]; if (m.hs) continue; mg.fillStyle = m.c; mg.fillRect(w2m(m.x - m.w / 2), w2m(m.z - m.d / 2), Math.max(2, m.w * MMS), Math.max(2, m.d * MMS)); }
   // cars
   mg.fillStyle = '#e8a13a'; for (var c = 0; c < cars.length; c++) { var cm = cars[c].car.group.position; mg.fillRect(w2m(cm.x) - 1, w2m(cm.z) - 1, 2, 2); }
   // npcs
@@ -7993,6 +8624,7 @@ window.__wc = {
   oakInfo: function () { return { count: oakCount, cap: OAK_CAP }; },
   forestFillPts: expFillPts,
   streetProps: streetPropInteractables, streetPropInteract: streetPropInteract, getStreetProp: getStreetProp, hydrantJets: hydrantJets,
+  houses: houseStats, houseBlocksSpot: houseBlocksSpot,
   isUnderwater: function () { return underwater; },
   net: net, startGame: startGame, hostGame: hostGame, joinGame: joinGame, handleNet: handleNet,
   buildIceConfig: buildIceConfig, hmacSha1B64: hmacSha1B64,

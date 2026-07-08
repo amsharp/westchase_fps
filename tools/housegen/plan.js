@@ -217,6 +217,7 @@ class RectGrid {
   }
 }
 const occGrid = new RectGrid();
+const segGrid = new RectGrid();
 const forestGrid = new RectGrid();
 const placedGrid = new RectGrid();
 const lotGrid = new RectGrid();
@@ -234,6 +235,7 @@ for (const f of (occ.mapForest || [])) occRects.push({ x0: f.x0, x1: f.x1, z0: f
 const breaks = (occ.breakables || []).map(b => ({ x: b.x, z: b.z, r: b.r || 1 }));
 for (const R of occRects) occGrid.add(R, R.x0, R.z0, R.x1, R.z1);
 for (const f of FOREST) forestGrid.add(f, f.x0, f.z0, f.x1, f.z1);
+for (const r of roads) for (const g of r.segs) segGrid.add({ r, g }, Math.min(g.x1, g.x2), Math.min(g.z1, g.z2), Math.max(g.x1, g.x2), Math.max(g.z1, g.z2));
 
 const placed = [];   // {x,z,w,d,rot, b, inst}  (oriented footprints)
 const lots = [];     // {x,z,w,d,rot,area,fx,fz,ux,uz,forB}
@@ -279,13 +281,10 @@ function checkSpot0(x, z, w, d, rotDeg, opts) {
   const rad = Math.hypot(hw, hd);
   const roadM = opts.roadMargin !== undefined ? opts.roadMargin : 0;
   if (Math.abs(x) + rad > 590 || Math.abs(z) + rad > 590) return 'wall';
-  for (const r of roads) {
-    const lim = r.clear + roadM;
-    for (const g of r.segs) {
-      // cheap circle reject first
-      if (segRectDist(g.x1, g.z1, g.x2, g.z2, x - rad, z - rad, x + rad, z + rad) >= lim) continue;
-      if (segOrientedRectDist(g.x1, g.z1, g.x2, g.z2, x, z, hw, hd, a) < lim) return process.env.PROBE ? 'road[' + r.n + ']' : 'road';
-    }
+  for (const it of segGrid.query(x - rad - 25, z - rad - 25, x + rad + 25, z + rad + 25)) {
+    const lim = it.r.clear + roadM, g = it.g;
+    if (segRectDist(g.x1, g.z1, g.x2, g.z2, x - rad, z - rad, x + rad, z + rad) >= lim) continue;
+    if (segOrientedRectDist(g.x1, g.z1, g.x2, g.z2, x, z, hw, hd, a) < lim) return process.env.PROBE ? 'road[' + it.r.n + ']' : 'road';
   }
   for (const p of PONDS) {
     if (rectOverlap(x, z, hw, hd, a, p.x, p.z, p.rx + 2.6, p.rz + 2.6, 0, 0)) return 'pond';
@@ -494,7 +493,7 @@ function placeOnStreet(m, ri, side, sc, scale, rank) {
   const rotDeg = Math.atan2(-nx, -nz) * 180 / Math.PI;
   for (const back of [0, 2.5, 5]) {
     const px = P.x + nx * (off + back), pz = P.z + nz * (off + back);
-    const fail = checkSpot(px, pz, dims[0], dims[1], rotDeg, { gap: 0.5, forestM: -3.5 });
+    const fail = checkSpot(px, pz, dims[0], dims[1], rotDeg, { gap: 0.5, forestM: -4.5 });
     if (!fail) {
       const Pl = commit(m, px, pz, rotDeg, dims[0], dims[1], scale);
       occAdd(key, sc - hw2, sc + hw2);
@@ -580,10 +579,12 @@ for (const key in rows) {
   const all = indivLeftovers.concat(pool, droppedRepeats);
   const TARGET = 740;
   const failedPrev = [];
+  const satFail = {};
   const ROUNDS = [
     { scale: 1, rank: 0 }, { scale: 0.85, rank: 0 },
     { scale: 1, rank: 1 }, { scale: 0.85, rank: 1 }, { scale: 0.74, rank: 0 },
-    { scale: 0.74, rank: 1 }, { scale: 1, rank: 2 },
+    { scale: 0.74, rank: 1 }, { scale: 1, rank: 2 }, { scale: 0.85, rank: 2 },
+    { scale: 0.9, rank: 3 },
   ];
   for (let round = 1; round <= ROUNDS.length; round++) {
     const src = round === 1 ? all : failedPrev.splice(0);
@@ -607,9 +608,12 @@ for (const key in rows) {
       if (dmin < (r.cls === 0 ? 130 : 160)) cands.push({ ri, dmin, sAt });
     }
     cands.sort((a, b2) => a.dmin - b2.dmin);
+    cands.length = Math.min(cands.length, 18);
     let done = false;
     for (const c of cands) {
       if (done) break;
+      const satKey = c.ri + '|' + rank + '|' + Math.ceil(dims[0] / 6);
+      if ((satFail[satKey] || 0) >= 5) continue;   // exhausted for this size
       const r = roads[c.ri];
       const smin2 = 5 + dims[0] / 2, smax2 = r.len - 5 - dims[0] / 2;
       // walk outward from the closest arclength
@@ -624,6 +628,7 @@ for (const key in rows) {
           if (done) break;
         }
       }
+      if (!done) satFail[satKey] = (satFail[satKey] || 0) + 1;
     }
     if (!done) { if (round < ROUNDS.length) failedPrev.push(m); else drop(m, 'fill-failed'); }
   }
