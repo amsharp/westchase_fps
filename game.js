@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.14.0';
+var GAME_VERSION = 'v1.14.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---------------- world constants ----------------
@@ -476,13 +476,15 @@ var zebraT = (function () {
   var t = new THREE.CanvasTexture(c); t.magFilter = THREE.LinearFilter; return t;
 })();
 (function crosswalks() {
-  var za = new THREE.PlaneGeometry(MAIN_HW * 2 - 4, 3); za.rotateX(-Math.PI / 2);
-  var zb = new THREE.PlaneGeometry(3, CROSS_HW * 2 - 4); zb.rotateX(-Math.PI / 2);
+  // pads sit ABOVE the sidewalk strips (0.125) — at 0.13 they z-fought and
+  // shimmered; spans now match the road they cross instead of poking past it
+  var za = new THREE.PlaneGeometry(CROSS_HW * 2 - 2, 3); za.rotateX(-Math.PI / 2);   // across the N-S road
+  var zb = new THREE.PlaneGeometry(3, MAIN_HW * 2 - 2); zb.rotateX(-Math.PI / 2);   // across the E-W road
   var ma = new THREE.MeshBasicMaterial({ map: zebraT, transparent: true, depthWrite: false });
-  var za1 = new THREE.Mesh(za, ma); za1.position.set(0, 0.13, -MAIN_HW - 1.5); scene.add(za1);
-  var za2 = new THREE.Mesh(za, ma); za2.position.set(0, 0.13, MAIN_HW + 1.5); scene.add(za2);
-  var zb1 = new THREE.Mesh(zb, ma); zb1.position.set(-CROSS_HW - 1.5, 0.13, 0); scene.add(zb1);
-  var zb2 = new THREE.Mesh(zb, ma); zb2.position.set(CROSS_HW + 1.5, 0.13, 0); scene.add(zb2);
+  var za1 = new THREE.Mesh(za, ma); za1.position.set(0, 0.165, -MAIN_HW - 2.5); scene.add(za1);
+  var za2 = new THREE.Mesh(za, ma); za2.position.set(0, 0.165, MAIN_HW + 2.5); scene.add(za2);
+  var zb1 = new THREE.Mesh(zb, ma); zb1.position.set(-CROSS_HW - 2.5, 0.165, 0); scene.add(zb1);
+  var zb2 = new THREE.Mesh(zb, ma); zb2.position.set(CROSS_HW + 2.5, 0.165, 0); scene.add(zb2);
 })();
 
 // ---------------- signs & generic buildings ----------------
@@ -1781,7 +1783,7 @@ function buildMeshySkinned(cfg, mi) {
     bones.push(b);
   }
   for (i = 0; i < nj; i++) { if (d.parents[i] >= 0) bones[d.parents[i]].add(bones[i]); else root = bones[i]; }
-  var mesh = new THREE.SkinnedMesh(d.geo, lamb({ map: getMeshyTex(mi) }));
+  var mesh = new THREE.SkinnedMesh(d.geo, lamb({ map: getMeshyTex(mi), side: THREE.DoubleSide }));   // thin hair/clothes shells show holes when single-sided
   mesh.add(root);
   mesh.updateMatrixWorld(true);
   mesh.bind(new THREE.Skeleton(bones));
@@ -4029,6 +4031,7 @@ function tryAttack() {
   if (w.melee) {
     if (T - punchT < w.rate) return;
     punchT = T; punchSide = !punchSide; punchSlap = Math.random() < 0.2; sfx('whoosh');
+    meleeHit = true;   // fists: damageNPC rolls fight-back + punch reacts (ranged resets this in the raycast path)
     var fx = -Math.sin(yaw), fz = -Math.cos(yaw), best = null, bestD = 99, bestCop = null;
     for (var i = 0; i < npcs.length; i++) {
       var n = npcs[i]; if (n.state === 'down') continue;
@@ -4472,7 +4475,7 @@ function meshyNameFromCfg(cfg) {
 // Lines emanate from the speaker (stereo pan + linear falloff), yells carry
 // twice as far, and everything doppler-shifts as the range opens or closes.
 var VOICE_RANGE = 26;    // how far normal speech carries; yells reach double
-var DOPPLER_C = 130;     // game "speed of sound": lower = more dramatic shift
+var DOPPLER_C = 343;     // real speed of sound (m/s) — world units are meters
 var activeVoices = [];
 var audioFwd = new THREE.Vector3();
 function voiceEarshot(at) {
