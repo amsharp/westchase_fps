@@ -199,10 +199,8 @@
 <script src="voicelines.js"></script>
 <script src="blooddecals.js"></script>
 <script src="streetprops.js"></script>
-<!-- houses.js / remapdata.js: staged data for the neighborhood buildout + true-geometry
-     remap. Kept UNWIRED until the stamping integration passes full verification (perf,
-     screenshots, suites), so prod stays on the proven map. game.js no-ops when
-     HOUSE_INSTANCES / WC_REMAP data is absent. -->
+<!-- houses.js / remapdata.js: staged, kept UNWIRED until stamping proves draw-call/tick
+     numbers (prod safety). game.js no-ops without them. Re-wired on the ship commit. -->
 <script src="game.js"></script>
 </body>
 </html>
