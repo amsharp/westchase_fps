@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.10.0';
+var GAME_VERSION = 'v1.11.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---------------- world constants ----------------
@@ -34,7 +34,7 @@ var state = {
   owned: { pistol: false, smg: false, rifle: false, auto: false, rocket: false, raygun: false },
   equipped: 'fists',
   lastHurt: -99, lastCarHit: -99, lastRob: -99,
-  wanted: 0, civKills: 0, snacks: 0
+  wanted: 0, civKills: 0, copKills: 0, snacks: 0
 };
 
 var keys = {}, mouseDown = false;
@@ -2123,10 +2123,20 @@ function enterStore() {
   player.x = doorIn.x; player.z = doorIn.z; player.y = INT.y + EYE;
   yaw = 0; pitch = 0;   // facing into the store
 }
+// robbery lockouts are server-wide: one heist closes the store for everyone.
+// keyed by store so future robbable spots inherit the same sync for free.
+function applyRobCD(store, left) {
+  if (store === 'gas') gasClosedUntil = Math.max(gasClosedUntil, T + left);
+}
+function netSendRobCD(store, secs) {
+  if (!netActive()) return;
+  var m = { t: 'robCD', store: store, left: secs };
+  if (net.mode === 'host') netBroadcast(m); else netToHost(m);
+}
 function exitStore(diedInside) {
   inside = false;
   for (var i = cops.length - 1; i >= 0; i--) if (cops[i].interior) { scene.remove(cops[i].mesh); cops.splice(i, 1); }
-  if (robbedVisit || copsCalledVisit) gasClosedUntil = T + 180;
+  if (robbedVisit || copsCalledVisit) { gasClosedUntil = T + 180; netSendRobCD('gas', 180); }
   robbedVisit = false; copsCalledVisit = false;
   if (!diedInside) {
     player.x = doorOut.x; player.z = doorOut.z; player.y = EYE;
@@ -2192,6 +2202,22 @@ function setWanted(v) {
   updateStarsHUD();
 }
 function addStar(n) { setWanted(state.wanted + (n || 1)); }
+// star thresholds double per level: 5 civs for the 1st star, 10 more for the
+// 2nd, 20 more for the 3rd... cops: any damage = 1st star, 3 kills = 2nd,
+// 6 more = 3rd, doubling likewise. Counters reset when the heat fully dies.
+var CIV_STAR_KILLS = [5, 15, 35, 75, 155];
+var COP_STAR_KILLS = [3, 9, 21, 45];   // stars 2-5 (star 1 comes from just hurting one)
+function creditCivKill() {
+  state.civKills++;
+  lastCrimeT = T;
+  if (CIV_STAR_KILLS.indexOf(state.civKills) >= 0) { addStar(1); popup2('WANTED LEVEL UP'); }
+}
+function creditCopKill() {
+  state.copKills++;
+  lastCrimeT = T;
+  if (state.wanted < 1) setWanted(1);   // you can't kill one without damaging one
+  if (COP_STAR_KILLS.indexOf(state.copKills) >= 0) { addStar(1); popup2('WANTED LEVEL UP'); }
+}
 
 function buildCop() {
   if (MESHY_COPS.length) {
@@ -2232,8 +2258,8 @@ function spawnInteriorCops(n) {
 function desiredCops() { return state.wanted === 0 ? 2 : 2 + state.wanted * 2; }
 function copWeapon() {
   return state.wanted >= 4
-    ? { range: 46, dmg: 4, rate: 0.14, acc: 0.5, sfx: 'copsmg' }   // full-auto SMGs
-    : { range: 21, dmg: 9, rate: 1.05, acc: 0.55, sfx: 'copshot' }; // sidearms, short range
+    ? { range: 46, dmg: 4, rate: 0.14, acc: 0.32, sfx: 'copsmg' }   // full-auto SMGs
+    : { range: 21, dmg: 9, rate: 1.05, acc: 0.38, sfx: 'copshot' }; // sidearms, short range
 }
 var copRay = new THREE.Raycaster();
 function copHasLOS(c, tgt) {
@@ -2268,7 +2294,7 @@ function copShoot(c, wpn, dt, tgt) {
   sfx(wpn.sfx);
   var dx = tgt.x - c.x, dz = tgt.z - c.z, d = Math.sqrt(dx * dx + dz * dz) || 1;
   puff(new THREE.Vector3(c.x + dx / d * 0.5, (c.baseY || 0) + 1.45, c.z + dz / d * 0.5), 0xffe08a);
-  var hitChance = wpn.acc * Math.max(0.15, 1 - d / wpn.range);
+  var hitChance = wpn.acc * Math.max(0.1, 1 - d / wpn.range);
   if (Math.random() < hitChance) {
     if (tgt.id) { netSendHit(tgt.id, wpn.dmg); return; }   // remote player: their client applies (car redirect included)
     if (state.dead) return;
@@ -2292,7 +2318,7 @@ function damageCop(c, dmg, kx, kz, silent) {
     stopNpcVoice(c.vname);
     spawnCash(c.x, c.z, 10 + ((Math.random() * 30) | 0), c.baseY || 0);
     sfx('ko');
-    if (!silent) { popup('COP DOWN!'); addStar(1); }
+    if (!silent) { popup('COP DOWN!'); creditCopKill(); }
   } else {
     c.state = 'engage';
     if (!silent && state.wanted < 1) setWanted(1);
@@ -2365,7 +2391,7 @@ function updateCops(dt) {
     }
     if (!nearCop) {
       state.wanted--; lastCrimeT = T; updateStarsHUD();
-      if (state.wanted === 0) popup('You lost the heat');
+      if (state.wanted === 0) { popup('You lost the heat'); state.civKills = 0; state.copKills = 0; }   // fresh spree, fresh thresholds
     }
   }
 }
@@ -2643,9 +2669,7 @@ function updateDriving(dt) {
         if (isClient()) netToHost({ t: 'ragNpc', i: i, kx: fx * sgn, kz: fz * sgn, pw: 8 + Math.abs(c.pspeed) * 0.55 });
         else killNpcRagdoll(n, fx * sgn + (Math.random() - 0.5) * 0.5, fz * sgn + (Math.random() - 0.5) * 0.5, 8 + Math.abs(c.pspeed) * 0.55);
         n.state = 'ragdoll';   // avoid double-triggering while the host confirms
-        state.civKills++;
-        if (state.civKills % 5 === 0) { addStar(1); popup2('WANTED LEVEL UP'); }
-        lastCrimeT = T;
+        creditCivKill();
       }
     }
     // run over cops (local sim or host-mirrored)
@@ -2923,29 +2947,40 @@ function dropWeapon(kind, x, z) {
   var g = dropMesh(kind);
   g.position.set(x, 0.7, z);
   scene.add(g);
-  drops.push({ mesh: g, kind: kind, life: 120 });
+  // the one-per-session alien gun never rots on the pavement
+  drops.push({ mesh: g, kind: kind, life: kind === 'raygun' ? 9999 : 120 });
+}
+function applyDropPickup(kind) {
+  if (!WEAPONS[kind]) return;
+  if (state.owned[kind]) {
+    var refund = Math.floor((WEAPONS[kind].price || 0) / 2);
+    state.money += refund;
+    popup(refund ? '+$' + refund + ' (sold ' + WEAPONS[kind].name + ')' : 'Already have a ' + WEAPONS[kind].name);
+    if (refund) sfx('cash');
+  } else {
+    state.owned[kind] = true;
+    popup('Picked up ' + WEAPONS[kind].name);
+    sfx('buy');
+  }
 }
 function updateDrops(dt) {
   for (var i = drops.length - 1; i >= 0; i--) {
     var d = drops[i];
-    d.life -= dt;
     d.mesh.rotation.y += dt * 1.6;
     d.mesh.position.y = 0.7 + Math.sin(T * 2.2 + i) * 0.12;
     var dx = player.x - d.mesh.position.x, dz = player.z - d.mesh.position.z;
     if (!state.dead && dx * dx + dz * dz < 2.6) {
-      if (state.owned[d.kind]) {
-        var refund = Math.floor((WEAPONS[d.kind].price || 0) / 2);
-        state.money += refund;
-        popup(refund ? '+$' + refund + ' (sold ' + WEAPONS[d.kind].name + ')' : 'Already have a ' + WEAPONS[d.kind].name);
-        if (refund) sfx('cash');
-      } else {
-        state.owned[d.kind] = true;
-        popup('Picked up ' + WEAPONS[d.kind].name);
-        sfx('buy');
+      if (d.net) {
+        // host owns drops in multiplayer — ask, and take it when granted
+        if (!d.pend) { d.pend = true; netToHost({ t: 'takeDrop', x: d.mesh.position.x, z: d.mesh.position.z }); }
+        continue;
       }
+      applyDropPickup(d.kind);
       scene.remove(d.mesh); drops.splice(i, 1);
       continue;
     }
+    if (d.net) continue;   // lifetime is the host's call
+    d.life -= dt;
     if (d.life <= 0) { scene.remove(d.mesh); drops.splice(i, 1); }
   }
 }
@@ -2965,6 +3000,12 @@ function spawnBeam(x1, y1, z1, x2, y2, z2, color) {
   m.quaternion.setFromUnitVectors(Y_UP, new THREE.Vector3(dx / len, dy / len, dz / len));
   scene.add(m);
   beams.push({ mesh: m, life: 0.1 });
+}
+function netBeam(x1, y1, z1, x2, y2, z2) {
+  // host mirrors alien laser fire so every player sees the light show
+  if (net.mode === 'host' && net.conns.length) {
+    netBroadcast({ t: 'beam', a: [Math.round(x1 * 10) / 10, Math.round(y1 * 10) / 10, Math.round(z1 * 10) / 10, Math.round(x2 * 10) / 10, Math.round(y2 * 10) / 10, Math.round(z2 * 10) / 10] });
+  }
 }
 var ufoMeshCache = {};
 function hasMeshyProp(name) {
@@ -3045,7 +3086,7 @@ function spawnUfo() {
   g.userData.ufo = true;
   g.traverse(function (o) { o.userData.ufo = true; });
   scene.add(g);
-  ufo = { mode: 'fly', group: g, hp: 280, vx: (tx2 - sx) / d * 6.5, vz: (tz2 - sz) / d * 6.5, dist: 0, maxDist: d, vy: 0, spin: 1, smokeT: 0, crashT: 0, alienAt: 0 };
+  ufo = { mode: 'fly', group: g, hp: 1680, vx: (tx2 - sx) / d * 6.5, vz: (tz2 - sz) / d * 6.5, dist: 0, maxDist: d, vy: 0, spin: 1, smokeT: 0, crashT: 0, alienAt: 0 };
   startUfoHum();
 }
 function damageUfo(dmg, hitPoint) {
@@ -3071,7 +3112,7 @@ function crashUfo() {
   panicNear(x, z, 2400);
   stopUfoHum();
 }
-function spawnAlien(x, z) {
+function spawnAlien(x, z, isNet) {
   var mesh = null;
   if (typeof MESHY_ROLE !== 'undefined' && MESHY_ROLE.alien !== undefined) {
     mesh = buildMeshySkinned(randomCharConfig(seededRng(51)), MESHY_ROLE.alien);
@@ -3083,7 +3124,7 @@ function spawnAlien(x, z) {
   mesh.userData.alien = true;
   mesh.traverse(function (o) { o.userData.alien = true; });
   scene.add(mesh);
-  alien = { mesh: mesh, x: p.x, z: p.z, hp: 600, state: 'hunt', fireT: 2.5, phase: Math.random() * 9, deadT: 0, hurtFlash: 0 };
+  alien = { mesh: mesh, x: p.x, z: p.z, hp: 600, state: 'hunt', fireT: 2.5, phase: Math.random() * 9, deadT: 0, hurtFlash: 0, net: !!isNet };
   popup2('SOMETHING CRAWLED OUT OF THE WRECK');
 }
 function damageAlien(dmg, kx, kz) {
@@ -3094,7 +3135,6 @@ function damageAlien(dmg, kx, kz) {
   if (alien.hp <= 0) {
     alien.state = 'dead'; alien.deadT = T;
     dropWeapon('raygun', alien.x, alien.z);
-    drops[drops.length - 1].life = 9999;   // the prize doesn't despawn
     popup2('ALIEN DOWN — IT DROPPED SOMETHING');
     spawnCash(alien.x, alien.z, 200 + ((Math.random() * 300) | 0));
   }
@@ -3111,9 +3151,32 @@ function updateAlien(dt) {
     if (T - alien.deadT > 12) { scene.remove(m); alien = null; }
     return;
   }
-  var dx = player.x - alien.x, dz = player.z - alien.z;
-  var d = Math.sqrt(dx * dx + dz * dz) || 1;
-  var moving = d > 13;
+  if (alien.net) {
+    // client mirror: host drives position + fire, we just animate what we see
+    var mdx = alien.x - (alien.lx === undefined ? alien.x : alien.lx);
+    var mdz = alien.z - (alien.lz === undefined ? alien.z : alien.lz);
+    var mvd = Math.sqrt(mdx * mdx + mdz * mdz);
+    alien.lx = alien.x; alien.lz = alien.z;
+    alien.phase += mvd * 3.4;
+    m.position.set(alien.x, m.position.y, alien.z);
+    m.rotation.y = alien.tyaw || 0;
+    animPerson(m, mvd / Math.max(dt, 0.001) > 0.5 ? 2.6 : 0, dt, alien.phase);
+    m.updateMatrixWorld(true);
+    return;
+  }
+  // host/singleplayer: hunt the nearest living player, local or remote
+  var tx = player.x, tz = player.z, ty = player.y, tid = null;
+  var tdx0 = player.x - alien.x, tdz0 = player.z - alien.z;
+  var td = (state.dead || inside) ? 1e9 : Math.sqrt(tdx0 * tdx0 + tdz0 * tdz0);
+  for (var rid in net.remotes) {
+    var rr = net.remotes[rid];
+    if (rr.dead) continue;
+    var qx = rr.x - alien.x, qz = rr.z - alien.z, qd = Math.sqrt(qx * qx + qz * qz);
+    if (qd < td) { td = qd; tx = rr.x; tz = rr.z; ty = rr.y || EYE; tid = rid; }
+  }
+  var dx = tx - alien.x, dz = tz - alien.z;
+  var d = Math.max(0.001, td);
+  var moving = d > 13 && d < 1e8;
   if (moving) {
     var sp = 2.6;
     var np2 = pushOut(alien.x + dx / d * sp * dt, alien.z + dz / d * sp * dt, 0.55);
@@ -3126,18 +3189,30 @@ function updateAlien(dt) {
   m.updateMatrixWorld(true);
   // laser fire: hurts more than any bullet in town
   alien.fireT -= dt;
-  if (alien.fireT <= 0 && d < 60 && !state.dead && !inside) {
+  if (alien.fireT <= 0 && d < 60) {
     alien.fireT = 1.35;
     var hy = 1.5;
     sfx('laser');
     var hitChance = 0.8 * Math.max(0.25, 1 - d / 70);
-    if (Math.random() < hitChance && !driving) {
+    if (tid) {
+      // remote victim: their client applies the damage (car redirect included)
+      var rDrv = net.remotes[tid] && net.remotes[tid].drv;
+      var rHit = !rDrv && Math.random() < hitChance;
+      var bx = tx + (rHit ? 0 : (Math.random() - 0.5) * 4), bz = tz + (rHit ? 0 : (Math.random() - 0.5) * 4);
+      spawnBeam(alien.x, hy, alien.z, bx, ty - 0.1, bz, 0xd050ff);
+      netBeam(alien.x, hy, alien.z, bx, ty - 0.1, bz);
+      if (rHit) netSendHit(tid, 45);
+      else if (rDrv) netSendHit(tid, 12);   // their 'hit' handler doubles it into the car: 24, same as the local miss-branch
+    } else if (Math.random() < hitChance && !driving) {
       spawnBeam(alien.x, hy, alien.z, player.x, player.y - 0.1, player.z, 0xd050ff);
+      netBeam(alien.x, hy, alien.z, player.x, player.y - 0.1, player.z);
       hurtPlayer(45);
     } else {
       // miss (or slammed into your car) — beam goes wide
       var mx = player.x + (Math.random() - 0.5) * 4, mz = player.z + (Math.random() - 0.5) * 4;
-      spawnBeam(alien.x, hy, alien.z, mx, player.y - 0.4 + Math.random(), mz, 0xd050ff);
+      var my = player.y - 0.4 + Math.random();
+      spawnBeam(alien.x, hy, alien.z, mx, my, mz, 0xd050ff);
+      netBeam(alien.x, hy, alien.z, mx, my, mz);
       if (driving) {
         driving.carHP = (driving.carHP === undefined ? 100 : driving.carHP) - 24;
         if (driving.carHP <= 0) igniteCar(driving);
@@ -3152,10 +3227,38 @@ function updateUfo(dt) {
     b.mesh.material.opacity = Math.max(0, b.life / 0.1) * 0.95;
     if (b.life <= 0) { scene.remove(b.mesh); beams.splice(bi, 1); }
   }
-  if (!ufoTriggered && state.money >= UFO_MONEY && state.running) { ufoTriggered = true; spawnUfo(); }
+  if (!ufoTriggered && state.money >= UFO_MONEY && state.running) {
+    ufoTriggered = true;   // once per session, server-wide — the latch never resets
+    if (isClient()) netToHost({ t: 'ufoTrig' });
+    else spawnUfo();
+  }
   updateAlien(dt);
   if (!ufo) return;
   var g = ufo.group, p = g.position;
+  if (ufo.net) {
+    // client mirror: position/mode stream in via world snapshots; run the looks
+    if (ufo.mode === 'fly') {
+      g.rotation.y += dt * 1;
+      if (!ufoHum) startUfoHum();
+      if (ufoHum) {
+        var hd2 = Math.sqrt((p.x - player.x) * (p.x - player.x) + (p.z - player.z) * (p.z - player.z) + (p.y - player.y) * (p.y - player.y));
+        ufoHum.g.gain.value = Math.max(0, 1 - hd2 / 220) * 0.4;
+      }
+    } else if (ufo.mode === 'falling') {
+      g.rotation.y += dt * 4.5;
+      g.rotation.z = Math.min(0.5, (g.rotation.z || 0) + dt * 0.35);
+      ufo.smokeT -= dt;
+      if (ufo.smokeT <= 0) { ufo.smokeT = 0.08; puff(new THREE.Vector3(p.x, p.y + 1, p.z), 0x333333); }
+      if (ufoHum) ufoHum.g.gain.value = Math.max(0, 1 - Math.abs(p.y) / 60) * 0.5;
+    } else if (ufo.mode === 'crashed') {
+      ufo.smokeT -= dt;
+      if (ufo.smokeT <= 0 && T - ufo.crashT < 90) {
+        ufo.smokeT = 0.35;
+        puff(new THREE.Vector3(p.x + (Math.random() - 0.5) * 5, 1.5 + Math.random() * 2, p.z + (Math.random() - 0.5) * 5), 0x2a2a2a);
+      }
+    }
+    return;
+  }
   if (ufo.mode === 'fly') {
     p.x += ufo.vx * dt; p.z += ufo.vz * dt;
     ufo.dist += Math.sqrt(ufo.vx * ufo.vx + ufo.vz * ufo.vz) * dt;
@@ -3199,8 +3302,7 @@ function damageNPC(n, dmg, kx, kz, silent) {
     spawnCash(n.x, n.z, 5 + ((Math.random() * 18) | 0)); sfx('ko'); sfx('grunt');
     if (!silent) {
       popup('KO!');
-      state.civKills++;
-      if (state.civKills % 5 === 0) { addStar(1); popup2('WANTED LEVEL UP'); }
+      creditCivKill();
     }
   } else {
     sfx('hit');
@@ -3755,7 +3857,14 @@ function tryAttack() {
       else damageNPC(best, w.dmg, fx, fz);
     }
     else if (bestCop) { damageCop(bestCop, w.dmg, fx, fz); puff(new THREE.Vector3(bestCop.x, 1.3, bestCop.z), 0xd96a4f); }
-    else if (bestCopM >= 0) { puff(new THREE.Vector3(copsM[bestCopM].x, 1.3, copsM[bestCopM].z), 0xd96a4f); netToHost({ t: 'dmgCop', i: bestCopM, dmg: w.dmg, kx: fx, kz: fz }); }
+    else if (bestCopM >= 0) {
+      puff(new THREE.Vector3(copsM[bestCopM].x, 1.3, copsM[bestCopM].z), 0xd96a4f);
+      netToHost({ t: 'dmgCop', i: bestCopM, dmg: w.dmg, kx: fx, kz: fz });
+      if (!copsM[bestCopM].down) {
+        if (state.wanted < 1) setWanted(1);   // hurting a cop is star #1 — fists included
+        lastCrimeT = T;
+      }
+    }
     else if (bestRemote) { netSendHit(bestRemote.id, w.dmg); puff(new THREE.Vector3(bestRemote.x, 1.3, bestRemote.z), 0xd96a4f); }
     return;
   }
@@ -3804,8 +3913,15 @@ function tryAttack() {
       if (o.userData && o.userData.alien) { alienHit = true; break; }
       o = o.parent;
     }
-    if (ufoHit) { damageUfo(w.dmg, h.point); }
-    else if (alienHit) { puff(h.point, 0x66ff88); damageAlien(w.dmg, dir.x, dir.z); }
+    if (ufoHit) {
+      if (isClient()) { puff(h.point, 0xffe08a); netToHost({ t: 'dmgUfo', dmg: w.dmg }); }
+      else damageUfo(w.dmg, h.point);
+    }
+    else if (alienHit) {
+      puff(h.point, 0x66ff88);
+      if (isClient()) netToHost({ t: 'dmgAlien', dmg: w.dmg, kx: dir.x, kz: dir.z });
+      else damageAlien(w.dmg, dir.x, dir.z);
+    }
     else if (npcHit) {
       puff(h.point, 0xd93a2a);
       meleeHit = state.equipped === 'fists';
@@ -3813,7 +3929,14 @@ function tryAttack() {
       else damageNPC(npcHit, w.dmg, dir.x, dir.z);
     }
     else if (remoteHit) { netSendHit(remoteHit, w.dmg); puff(h.point, 0xd93a2a); }
-    else if (copMHit >= 0) { puff(h.point, 0xd93a2a); netToHost({ t: 'dmgCop', i: copMHit, dmg: w.dmg, kx: dir.x, kz: dir.z }); }
+    else if (copMHit >= 0) {
+      puff(h.point, 0xd93a2a);
+      netToHost({ t: 'dmgCop', i: copMHit, dmg: w.dmg, kx: dir.x, kz: dir.z });
+      if (copsM[copMHit] && !copsM[copMHit].down) {
+        if (state.wanted < 1) setWanted(1);   // hurting a cop is star #1, even a host-simmed one
+        lastCrimeT = T;
+      }
+    }
     else if (copHit) { damageCop(copHit, w.dmg, dir.x, dir.z); puff(h.point, 0xd93a2a); }
     else if (carHit) {
       puff(h.point, 0xd8c860);
@@ -3846,13 +3969,15 @@ function hurtPlayer(d) {
     var lost = Math.floor(state.money * 0.25); state.money -= lost;
     document.getElementById('deadInfo').textContent = lost > 0 ? 'You dropped $' + lost + ' on the pavement.' : 'At least you were already broke.';
     document.getElementById('deadScreen').classList.remove('hidden');
-    state.wanted = 0; state.civKills = 0; updateStarsHUD();
+    state.wanted = 0; state.civKills = 0; state.copKills = 0; updateStarsHUD();
     // drop everything you were carrying
     var dropped = 0;
     GUN_LIST.forEach(function (k) {
       if (!state.owned[k]) return;
       var a = (dropped * 1.3) + Math.random();
-      dropWeapon(k, player.x + Math.cos(a) * (1.5 + dropped * 0.8), player.z + Math.sin(a) * (1.5 + dropped * 0.8));
+      var ddx = player.x + Math.cos(a) * (1.5 + dropped * 0.8), ddz = player.z + Math.sin(a) * (1.5 + dropped * 0.8);
+      if (isClient()) netToHost({ t: 'dropGun', k: k, x: ddx, z: ddz });   // host owns the shared drop list
+      else dropWeapon(k, ddx, ddz);
       state.owned[k] = false;
       dropped++;
     });
@@ -4462,7 +4587,10 @@ function handleNet(m, conn) {
   } else if (m.t === 'world') {
     if (net.mode === 'client') net.worldSnap = m;
   } else if (m.t === 'env') {
-    if (net.mode === 'client') { envT = m.envT; raining = m.raining; rainLeft = m.rainLeft; }
+    if (net.mode === 'client') {
+      envT = m.envT; raining = m.raining; rainLeft = m.rainLeft;
+      if (m.gasCD) gasClosedUntil = Math.max(gasClosedUntil, T + m.gasCD);   // late joiners inherit the lockout
+    }
   } else if (m.t === 'bye') {
     removeRemote(m.id);
     netRelay(m, conn);
@@ -4475,6 +4603,16 @@ function handleNet(m, conn) {
     }
   } else if (m.t === 'jackCD') {
     if (cars[m.i]) cars[m.i].jackCD = T + JACK_CD;
+  } else if (m.t === 'robCD') {
+    // one robbery locks the store for the whole server
+    applyRobCD(m.store, m.left);
+    netRelay(m, conn);
+  } else if (m.t === 'beam') {
+    spawnBeam(m.a[0], m.a[1], m.a[2], m.a[3], m.a[4], m.a[5], 0xd050ff);
+    var bdx = m.a[0] - player.x, bdz = m.a[2] - player.z;
+    if (bdx * bdx + bdz * bdz < 3600) sfx('laser');
+  } else if (m.t === 'gotDrop') {
+    applyDropPickup(m.k);
   } else if (net.mode === 'host') {
     // ---- client → host world actions (host is authoritative) ----
     if (m.t === 'dmgNpc') {
@@ -4533,19 +4671,41 @@ function handleNet(m, conn) {
         scene.remove(cashes[bi].mesh); cashes.splice(bi, 1);
         try { conn.send({ t: 'cash', val: val }); } catch (e) { }
       }
+    } else if (m.t === 'dropGun') {
+      // a client died — their guns hit the shared pavement
+      if (GUN_LIST.indexOf(m.k) >= 0) dropWeapon(m.k, m.x, m.z);
+    } else if (m.t === 'takeDrop') {
+      // first request wins; the loser's drop vanishes from the next snapshot
+      var dbi = -1, dbd = 6.5;
+      for (var di2 = 0; di2 < drops.length; di2++) {
+        var dpp = drops[di2].mesh.position;
+        var ddx3 = dpp.x - m.x, ddz3 = dpp.z - m.z;
+        if (ddx3 * ddx3 + ddz3 * ddz3 < dbd) { dbd = ddx3 * ddx3 + ddz3 * ddz3; dbi = di2; }
+      }
+      if (dbi >= 0) {
+        var dk2 = drops[dbi].kind;
+        scene.remove(drops[dbi].mesh); drops.splice(dbi, 1);
+        try { conn.send({ t: 'gotDrop', k: dk2 }); } catch (e) { }
+      }
+    } else if (m.t === 'dmgUfo') {
+      damageUfo(m.dmg, null);
+    } else if (m.t === 'dmgAlien') {
+      damageAlien(m.dmg, m.kx, m.kz);
+    } else if (m.t === 'ufoTrig') {
+      if (!ufoTriggered) { ufoTriggered = true; spawnUfo(); }
     }
   } else if (m.t === 'cash') {
     state.money += m.val; popup('+$' + m.val); sfx('cash');
   } else if (m.t === 'kill') {
-    if (m.kind === 'npc') { state.civKills++; if (state.civKills % 5 === 0) { addStar(1); popup2('WANTED LEVEL UP'); } lastCrimeT = T; popup('KO!'); }
-    else if (m.kind === 'cop') { addStar(1); popup('COP DOWN!'); }
+    if (m.kind === 'npc') { creditCivKill(); popup('KO!'); }
+    else if (m.kind === 'cop') { creditCopKill(); popup('COP DOWN!'); }
   }
 }
 function onConn(c) {
   net.conns.push(c);
   updateLobbyStatus();
   if (net.mode === 'host') {
-    var sendEnv = function () { try { c.send({ t: 'env', envT: envT, raining: raining, rainLeft: rainLeft }); } catch (e) { } };
+    var sendEnv = function () { try { c.send({ t: 'env', envT: envT, raining: raining, rainLeft: rainLeft, gasCD: Math.max(0, Math.round(gasClosedUntil - T)) }); } catch (e) { } };
     if (c.open) sendEnv(); else c.on('open', sendEnv);
   }
   c.on('data', function (m) { handleNet(m, c); });
@@ -4613,7 +4773,7 @@ function updateNet(dt) {
   if (net.mode === 'host' && netActive()) {
     // weather/time sync
     net.envSyncT -= dt;
-    if (net.envSyncT <= 0) { net.envSyncT = 3; netBroadcast({ t: 'env', envT: envT, raining: raining, rainLeft: rainLeft }); }
+    if (net.envSyncT <= 0) { net.envSyncT = 3; netBroadcast({ t: 'env', envT: envT, raining: raining, rainLeft: rainLeft, gasCD: Math.max(0, Math.round(gasClosedUntil - T)) }); }
     // authoritative world snapshot ~8x/s: traffic, npcs, street cops, cash
     net.worldT -= dt;
     if (net.worldT <= 0) {
@@ -4640,7 +4800,14 @@ function updateNet(dt) {
       }
       var cashArr = [];
       for (i = 0; i < cashes.length; i++) { var kp = cashes[i].mesh.position; cashArr.push([Math.round(kp.x * 10) / 10, Math.round(kp.z * 10) / 10]); }
-      netBroadcast({ t: 'world', cars: carsArr, npcs: npcArr, cops: copArr, cash: cashArr });
+      var dropArr = [];
+      for (i = 0; i < drops.length; i++) { var dq = drops[i].mesh.position; dropArr.push([Math.round(dq.x * 10) / 10, Math.round(dq.z * 10) / 10, GUN_LIST.indexOf(drops[i].kind)]); }
+      var ufoArr = null;
+      if (ufo) ufoArr = [Math.round(ufo.group.position.x * 10) / 10, Math.round(ufo.group.position.y * 10) / 10, Math.round(ufo.group.position.z * 10) / 10,
+        ufo.mode === 'fly' ? 1 : (ufo.mode === 'falling' ? 2 : 3), Math.round(ufo.group.rotation.y * 100) / 100];
+      var alienArr = null;
+      if (alien) alienArr = [Math.round(alien.x * 10) / 10, Math.round(alien.z * 10) / 10, Math.round(alien.mesh.rotation.y * 100) / 100, alien.state === 'dead' ? 1 : 0];
+      netBroadcast({ t: 'world', cars: carsArr, npcs: npcArr, cops: copArr, cash: cashArr, drps: dropArr, ufo: ufoArr, al: alienArr, ufoT: ufoTriggered ? 1 : 0 });
     }
   }
   if (isClient()) applyWorldSnap(dt);
@@ -4716,6 +4883,7 @@ function applyWorldSnap(dt) {
   for (i = 0; i < copsM.length; i++) {
     var cp = copsM[i], cs = s.cops[i];
     cp.x += (cs[0] - cp.x) * k; cp.z += (cs[1] - cp.z) * k;
+    cp.down = cs[3] === 2;
     cp.mesh.position.set(cp.x, 0, cp.z);
     cp.mesh.rotation.y = cs[2];
     cp.mesh.rotation.x = cs[3] === 2 ? -1.5 : 0;
@@ -4735,6 +4903,72 @@ function applyWorldSnap(dt) {
     }
   } else {
     for (i = 0; i < cashes.length; i++) { cashes[i].mesh.position.x = s.cash[i][0]; cashes[i].mesh.position.z = s.cash[i][1]; }
+  }
+  // shared weapon drops (host-owned; pickup goes through takeDrop/gotDrop)
+  var sd = s.drps || [];
+  var dRebuild = drops.length !== sd.length;
+  if (!dRebuild) for (i = 0; i < sd.length; i++) if (GUN_LIST.indexOf(drops[i].kind) !== sd[i][2]) { dRebuild = true; break; }   // same count, different guns
+  if (dRebuild) {
+    for (i = 0; i < drops.length; i++) scene.remove(drops[i].mesh);
+    drops.length = 0;
+    for (i = 0; i < sd.length; i++) {
+      var dknd = GUN_LIST[sd[i][2]] || 'pistol';
+      var dg = dropMesh(dknd);
+      dg.position.set(sd[i][0], 0.7, sd[i][1]);
+      scene.add(dg);
+      drops.push({ mesh: dg, kind: dknd, life: 9999, net: true, pend: false });
+    }
+  } else {
+    for (i = 0; i < drops.length; i++) { drops[i].mesh.position.x = sd[i][0]; drops[i].mesh.position.z = sd[i][1]; }
+  }
+  // the one shared saucer
+  if (s.ufoT) ufoTriggered = true;   // somebody already summoned it — latch forever
+  var su = s.ufo;
+  if (su) {
+    var smode = su[3] === 1 ? 'fly' : (su[3] === 2 ? 'falling' : 'crashed');
+    if (!ufo) {
+      var ug = getUfoMesh(smode === 'crashed' ? 'ufo_dead' : 'ufo');
+      ug.userData.ufo = true; ug.traverse(function (o) { o.userData.ufo = true; });
+      ug.position.set(su[0], su[1], su[2]);
+      if (smode === 'crashed') ug.rotation.set(0.16, su[4] || 0, -0.12);
+      scene.add(ug);
+      ufo = { mode: smode, group: ug, hp: 1, net: true, vx: 0, vz: 0, dist: 0, maxDist: 0, vy: 0, spin: 1, smokeT: 0, crashT: T, alienAt: 0 };
+    } else {
+      if (ufo.mode === 'fly' && smode !== 'fly') popup2('UFO HIT!');
+      if (ufo.mode !== 'crashed' && smode === 'crashed') {
+        // swap in the wreck (the host's boomAt broadcast covers the explosion)
+        scene.remove(ufo.group);
+        var wg = getUfoMesh('ufo_dead');
+        wg.userData.ufo = true; wg.traverse(function (o) { o.userData.ufo = true; });
+        wg.position.set(su[0], su[1], su[2]);
+        wg.rotation.set(0.16, su[4] || 0, -0.12);
+        scene.add(wg);
+        ufo.group = wg; ufo.crashT = T;
+        stopUfoHum();
+      }
+      ufo.mode = smode;
+    }
+    var up = ufo.group.position;
+    if (ufo.mode === 'crashed') up.set(su[0], su[1], su[2]);
+    else { up.x += (su[0] - up.x) * k; up.y += (su[1] - up.y) * k; up.z += (su[2] - up.z) * k; }
+  } else if (ufo && ufo.net) {
+    scene.remove(ufo.group); stopUfoHum(); ufo = null;
+  }
+  // and its pilot
+  var sa = s.al;
+  if (sa) {
+    // never mirror a corpse into existence: it double-pops the spawn/death
+    // messages (12s corpse-timer race) and greets late joiners with a ghost
+    if (!alien && sa[3] !== 1) spawnAlien(sa[0], sa[1], true);
+    if (alien && alien.net) {
+      if (sa[3] === 1 && alien.state !== 'dead') { alien.state = 'dead'; alien.deadT = T; popup2('ALIEN DOWN — IT DROPPED SOMETHING'); }
+      if (alien.state !== 'dead') {
+        alien.x += (sa[0] - alien.x) * k; alien.z += (sa[1] - alien.z) * k;
+        alien.tyaw = sa[2];
+      }
+    }
+  } else if (alien && alien.net) {
+    scene.remove(alien.mesh); alien = null;
   }
 }
 function netSendHit(toId, dmg) {
@@ -4911,8 +5145,12 @@ window.__wc = {
   gunBloom: function () { return gunBloom; },
   spawnUfo: spawnUfo, damageUfo: damageUfo, damageAlien: damageAlien,
   ufoRef: function () { return ufo; }, alienRef: function () { return alien; },
-  ufoState: function () { return ufo ? { mode: ufo.mode, hp: ufo.hp, pos: ufo.group.position.toArray().map(function (v) { return Math.round(v * 10) / 10; }), crashT: ufo.crashT, alienAt: ufo.alienAt } : null; },
-  alienState: function () { return alien ? { hp: alien.hp, state: alien.state, x: Math.round(alien.x), z: Math.round(alien.z) } : null; },
+  ufoState: function () { return ufo ? { mode: ufo.mode, hp: ufo.hp, net: !!ufo.net, pos: ufo.group.position.toArray().map(function (v) { return Math.round(v * 10) / 10; }), crashT: ufo.crashT, alienAt: ufo.alienAt } : null; },
+  alienState: function () { return alien ? { hp: alien.hp, state: alien.state, net: !!alien.net, x: Math.round(alien.x), z: Math.round(alien.z) } : null; },
+  ufoTriggered: function () { return ufoTriggered; },
+  dropsState: function () { return drops.map(function (d) { return { kind: d.kind, net: !!d.net, life: Math.round(d.life), x: Math.round(d.mesh.position.x * 10) / 10, z: Math.round(d.mesh.position.z * 10) / 10 }; }); },
+  creditCivKill: creditCivKill, creditCopKill: creditCopKill, dropWeapon: dropWeapon,
+  copWeapon: copWeapon,
   openMenu: openMenu, closeMenus: closeMenus, spawnCashAt: spawnCash,
   renderer: renderer, scene: scene, camera: camera,
   cars: cars, boomAt: boomAt, killNpcRagdoll: killNpcRagdoll,

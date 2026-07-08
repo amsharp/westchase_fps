@@ -36,7 +36,13 @@ traffic, pedestrians, street cops, dropped cash, stolen/parked/exploding
 cars, and the time of day and weather are all simulated on the host and
 streamed to everyone, so all players share one synced city. Combat against
 the world is host-authoritative — kill credit, stars, and cash come back to
-whoever earned them. (Gas-station interiors and weapon drops stay personal.)
+whoever earned them. More things are shared than not: **dropped guns land on
+a shared pavement** — kill another player and you can walk over and steal
+everything they were carrying — and **robbery lockouts are server-wide**, so
+if someone knocks over the gas station, it's closed for all of you. Rare
+events (see Rumors) are shared too: everyone sees them, anyone can profit
+from them, and they only happen once per session no matter who triggers
+them. (Gas-station interiors themselves stay personal.)
 
 ## Your character
 
@@ -86,7 +92,9 @@ Westchase Guns & Ammo. He sells three guns:
 
 Die and you drop every gun you own — run back within 2 minutes to grab
 them off the pavement. Picking up a gun you already own sells it for half
-its price.
+its price. In multiplayer the pavement is shared: anyone can scoop up your
+dropped arsenal before you get back, so dying near your killer is a
+donation.
 
 ## The gas station
 
@@ -101,21 +109,27 @@ Talk to the clerk with **E**:
   button: police storm the store to kill you.
 
 After a robbery (successful or botched), leaving locks the store for
-**3 minutes**.
+**3 minutes** — for everyone. In multiplayer one robbery closes the store
+server-wide until the lockout expires.
 
 ## Wanted system
 
-Crimes earn GTA-style stars (max 5, shown top-center):
+Crimes earn GTA-style stars (max 5, shown top-center), and each star costs
+double the mayhem the last one did:
 
 - Robbing the register at gunpoint → instantly 2 stars.
-- Every 5 civilian knockouts → +1 star.
-- Downing a cop → +1 star.
+- Civilian knockouts: 5 kills → 1 star, 10 more → 2 stars, 20 more → 3
+  stars, 40 more → 4 stars, 80 more → the full 5.
+- Cops: just **hurting** one earns your first star. Downing 3 → 2 stars,
+  6 more → 3 stars, 12 more → 4 stars, 24 more → 5.
 
 At 1 star, patrolling officers only open fire if you get close. At 2+,
 every cop in town hunts you down, and more spawn per star. Below 4 stars
 they carry short-range pistols; at 4–5 stars they roll full-auto SMGs that
-reach much further. Lay low (no crimes, no cops within sight) and the
-stars tick back down. Getting knocked out clears your wanted level.
+reach much further — though cops' aim is only as good as their academy
+scores. Lay low (no crimes, no cops within sight) and the stars tick back
+down; go fully clean and the tally starts over. Getting knocked out clears
+your wanted level.
 
 ## Traffic & driving
 
@@ -175,7 +189,9 @@ bed runs under everything.
 ## Rumors
 
 Old-timers at the Dunkin swear that folks who get *seriously* rich around
-here start seeing strange lights over town. Probably nothing.
+here start seeing strange lights over town. They also swear it only ever
+happens once — and that whatever falls out of the sky belongs to whoever
+gets to it first, not to whoever made it show up. Probably nothing.
 
 ## Notes
 
