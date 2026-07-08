@@ -1,5 +1,5 @@
 {
- "_comment": "Draft voice lines per named NPC (curated 2026-07-07, not yet synthesized). Categories: bump = bumped into, hit = punched/shot non-fatal, gunscared = player waves a gun, chat = sidewalk small talk, quirk = signature lines. Emotion markers must start the sentence: (scared)(angry)(shouting)(laughing)(sighing).",
+ "_comment": "Draft voice lines per named NPC (curated 2026-07-07, not yet synthesized). Categories: bump = bumped into, hit = punched/shot non-fatal, gunscared = player waves a gun, chat = sidewalk small talk, quirk = signature lines, chatQ = conversation openers/nosy questions, chatA = reactions usable after any opener (many end in a follow-up question), story = long 2-3 sentence anecdotes (~8-12s). Emotion markers must start the sentence: (scared)(angry)(shouting)(laughing)(sighing).",
  "MARISOL": {
   "bump": [
    "(angry) Ay! Watch where you're going!",
@@ -7,7 +7,11 @@
    "(angry) Hey! These hoops are real gold, watch it!",
    "Papi, you almost broke my heel!",
    "(sighing) Everybody's blind today, I guess.",
-   "Watch it! I just did my nails!"
+   "Watch it! I just did my nails!",
+   "(angry) Ey! You smudged my lip gloss!",
+   "Papi, this is a whole outfit. Walk around it.",
+   "(sighing) Ay, my cafecito almost went flying.",
+   "Watch it, honey. These lashes block MY side vision, not yours."
   ],
   "hit": [
    "(angry) You did NOT just do that!",
@@ -15,7 +19,11 @@
    "(angry) Oh, my sister is gonna hear about you!",
    "(scared) Ay dios mio, get away from me!",
    "(angry) You hit me? In THIS outfit?",
-   "(shouting) Somebody call the cops! Now!"
+   "(shouting) Somebody call the cops! Now!",
+   "(angry) These nails are acrylic and they WILL find you!",
+   "(scared) Ay! My sister's boyfriend is HUGE, you know!",
+   "(angry) You just made my list, papi. Nobody leaves my list.",
+   "(shouting) Ay! Does ANYBODY see this man?!"
   ],
   "gunscared": [
    "(scared) No no no, put that away!",
@@ -36,7 +44,29 @@
    "This ponytail took forty minutes. Respect it.",
    "(laughing) I run this sidewalk, honey.",
    "Coral is MY color. I invented it.",
-   "Tampa traffic is my villain origin story, honey."
+   "Tampa traffic is my villain origin story, honey.",
+   "(laughing) I could be an influencer, honey. Tampa's not ready.",
+   "My playlist is fifty percent bachata, fifty percent drama.",
+   "Golden hoops, golden hour, golden me, honey.",
+   "I hear everything on this block, honey. Everything."
+  ],
+  "chatQ": [
+   "Did you see those lights over the lake last night? Tell me you saw them.",
+   "Okay, so how's your sister doing after all that drama?",
+   "Have you tried that sushi place by the bank yet? Be honest.",
+   "Who was that guy hanging around the Publix parking lot? You know him?"
+  ],
+  "chatA": [
+   "No way. NO way. And then what happened?",
+   "(laughing) Stop it. Swear on your abuela, right now.",
+   "Ay, that is SO Tampa, honey. Who told you that?",
+   "Shut UP. I need every single detail. Go.",
+   "(sighing) See, this is why I don't trust anybody. Then what?",
+   "Mmm. I KNEW it. I called it weeks ago, didn't I?"
+  ],
+  "story": [
+   "So I'm in line at the Dunkin, right, and this man tries to pay with a hundred all covered in dirt. The girl calls the manager, and he just RUNS. Left the donuts and everything.",
+   "Last night me and my sister saw a green light just sitting over the lake. No sound, nothing. She says helicopter. Papi, helicopters don't make your car radio go all fuzzy."
   ]
  },
  "TYRELL": {
@@ -46,12 +76,20 @@
    "(angry) Yo, this windbreaker is irreplaceable, man.",
    "Easy, man. You'll wrinkle the vintage.",
    "Whoa, watch it, playa.",
-   "(sighing) Man, everybody's in a rush."
+   "(sighing) Man, everybody's in a rush.",
+   "Whoa, my man. The fit is fragile.",
+   "(angry) Dawg, you stepped on the SUEDE.",
+   "Easy, playa. Vintage don't bounce.",
+   "(sighing) Everybody's got two left everythings today."
   ],
   "hit": [
    "(angry) Oh, you wanna go? For real?",
    "(angry) Man, you done messed up now!",
-   "(scared) Yo, chill! What's wrong with you?!"
+   "(scared) Yo, chill! What's wrong with you?!",
+   "(angry) You swung on a man in ninety-two Reeboks?!",
+   "(angry) Aight, you got ONE free one. That was it.",
+   "(scared) Yo, not the flat-top! Anything but the flat-top!",
+   "(angry) My barber's gonna hear about this, and he KNOWS people."
   ],
   "gunscared": [
    "(scared) Whoa whoa, it ain't that serious!",
@@ -72,7 +110,29 @@
    "Fresh from the barber. Don't touch.",
    "Teal and purple, baby. That's a statement.",
    "(laughing) I moonwalked outta my last job.",
-   "Style ain't bought, my man. It's born."
+   "Style ain't bought, my man. It's born.",
+   "Cassette tapes, my man. The warm sound. You wouldn't get it.",
+   "(laughing) I got jackets older than your whole wardrobe.",
+   "Fresh fade Friday. It's a national holiday, dawg.",
+   "Every colorway I wear got a story, my man."
+  ],
+  "chatQ": [
+   "Yo, you hear what went down at the RaceTrac this week? Again, man?",
+   "My man, you see them lights floating over the lake, or am I trippin'?",
+   "Who's that dude posted up in the grocery lot all day? You know him?",
+   "Yo, how's your people doing after all that mess?"
+  ],
+  "chatA": [
+   "Man, get OUTTA here. Then what?",
+   "(laughing) Naw, naw, you're playing. Who told you that?",
+   "Word? On everything? Say it again, slow.",
+   "That's wild, my man. That's genuinely wild. What'd you do?",
+   "(sighing) See, the block used to be quiet. Then what happened?",
+   "Facts. That's exactly what I've been saying, dawg."
+  ],
+  "story": [
+   "So check it. Ninety-two, I'm at the mall, and MC Hammer's cousin — his COUSIN, dawg — buys the same windbreaker as me. Same one I got on right now. That's why it don't come off.",
+   "Yo, last week I'm walking past the gas station and dude sprints out with the whole register drawer, man. Cop chased him around the pumps twice. TWICE, dawg. Like a cartoon."
   ]
  },
  "BRAD": {
@@ -82,12 +142,20 @@
    "Hey! You'll tangle my line, man!",
    "(angry) Watch the tackle box, buddy!",
    "Whoa there, chief. Reel it in.",
-   "(sighing) City folks. No spatial awareness."
+   "(sighing) City folks. No spatial awareness.",
+   "Whoa! Almost dropped my lucky lure, hoss.",
+   "(sighing) Watch the cooler, buddy. That's dinner in there.",
+   "Easy, chief. You'll spook the fish from here.",
+   "(angry) Hey! Thirty years of tackle in this box!"
   ],
   "hit": [
    "(angry) That's it, you scared off my luck!",
    "(angry) You just chummed the wrong water, pal!",
-   "(scared) Hey, hey! I got bait money, that's it!"
+   "(scared) Hey, hey! I got bait money, that's it!",
+   "(angry) You hit like a seatrout, buddy! Undersized!",
+   "(scared) Whoa, whoa! Take the bait, not my face!",
+   "(angry) I've wrestled catfish with more manners!",
+   "(angry) That's it! You're going in the report to the wife!"
   ],
   "gunscared": [
    "(scared) Whoa there, hoss, I'm just fishin'!",
@@ -108,7 +176,29 @@
    "This bucket hat's seen things, buddy.",
    "(laughing) I smell like victory. And mullet.",
    "Fish fear me. Women also fear me.",
-   "Every cast is a prayer, hoss."
+   "Every cast is a prayer, hoss.",
+   "The lake here's got bass, buddy. I've SEEN 'em.",
+   "(laughing) My tan line stops at the sock. It's a lifestyle.",
+   "You fish with live bait or you ain't serious, hoss.",
+   "Barometric pressure, buddy. It explains everything."
+  ],
+  "chatQ": [
+   "You seen anybody fishing that lake by the townhouses? What're they pulling out?",
+   "Say, you hear about them lights over the water the other night?",
+   "That gas station get hit again this week, or is that old news?",
+   "How's the family, buddy? Everybody still floating?"
+  ],
+  "chatA": [
+   "No kiddin'. And then what happened, hoss?",
+   "(laughing) Get outta town. Swear on your tackle box?",
+   "Well I'll be. Who told you that, buddy?",
+   "That's a fish story if I ever heard one. You got proof?",
+   "(sighing) This town, I swear. What'd they do about it?",
+   "Yep. Yep. Saw that coming a mile off, buddy."
+  ],
+  "story": [
+   "So Tuesday I'm casting off the fountain side of the lake, and something takes my line UNDER the fountain. Drags the whole rig. Buddy, ain't no bass in Florida swims like that.",
+   "One time the wife said fishing or the marriage, so I took the boat out to think it over. Caught a forty-inch snook. Anyway, we're doing counseling Thursdays now."
   ]
  },
  "KEISHA": {
@@ -118,12 +208,20 @@
    "(sighing) Hon, I lift patients bigger than you.",
    "Watch it! I'm running on two hours sleep.",
    "Careful, baby, I'm still on the clock.",
-   "(angry) Excuse you! These scrubs were clean."
+   "(angry) Excuse you! These scrubs were clean.",
+   "Careful, baby. I got twelve hours of other people's problems on me.",
+   "(sighing) Hon, I dodge gurneys faster than you walk.",
+   "Watch it! This coffee is medicinal.",
+   "(angry) These clogs cost real money, hon!"
   ],
   "hit": [
    "(angry) I patch people up. Don't make me one!",
    "(angry) I know exactly where that's gonna bruise!",
-   "(scared) Okay, somebody call security! Anybody!"
+   "(scared) Okay, somebody call security! Anybody!",
+   "(angry) I know six ways to make that shoulder stop working!",
+   "(scared) Lord! I'm off the clock, I'm OFF the clock!",
+   "(angry) Boy, I take blood for a LIVING!",
+   "(angry) You want the ER? I can arrange the ER!"
   ],
   "gunscared": [
    "(scared) I'm a nurse! Please, put it down!",
@@ -144,7 +242,29 @@
    "I can find a vein from across the street.",
    "(sighing) Everybody's got a rash story for me. Everybody.",
    "Coffee, scrubs, repeat, honey.",
-   "(laughing) I chart in my sleep now."
+   "(laughing) I chart in my sleep now.",
+   "Twelve-hour shifts build character. And bunions, baby.",
+   "(laughing) I diagnose strangers at the bus stop. Can't turn it off.",
+   "I've held hands with death, hon. He's polite, actually.",
+   "Scrub pockets hold everything. Tape, snacks, secrets."
+  ],
+  "chatQ": [
+   "How's your mama doing, baby? She ever get that hip looked at?",
+   "You hear what happened at the gas station? I heard somebody got hurt.",
+   "Did you see them lights over the lake? Night shift saw 'em too, I swear.",
+   "Baby, you look tired. You sleeping? Be honest with me."
+  ],
+  "chatA": [
+   "No they did NOT. And then what, baby?",
+   "(laughing) Stop. Stop it. Who told you that?",
+   "Mmm-hmm. Mmm-HMM. See, I knew something was up.",
+   "Lord have mercy. Was anybody hurt?",
+   "(sighing) That's a full moon story if I ever heard one. Then what?",
+   "Baby, I see worse every shift. But go on, finish it."
+  ],
+  "story": [
+   "So a man comes into the ER saying a fountain attacked him. Turns out he climbed the one in the lake here on a dare, slipped, and his cousin filmed the whole thing. Eleven stitches, baby. ELEVEN.",
+   "Night shift last week, three different people come in swearing they saw green lights over Westchase, right over the lake. Charge nurse says swamp gas. Baby, swamp gas does not hover in a triangle."
   ]
  },
  "ERNESTO": {
@@ -154,12 +274,20 @@
    "Oye! These bones are original parts, mijo.",
    "(sighing) In my day, we said excuse me.",
    "Ay, careful! I just had my cafecito.",
-   "(angry) Oye! Watch the fedora, eh?"
+   "(angry) Oye! Watch the fedora, eh?",
+   "Oye! Almost spilled a cafecito older than you.",
+   "(sighing) Mijo, the sidewalk is wide like the ocean.",
+   "Careful, eh! These shoes danced at my wedding.",
+   "(angry) Oye! The fedora is not a suggestion!"
   ],
   "hit": [
    "(angry) Fifty years I walk here! Never this!",
    "(angry) I fought roosters meaner than you, mijo!",
-   "(scared) Ay! Mi corazón! Somebody help!"
+   "(scared) Ay! Mi corazón! Somebody help!",
+   "(angry) I survived three hurricanes and one mother-in-law, mijo!",
+   "(scared) Ay! My heart runs on coffee and spite, don't test it!",
+   "(angry) In fifty-nine I boxed, mijo! The hands remember!",
+   "(shouting) Oye! Somebody bring my domino table, I need a weapon!"
   ],
   "gunscared": [
    "(scared) Tranquilo, tranquilo! I have grandchildren!",
@@ -180,7 +308,29 @@
    "This fedora is older than your father.",
    "(laughing) Double nines, mijo. Always bet double nines.",
    "Slow down. The good things wait.",
-   "A guayabera never wrinkles. Only surrenders."
+   "A guayabera never wrinkles. Only surrenders.",
+   "Two sugars, mijo. Life is bitter enough.",
+   "(laughing) I once beat four men at dominoes with a broken thumb.",
+   "The guayabera breathes so I don't have to hurry.",
+   "Every afternoon has room for one more cafecito, eh."
+  ],
+  "chatQ": [
+   "Oye, you hear about the lights over the lake? My neighbor swears on his mother.",
+   "Mijo, how is the family, eh? Everybody eating good?",
+   "You see the police at the gas station again? What happened this time?",
+   "Who is that young man in the Publix parking lot all day, eh? You know him?"
+  ],
+  "chatA": [
+   "No me digas. And then what, eh?",
+   "(laughing) Mijo, please. Swear on your grandmother.",
+   "Ay, this neighborhood. Who told you this?",
+   "In my day this never happened. Okay, it happened. Then what?",
+   "(sighing) The world is crazy, mijo. Finish the story.",
+   "I knew it! I said this exact thing to my wife on Tuesday!"
+  ],
+  "story": [
+   "In nineteen sixty-eight I danced with my wife the whole night, and I still had to fight her cousin in the parking lot after. We are married fifty years now. The cousin still owes me a shoe.",
+   "Mijo, last week I am walking by the lake at night, and the fountain stops. All the way stop. Then a green light passes over the water, quiet like a cat. My knees have never been wrong yet."
   ]
  },
  "SKYLER": {
@@ -190,12 +340,20 @@
    "Bro, you almost snapped my deck!",
    "(sighing) Walkers, man. So random.",
    "Dude, my ollie! You killed my ollie.",
-   "Whoa, gnarly collision, bro."
+   "Whoa, gnarly collision, bro.",
+   "Dude, my board! You know how much decks cost?",
+   "(sighing) Bro, pedestrians get zero spatial awareness XP.",
+   "Whoa! That was almost a hospital thing, dude.",
+   "Careful, bro, I'm carrying my whole setup here."
   ],
   "hit": [
    "(angry) Not cool, man! So not cool!",
    "(angry) Dude! I bruise easy, okay?!",
-   "(scared) Ow ow ow, I'm telling my mom!"
+   "(scared) Ow ow ow, I'm telling my mom!",
+   "(angry) Dude! I already have SO many bruises!",
+   "(scared) Ow ow ow, not the arm, I NEED the arm!",
+   "(angry) Bro, that's assault! I watch cop shows!",
+   "(scared) Okay okay, I'm rolling away, I'm rolling away!"
   ],
   "gunscared": [
    "(scared) Dude, whoa, I'm just a kid!",
@@ -216,7 +374,29 @@
    "Sidewalks are just free skateparks, bro.",
    "(laughing) I've eaten pavement on every street here.",
    "Kickflip. Heelflip. Hospital. In that order.",
-   "My shins are like ninety percent scar tissue."
+   "My shins are like ninety percent scar tissue.",
+   "I named my board Brenda, dude. She's temperamental.",
+   "(laughing) The school security golf cart can't catch me. Proven.",
+   "Curb wax is basically a school supply, bro.",
+   "One day I'm going pro. Or getting a job. One of those."
+  ],
+  "chatQ": [
+   "Dude, did you see those lights over the lake?! Tell me you saw them!",
+   "Bro, you hear the gas station got robbed AGAIN? That's so crazy!",
+   "Have you seen the fountain at night, dude? Does it look weird to you?",
+   "Yo, how's your family and stuff? Mom says I gotta ask people that."
+  ],
+  "chatA": [
+   "No WAY. Dude. And then what?!",
+   "(laughing) Shut up! Swear on your board? Or whatever you own?",
+   "That's insane, bro. Who told you that?",
+   "Duuude. That's like a movie. Did anyone film it?",
+   "(scared) Wait, for real? Should I, like, tell my mom?",
+   "Sick. That's actually so sick. Then what happened?"
+  ],
+  "story": [
+   "Okay so Tuesday I'm skating the middle school steps after hours, right, and the security guy chases me on a golf cart. I bail into the bushes, and dude just KEEPS driving. Never saw me. I lived in that bush for like an hour.",
+   "Bro, me and Derik saw a light over the lake, and it wasn't a plane 'cause it STOPPED. Planes don't stop, dude. We threw a rock in the water and it left. We're basically heroes."
   ]
  },
  "DENISE": {
@@ -226,12 +406,20 @@
    "(angry) The PERM, honey! We talked about this!",
    "Watch it, sugar! This is genuine leopard print!",
    "(sighing) Some people were raised in a barn.",
-   "Careful! These sunglasses are designer. Ish."
+   "Careful! These sunglasses are designer. Ish.",
+   "(angry) The perm, honey! It's load-bearing!",
+   "Sugar, this blouse witnessed a divorce. Show respect.",
+   "(sighing) Some people just barrel through life. And me.",
+   "Watch the sunglasses, honey! They hide my opinions."
   ],
   "hit": [
    "(shouting) Somebody get the manager! Of the street!",
    "(shouting) Assault! In broad daylight! With witnesses!",
-   "(angry) I have a lawyer, sugar! Two, actually!"
+   "(angry) I have a lawyer, sugar! Two, actually!",
+   "(shouting) Assault! Somebody write this down, I talk fast!",
+   "(angry) I know every wife on this block, sugar! You're FINISHED!",
+   "(scared) Not the perm! Take a coupon and GO!",
+   "(angry) My nephew does jiu jitsu, honey! Poorly, but STILL!"
   ],
   "gunscared": [
    "(scared) Take my coupons, just don't shoot!",
@@ -252,7 +440,29 @@
    "This perm survived three hurricanes, honey.",
    "(laughing) Gossip is just news with flavor.",
    "Big hair, bigger opinions, sugar.",
-   "I hear EVERYTHING at the nail salon."
+   "I hear EVERYTHING at the nail salon.",
+   "I don't gossip, honey. I circulate the truth.",
+   "(laughing) The nail salon knows things the police don't.",
+   "Leopard print says approachable. The eyes say careful.",
+   "I've got a casserole for every occasion, sugar. Including revenge."
+  ],
+  "chatQ": [
+   "Honey, did you hear about the lights over the lake? Carol SAW them.",
+   "So who is that man in the Publix lot, sugar? Because I have theories.",
+   "Did you hear the gas station got held up again? What is HAPPENING?",
+   "How's your sister, honey? After the... you know. The thing."
+  ],
+  "chatA": [
+   "No. NO. Honey, and then what?",
+   "(laughing) Stop it right now. Who told you that?",
+   "I KNEW it. I said it at book club, ask ANYONE.",
+   "Well, butter my biscuit. Go on, go on.",
+   "(scared) Sugar, that gave me chills. REAL chills. Then what?",
+   "Honey, that is going straight in the group chat. Details."
+  ],
+  "story": [
+   "So Carol's daughter — the one who eloped with the DRUMMER — calls Carol from the road, collect, honey, COLLECT, and says the band broke up in a Waffle House. Carol drove eleven hours. The drummer walked home.",
+   "I was at the pharmacy Tuesday and a woman bought forty-two boxes of sparklers and a garden gnome. Forty-two, honey. I followed her out. Lost her by the bank. My greatest failure."
   ]
  },
  "ANDRE": {
@@ -262,12 +472,20 @@
    "Careful, bro. These delts are load-bearing.",
    "(angry) You walked into a wall of muscle, bro.",
    "Whoa, easy. It's rest day, you're lucky.",
-   "(sighing) Watch the shaker bottle, man."
+   "(sighing) Watch the shaker bottle, man.",
+   "Whoa, bro. You just bounced off a personal best.",
+   "(angry) Watch the shaker! That's four scoops in there!",
+   "Easy, man. Recovery day. The muscles are sleeping.",
+   "(sighing) People treat lats like they're invisible, bro."
   ],
   "hit": [
    "(angry) Big mistake. HUGE mistake, little man.",
    "(angry) That's your warm-up? Pathetic, bro.",
-   "(scared) Yo, my trainer said no street fights!"
+   "(scared) Yo, my trainer said no street fights!",
+   "(angry) You just woke up every muscle group, bro!",
+   "(angry) THAT'S your one-rep max?! Embarrassing!",
+   "(scared) Not the abs, bro, it's almost beach season!",
+   "(angry) My trainer's gonna ask about this bruise, man!"
   ],
   "gunscared": [
    "(scared) Easy, bro! Muscles can't stop bullets!",
@@ -288,7 +506,29 @@
    "Mirrors love me, bro. It's mutual.",
    "(shouting) ONE MORE REP! Sorry. Habit.",
    "I don't walk. I lunge with purpose.",
-   "The pump is temporary. The lifestyle is forever."
+   "The pump is temporary. The lifestyle is forever.",
+   "I meal-prepped the whole week, bro. Sunday me is a hero.",
+   "(laughing) I flex at red lights. Drivers respect it.",
+   "Protein first, questions later, man.",
+   "Deadlift day is basically my birthday, bro."
+  ],
+  "chatQ": [
+   "Bro, you see those lights over the lake? Tell me that was a drone.",
+   "You hear the gas station got hit again, man? Cardio criminals, bro.",
+   "You been hitting the gym, bro? Serious question. You look... okay.",
+   "Who's the dude in the grocery lot, man? Zero gains, full pockets."
+  ],
+  "chatA": [
+   "Bro. BRO. And then what?",
+   "(laughing) No shot. Swear on your gains?",
+   "That's crazy, man. Like deload-week crazy. Who told you?",
+   "Wait wait wait. Run that back, bro.",
+   "(sighing) This town needs a gym and a therapist. Then what happened?",
+   "Respect. Honestly? Respect, bro. Finish the story."
+  ],
+  "story": [
+   "So I'm doing walking lunges around the lake, full circuit, and this old dude on the bench counts my reps OUT LOUD. Sixty-two. Then he says his brother did seventy in nineteen eighty. So now I go back every day, bro. I'm at sixty-eight.",
+   "Bro, I saw a guy sprint out the RaceTrac carrying the register, and honestly? Beautiful stride. Cops caught him by the Dollar Tree 'cause he skipped leg day. Let that be a lesson, man."
   ]
  },
  "PHUONG": {
@@ -298,12 +538,20 @@
    "(angry) Hey! You spill my broth, you pay!",
    "Careful! Fresh produce coming through!",
    "(sighing) So rushed! Nobody eats properly either.",
-   "Watch out! These lemongrass bundles bruise!"
+   "Watch out! These lemongrass bundles bruise!",
+   "Hey! I am carrying tomorrow's broth ingredients!",
+   "(angry) Careful! You bruise the herbs, you ruin the week!",
+   "(sighing) Everybody hungry, nobody careful.",
+   "Watch out! Chili oil does not come out of ANYTHING!"
   ],
   "hit": [
    "(shouting) Help! This crazy person is attacking me!",
    "(angry) I chop faster than you punch! Remember that!",
-   "(shouting) Police! Right now! POLICE!"
+   "(shouting) Police! Right now! POLICE!",
+   "(angry) I butcher whole fish before sunrise! You want to test me?!",
+   "(shouting) Help! Attack! Somebody take a video!",
+   "(angry) My cleaver is at home but my MEMORY is not!",
+   "(scared) Please! Who will stir the pot?!"
   ],
   "gunscared": [
    "(scared) Please! I have a family! Take nothing!",
@@ -324,7 +572,29 @@
    "You look tired. Pho fixes tired.",
    "(sighing) People put sriracha on everything. Barbarians.",
    "Fresh basil or nothing. That's the rule.",
-   "My spring rolls have a waiting list."
+   "My spring rolls have a waiting list.",
+   "The secret ingredient is time. Also fish sauce.",
+   "(sighing) People ask for the recipe. The recipe is forty years.",
+   "A good broth can fix a bad marriage. I have seen it.",
+   "You come by at noon. I save you a good table."
+  ],
+  "chatQ": [
+   "You hear about the lights over the lake? Two customers told me the same story!",
+   "How is your family? Everybody eating enough? Be honest.",
+   "The gas station got robbed again, yes? What did they take this time?",
+   "Who is that man standing in the grocery parking lot all day? He never buys groceries!"
+  ],
+  "chatA": [
+   "No! Really?! And then what happened?",
+   "(laughing) You are joking me. Who told you this?",
+   "Aiya, this town. Then what? Tell me everything.",
+   "Hmm. My husband said the same thing. He is never right. Continue.",
+   "(sighing) People are crazy. Hungry and crazy. What happened next?",
+   "I knew it! I hear everything at the lunch counter, you know."
+  ],
+  "story": [
+   "A man came in Tuesday, ate three bowls of pho, and cried. Not the spice — I asked. His wife left and took the dog. I gave him free spring rolls. He comes back every Tuesday now. Sometimes the dog does too.",
+   "My daughter walks home past the lake, and she swears a green light followed her to the townhouses. I said finish your homework. But that night my broth — perfect broth, twelve hours — curdled. Something is wrong with that lake."
   ]
  },
  "COLT": {
@@ -334,12 +604,20 @@
    "Whoa there. This ain't a rodeo, friend.",
    "(angry) Mind the hat, partner. Mind the hat.",
    "Easy, hoss. Plenty of sidewalk for everybody.",
-   "(sighing) City folk walk like spooked cattle."
+   "(sighing) City folk walk like spooked cattle.",
+   "Whoa there. You drive cattle like that, you lose the herd.",
+   "(angry) Partner, this hat has right of way.",
+   "Easy, hoss. Ain't nothin' worth that hurry.",
+   "(sighing) Folks stampede worse than longhorns here."
   ],
   "hit": [
    "(angry) Now you've gone and spilled my patience!",
    "(angry) You just poked a rattlesnake, friend.",
-   "(angry) That earns a whuppin' where I come from!"
+   "(angry) That earns a whuppin' where I come from!",
+   "(angry) You just spit in the wrong man's chili, friend!",
+   "(angry) I've been thrown by better than you, partner!",
+   "(scared) Whoa now! My buckle's the only fight I brought!",
+   "(angry) That's a paddlin' where I'm from, hoss!"
   ],
   "gunscared": [
    "(scared) Easy now, friend. Ain't no quarrel here.",
@@ -360,7 +638,29 @@
    "Yeehaw is a state of mind, partner.",
    "(laughing) This belt buckle's won arguments, friend.",
    "Slow walkin', straight talkin'. That's the code.",
-   "Every sunset deserves a cowboy watchin' it."
+   "Every sunset deserves a cowboy watchin' it.",
+   "A man needs three things. A hat, a code, and a truck that starts.",
+   "(laughing) I lassoed a shopping cart once. Muscle memory, partner.",
+   "Boots before breakfast. That's discipline, hoss.",
+   "Ain't nothin' out west I miss. 'Cept everything, partner."
+  ],
+  "chatQ": [
+   "You seen them lights out over the lake, partner? Straight answer, now.",
+   "Heard the fillin' station got robbed again. You catch any of that?",
+   "Who's that fella campin' in the grocery lot? He herds customers like cattle.",
+   "How's your kin, friend? Everybody upright and fed?"
+  ],
+  "chatA": [
+   "Well I'll be. And then what, partner?",
+   "(laughing) Horse feathers. Swear it on your boots.",
+   "That so? Who told you that, friend?",
+   "Hoo. That's a rodeo, hoss. Keep talkin'.",
+   "(sighing) This town's wilder than any ranch I worked. What happened next?",
+   "Figured as much. A man hears things. Go on."
+  ],
+  "story": [
+   "Back west I rode fence lines three days alone with a horse named Grievance. Out here, I walked the lake loop twice and a fella tried to sell me somethin' out his backpack by the Publix. Told him I only deal in cash and cattle. He respected it.",
+   "One night I'm watchin' the sunset by the lake, and a light comes over the water. Green, low, quiet as a snake in a bedroll. My granddaddy talked about lights like that over Montana. He was wrong about a lot. Not that."
   ]
  },
  "JAMAL": {
@@ -370,12 +670,20 @@
    "Yo, that's a moving screen, man!",
    "(angry) Watch it! These ankles are my money makers!",
    "Careful, man, I got a game tonight!",
-   "(sighing) Man, y'all walk like refs. Blind."
+   "(sighing) Man, y'all walk like refs. Blind.",
+   "Yo! These kicks are game-worn. By ME.",
+   "(angry) Man, you're playing defense on the SIDEWALK?",
+   "Watch it — ankle insurance ain't real, man.",
+   "(sighing) Everybody out here setting illegal screens."
   ],
   "hit": [
    "(angry) Flagrant! That's a flagrant foul, man!",
    "(angry) Yo, that's a flagrant two! Ejected!",
-   "(scared) Man, chill! I got a scout watching me!"
+   "(scared) Man, chill! I got a scout watching me!",
+   "(angry) Yo, that's a suspension! Multiple games!",
+   "(scared) Not the shooting hand! ANYTHING but the shooting hand!",
+   "(angry) You want smoke? I got a whole BENCH behind me!",
+   "(angry) That's tech number two, man! You're OUT!"
   ],
   "gunscared": [
    "(scared) Yo chill, chill! I got practice tomorrow!",
@@ -396,7 +704,29 @@
    "Twenty-three points last game. The number works.",
    "(laughing) I dunked once. Rim was nine feet. Still counts.",
    "Ball is life. School is the backup plan.",
-   "Fourth quarter? That's MY quarter."
+   "Fourth quarter? That's MY quarter.",
+   "First one at the park, last one to leave. That's the routine.",
+   "(laughing) My handles got handles, man.",
+   "Rim at the park's a double rim. Builds character.",
+   "Twenty-three's not a number, man. It's a responsibility."
+  ],
+  "chatQ": [
+   "Yo, you see them lights over the lake last night? During my night shots, man!",
+   "You hear the gas station got hit again? While I was at PRACTICE?",
+   "Man, who's that dude in the Publix lot? He tried to sell my COUSIN something.",
+   "How's your people, man? Everybody good?"
+  ],
+  "chatA": [
+   "Man, WHAT? And then what happened?",
+   "(laughing) Nah, nah, that's cap. Who told you that?",
+   "That's crazy. That's actually crazy, man. Then what?",
+   "On God? Say it on something, man.",
+   "(sighing) This neighborhood got more drama than the playoffs. Go on.",
+   "See, I CALLED that. Ask anybody at the park, man."
+  ],
+  "story": [
+   "So last summer at the park, this quiet dude in church shoes asks to run one game. Church shoes, man. Dropped forty on us. Left without a word. We still talk about him like a ghost story.",
+   "I was getting shots up late by the school, and a green light slides over the lake. No sound, man. My jumper went cold for a WEEK after. That light took my shot. I want it back."
   ]
  },
  "GLORIA": {
@@ -406,12 +736,20 @@
    "Oh my! Careful, sweetheart.",
    "(sighing) These old hips, dear. Do be gentle.",
    "Goodness! Nearly dropped my glasses, dear.",
-   "Oh! You gave me such a start, sweetheart."
+   "Oh! You gave me such a start, sweetheart.",
+   "Oh! Steady now, dear. We nearly waltzed.",
+   "(sighing) Such a rush, and for what, sweetheart?",
+   "Goodness! My casserole nearly went airborne, dear.",
+   "Oh my. Harold used to bump me like that on purpose."
   ],
   "hit": [
    "(scared) Oh! Oh my word! Help!",
    "(scared) Oh! Somebody! This ruffian is hurting me!",
-   "(angry) Young man, your mother would be ASHAMED!"
+   "(angry) Young man, your mother would be ASHAMED!",
+   "(angry) Young man, I have buried TOUGHER men than you!",
+   "(scared) Oh! My heart! It's fine, but OH!",
+   "(angry) I raised four boys, dear! I know where it HURTS!",
+   "(scared) Help! This hooligan has no RAISING!"
   ],
   "gunscared": [
    "(scared) Sweet mercy! I'm somebody's grandmother!",
@@ -432,7 +770,29 @@
    "You look just like my Harold, dear. Before the navy.",
    "(laughing) I still drive, dear. The mailbox disagrees.",
    "A little lipstick fixes most days, sweetheart.",
-   "These pearls have been to every wedding in Tampa."
+   "These pearls have been to every wedding in Tampa.",
+   "I keep a hat pin, dear. Eight inches. Church approved.",
+   "(laughing) The ladies call me the sweet one. They're half right.",
+   "My ambrosia recipe goes with me to the grave, sweetheart.",
+   "I've forgiven everyone who ever wronged me, dear. Both of them are dead."
+  ],
+  "chatQ": [
+   "Did you hear about the lights over the lake, dear? Marlene saw them at bingo.",
+   "How is your family, sweetheart? Your mother still making that dry pot roast?",
+   "Did you hear the gas station was robbed again? In OUR Westchase, dear?",
+   "Who is that young man in the Publix parking lot, dear? He waves at me now."
+  ],
+  "chatA": [
+   "Oh my WORD. And then what, dear?",
+   "(laughing) Oh, stop it. Swear on your mother, sweetheart.",
+   "Gracious. Who told you that, dear?",
+   "Well, I never! Actually, I have. Twice. Go on.",
+   "(sighing) This used to be such a quiet corner. What happened next?",
+   "Mm. Marlene will simply DIE when I tell her. Continue, dear."
+  ],
+  "story": [
+   "In nineteen sixty-two a gator got into the church picnic, dear, and everyone ran except me, because I had just set down a perfect ambrosia. We stared at each other, that gator and I. He blinked first, sweetheart. They always do.",
+   "Last Tuesday at two a.m. — I don't sleep, dear, sleep is for the unbothered — a green light crossed the lake and the fountain stopped dead. I waved. It's important to be polite until you know their intentions, sweetheart."
   ]
  },
  "DIEGO": {
@@ -442,12 +802,20 @@
    "Oye! These coveralls are the clean pair.",
    "(angry) Hey! I got a torque wrench and no patience.",
    "Careful, amigo. Long shift, short fuse.",
-   "(sighing) Everybody's got somewhere to be. Except their car."
+   "(sighing) Everybody's got somewhere to be. Except their car.",
+   "Oye! I got a transmission balanced in my head right now.",
+   "(sighing) Watch it, amigo. I'm one bump from a nap.",
+   "Careful! These hands are booked two weeks out.",
+   "(angry) Hey! You hit harder than a bad U-joint."
   ],
   "hit": [
    "(angry) You want a wrench upside the head?",
    "(angry) You just voided your warranty, amigo!",
-   "(scared) Whoa, okay! Take it easy, man!"
+   "(scared) Whoa, okay! Take it easy, man!",
+   "(angry) I break lug nuts looser than you, amigo!",
+   "(scared) Whoa whoa! I got alimony to pay, man!",
+   "(angry) You just earned the full labor rate, amigo!",
+   "(angry) I've been bitten by radiators meaner than you!"
   ],
   "gunscared": [
    "(scared) Whoa, amigo! I just fix cars!",
@@ -468,7 +836,29 @@
    "I diagnose engines by ear. And marriages.",
    "(laughing) Duct tape passed inspection once. Once.",
    "Hands clean, conscience clean. One outta two.",
-   "Every car's got a story. Usually a sad one."
+   "Every car's got a story. Usually a sad one.",
+   "Every engine tells the truth eventually, amigo.",
+   "(laughing) My ex got the house. I got the good socket set. I won.",
+   "WD-40 and patience, man. That's the whole trade.",
+   "I can tell your year and model from the door slam."
+  ],
+  "chatQ": [
+   "Oye, you hear those cars exploding lately, amigo? That's not normal wear and tear.",
+   "You see the lights over the lake, man? And don't say weather balloon.",
+   "The gas station got hit again, no? Who's doing all this?",
+   "How's the family, amigo? The car still making that noise?"
+  ],
+  "chatA": [
+   "No way, amigo. And then what?",
+   "(laughing) You're kidding me. Who told you that?",
+   "Ay, this town runs worse than a flooded carburetor. Then what?",
+   "Hmm. That checks out, actually. Keep going, man.",
+   "(sighing) Everybody's crazy and nobody changes their oil. What happened next?",
+   "I KNEW it. A customer told me the same Tuesday. Go on."
+  ],
+  "story": [
+   "Guy tows in a sedan, says it died mysterious. Amigo, there was a whole raccoon family living in the air box. Living GOOD. Dad, mom, three kids. I charged him for the filter and adopted the little one. Torque. His name is Torque.",
+   "Last month three cars come in the same week, all burned, all from around the gas station corner. Insurance says vandalism. Amigo, I know burn patterns. Something out here is flipping cars like pancakes, and nobody talks about it."
   ]
  },
  "AISHA": {
@@ -478,12 +868,20 @@
    "Hey! This dress wrinkles if you LOOK at it.",
    "(sighing) Baby, watch where you're going.",
    "Careful now! Almost lost a sandal.",
-   "(angry) Excuse me?! The audacity today."
+   "(angry) Excuse me?! The audacity today.",
+   "Hey now! You almost knocked the sunshine out of me.",
+   "(sighing) Baby, walk with intention, not collision.",
+   "Careful! This tote bag is full of fragile little joys.",
+   "(angry) Excuse me?! In THIS dress?!"
   ],
   "hit": [
    "(angry) Oh no you did NOT!",
    "(angry) Oh, you picked the WRONG one today!",
-   "(scared) Somebody! Anybody! Help!"
+   "(scared) Somebody! Anybody! Help!",
+   "(angry) Oh, you just interrupted my WHOLE peace!",
+   "(scared) Help! And I mean it URGENTLY!",
+   "(angry) I got a candle for cleansing and a cousin for everything else!",
+   "(angry) You picked the sunniest person out here to test?!"
   ],
   "gunscared": [
    "(scared) Okay, okay! I'm walking away, see?",
@@ -504,7 +902,29 @@
    "I dress like the weather I want.",
    "(laughing) Sunflowers turn to face ME, honey.",
    "Good vibes only. It's on my tote bag.",
-   "This headwrap? Ten minutes and a prayer."
+   "This headwrap? Ten minutes and a prayer.",
+   "My porch plants gossip about the neighbors, honey. We all do.",
+   "(laughing) I've never lost a staring contest with a sunflower.",
+   "Sun tea takes patience. So does everything worth it.",
+   "This headwrap holds secrets AND bobby pins."
+  ],
+  "chatQ": [
+   "Did you see those lights over the lake, honey? My plants were SHOOK.",
+   "How's your family, baby? Everybody blooming?",
+   "You hear the gas station got robbed again? So much chaos energy.",
+   "Who is that man in the grocery lot? His aura is... transactional."
+  ],
+  "chatA": [
+   "No WAY. And then what, honey?",
+   "(laughing) Stop it! Swear on your houseplants.",
+   "Mmm, the universe is BUSY today. Who told you that?",
+   "Oh, that's a whole thing. That's a WHOLE thing. Go on.",
+   "(sighing) And this is why I ground myself daily. Then what?",
+   "I felt that in my spirit, baby. Finish the story."
+  ],
+  "story": [
+   "So Saturday at the farmers market, the mango man and the tomato lady got engaged right there between the stalls. He hid the ring in a papaya, honey. She almost SOLD it. Somebody's grandmother caught it mid-transaction. The whole market cried.",
+   "I do my gratitude walk around the lake every morning, and last week the fountain water was going up but falling SLOW, like it forgot the rules. Then a hum, then nothing. My forty plants all leaned east that day, baby. All forty."
   ]
  },
  "VLAD": {
@@ -514,12 +934,20 @@
    "(angry) Careful. Chain is real. Temper also.",
    "In my country, we walk in straight line.",
    "(sighing) Is fine. Tracksuit forgives. Once.",
-   "You bump Vlad? Interesting choice."
+   "You bump Vlad? Interesting choice.",
+   "(angry) You bump Vlad twice in one lifetime? Ambitious.",
+   "Careful. Tracksuit is aerodynamic. You are not.",
+   "(sighing) Is fine. In my country, this is hug.",
+   "You walk like government official. No offense taken. Yet."
   ],
   "hit": [
    "(angry) Now I am upset. This is problem for you.",
    "(angry) Now we have situation. Congratulations.",
-   "(angry) I was having good day. WAS."
+   "(angry) I was having good day. WAS.",
+   "(angry) Good. Now Vlad has hobby for today.",
+   "(angry) I have been hit by horse. You are no horse.",
+   "(laughing) This? THIS is your violence? Precious.",
+   "(angry) Now chain is swinging. Chain does not forgive."
   ],
   "gunscared": [
    "Is nice gun. I had better one. Once.",
@@ -540,7 +968,29 @@
    "Three stripes. Zero fear.",
    "(laughing) Cousin ships me real kvass. Do not ask how.",
    "I squat while waiting. Life is gym.",
-   "Gold chain is retirement plan."
+   "Gold chain is retirement plan.",
+   "In my country, weather like this is called vacation.",
+   "(laughing) I do not sweat. I marinate.",
+   "Cousin says invest in crypto. I invest in canned goods.",
+   "Strong legs, strong opinions. Is complete man."
+  ],
+  "chatQ": [
+   "You see lights over lake? In my country we know what this is. You see them?",
+   "How is family? Strong? Eating enough potato?",
+   "Gas station is robbed again, yes? Amateur work. You hear details?",
+   "Who is businessman in grocery parking lot? Good posture, bad business."
+  ],
+  "chatA": [
+   "No. NO. And then what happens?",
+   "(laughing) You lie to Vlad. Swear on tracksuit.",
+   "Hm. In my country, same thing. Nineteen ninety-one. Continue.",
+   "This is normal Tuesday where I am from. But continue, is good story.",
+   "(sighing) Everywhere is same. People are crazy. What happens next?",
+   "I know this already. Cousin told me. But tell again, your version is funnier."
+  ],
+  "story": [
+   "In my country, my grandmother lifted tractor off my uncle. True story. Uncle was fine. Tractor was fine. Grandmother said one word: careless. Nobody was careless again for thirty years. This is parenting.",
+   "Green light over lake, I see it Tuesday. I wave. It stops. I squat — full depth, you understand — and it leaves immediately. Respect. Even alien knows you do not challenge Vlad to squat contest."
   ]
  },
  "SUMMER": {
@@ -550,12 +1000,20 @@
    "Whoa, dude, my aura!",
    "(laughing) Collision! That's so random.",
    "Careful, my toes are basically bare here.",
-   "(sighing) Someone's got chaotic energy today."
+   "(sighing) Someone's got chaotic energy today.",
+   "Whoa, dude, you totally disrupted my flow state.",
+   "(laughing) Full-body collision! The universe is SO random.",
+   "Careful, my smoothie is basically my whole personality today.",
+   "(sighing) Somebody skipped their morning gratitude, dude."
   ],
   "hit": [
    "(scared) That is like, SO not chill!",
    "(scared) Ow! Violence is like, SO last century!",
-   "(angry) Dude! That is NOT beach behavior!"
+   "(angry) Dude! That is NOT beach behavior!",
+   "(scared) Ow! My chakras! ALL of them!",
+   "(angry) Dude! I am a certified peaceful being!",
+   "(scared) Okay, your energy is like, actively violent!",
+   "(angry) That's it, I'm hexing you! Lovingly! But still!"
   ],
   "gunscared": [
    "(scared) Okay, that's a whole gun. Bye!",
@@ -576,7 +1034,29 @@
    "Tan lines are just sun tattoos, dude.",
    "The waves know me by name, basically.",
    "(laughing) I put crystals in my water bottle. It's science.",
-   "Flip flops are formal wear here."
+   "Flip flops are formal wear here.",
+   "The ocean texts me, dude. Not literally. But basically.",
+   "(laughing) My crystal guy says I'm his best customer. Sad and beautiful.",
+   "Sunscreen is just moisturizer with boundaries, dude.",
+   "I manifest parking spots. Ninety percent success rate."
+  ],
+  "chatQ": [
+   "Dude, did you SEE the lights over the lake?! That's a whole vortex thing, right?",
+   "How's your family, dude? Like their energy, not just their bodies?",
+   "Did you hear the gas station got robbed again? That's such dense energy.",
+   "Who's the guy in the grocery lot, dude? His aura is like, cash-colored."
+  ],
+  "chatA": [
+   "No. WAY. And then what?!",
+   "(laughing) Shut UP. Swear on the moon, right now.",
+   "Dude, that's SO written in the stars. Who told you?",
+   "Whoa. Whoa whoa whoa. Keep going, I'm vibrating.",
+   "(sighing) Mercury is DOING things today, dude. Then what happened?",
+   "I literally dreamed this. Ask my roommate. Continue."
+  ],
+  "story": [
+   "Okay so at the beach last month, a pelican took my whole sandwich and then just... stood there. We locked eyes, dude. I saw lifetimes. Anyway, I feed him every Sunday now. His name is Gregory. He has opinions.",
+   "The lake here is a vortex, dude, for sure. I floated a flower out to the fountain as an offering, and a green light came over the water the same NIGHT. Coincidence? There's literally no such thing."
   ]
  },
  "WENDELL": {
@@ -586,12 +1066,20 @@
    "Careful, son. I move slow but I remember fast.",
    "(sighing) That's a blunder, young blood.",
    "Easy now. These knees are past their opening.",
-   "Watch yourself. Even pawns deserve respect."
+   "Watch yourself. Even pawns deserve respect.",
+   "Easy, young blood. That was a blunder, not a move.",
+   "(sighing) No plan, no tempo. Just walking.",
+   "Careful, son. You just hung your queen, positionally speaking.",
+   "Watch it. Some of us calculate before we step."
   ],
   "hit": [
    "(angry) Boy, I've got grandkids tougher than you!",
    "(angry) You just sacrificed your future, boy!",
-   "(angry) I took worse in sixty-eight! Try again!"
+   "(angry) I took worse in sixty-eight! Try again!",
+   "(angry) Boy, you just played the worst move on the board!",
+   "(angry) I've lost pieces, son, but NEVER my composure! Till now!",
+   "(scared) Lord! Somebody put this boy back in the box!",
+   "(angry) That's a forfeit! You hear me? FORFEIT!"
   ],
   "gunscared": [
    "(scared) Son, put that away 'fore somebody gets hurt.",
@@ -612,7 +1100,29 @@
    "Life's just chess with worse lighting.",
    "(laughing) I trash talk in algebraic notation.",
    "Knight to F3. That's a lifestyle, son.",
-   "Every stranger's a puzzle. Most are easy ones."
+   "Every stranger's a puzzle. Most are easy ones.",
+   "The park tables at noon. Bring your ego, I'll take that too.",
+   "(laughing) I've beaten men who now claim they never played me.",
+   "Pawns win games, son. Remember that when you feel small.",
+   "Sixty years of chess and the board still surprises me. People don't."
+  ],
+  "chatQ": [
+   "You hear about those lights over the lake, son? Somebody's playing an opening I don't recognize.",
+   "How's your family, young blood? Everybody making good moves?",
+   "Gas station got hit again, I hear. What's the street saying?",
+   "Who's that fellow in the grocery lot? Every day, same square, like a stuck pawn."
+  ],
+  "chatA": [
+   "Hm. Interesting. And then what, son?",
+   "(laughing) Now that's a gambit. Who told you that?",
+   "I've seen this position before. It ends bad. Continue.",
+   "Don't rush it. Tell it slow, like an endgame, son.",
+   "(sighing) This whole town's in time trouble. What happened next?",
+   "Knew it three moves ago, young blood. But go on."
+  ],
+  "story": [
+   "Nineteen eighty-five, a man in a bus station bet me five dollars he'd win in ten moves. Beat me in eight. Only loss I ever admit to. I looked for him for twenty years, son. Found his obituary. It said, quote, undefeated. Respect.",
+   "Every evening I set up a board by the lake, and one night the fountain quit and a green light slid across the water. I did what any player does with an unknown opponent, son. I turned the board around and waited. It declined. Smart."
   ]
  },
  "RIKO": {
@@ -622,12 +1132,20 @@
    "Whoa! Do you know what resale on this is?",
    "(angry) Man, these are grails! GRAILS!",
    "Careful! I creased once. Never again.",
-   "(sighing) People bump like clothes grow on trees."
+   "(sighing) People bump like clothes grow on trees.",
+   "Whoa! Do you bump into museums too?",
+   "(angry) Man, this colorway doesn't EXIST anymore!",
+   "Careful! Resale value drops on contact, man.",
+   "(sighing) People out here dressed in cotton, making cotton decisions."
   ],
   "hit": [
    "(angry) Do you know what this hoodie costs?!",
    "(angry) You scuffed a collab piece! A COLLAB!",
-   "(scared) Not the face! The face is also limited edition!"
+   "(scared) Not the face! The face is also limited edition!",
+   "(angry) You hit a man in a one-of-fifty?! FIFTY!",
+   "(scared) Not the silver hair! It's my whole brand!",
+   "(angry) Do you KNOW what dry cleaning costs?!",
+   "(angry) That's it, you're getting posted. ZERO likes for you."
   ],
   "gunscared": [
    "(scared) Whoa! Okay! Not the hoodie, please!",
@@ -648,7 +1166,29 @@
    "Fit check? Immaculate. Always.",
    "(laughing) I insured the hoodie. Not the car.",
    "Silver hair, platinum taste, man.",
-   "If it's not limited, why even wear it?"
+   "If it's not limited, why even wear it?",
+   "I don't follow trends, man. Trends check my location.",
+   "(laughing) My sneaker room has better climate control than my bedroom.",
+   "Condition is everything. Deadstock or don't talk to me.",
+   "Tampa humidity is the real enemy of fashion, man."
+  ],
+  "chatQ": [
+   "Yo, you see those lights over the lake? THAT'S a colorway, man.",
+   "You hear the RaceTrac got hit again? Hope the visors are okay, man.",
+   "Who's the dude in the Publix lot? His whole fit says undercover something.",
+   "How's your people, man? Anybody cop anything good lately?"
+  ],
+  "chatA": [
+   "No way. NO way. And then what?",
+   "(laughing) Cap. Total cap. Who told you that?",
+   "That's rarer than my hoodie, man. Continue.",
+   "Wait. Hold on. Run it back, man.",
+   "(sighing) This town's fake as a mall-stand watch. Then what?",
+   "I heard the same, man. From a VERY limited source. Go on."
+  ],
+  "story": [
+   "So I camped out nine hours for a raffle drop, man, and the guy in front of me — an actual grandpa, slippers and everything — takes the last pair. Turns out he's a reseller. A grandpa reseller. I bought them off him for double. We're friends now. Kind of.",
+   "I was doing a fit pic by the lake at golden hour, and a green light shows up in EVERY frame, moving between shots. My follower count went up two hundred that night, man. Whatever's in that lake understands content."
   ]
  },
  "PATTY": {
@@ -658,12 +1198,20 @@
    "Whoa, hon! Nearly took us both down.",
    "(sighing) Twelve tables and now this.",
    "Careful, sugar. I got muscle memory and elbows.",
-   "Watch it, hon. I spill for a living already."
+   "Watch it, hon. I spill for a living already.",
+   "Whoa, hon! I've balanced worse, but still.",
+   "(sighing) Lord, it's like the lunch rush out here.",
+   "Careful, sugar. I only got two feet and they're both retired.",
+   "Watch it, hon. I know exactly how heavy you'd be to drag."
   ],
   "hit": [
    "(angry) I've thrown out bigger fellas than you, sugar!",
    "(angry) I've broken up bar fights bigger than you, hon!",
-   "(shouting) Earl! EARL! Bring the bat!"
+   "(shouting) Earl! EARL! Bring the bat!",
+   "(angry) I've eighty-sixed bigger men than you, sugar!",
+   "(shouting) EARL! The BAT, Earl!",
+   "(angry) I carry six plates and a coffee pot! You think these arms are decorative?!",
+   "(scared) Lord! And I still gotta close tonight!"
   ],
   "gunscared": [
    "(scared) Sugar, the tips ain't worth shooting me for!",
@@ -684,7 +1232,29 @@
    "The regulars keep me young. And furious.",
    "(laughing) I've heard every diner joke twice, hon.",
    "Sweet tea solves most of life, sugar.",
-   "This apron's got more stories than the paper."
+   "This apron's got more stories than the paper.",
+   "The coffee pot never lies, hon. People do, all shift.",
+   "(laughing) I can tell your order from your haircut, sugar.",
+   "Sensible shoes and a sharp tongue. That's the uniform.",
+   "Every table's a little soap opera, hon. I got the best seat."
+  ],
+  "chatQ": [
+   "You hear about them lights over the lake, hon? Three tables mentioned it Tuesday.",
+   "How's your family, sugar? Everybody still speaking to each other?",
+   "The gas station got robbed AGAIN? What'd they get this time, hon?",
+   "Who's that fella in the Publix lot, sugar? He ordered a coffee once. Tipped weird."
+  ],
+  "chatA": [
+   "No kiddin'. And then what, hon?",
+   "(laughing) Get OUT. Swear on your mother's gravy.",
+   "Sugar, I hear everything at the counter, but that's NEW. Who told you?",
+   "Hold that thought — okay, go. I'm listening, hon.",
+   "(sighing) This town, I swear on the pie case. Then what happened?",
+   "Called it. I called it Tuesday. Ask Earl. Go on, sugar."
+  ],
+  "story": [
+   "So a fella proposes at table nine, drops the ring in the key lime pie, and she says no, hon. NO. Eats the whole slice anyway. He tipped forty percent on the way out. Class act, wrong girl.",
+   "Closing shift last week, the whole diner goes quiet, and this green light drifts over the lake across the way. Every cup of coffee in the place went cold at once, hon. Earl says faulty warmer. Earl's a fool. I know what I felt."
   ]
  },
  "OMAR": {
@@ -694,12 +1264,20 @@
    "(sighing) Careful. This polo is Milanese cotton.",
    "Mind the watch, friend. It's a Geneva piece.",
    "Whoa. Do you know who I almost am?",
-   "(angry) These are boat shoes. For my BOAT."
+   "(angry) These are boat shoes. For my BOAT.",
+   "(sighing) Careful. This polo costs more than your weekend.",
+   "Mind the loafers, friend. Handstitched. In ITALY.",
+   "Whoa. Physical contact. How... pedestrian.",
+   "(angry) You almost scratched the watch! It has a WAITLIST!"
   ],
   "hit": [
    "(angry) You have made an expensive mistake.",
    "(angry) My attorney eats people like you at brunch!",
-   "(scared) Not the face! I have headshots Monday!"
+   "(scared) Not the face! I have headshots Monday!",
+   "(angry) My chiropractor is going to hear about this! And BILL me!",
+   "(scared) The face is worth more than the watch, take the WATCH!",
+   "(angry) You've just assaulted a limited liability company, friend!",
+   "(angry) That's actionable! I have three attorneys on RETAINER!"
   ],
   "gunscared": [
    "(scared) Take the watch! It's insured anyway!",
@@ -720,7 +1298,29 @@
    "Money talks. Mine mostly brags.",
    "(laughing) I tip in stock advice.",
    "Mirrored shades. So I can watch myself win.",
-   "Success smells like sunscreen and compound interest."
+   "Success smells like sunscreen and compound interest.",
+   "I summer here, friend. I also spring and fall here. Taxes.",
+   "(laughing) My golf handicap is lying. So am I.",
+   "Diversify, friend. Assets, alibis, everything.",
+   "The boat's forty feet. The mortgage is forty years. Balance."
+  ],
+  "chatQ": [
+   "Did you see those lights over the lake? I nearly listed my house, friend.",
+   "How's the family, friend? Portfolio-wise. And also health, sure.",
+   "Did you hear the gas station was robbed again? TERRIBLE for property values.",
+   "Who's the gentleman in the Publix lot, friend? His margins must be OBSCENE."
+  ],
+  "chatA": [
+   "No. Really? And then what, friend?",
+   "(laughing) You're kidding. Who's your source? I need the source.",
+   "Fascinating. Genuinely fascinating. Continue.",
+   "Hold on — is this actionable? Either way, go on, friend.",
+   "(sighing) This market, this TOWN. What happened next?",
+   "I heard the same at the marina. Your details are better. Go on."
+  ],
+  "story": [
+   "So I'm at the marina, and a gentleman tries to sell me a yacht that was — get this — already MY yacht, friend. Stolen off my slip Tuesday. I negotiated him down forty percent before the police arrived. Force of habit. Great deal, technically.",
+   "A green light over the lake last week, friend, just hovering. My first thought — drones. My second — surveillance. My third, and I'm not proud, was whether I could charge it slip fees. It left before we could reach terms."
   ]
  },
  "BECCA": {
@@ -730,12 +1330,20 @@
    "Dude! My iced coffee almost died!",
    "(sighing) I cannot handle one more thing today.",
    "Careful! I'm running on vibes and caffeine.",
-   "Watch it! My group project is due, like, NOW."
+   "Watch it! My group project is due, like, NOW.",
+   "Dude! My iced coffee is at CRITICAL levels already!",
+   "(sighing) I cannot afford a dry-cleaning bill, I'm a STUDENT.",
+   "Careful! My laptop has my whole thesis. Okay, half. A page.",
+   "Watch it, dude! Finals week reflexes, I WILL scream."
   ],
   "hit": [
    "(shouting) HELP! This is NOT okay!",
    "(scared) OW! I'm literally calling campus police!",
-   "(angry) That's it, you're going on my story!"
+   "(angry) That's it, you're going on my story!",
+   "(angry) I've survived three group projects, you don't SCARE me!",
+   "(scared) Ow! I have a presentation MONDAY!",
+   "(angry) That's it, you're going on the class group chat!",
+   "(scared) HELP! I'm too young and too in debt for this!"
   ],
   "gunscared": [
    "(scared) Oh my god, I have a midterm Monday!",
@@ -756,7 +1364,29 @@
    "Emotional support water bottle. Don't judge.",
    "(laughing) My planner is decorative at this point.",
    "Chomp chomp, baby. It's a lifestyle.",
-   "I nap competitively."
+   "I nap competitively.",
+   "My planner has a planner, dude. Neither works.",
+   "(laughing) I cite Wikipedia's sources. That's basically research.",
+   "GPA is a social construct. A mean one.",
+   "I've mastered the four-hour nap. It's a nap. It's four hours."
+  ],
+  "chatQ": [
+   "Did you see the lights over the lake?! I have a THEORY. Do you have time?",
+   "How's your family? Like actually, not small-talk actually.",
+   "Did you hear the gas station got robbed again? I was gonna get SNACKS there.",
+   "Okay, who's the guy in the Publix lot? My roommate says don't ask. So I'm asking."
+  ],
+  "chatA": [
+   "WHAT. No. And then what happened?!",
+   "(laughing) Shut up. SHUT up. Who told you that?",
+   "Okay, that's going in my notes app immediately. Continue.",
+   "Wait wait wait, I need context. Start over, but slower.",
+   "(sighing) I can't even process this before coffee. Then what?",
+   "CALLED it. I literally called it. Ask my roommate. Go on."
+  ],
+  "story": [
+   "So my roommate microwaved fish AGAIN, and the whole floor evacuated because someone thought it was a gas leak. The fire department came. She waved at them from the window. Holding the fish. We're famous now, dude. Infamous. Whatever.",
+   "I pulled an all-nighter by the lake for quiet-study vibes, and at like three a.m. a green light crossed the water and my laptop battery went from twelve percent to FULL. I got an A on that paper, dude. I owe the lake everything."
   ]
  },
  "LEON": {
@@ -766,12 +1396,20 @@
    "Easy, brother. The sidewalk provides for all.",
    "(sighing) Hurry is a cage, man.",
    "Peace, brother. Walk soft.",
-   "Whoa. Even the wind says excuse me, man."
+   "Whoa. Even the wind says excuse me, man.",
+   "Easy, brother. We arrived at the same place. That's a sign.",
+   "(sighing) Hurry steals the flavor out of life, man.",
+   "Peace, brother. The ground catches all of us eventually.",
+   "Whoa. You move like rent's due, man."
   ],
   "hit": [
    "(angry) Violence poisons the man who carries it!",
    "(angry) You struck a peaceful man! The universe saw!",
-   "(sighing) I forgive you, brother. My ribs do not."
+   "(sighing) I forgive you, brother. My ribs do not.",
+   "(angry) I renounce violence, brother, but my elbows FORGET things!",
+   "(sighing) The bruise will heal. The karma? That's yours now, man.",
+   "(angry) You struck a man mid-gratitude! MID-gratitude!",
+   "(scared) Peace, PEACE! Aggressively, PEACE, brother!"
   ],
   "gunscared": [
    "(scared) Peace, brother, peace! Put it down.",
@@ -792,7 +1430,29 @@
    "Barefoot is best foot, brother.",
    "(laughing) I meditated through a hurricane once, man.",
    "The sun rises for free, man. Remember that.",
-   "Slow living, long life, brother."
+   "Slow living, long life, brother.",
+   "I compost, brother. Even my grudges.",
+   "(laughing) My houseplants outrank me and I accept it, man.",
+   "Barefoot by the lake at dawn, brother. Free medicine.",
+   "The mango tree gives without asking, man. Be the mango tree."
+  ],
+  "chatQ": [
+   "Brother, you seen the lights over the lake? The water's been talking, man.",
+   "How's your family, brother? Souls and bodies both?",
+   "You hear about the gas station, man? Again with the taking. When will they learn?",
+   "Who's the brother in the grocery lot, man? His hustle got no roots."
+  ],
+  "chatA": [
+   "Whoa. Whoa, man. And then what?",
+   "(laughing) Nah, brother. Swear on the sunrise.",
+   "The universe is loud this week, man. Who told you?",
+   "Heavy. That's heavy, brother. Keep going.",
+   "(sighing) Everything moves too fast except wisdom, man. Then what?",
+   "The palm trees mentioned something like this, brother. Continue."
+  ],
+  "story": [
+   "One morning by the lake, brother, a heron stood next to me for a whole hour. Didn't fish, didn't fly. Just stood. When it left, my back pain was gone, man. GONE. Doctors want money for what a bird did for free.",
+   "The night the green light came over the lake, man, the fountain went still and every frog held its note. I didn't run, brother. I offered it a mango. It hovered a while, real respectful, and moved on. We want the same things, man. Quiet, mostly."
   ]
  },
  "TINA": {
@@ -802,12 +1462,20 @@
    "Ay! You broke my pace! My PACE!",
    "(sighing) Three thousand steps, gone. Restarting.",
    "Careful! There's snacks in this pack!",
-   "Watch it! My heart rate monitor just spiked!"
+   "Watch it! My heart rate monitor just spiked!",
+   "Ay! You almost knocked the snacks loose!",
+   "(sighing) My step counter thinks I fell. THANKS.",
+   "Careful! I'm mid-loop! MID-LOOP!",
+   "Watch it! Mister Whiskers senses when I'm upset!"
   ],
   "hit": [
    "(shouting) Somebody help! This guy is crazy!",
    "(angry) I do kickboxing on Thursdays, buddy!",
-   "(scared) Ay! Help! Where's my pepper spray!"
+   "(scared) Ay! Help! Where's my pepper spray!",
+   "(angry) I power-walk five miles a day, my legs are WEAPONS!",
+   "(scared) Ay! My heart rate zone went PURPLE!",
+   "(angry) The fanny pack has pepper spray and I've TRAINED for this!",
+   "(shouting) Help! Assault on the walking loop! CODE RED!"
   ],
   "gunscared": [
    "(scared) Take the fanny pack! Not the cat shirt!",
@@ -828,7 +1496,29 @@
    "The fanny pack stays ON during emergencies.",
    "(laughing) Band-aids, snacks, cat treats. Prepared!",
    "Arms up, heart rate up! Whoo!",
-   "Speed-walking is a martial art, basically."
+   "Speed-walking is a martial art, basically.",
+   "Hydrate before you escalate. That's my motto.",
+   "(laughing) Mister Whiskers has a stroller now. Don't judge us.",
+   "I wave at everyone on the loop. EVERYONE. It's policy.",
+   "Rain or shine, the loop gets walked. The loop KNOWS."
+  ],
+  "chatQ": [
+   "Did you see those lights over the lake?! I walk that loop at DAWN, I need to know!",
+   "How's your family? And your pets! Pets first, actually.",
+   "You hear the gas station got robbed again? I walked past RIGHT before!",
+   "Who's that man in the grocery lot? He never once waved back. SUSPICIOUS."
+  ],
+  "chatA": [
+   "No! NO! And then what?!",
+   "(laughing) Stop it! Swear on your steps!",
+   "I KNEW something was up! My heart rate spiked at that corner! Who told you?",
+   "Wait, let me pause my tracker. Okay. GO.",
+   "(sighing) And they say walking is boring. Then what happened?",
+   "Mister Whiskers acted weird that night. Cats KNOW. Continue!"
+  ],
+  "story": [
+   "So Mister Whiskers escaped on a Tuesday, and I tracked him two-point-three miles — I measured — all the way to the middle school. Found him presiding over a gym class like a tiny principal. The kids voted him class pet. I said absolutely not. We visit Thursdays.",
+   "I was on my dawn loop when a green light came over the lake, and my step counter went BACKWARDS. Four hundred steps, GONE. I filed a complaint with the app people. They said impossible. I know what I lost."
   ]
  },
  "COP_BROOKS": {
@@ -838,12 +1528,20 @@
    "(angry) That's contact with an officer, pal.",
    "Walk much, citizen?",
    "(sighing) Ten feet of sidewalk and you found me.",
-   "Personal space. It's the law. Basically."
+   "Personal space. It's the law. Basically.",
+   "Careful, citizen. That's how incidents start.",
+   "(sighing) I stand in ONE spot and still get hit.",
+   "Watch it. I log near-misses too.",
+   "(angry) That's contact. Documented. Mentally."
   ],
   "hit": [
    "(shouting) Officer needs assistance! Assault in progress!",
    "(shouting) Ten-thirty-three! Suspect swinging!",
-   "(angry) You just made my report REAL easy."
+   "(angry) You just made my report REAL easy.",
+   "(shouting) Assault on an officer! You're DONE, pal!",
+   "(angry) I've been waiting ALL shift for a reason. Thanks.",
+   "(shouting) Backup to the intersection! Suspect feeling brave!",
+   "(angry) That goes in the report. In BOLD."
   ],
   "gunscared": [
    "(shouting) GUN! Drop it! Drop it NOW!",
@@ -864,19 +1562,49 @@
    "I count faces. Yours is filed.",
    "(angry) Blink wrong and I'll know.",
    "I've got eyes like a hawk with binoculars.",
-   "Nothing happens on Countryway without me knowing."
+   "Nothing happens on Countryway without me knowing.",
+   "Quiet corners stay quiet because I'm on them.",
+   "(sighing) Fifteen years watching this block. It watches back.",
+   "I know every car that doesn't belong here. Including yours.",
+   "Coffee break's a myth. Vigilance doesn't refill."
+  ],
+  "chatQ": [
+   "You see anything over the lake last night? Official question. Also personal.",
+   "Anything unusual on your street lately? People talk to me eventually.",
+   "You hear about the gas station? What's the sidewalk saying?",
+   "Who's the guy in the grocery lot? And don't say what he told you to say."
+  ],
+  "chatA": [
+   "Go on. I'm listening. Then what?",
+   "That so? Who told you that? Exact name's fine.",
+   "(sighing) Matches what I heard. Continue.",
+   "Interesting. That's going in the mental file. What else?",
+   "Hm. Fourteen years and that's a new one. Keep talking.",
+   "(laughing) Civilians. Alright, then what happened?"
+  ],
+  "story": [
+   "Three a.m. last Tuesday, a light crosses the lake. Low, green, dead quiet. I called it in. Dispatch laughed. So it's not in any report, officially. Unofficially? I moved my patrol loop lakeside. Nothing crosses MY water twice unannounced.",
+   "That gas station's been hit nine times this year. Ninth time, the guy trips over the hot dog roller on his way out. Rolled his ankle, wallet fell out, ID and everything. I just stood over him and said, need a hand, citizen? Best paperwork I ever filed."
   ]
  },
  "COP_DIAZ": {
   "bump": [
    "(angry) Hey! Watch it! That's a badge!",
    "(angry) Hey! Ten feet of sidewalk, use it!",
-   "(sighing) Careful. I write these up, you know."
+   "(sighing) Careful. I write these up, you know.",
+   "(angry) Hey! Badge means brakes. Use yours!",
+   "Careful! You almost knocked abuela's lunch out of my hand!",
+   "(sighing) Contact with an officer. Barely worth the form.",
+   "Watch it! I got the sergeant's exam to study for!"
   ],
   "hit": [
    "(shouting) Oh, you just earned the cuffs!",
    "(shouting) Suspect assaulted an officer! Moving in!",
-   "(angry) Big mistake. I NEEDED cardio today."
+   "(angry) Big mistake. I NEEDED cardio today.",
+   "(shouting) Assault! Finally, some CARDIO!",
+   "(angry) You picked the fastest cop in the precinct! Bad research!",
+   "(shouting) Suspect swinging! I got this one, DON'T take it from me!",
+   "(angry) Abuela packed flan today and you RUINED the mood!"
   ],
   "gunscared": [
    "(shouting) Weapon! Drop it or I drop you!",
@@ -897,19 +1625,49 @@
    "Fastest boots in the precinct. Ask anyone.",
    "(laughing) My handcuffs have frequent flyer miles.",
    "I clocked a jogger once. Out of habit.",
-   "Try me. I stretch every morning."
+   "Try me. I stretch every morning.",
+   "I train in these boots. Sand runs. Ask nobody, just believe me.",
+   "(laughing) The radio calls me first. It knows.",
+   "Sergeant Diaz. I'm just practicing saying it.",
+   "Fastest ticket in the county. Forty seconds, signed."
+  ],
+  "chatQ": [
+   "You see those lights over the lake? Between us, not on the radio.",
+   "How's your family? Abuela asks about everybody. Literally everybody.",
+   "What are people saying about the gas station? Street version, not report version.",
+   "The guy in the grocery lot — anyone actually SEEN him sell groceries?"
+  ],
+  "chatA": [
+   "No way. Then what?",
+   "(laughing) You're kidding. Who told you that?",
+   "That's better intel than the morning briefing. Continue.",
+   "Hold on, I'm memorizing this for the exam. Okay, go.",
+   "(sighing) This beat, I swear. What happened next?",
+   "Abuela said the same thing Sunday. She's never wrong. Go on."
+  ],
+  "story": [
+   "Chased a purse snatcher through the Publix lot last month, and abuela — MY abuela, out shopping — trips him with her cart. Clean technique, textbook angle. Sergeant wants to give her a citation award. She wants a parking spot. Negotiations continue.",
+   "Night patrol by the lake, a green light comes over the water, and my radar gun reads triple digits, then LETTERS. I wrote it up honest. Sergeant filed it under equipment malfunction. That gun's worked fine every day since. Except it won't point at the lake anymore."
   ]
  },
  "COP_SULLIVAN": {
   "bump": [
    "(angry) Eyes forward, taxpayer!",
    "(angry) You bumped a sergeant, genius.",
-   "(sighing) Thirty years and they still walk into me."
+   "(sighing) Thirty years and they still walk into me.",
+   "(angry) Watch it! This uniform has thirty years of creases!",
+   "(sighing) Bumped by civilians. That's my legacy.",
+   "Careful, sunshine. My patience retired before my knees.",
+   "(angry) You walk into a SERGEANT? In broad daylight?"
   ],
   "hit": [
    "(shouting) Assaulting a sergeant?! Bad career move, son!",
    "(shouting) That's a felony, sunshine!",
-   "(angry) My mustache has seniority over you, punk!"
+   "(angry) My mustache has seniority over you, punk!",
+   "(shouting) That's thirty years of technique coming your way, son!",
+   "(angry) My mustache absorbed most of that. You're lucky.",
+   "(shouting) Assault on a sergeant! Somebody wake the rookies!",
+   "(angry) I've been hit by better, in decades you haven't LIVED!"
   ],
   "gunscared": [
    "(shouting) DROP THE WEAPON! I won't ask twice!",
@@ -930,7 +1688,29 @@
    "This mustache made detective before I did.",
    "(laughing) I've got arrest stories older than you.",
    "Regulations exist because of guys like you.",
-   "Sarge isn't a rank. It's a personality."
+   "Sarge isn't a rank. It's a personality.",
+   "Rank means I yell less and mean it more.",
+   "(sighing) I've trained forty rookies. Nine still call me sir. Kids.",
+   "The mustache went gray before I did. It's seen more.",
+   "Procedure, coffee, mustache wax. In that order, every dawn."
+  ],
+  "chatQ": [
+   "You hear about the lights over the lake? Thirty years, I never logged one of THOSE.",
+   "How's the family, citizen? Kids staying out of my paperwork?",
+   "That gas station again, huh? What'd you see? People always see something.",
+   "The fella in the grocery lot. How long's he been holding that corner, you'd say?"
+  ],
+  "chatA": [
+   "Uh-huh. And then what, sunshine?",
+   "(laughing) Thirty years and that's new. Who told you?",
+   "Noted. Off the record. Continue.",
+   "(sighing) Kids these days can't even commit crime properly. Then what?",
+   "That tracks. Unfortunately. Go on.",
+   "You'd make a decent witness. Keep talking."
+  ],
+  "story": [
+   "Nineteen ninety-six, a guy robs the old gas station wearing a motorcycle helmet, forgets he rode a BICYCLE. We followed him at walking speed for two miles, son. Two miles. He surrendered at a stop sign. Out of breath. I still send him a card at Christmas.",
+   "Last month a green light crossed the lake on my shift. Thirty years, I've seen everything twice — this I've seen ONCE. I wrote it in my log, in pen, and the pen died mid-word. Kept the pen. Evidence. Of what, sunshine, I'll let you know."
   ]
  },
  "COP_NGUYEN": {
@@ -940,12 +1720,20 @@
    "Careful. Section seven-eighty-four covers that, technically.",
    "(sighing) Please maintain a reasonable walking interval.",
    "That's a warning. Verbal. Documented mentally.",
-   "Mind your vector, citizen."
+   "Mind your vector, citizen.",
+   "Contact logged. Timestamp noted. Mentally.",
+   "(sighing) Pedestrian collision. Statistically YOUR fault, probably.",
+   "Careful. That violates walking interval guidelines. Mine.",
+   "Section something-or-other covers that. I'll find it."
   ],
   "hit": [
    "(shouting) Code three! Suspect is combative!",
    "(shouting) Battery on an officer! Textbook case!",
-   "(angry) That violates several statutes. SEVERAL."
+   "(angry) That violates several statutes. SEVERAL.",
+   "(shouting) Battery on an officer! Statute seven-eight-four point oh-seven!",
+   "(angry) That's THREE separate violations in ONE punch. Efficient. Illegal.",
+   "(shouting) Combative subject! Deploying... procedure!",
+   "(angry) You've ended my incident-free streak! FORTY-ONE days!"
   ],
   "gunscared": [
    "(shouting) Firearm! Put it on the ground! Slowly!",
@@ -966,19 +1754,49 @@
    "I cite code sections in my dreams.",
    "(sighing) Nobody reads the municipal bulletins. Nobody.",
    "Order is a public service. You're welcome.",
-   "My reports have footnotes."
+   "My reports have footnotes.",
+   "I alphabetize my citations. By offense, then surname.",
+   "(sighing) The municipal code has typos. I've submitted corrections.",
+   "Radar calibration is a hobby AND a lifestyle.",
+   "My incident reports have been used as training materials. Twice."
+  ],
+  "chatQ": [
+   "Did you observe the lights over the lake? I need corroborating witnesses. Casually.",
+   "How's your household? Statistically speaking, and also warmly.",
+   "The gas station robbery — what did you hear? Hearsay's inadmissible but interesting.",
+   "The individual in the grocery lot. Estimated hours per day on that corner, would you say?"
+  ],
+  "chatA": [
+   "Interesting. Proceed. Chronologically, please.",
+   "(laughing) That's a statistical outlier. Who told you?",
+   "Corroborated. Two other sources said the same. Continue.",
+   "Wait. Let me establish a timeline. Okay — go on.",
+   "(sighing) None of this is in any database. Which bothers me. Then what?",
+   "Your account has a ninety percent consistency rating. Impressive. Finish it."
+  ],
+  "story": [
+   "On the fourteenth, at two-eleven a.m., a green luminous object crossed the lake at approximately forty knots. Silent. I documented everything: bearing, duration, fountain interruption. Filed it under miscellaneous. MISCELLANEOUS. The system had no category. I have requested one.",
+   "A man once contested a parking ticket by claiming his car identifies as a bench. I brought the municipal definition of bench to court. Seventeen pages. The judge framed page one. The man paid the ticket AND bought me tea. Procedure wins hearts, citizen."
   ]
  },
  "COP_WASHINGTON": {
   "bump": [
    "You want to try that again, differently?",
    "Careful now. Let's both walk away wiser.",
-   "(sighing) Everybody's in a hurry to nowhere."
+   "(sighing) Everybody's in a hurry to nowhere.",
+   "Easy now. Let's both arrive alive.",
+   "Careful, friend. Sidewalks are shared infrastructure.",
+   "(sighing) Everybody's got somewhere to be. Nobody's watching the way.",
+   "Steady. That's a warning with a smile."
   ],
   "hit": [
    "(angry) Wrong officer. Wrong day.",
    "(angry) Okay. Now we do this MY way.",
-   "(shouting) Suspect's got hands! Requesting backup!"
+   "(shouting) Suspect's got hands! Requesting backup!",
+   "(angry) You just failed the easiest test in town.",
+   "(shouting) Hands-on suspect! I'm handling it. Calmly. FIRMLY.",
+   "(angry) I've de-escalated riots. You're a Tuesday.",
+   "(angry) That was your one. There is no two."
   ],
   "gunscared": [
    "(shouting) Gun! Hands where I can see them!",
@@ -999,19 +1817,49 @@
    "Calm is a weapon too.",
    "(laughing) My grandmother patrolled harder than this.",
    "Respect goes both ways. Start walking yours.",
-   "I've talked down more people than any taser."
+   "I've talked down more people than any taser.",
+   "I remember every name on this beat. First AND middle.",
+   "(laughing) The kids call me Coach. The perps call me sir. Balance.",
+   "A calm voice carries further than a siren.",
+   "I've never chased a man I couldn't out-wait."
+  ],
+  "chatQ": [
+   "Did you see the lights over the lake? The kids keep asking me. I need something true.",
+   "How's your mother doing? And don't say fine — details.",
+   "What's the block saying about the gas station? People tell you things they won't tell me.",
+   "That young man in the grocery lot — anybody actually know his name? Somebody should."
+  ],
+  "chatA": [
+   "Mm. Go on. Then what?",
+   "(laughing) Now that's a story. Who told you?",
+   "I hear you. I HEAR you. Continue.",
+   "That lines up with what Miss Gloria said. Keep going.",
+   "(sighing) This block, I swear. What happened next?",
+   "You've got my full attention. Finish it."
+  ],
+  "story": [
+   "There's a kid on this beat who used to run from me on sight. Took two years, a bag of oranges, and one little league season. He's my assistant coach now, and last week he told a rookie to slow his roll. My proudest arrest is the one I never made.",
+   "The night that light crossed the lake, I got eleven calls in ten minutes. I stood right on the shore and watched it pass, calm as Sunday. Then the fountain started back up like nothing happened. I told everybody the truth: it left peaceful. That's all I ask of anything."
   ]
  },
  "COP_ROMERO": {
   "bump": [
    "(angry) Oye, personal space, amigo.",
    "(angry) Watch the aviators, amigo.",
-   "(sighing) Everyone's blind today. Except me."
+   "(sighing) Everyone's blind today. Except me.",
+   "(angry) Oye! The aviators almost DROPPED, amigo.",
+   "Watch it. I see everything, but apparently you don't.",
+   "(sighing) Bumped. In full uniform. Increíble.",
+   "Careful, amigo. The mustache felt that."
   ],
   "hit": [
    "(shouting) Now it's resisting! Now it's a thing!",
    "(shouting) Ay! Now we got assault, amigo!",
-   "(angry) You hit the mustache. Bad move."
+   "(angry) You hit the mustache. Bad move.",
+   "(shouting) Now it's personal AND procedural, amigo!",
+   "(angry) You hit a man wearing AVIATORS. Bold. Stupid, but bold.",
+   "(shouting) Ay, backup! This one's got ganas!",
+   "(angry) The mustache is FILING charges, amigo."
   ],
   "gunscared": [
    "(shouting) Gun! Drop it, ahora!",
@@ -1032,19 +1880,49 @@
    "I see through lies AND tinted windows.",
    "(laughing) The mustache never blinks.",
    "Nobody outruns the radio, amigo.",
-   "Suspicion is a sixth sense. Mine's ripped."
+   "Suspicion is a sixth sense. Mine's ripped.",
+   "I interrogate with silence and reflective lenses, amigo.",
+   "(laughing) My tío in Miami still can't grow this mustache.",
+   "Suspicious is a spectrum. You're on it.",
+   "Nothing on this beat surprises me. Disappoints, yes. Surprises, no."
+  ],
+  "chatQ": [
+   "You see the lights over the lake, amigo? The aviators don't lie.",
+   "How's the family, eh? Everybody staying off my radar?",
+   "The gas station again, amigo. What did YOU see? Everybody saw something.",
+   "That guy in the grocery lot. What's his story? Don't clean it up for me."
+  ],
+  "chatA": [
+   "No me digas. Then what, amigo?",
+   "(laughing) That's a telenovela, amigo. Who told you?",
+   "The mustache believes you. That's rare. Continue.",
+   "Hm. Same thing my tío said. Different city, same story. Go on.",
+   "(sighing) This corner, amigo. This CORNER. What happened next?",
+   "I suspected this. I suspect everything, but still. Finish it."
+  ],
+  "story": [
+   "A guy runs from me at the RaceTrac, jumps a fence, straight into the self-storage lot — locked himself IN, amigo. All night. In the morning he asks if we can say the chase was longer, for his reputation. I said no. The mustache said... also no.",
+   "One night a green light crosses the lake, and I flash my roof lights at it. Procedure, amigo — everything gets warned once. It flashed BACK. Same pattern. I let it off with a warning. Best traffic stop of my career, and it wasn't even traffic."
   ]
  },
  "COP_OBRIEN": {
   "bump": [
    "(scared) Oh! Sorry! I mean, YOU watch it!",
    "(scared) Whoa! Officer contact! Is that a thing?",
-   "Careful, citizen! Please? Thank you!"
+   "Careful, citizen! Please? Thank you!",
+   "(scared) Whoa! Contact! Friendly contact! We're fine!",
+   "Careful, citizen! I bruise! Emotionally too!",
+   "(scared) Oh gosh, was that my fault? It felt like my fault.",
+   "Watch it, please! Sarge is watching! Sarge is ALWAYS watching!"
   ],
   "hit": [
    "(shouting) Backup! I need backup! Anyone!",
    "(scared) Ow! That's assault! I think! It IS!",
-   "(shouting) Sarge! SARGE! It's happening!"
+   "(shouting) Sarge! SARGE! It's happening!",
+   "(scared) OW! Okay! That's — that's a crime! I'm ON it!",
+   "(shouting) Code... uh... the PUNCHING one! Send help!",
+   "(scared) I've never used my baton and TODAY IS NOT THE DAY!",
+   "(shouting) Sarge! SARGE! It's happening AGAIN!"
   ],
   "gunscared": [
    "(scared) Gun! GUN! Okay, breathe, like training!",
@@ -1065,19 +1943,49 @@
    "Day forty-two. Still no high-speed chase. Good. GOOD.",
    "(laughing) My handcuff key has a lanyard. Two lanyards.",
    "I memorized the oath. Wanna hear it?",
-   "Protect, serve, and please like me."
+   "Protect, serve, and please like me.",
+   "Day sixty-one! That's almost triple digits!",
+   "(laughing) I practiced saying 'freeze' in the mirror. It's getting good.",
+   "My radio strap squeaks. Sarge says it's me. It's the STRAP.",
+   "I alphabetized the evidence room. Nobody asked. It needed it."
+  ],
+  "chatQ": [
+   "Did you see the lights over the lake?! Am I allowed to ask that on duty? I'm asking!",
+   "How's your family? That's community policing! Sarge says I'm improving!",
+   "Did you hear about the gas station? I was SO close to being there!",
+   "Who's the guy in the grocery lot? Do YOU know? Don't tell Sarge I asked."
+  ],
+  "chatA": [
+   "WHAT. No way! And then what?!",
+   "(laughing) You're kidding! Swear on... on the LAW?",
+   "That's not in ANY of my training manuals. Who told you?",
+   "Wait, should I be writing this down? I'm writing it down. Go.",
+   "(scared) That's terrifying! Please continue!",
+   "Sarge NEEDS to hear this. Actually, maybe not. Finish it first!"
+  ],
+  "story": [
+   "So my first solo traffic stop, the driver was my old kindergarten teacher, and I called her ma'am and she corrected my POSTURE, and I let her off with a warning that she basically gave ME. Sarge laughed for a week. I stand up straighter now though. So. Growth.",
+   "I saw the green light over the lake on night patrol and radioed it in as a, quote, unauthorized sky situation. Dispatch asked me to repeat it three times. THREE. Anyway, it's my nickname now. Sky Situation O'Brien. Sarge says it could be worse. It WILL be."
   ]
  },
  "COP_PATEL": {
   "bump": [
    "Mind yourself, please. We're all walking here.",
    "(sighing) Let's call that an accident. This time.",
-   "Steady on. No harm done. Probably."
+   "Steady on. No harm done. Probably.",
+   "Steady on. We're all sharing this sidewalk, friend.",
+   "(sighing) Nearly spilled my tea. That would have been a genuine incident.",
+   "Careful. Fifteen years of balance just got tested.",
+   "Mind yourself. The beard absorbs surprises poorly."
   ],
   "hit": [
    "(angry) That was genuinely unwise of you.",
    "(angry) I gave you every chance. EVERY chance.",
-   "(shouting) Officer struck! Suspect fleeing soon, guaranteed!"
+   "(shouting) Officer struck! Suspect fleeing soon, guaranteed!",
+   "(angry) That was profoundly unwise, friend.",
+   "(shouting) Officer struck! Still calm! Increasingly LESS so!",
+   "(angry) I've talked down worse than you before breakfast.",
+   "(angry) You've upset the tea, the beard, AND the law. In that order."
   ],
   "gunscared": [
    "(shouting) Weapon drawn! Comply immediately!",
@@ -1098,19 +2006,49 @@
    "Fifteen years, zero regrets, one great beard.",
    "(sighing) I've heard every excuse. Ranked them, even.",
    "Calm voice, firm boundaries. Works on perps and toddlers.",
-   "Tea, not coffee. That's my edge."
+   "Tea, not coffee. That's my edge.",
+   "Chamomile on nights, earl grey on days. Discipline, friend.",
+   "(laughing) The beard gets recognized at three different pharmacies.",
+   "Patience is my sidearm. Fully loaded.",
+   "I've ranked every excuse I've ever heard. You'd place mid-table."
+  ],
+  "chatQ": [
+   "Did you see the lights over the lake, friend? I ask calmly, but I DO ask.",
+   "How's the family? Traffic treating them fairly?",
+   "The gas station again — what did you hear? Slowly, in order, please.",
+   "The gentleman in the grocery lot. What's your honest read on him, friend?"
+  ],
+  "chatA": [
+   "I see. And then what, friend?",
+   "(laughing) Remarkable. Who told you that?",
+   "That's the third time I've heard this today. Continue.",
+   "Take your time. The details matter. Go on.",
+   "(sighing) Fifteen years and this town still surprises me. Then what?",
+   "Mm. The beard and I both suspected as much. Finish it."
+  ],
+  "story": [
+   "A man once led me on a chase at four miles an hour, friend. Mobility scooter. We proceeded through the Publix lot, past the bank, around the fountain twice. I walked alongside and we discussed his grievances. By lap two, he surrendered. We still have tea on Thursdays.",
+   "The night the light crossed the lake, I did not call it in. I finished my tea, watched it pass, and noted the time. Two-fourteen. My grandfather spoke of lights like that. He said they only stop for the unbothered. It slowed, friend. Slightly. I remain very proud."
   ]
  },
  "COP_KOWALSKI": {
   "bump": [
    "(angry) You bounced off ME, pal.",
    "(laughing) You okay? Walls hit back sometimes.",
-   "(angry) Careful. I dent things back."
+   "(angry) Careful. I dent things back.",
+   "(laughing) You okay, pal? People usually see me coming.",
+   "Careful. I'm classified as a fixed structure.",
+   "(angry) Watch it! You're at bumper height, pal.",
+   "Easy there. I don't move. Physics gave up on me years ago."
   ],
   "hit": [
    "(laughing) Did you just hit me? Adorable.",
    "(laughing) I've been hit by trucks with more heart.",
-   "(angry) That tickled. Now it's MY turn."
+   "(angry) That tickled. Now it's MY turn.",
+   "(laughing) Was that the WHOLE punch? The entire thing?",
+   "(angry) Alright. Now I gotta bend DOWN for the cuffs. Annoying.",
+   "(laughing) I've had mosquito bites with more commitment, pal.",
+   "(shouting) Suspect swinging! No injuries! Obviously!"
   ],
   "gunscared": [
    "(shouting) Weapon! Big mistake, little person!",
@@ -1131,19 +2069,49 @@
    "Doorways duck for me, pal.",
    "(laughing) My shadow needs its own permit.",
    "Six-eight in socks. The boots are just rude.",
-   "I don't chase. I intercept."
+   "I don't chase. I intercept.",
+   "I don't do foot chases. I do foot walks with inevitable endings.",
+   "(laughing) The precinct measured the doorway because of me. TWICE.",
+   "Kevlar in my size is a custom order, pal. Six weeks.",
+   "I blocked out the sun for a perp once. He just gave up."
+  ],
+  "chatQ": [
+   "You see them lights over the lake, pal? I don't scare, but I got QUESTIONS.",
+   "How's the family? Everybody still regular-sized?",
+   "What'd you hear about the gas station? People talk to big guys. It's a thing.",
+   "The guy at the grocery lot — he flinch when you walk by too, or just me?"
+  ],
+  "chatA": [
+   "Huh. And then what, pal?",
+   "(laughing) Get outta here. Who told you that?",
+   "That's a new one. And I've heard 'em all at my altitude. Continue.",
+   "Hold up. Lemme lean on something. Okay, go.",
+   "(sighing) This town, pal. This town. What happened next?",
+   "Yeah, that tracks. Sadly. Finish it."
+  ],
+  "story": [
+   "A perp ran from me into the Dollar Tree, pal, and tried to hide behind the pool noodles. I just stood at the end of the aisle. Didn't even talk. Four minutes later he walks out holding a noodle like a peace offering. I let him buy it first. Dignity matters.",
+   "When that green light crossed the lake, dispatch asked for a size estimate. I said, smaller than me. Everything's smaller than me, pal. Not helpful, but ACCURATE. It hovered over the fountain a second like it was thinking. I waved it along. Traffic's traffic."
   ]
  },
  "COP_JACKSON": {
   "bump": [
    "(sighing) Son, I'm too old for bumping.",
    "(sighing) Eighteen months, Jackson. Eighteen months.",
-   "Careful, son. This body's on its farewell tour."
+   "Careful, son. This body's on its farewell tour.",
+   "(sighing) Son, my balance retired before I did.",
+   "Careful. These hips got seventeen months left, TOPS.",
+   "Easy, son. I'm load-bearing at this point.",
+   "Watch it. I bruise in dog years now."
   ],
   "hit": [
    "(angry) Twenty-eight years and you pick TODAY?",
    "(angry) I got a boat picked out, and you swing on me?!",
-   "(shouting) Assault on a veteran officer! Send the young guys!"
+   "(shouting) Assault on a veteran officer! Send the young guys!",
+   "(angry) SEVENTEEN months, son! You couldn't wait SEVENTEEN months?!",
+   "(shouting) Assault on a senior officer! Bring the young knees!",
+   "(angry) I got a boat waiting on me, and YOU'RE between us!",
+   "(sighing) Alright. One more for the memoir. C'mere, son."
   ],
   "gunscared": [
    "(shouting) Gun! Don't make me run! I WILL regret it!",
@@ -1164,19 +2132,49 @@
    "Wisdom is just fatigue with seniority, son.",
    "(sighing) They keep making criminals younger.",
    "Donut intel is real intel. Write that down.",
-   "Eighteen months to fishing. Don't ruin it."
+   "Eighteen months to fishing. Don't ruin it.",
+   "The boat's got a captain's chair with lumbar support, son. LUMBAR.",
+   "(laughing) I've outlasted four chiefs and one vending machine.",
+   "My retirement binder has TABS. Color-coded.",
+   "Every shift's one shift closer to the water, son."
+  ],
+  "chatQ": [
+   "You see them lights over the lake? Twenty years ago I'd have chased 'em. Now I just got questions.",
+   "How's the family, son? Everybody healthy? That's the whole ballgame.",
+   "What happened at the gas station this time? Short version. My shift ends eventually.",
+   "That fella in the grocery lot — he was there when I started this beat. What's YOUR theory?"
+  ],
+  "chatA": [
+   "Mm-hm. And then what, son?",
+   "(laughing) Twenty-eight years and that's new. Who told you?",
+   "Slow down, my ears retired too. Okay, go on.",
+   "That right? Add it to the pile, son. Continue.",
+   "(sighing) I'm too close to the boat for this. What happened next?",
+   "Yep. Saw it coming back in oh-nine. Finish the story, son."
+  ],
+  "story": [
+   "Twenty-eight years, and my favorite arrest was a guy who robbed the old gas station, felt bad, and came BACK to return the money. Register was short four dollars. He'd bought gas. To drive back. I charged him, then paid his fine. You can't write people off, son. They surprise you.",
+   "Last month that green light crossed the lake at the end of my shift. Every young cop scrambled. I just sat on my hood with my thermos. Son, when you're seventeen months from a boat named Overtime, a UFO is just weather with ambitions. It dipped at me. I nodded. We understood each other."
   ]
  },
  "CLERK": {
   "bump": [
    "(scared) Whoa! Sorry! My bad. Wait, YOUR bad.",
    "(scared) Oof! Sorry! Force of habit.",
-   "(sighing) The slushee machine hits me softer than that."
+   "(sighing) The slushee machine hits me softer than that.",
+   "(scared) Whoa! Sorry! Wait, no — you bumped ME. Progress!",
+   "Careful! I stock shelves AND my own trauma.",
+   "(sighing) Even outside the store, I get knocked around.",
+   "Oof! It's fine. Corporate says I'm durable."
   ],
   "hit": [
    "(scared) Ow! I don't even make hourly for this!",
    "(scared) OW! Corporate says I can't fight back!",
-   "(scared) Not the face! I got a shift at six!"
+   "(scared) Not the face! I got a shift at six!",
+   "(scared) OW! I don't get hazard pay OUT here either!",
+   "(scared) Please! The slushee machine already beat me up today!",
+   "(scared) Not the visor! It's a rental! From CORPORATE!",
+   "(scared) OW! That's going in the incident log. MY personal one."
   ],
   "gunscared": [
    "(scared) Register's open! Take it! Take everything!",
@@ -1197,7 +2195,29 @@
    "Employee of the month. Nobody else entered.",
    "(sighing) The name tag says trainee. Three years now.",
    "I can mop and cry at the same time. Efficiency.",
-   "Corporate calls it a team. It's me. I'm the team."
+   "Corporate calls it a team. It's me. I'm the team.",
+   "I've memorized every lottery number that lost. All of them.",
+   "(sighing) The hot dogs rotate. The customers rotate. I remain.",
+   "Someday I'll leave this job. The job disagrees.",
+   "Me and my register have grown codependent, honestly."
+  ],
+  "chatQ": [
+   "Did you see the lights over the lake? I get off at eleven. I see EVERYTHING.",
+   "How's your family? Sorry, force of habit — is that weird to ask? It's fine to ask.",
+   "You heard we got robbed again, right? Which time, though? Be specific.",
+   "Who's the guy in the Publix lot? He buys ONE energy drink a day from us. Cash. Exact change."
+  ],
+  "chatA": [
+   "No way. And then what?",
+   "(laughing) You're kidding. Swear on the slushee machine.",
+   "That's crazier than a Friday night shift. Who told you?",
+   "Hold on — okay, register's closed, brain's open. Go.",
+   "(sighing) And people ask why I look tired. Then what happened?",
+   "Called it. Me and the icee machine both called it. Continue."
+  ],
+  "story": [
+   "So a guy robs us Tuesday, right, and while he's waving the bag around, his rewards card — his ACTUAL rewards card — falls out of his pocket. He came back the next day to use his points. The cops were literally waiting. He still asked for his points. Respect, honestly.",
+   "Night shift, I'm mopping, and this green light crosses the lake and every slushee machine flips to the same flavor. Blue. ALL blue. Corporate said it's a firmware thing. The machines don't HAVE firmware, man. I've BEGGED them for firmware."
   ]
  },
  "DEALER": {
@@ -1207,12 +2227,20 @@
    "Watch the merchandise, man. All sales final.",
    "(sighing) Bumping me is bad for YOUR insurance.",
    "Easy. This corner's load-bearing for my business.",
-   "Careful, man. Witnesses everywhere."
+   "Careful, man. Witnesses everywhere.",
+   "Whoa. Easy. You'll dent the inventory.",
+   "(sighing) Man, this corner has a flow. Respect the flow.",
+   "Careful. Bumping me voids YOUR warranty.",
+   "Watch it, man. My ledger's all mental. You'll shake something loose."
   ],
   "hit": [
    "(angry) Bad idea. Terrible for business. Yours.",
    "(angry) You just lost your discount. Forever.",
-   "(angry) I know people. I AM people."
+   "(angry) I know people. I AM people.",
+   "(angry) You just hit YOUR credit score, man.",
+   "(angry) Assaulting a small business owner. In THIS economy.",
+   "(angry) That's a restocking fee. On your FACE.",
+   "(laughing) Okay. Okay. I know a guy for this too."
   ],
   "gunscared": [
    "(laughing) That's cute. I SOLD you that.",
@@ -1233,7 +2261,29 @@
    "Word of mouth only. Word stays IN mouth.",
    "(laughing) I take Venmo now. Kidding. Cash.",
    "Business degree? Street campus, man.",
-   "Supply, demand, and don't ask questions."
+   "Supply, demand, and don't ask questions.",
+   "Repeat customers get remembered. Repeat problems get remembered MORE.",
+   "(laughing) I've never once been on time, and never once been late.",
+   "The lot provides, man. The lot provides.",
+   "My inventory rotates faster than the hot dogs at the RaceTrac."
+  ],
+  "chatQ": [
+   "You seen them lights over the lake? Asking for inventory-planning purposes.",
+   "How's business on your end, man? Everybody's got an end.",
+   "You hear what happened at the gas station? Bad for the neighborhood. Good for foot traffic.",
+   "Anybody new hanging around lately? I like to know my demographic."
+  ],
+  "chatA": [
+   "Word? And then what, man?",
+   "(laughing) Nah. NAH. Who told you that?",
+   "That's valuable information, man. Continue. Free of charge.",
+   "Hm. I heard a different version. Yours is worth more. Go on.",
+   "(sighing) This corner hears everything eventually. Then what?",
+   "Knew it before you did, man. But your delivery's better. Finish it."
+  ],
+  "story": [
+   "So a guy tries to pay me in gift cards, man. GIFT cards. Fourteen of them, all different stores. I said this is a cash business, and he says, so is mine, that's the problem. I respected it. Didn't take the cards. But I respected it.",
+   "One night that green light comes over the lake, and business STOPPED, man. Everybody indoors. Just me and the light. It hovered over the lot a minute, like it was scouting the location. I get it, man. Prime real estate. But this corner's TAKEN."
   ]
  },
  "DON": {
@@ -1243,7 +2293,11 @@
    "Easy there, bud. Watch the knee.",
    "(annoyed) Hey now, I'm walking here. Slowly, but still.",
    "Whoa! Almost dropped my sunglasses, bud.",
-   "(chuckling) You bump like your mother drives."
+   "(chuckling) You bump like your mother drives.",
+   "Whoa! Easy, bud. The knee's got a warranty claim pending.",
+   "(annoyed) Hey! I'm carrying grill tongs here. Ceremonially.",
+   "Watch it, bud! You're worse than the boys before coffee.",
+   "(chuckling) Easy there. I don't bend that direction anymore."
   ],
   "hit": [
    "(angry) Big mistake, bud. BIG mistake.",
@@ -1260,7 +2314,11 @@
    "(angry) Wait till your father hears about this!",
    "(pained) Aw jeez, that's gonna need ice. And a beer.",
    "(angry) I've split firewood tougher than you, bud!",
-   "(shouting) Somebody get this kid a timeout!"
+   "(shouting) Somebody get this kid a timeout!",
+   "(angry) That's a Lego AND dessert, gone! GONE!",
+   "(pained) Aw, not the grilling elbow!",
+   "(angry) I've raised BOYS, bud! You don't scare me!",
+   "(pained) Right in the warranty knee! You owe me a copay!"
   ],
   "gunscared": [
    "(scared) Whoa whoa, easy now, son. Nobody needs that.",
@@ -1281,7 +2339,29 @@
    "(chuckling) Why don't skeletons fight? No guts!",
    "Back in Montana we called this humidity soup.",
    "(chuckling) Reading a book on anti-gravity. Can't put it down.",
-   "Medium rare or you're outta the will, bud."
+   "Medium rare or you're outta the will, bud.",
+   "(chuckling) What do you call a fake noodle? An impasta!",
+   "The grill thermometer's decorative, bud. The wrist KNOWS.",
+   "(chuckling) I used to be a people person. Then people happened.",
+   "You call that a lawn? Come see MY lawn. Bring a notepad."
+  ],
+  "chatQ": [
+   "You see those lights over the lake, bud? Straight answer, none of that internet stuff.",
+   "How're the kids doing, bud? Anybody need bail or a barbecue?",
+   "You hear the gas station got robbed again? Gas was a buck twenty and nobody robbed it. I'm just saying.",
+   "Who's that fella in the grocery lot? He waved at me, bud. Nobody waves anymore."
+  ],
+  "chatA": [
+   "No kidding. And then what, bud?",
+   "(chuckling) That's a good one. Wait, you're serious? Who told you?",
+   "Well I'll be darned. Go on, go on.",
+   "Hold on, let me lean on the good knee. Okay, continue.",
+   "(sighing) Back in Montana this never — okay, it happened once. Then what?",
+   "That's what I told the boys! VERBATIM, bud! Finish it."
+  ],
+  "story": [
+   "So I'm grilling Saturday, and the neighbor's dog — big fella, name's Biscuit — clears the fence and takes ALL six burgers off the grill, bud. Every one. I chased him around the townhouses holding a spatula, knee brace and all. Anyway, we split a bratwurst on Sundays now. Good dog. Terrible neighbor.",
+   "Back in Montana my old man saw lights over the ridge in seventy-one, and nobody believed him. So last Tuesday, over the lake here — same green, same slow. I stood right up, saluted, and said, tell Dad hi. The boys think I'm nuts, bud. The light BLINKED. Twice."
   ]
  },
  "ALEX": {
@@ -1291,7 +2371,11 @@
    "Whoa, collision detected. My bad. Or yours.",
    "(annoyed) Dude! The launch stream almost dropped!",
    "Oof, trajectory error. Sorry, man.",
-   "(annoyed) Watch it, this hoodie's from actual Kennedy Space Center."
+   "(annoyed) Watch it, this hoodie's from actual Kennedy Space Center.",
+   "Whoa — collision course. My fault. Or physics' fault.",
+   "(annoyed) Dude, I'm tracking a satellite pass, watch it!",
+   "Careful! This backpack is basically mission control.",
+   "Oof — telemetry says that was YOU, man."
   ],
   "hit": [
    "(angry) Bro, what is your problem?!",
@@ -1299,7 +2383,11 @@
    "(pained) Ow! That's structural damage, dude!",
    "(angry) Dude, what the heck, I'm non-hostile!",
    "(pained) Mayday, mayday, ow!",
-   "(angry) Okay, initiating self-defense protocol! It's mostly running!"
+   "(angry) Okay, initiating self-defense protocol! It's mostly running!",
+   "(pained) Ow! Structural integrity compromised, dude!",
+   "(angry) I'm reporting this to... someone with authority!",
+   "(pained) Mayday! Loss of attitude control! That's ME, I'm the attitude!",
+   "(scared) Abort abort! Peaceful payload, do not engage!"
   ],
   "gunscared": [
    "(scared) Whoa, hey, I'm just a nerd, put that down!",
@@ -1320,7 +2408,29 @@
    "Per aspera ad astra, dude.",
    "(excited) The ISS is overhead RIGHT now. Probably.",
    "Space is cool, man. Literally. Three kelvin.",
-   "One game dev tutorial a night. Any day now."
+   "One game dev tutorial a night. Any day now.",
+   "Every launch scrubs twice, dude. Patience is aerospace-grade.",
+   "(excited) My orbit sim finally runs at sixty frames! Life is GOOD.",
+   "The Kennedy Space Center gift shop knows me by NAME, man.",
+   "Rockets are just plumbing with ambition, dude. Beautiful plumbing."
+  ],
+  "chatQ": [
+   "Dude — the lights over the lake. Orbital or suborbital? You saw them, right?",
+   "Did you catch the launch window last night, or do you sleep like a normal person?",
+   "You hear the gas station got robbed AGAIN? What's the escape velocity on that guy?",
+   "How's your family, man? Any of them into rockets? Asking for the group chat."
+  ],
+  "chatA": [
+   "No WAY. And then what, dude?!",
+   "(laughing) That defies like three laws of physics. Who told you?",
+   "Wait — data check. Say that again, slower.",
+   "That's SO going in my notes app, dude. Continue.",
+   "(excited) This is better than a static fire! Then what?!",
+   "Confirmed independently, dude. I heard it too. Finish the story!"
+  ],
+  "story": [
+   "So last night's booster landing — textbook, dead center. And my neighbor goes, they land themselves now, who cares. WHO CARES?! Dude, we threw a building into space and it came BACK. I made a cake. It said 'nominal' on it. I ate it alone. Worth it.",
+   "Okay, the green light over the lake — I ran the numbers, dude. No transponder, no sound, instant acceleration. Not a drone, not a launch, not a satellite. I emailed three universities. One replied. It said, quote, please stop emailing us. The TRUTH is out there, man."
   ]
  },
  "DERIK": {
@@ -1330,7 +2440,11 @@
    "Whoa, dude. Traffic check.",
    "(chill) It's cool, it's cool. Mostly cool.",
    "Bro, my balance is the ONE thing I got.",
-   "(sighing) Pedestrians, man. No board sense."
+   "(sighing) Pedestrians, man. No board sense.",
+   "Whoa, dude. My center of gravity is EARNED.",
+   "(chill) All good. Bodies collide. Boards forgive.",
+   "Careful, man. This tee predates you emotionally.",
+   "(sighing) Foot traffic, dude. The worst kind of traffic."
   ],
   "hit": [
    "(angry) Bro?! Not the tee, man, it's vintage!",
@@ -1338,7 +2452,11 @@
    "(angry) Dude! I NEED these elbows!",
    "(pained) Bro, I've bailed off roofs softer than that.",
    "(angry) Not cool, man! This tee is one of one!",
-   "(pained) Okay, ow. Adding you to the list, dude."
+   "(pained) Okay, ow. Adding you to the list, dude.",
+   "(angry) Dude! I only JUST healed from March!",
+   "(pained) Ow. Okay. That's a two-ibuprofen situation, man.",
+   "(angry) The tee, bro! We TALKED about the tee!",
+   "(pained) Bro, my body's held together by wax and denial."
   ],
   "gunscared": [
    "(scared) Whoa whoa, chill, chill, I'm nobody!",
@@ -1359,7 +2477,29 @@
    "Grip tape and gravity, man. That's the whole religion.",
    "(laid back) Falling's free, dude. That's why I'm rich.",
    "Every curb here owes me blood, dude.",
-   "Push mongo once and I WILL notice."
+   "Push mongo once and I WILL notice.",
+   "Every scar's a spot, dude. My body's a map of this town.",
+   "(laid back) I don't fall anymore, man. I descend with style.",
+   "The Publix curb at dusk, dude. Perfect light, perfect grind.",
+   "Thirty-two and still skating, man. The knees filed complaints. Denied."
+  ],
+  "chatQ": [
+   "Dude, you see those lights over the lake? I was mid-line. Almost bailed.",
+   "You hear the gas station got hit again, man? I was waxing a curb like RIGHT there.",
+   "How's your people, dude? Everybody rolling okay?",
+   "Who's the dude in the Publix lot, man? He watches me skate. Never claps."
+  ],
+  "chatA": [
+   "No way, dude. And then what?",
+   "(laughing) Shut up, man. Swear on your deck.",
+   "That's gnarlier than my knee X-rays, dude. Who told you?",
+   "Wait wait. Rewind that, man. Okay, go.",
+   "(sighing) This town's one big blooper reel, dude. Then what happened?",
+   "Knew it, man. The curbs hear everything. Finish it."
+  ],
+  "story": [
+   "So I finally landed the tre flip off the Publix curb, dude — YEARS in the making — and the only witness was a shopping cart guy who goes, do it again, I wasn't looking. I did it again, man. Second try. He nodded ONCE. Best trophy I ever got.",
+   "Skating home past the lake at midnight, this green light glides over the water, and dude, my board — no push, flat ground — just ROLLS. Ten, fifteen feet, toward the light. I let it go, man. It came back on its own. We don't talk about it, me and the board."
   ]
  },
  "DYLAN": {
@@ -1369,7 +2509,11 @@
    "(soft) Whoa. Two paths crossed. Heavy.",
    "Careful, man. We're all fragile arrangements.",
    "(annoyed) Man, you scattered my whole train of thought.",
-   "(soft) It's cool. Collisions are just physics saying hi."
+   "(soft) It's cool. Collisions are just physics saying hi.",
+   "(soft) Whoa. Matter is mostly empty space, and yet.",
+   "(annoyed) Man, I had a thought going. It's gone. It's GONE.",
+   "Easy, man. We're all just soft machines.",
+   "(soft) Two orbits intersecting. Cosmic. Also, ow."
   ],
   "hit": [
    "(angry) Okay, that was genuinely uncalled for.",
@@ -1377,7 +2521,11 @@
    "(pained) Ow. The body keeps the score, man.",
    "(angry) Hey! I'm one of the GENTLE ones, man!",
    "(pained) That echoed, man. Like, in my bones.",
-   "(angry) Not cool. I was at total peace, dude."
+   "(angry) Not cool. I was at total peace, dude.",
+   "(angry) Man, I was LITERALLY radiating peace!",
+   "(pained) Ow. Okay. The universe includes THIS too, I guess.",
+   "(pained) Great. New frequency unlocked: pain.",
+   "(angry) Dude! Whatever happened to breathe in the air?!"
   ],
   "gunscared": [
    "(scared) Hey hey, peace, man, peace. I'm just vibing.",
@@ -1398,7 +2546,29 @@
    "(dreamy) Shine on, you crazy diamond.",
    "The moon's always full, man. We just see it wrong.",
    "(soft) Wish you were here, man. Whoever you are.",
-   "Comfortably numb? Man, I'm comfortably EVERYTHING."
+   "Comfortably numb? Man, I'm comfortably EVERYTHING.",
+   "(dreamy) Money. It's a gas, man. It really is.",
+   "I saw my reflection in a store window and forgave him, man.",
+   "(dreamy) Us and them, man. And after all, we're only ordinary men.",
+   "The gas station at three a.m. glows like side two of an album, man."
+  ],
+  "chatQ": [
+   "You saw the lights over the lake, right, man? Somebody set the controls for... whatever that was?",
+   "How's your inner circle, man? Family, whatever you call your people?",
+   "You hear about the gas station, man? Somebody chose money over the vibe. Again.",
+   "Who's the cat in the grocery lot, man? He's got a whole concept album of secrets."
+  ],
+  "chatA": [
+   "Whoa. Whoa. And then what, man?",
+   "(laughing) No way. Swear on the dark side, man.",
+   "That's heavier than a double LP, man. Who told you?",
+   "Hold on, let the reverb settle. Okay. Continue.",
+   "(sighing) Everything under the sun is in tune, man. Then what?",
+   "The clouds mentioned something like this. For real though, go on."
+  ],
+  "story": [
+   "So I put on Echoes at the lake at sunset, full side, twenty-three minutes, man. And the fountain synced up. Not close — SYNCED. Every splash on the downbeat. By the end, three strangers were sitting with me, nobody talking. That's church, man. That's the whole thing.",
+   "The night the green light crossed the water, man, I didn't run. I held up my lighter. Slow sway, total respect. It dimmed twice, like it KNEW the song. Great gig in the sky, man, and we were the opening act. I'm still processing it. I'll be processing it forever."
   ]
  }
 }

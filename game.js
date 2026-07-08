@@ -3539,6 +3539,7 @@ function updateDecals(dt) {
 // ---------------- ragdoll kills + explosions ----------------
 function killNpcRagdoll(n, dx, dz, power) {
   if (n.state === 'down' || n.state === 'ragdoll') return;
+  breakNpcChat(n);   // free the chat partner before this one goes flying
   n.state = 'ragdoll'; n.hp = 0;
   stopNpcVoice(n.vname);
   if (n.mesh.userData.shadow) n.mesh.userData.shadow.visible = false;
@@ -4089,6 +4090,7 @@ function updateUfo(dt) {
 // ---------------- NPC logic (wander) ----------------
 function damageNPC(n, dmg, kx, kz, silent) {
   if (n.state === 'down') return;
+  breakNpcChat(n);   // taking damage ends a conversation mid-line
   if (!silent && !playNpcVoice(n.vname, 'hit', 0.65, 4, { x: n.x, z: n.z, yell: true, ref: n })) playVoiceAny(n.fem ? ['pedf_hit', 'pedf_hit_2'] : ['pedm_hit_1', 'pedm_hit_2', 'pedo_hit'], 0.6, 'pedHit', 5, { x: n.x, z: n.z, yell: true, ref: n });
   n.hp -= dmg; n.hurtFlash = 0.12; n.x += (kx || 0) * 0.5; n.z += (kz || 0) * 0.5;
   lastCrimeT = T;
@@ -4109,12 +4111,29 @@ function damageNPC(n, dmg, kx, kz, silent) {
       n.afterFight = meleeHit && Math.random() < 0.4;
     }
   }
-  for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o === n || o.state !== 'walk') continue; var dx = o.x - n.x, dz = o.z - n.z; if (dx * dx + dz * dz < 170) startFlee(o); }
+  for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o === n || (o.state !== 'walk' && o.state !== 'chat')) continue; var dx = o.x - n.x, dz = o.z - n.z; if (dx * dx + dz * dz < 170) startFlee(o); }
 }
-function startFlee(n) { if (n.state === 'down') return; n.state = 'flee'; n.dodge = false; n.fleeT = 4 + Math.random() * 3; var dx = n.x - player.x, dz = n.z - player.z; var d = Math.sqrt(dx * dx + dz * dz) || 1; n.fleeDX = dx / d; n.fleeDZ = dz / d; }
-function panicNear(x, z, r2) { var fled = null; for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o.state !== 'walk') continue; var dx = o.x - x, dz = o.z - z; if (dx * dx + dz * dz < r2) { startFlee(o); if (!fled || o.vname) fled = o; } } if (fled && !playNpcVoice(fled.vname, 'gunscared', 0.65, 10, { x: fled.x, z: fled.z, yell: true, ref: fled })) playVoiceAny(fled.fem ? ['pedf_gun'] : ['pedm_gun'], 0.6, 'pedGun', 16, { x: fled.x, z: fled.z, yell: true, ref: fled }); }
+function startFlee(n) { if (n.state === 'down') return; breakNpcChat(n); n.state = 'flee'; n.dodge = false; n.fleeT = 4 + Math.random() * 3; var dx = n.x - player.x, dz = n.z - player.z; var d = Math.sqrt(dx * dx + dz * dz) || 1; n.fleeDX = dx / d; n.fleeDZ = dz / d; }
+function panicNear(x, z, r2) { var fled = null; for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o.state !== 'walk' && o.state !== 'chat') continue; var dx = o.x - x, dz = o.z - z; if (dx * dx + dz * dz < r2) { startFlee(o); if (!fled || o.vname) fled = o; } } if (fled && !playNpcVoice(fled.vname, 'gunscared', 0.65, 10, { x: fled.x, z: fled.z, yell: true, ref: fled })) playVoiceAny(fled.fem ? ['pedf_gun'] : ['pedm_gun'], 0.6, 'pedGun', 16, { x: fled.x, z: fled.z, yell: true, ref: fled }); }
 
 var npcSocialT = 0, npcBumpT = -99, meleeHit = false;
+// hard-stop a sidewalk conversation (participant hit/killed/fleeing/dodging a
+// car): both sides go back to wandering, the turn timer dies with the pair
+// owner, and any in-flight chat/story line is cut short.
+function breakNpcChat(n) {
+  if (!n || n.state !== 'chat') return;
+  n.state = 'walk'; n.convT = 0; stopNpcVoice(n.vname);
+  var pr = npcs[n.partner];
+  if (pr && pr.state === 'chat') { pr.state = 'walk'; pr.convT = 0; stopNpcVoice(pr.vname); }
+}
+// speak a conversation line, falling back to plain small talk when the
+// character's pack lacks the category; true only when `cat` itself played
+function npcChatLine(n, cat) {
+  if (!n || !n.vname) return false;
+  if (playNpcVoice(n.vname, cat, 0.55, 2, { x: n.x, z: n.z, ref: n })) return true;
+  playNpcVoice(n.vname, 'chat', 0.55, 2, { x: n.x, z: n.z, ref: n });
+  return false;
+}
 function updateNPCs(dt) {
   if (isClient()) { updateNPCExtras(); return; }   // npcs mirrored from host snapshot
   // sample car velocities (player/remote-driven cars have no analytic speed —
@@ -4142,9 +4161,17 @@ function updateNPCs(dt) {
             a.state = 'chat'; b2.state = 'chat';
             a.partner = cj; b2.partner = ci;
             a.chatRole = 0; b2.chatRole = 1;
-            a.stateT = b2.stateT = 5 + Math.random() * 6;
+            a.stateT = b2.stateT = (a.vname || b2.vname) ? 8 + Math.random() * 6 : 5 + Math.random() * 6;
             a.animT = 0; b2.animT = 1.1;
-            playNpcVoice(a.vname || b2.vname, 'chat', 0.55, 8, { x: a.x, z: a.z, ref: a.vname ? a : b2 });
+            // alternating conversation: the pair owner (chatRole 0) drives the
+            // turn timer. A named opener asks a question (chatQ), then the
+            // other side reacts (chatA/story) every few seconds — see the
+            // 'chat' state block below.
+            var op = a.vname ? a : b2;
+            npcChatLine(op, 'chatQ');
+            a.convTurn = op === a ? 1 : 0;   // who speaks NEXT (0 = a, 1 = partner)
+            a.convT = 3 + Math.random() * 1.5;
+            a.convTot = a.stateT;            // planned total, for the ~20s story cap
             break outer;
           }
         }
@@ -4178,9 +4205,10 @@ function updateNPCs(dt) {
     var n = npcs[i], m = n.mesh;
     if (n.hurtFlash > 0) { n.hurtFlash -= dt; m.position.y = n.hurtFlash > 0 ? 0.06 : 0; }
     // street smarts: bail out perpendicular when a car bears down on you
-    if ((n.state === 'walk' || n.state === 'stand') && T > (n.dodgeCD || 0)) {
+    if ((n.state === 'walk' || n.state === 'stand' || n.state === 'chat') && T > (n.dodgeCD || 0)) {
       var thr = npcCarThreat(n);
       if (thr) {
+        breakNpcChat(n);   // a car bearing down trumps the conversation
         n.state = 'flee'; n.dodge = true; n.fleeT = 0.9 + Math.random() * 0.3;
         n.fleeDX = thr.x; n.fleeDZ = thr.z; n.dodgeCD = T + 2;
         if (!playNpcVoice(n.vname, 'bump', 0.6, 3, { x: n.x, z: n.z, yell: true, ref: n })) playVoiceAny(n.fem ? ['pedf_hit', 'pedf_hit_2'] : ['pedm_hit_1', 'pedm_hit_2'], 0.55, 'pedDodge', 4, { x: n.x, z: n.z, yell: true, ref: n });
@@ -4217,10 +4245,33 @@ function updateNPCs(dt) {
     if (n.state === 'chat') {
       n.stateT -= dt; n.animT += dt;
       var pr = npcs[n.partner];
-      if (!pr || pr.state !== 'chat') { n.state = 'walk'; continue; }
-      m.rotation.y = Math.atan2(pr.x - n.x, pr.z - n.z);
+      var prx = pr ? pr.x - n.x : 0, prz = pr ? pr.z - n.z : 0;
+      if (!pr || pr.state !== 'chat' || prx * prx + prz * prz > 49) {
+        // partner got hit/fled/ragdolled/moved away — abort, cut our line short
+        n.state = 'walk'; n.convT = 0; stopNpcVoice(n.vname);
+        continue;
+      }
+      m.rotation.y = Math.atan2(prx, prz);
       animPersonClip(m, n.chatRole ? 'talk' : 'chat', n.animT);
-      if (n.stateT <= 0) { n.state = 'walk'; pr.state = 'walk'; }
+      // conversation turns (owner side only): every ~3-4.5s the next speaker
+      // reacts with a chatA line; ~15% of turns become a story instead, and
+      // the reply then waits ~9-12s so the anecdote can finish.
+      if (!n.chatRole && n.convT > 0) {
+        n.convT -= dt;
+        if (n.convT <= 0) {
+          var sp = n.convTurn ? pr : n;
+          var didStory = false;
+          if (Math.random() < 0.15) didStory = npcChatLine(sp, 'story');
+          else npcChatLine(sp, 'chatA');
+          n.convT = didStory ? 9 + Math.random() * 3 : 3 + Math.random() * 1.5;
+          if (didStory) {   // extend the chat so the story isn't cut mid-anecdote
+            var ext = Math.min(n.convT + 1.5 - n.stateT, 20 - (n.convTot || 0));
+            if (ext > 0) { n.stateT += ext; pr.stateT += ext; n.convTot = (n.convTot || 0) + ext; }
+          }
+          n.convTurn = n.convTurn ? 0 : 1;
+        }
+      }
+      if (n.stateT <= 0) { n.state = 'walk'; pr.state = 'walk'; n.convT = pr.convT = 0; }
       m.position.set(n.x, 0, n.z);
       continue;
     }
