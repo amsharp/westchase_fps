@@ -23,7 +23,8 @@ var WEAPONS = {
   auto:   { name: 'AK-47',  price: 1000, dmg: 34, rate: 0.11, auto: true, spread: 0.012, desc: 'Full auto, long range.', flashAt: [0.26, -0.255, -1.2] },
   rocket: { name: 'ROCKET LAUNCHER', price: 2000, rate: 5, rocket: true, desc: 'Danger close. 5s reload.', flashAt: [0.3, -0.28, -1.0] },
   raygun: { name: 'RAY GUN', price: 0, dmg: 70, rate: 0.22, auto: false, spread: 0, laser: true, desc: 'Alien tech. Semi-auto. Never misses.', flashAt: [0.26, -0.25, -0.95] },
-  snack:  { name: 'SNACK', snack: true, rate: 0.8 }
+  snack:  { name: 'SNACK', snack: true, rate: 0.8 },
+  soda:   { name: 'SODA', snack: true, rate: 0.6 }   // vending machines (streetprops)
 };
 var GUN_LIST = ['pistol', 'smg', 'rifle', 'auto', 'rocket', 'raygun'];
 
@@ -979,7 +980,22 @@ var VEH_LEN = 4.64;                    // match the procedural car footprint
 // every Meshy model comes out nose -x (front-left 3/4 seed view) — flip all
 var VEH_FLIP = { COMPACT: 1, HATCH: 1, MINIVAN: 1, PICKUP_BIG: 1, PICKUP_FS: 1, PICKUP_HD: 1, SEDAN_FULL: 1, SEDAN_MID: 1, SEDAN_SPORT: 1, SUV_MID: 1 };
 var VEH_COLS = [null, [200, 202, 206], [232, 232, 228], [34, 36, 40], [166, 38, 30]]; // as-is/silver/white/black/red
-var vehGeoCache = {}, vehMatCache = {};
+var vehGeoCache = {}, vehMatCache = {}, vehEndCache = {};
+// nose/tail x extents at light height (post-flip geo): where to hang the light glows
+function vehEnds(vi) {
+  if (vehEndCache[vi]) return vehEndCache[vi];
+  var pos = getVehGeo(vi).getAttribute('position');
+  var nx = 0, tx = 0;
+  for (var i = 0; i < pos.count; i++) {
+    var y = pos.getY(i);
+    if (y < 0.10 || y > 0.30) continue;
+    var x = pos.getX(i);
+    if (x > nx) nx = x;
+    if (x < tx) tx = x;
+  }
+  vehEndCache[vi] = { nx: nx, tx: tx };
+  return vehEndCache[vi];
+}
 function getVehGeo(vi) {
   if (vehGeoCache[vi]) return vehGeoCache[vi];
   var e = MESHY_VEHS[vi];
@@ -1107,10 +1123,12 @@ function makeCar() {
   beam.position.y = 0.16; beam.visible = false;
   g.add(beam);
   // visible light glows at the nose (warm white) and tail (red, flares on brake)
-  var glX = 2.34, glY = 0.68, glZ = 0.55;
+  var glNX = 2.4, glTX = -2.42, glY = 0.68, glZ = 0.55;
   if (typeof MESHY_VEHS !== 'undefined' && MESHY_VEHS.length) {
-    glX = VEH_LEN / 2 - 0.05;
-    glY = Math.min(0.7, e.dims[1] * s * 0.38);
+    var ve = vehEnds(vi);
+    glNX = ve.nx * s + 0.06;   // just proud of the bumper so the quad never
+    glTX = ve.tx * s - 0.06;   // gets swallowed by the body mesh
+    glY = Math.min(0.62, e.dims[1] * s * 0.36);
     glZ = e.dims[2] * s * 0.5 * 0.58;
   }
   var tailM = makeTailGlowM();
@@ -1123,8 +1141,8 @@ function makeCar() {
     body.add(q);
     return q;
   }
-  var head1 = glowQuad(headGlowM, glX, glY, glZ, 0.17), head2 = glowQuad(headGlowM, glX, glY, -glZ, 0.17);
-  var tail1 = glowQuad(tailM, -glX, glY, glZ, 0.15), tail2 = glowQuad(tailM, -glX, glY, -glZ, 0.15);
+  var head1 = glowQuad(headGlowM, glNX, glY, glZ, 0.17), head2 = glowQuad(headGlowM, glNX, glY, -glZ, 0.17);
+  var tail1 = glowQuad(tailM, glTX, glY, glZ, 0.15), tail2 = glowQuad(tailM, glTX, glY, -glZ, 0.15);
   g.add(blobShadow(2.4, 1.15, 0.1)); scene.add(g);
   return { group: g, body: body, wheels: wheels, pivots: pivots, beam: beam, head1: head1, head2: head2, tail1: tail1, tail2: tail2, tailM: tailM, tailS: 0.15, vname: typeof MESHY_VEHS !== 'undefined' && MESHY_VEHS.length ? e.n : 'PROC' };
 }
@@ -2368,6 +2386,327 @@ function refreshClerk() {
     }
   });
   addBtn('Never mind', function () { closeMenus(); });
+}
+
+// ---------------- street props (AI PSX props: streetprops.js) ----------------
+// 30 Meshy-generated quantized props placed contextually around the map.
+// All prop INTERACTIONS (vending machine, payphone, ATM, newspaper box,
+// meter cash, hydrant jets) are singleplayer-local, like interiors and
+// weapon drops — deliberately NOT net-synced.
+var streetPropCache = {};
+var streetPropInteractables = [];   // {kind,x,z,fx,fz,g,cd,robbed}
+var hydrantJets = [];               // {x,z,t,parts:[mesh],sT}
+state.sodas = 0;                    // soda cans bought from vending machines
+
+function getStreetProp(name) {
+  // mirror of getUfoMesh, minus rescaling (props are authored in meters),
+  // plus optional 'i' index buffer support (set BEFORE computeVertexNormals)
+  if (typeof STREET_PROPS === 'undefined') return null;
+  if (streetPropCache[name]) return streetPropCache[name].clone();
+  var e = null;
+  for (var i = 0; i < STREET_PROPS.length; i++) if (STREET_PROPS[i].n === name) e = STREET_PROPS[i];
+  if (!e) return null;
+  var qp = new Int16Array(b64Bytes(e.p).buffer), qu = new Uint16Array(b64Bytes(e.u).buffer);
+  var fp = new Float32Array(qp.length), fu = new Float32Array(qu.length);
+  for (i = 0; i < qp.length; i++) fp[i] = qp[i] / e.q;
+  for (i = 0; i < qu.length; i += 2) { fu[i] = qu[i] / 8192; fu[i + 1] = 1 - qu[i + 1] / 8192; }
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(fp, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(fu, 2));
+  if (e.i) geo.setIndex(new THREE.BufferAttribute(new Uint16Array(b64Bytes(e.i).buffer), 1));
+  geo.computeVertexNormals();
+  var im = new Image();
+  var tx = new THREE.Texture(im);
+  tx.magFilter = THREE.NearestFilter; tx.minFilter = THREE.NearestFilter; tx.generateMipmaps = false;
+  im.onload = function () { tx.needsUpdate = true; };
+  im.src = e.tex;
+  var g = new THREE.Group();
+  g.add(new THREE.Mesh(geo, lamb({ map: tx })));
+  g.userData.spDims = e.dims;
+  streetPropCache[name] = g;
+  return g.clone();
+}
+
+// props big enough to block movement (AABB collider)
+var SP_SOLID = { dumpster: 1, busshelter: 1, vendingmachine: 1, atm: 1, transformerbox: 1, icechest: 1, propanecage: 1, jerseybarrier: 1, picnictable: 1, planter: 1 };
+// props cars snap: 'light' = metal pole crunch, 'tree' = punted clutter
+var SP_SNAP = { stopsign: 'light', yieldsign: 'light', speedsign: 'light', onewaysign: 'light', parkingmeter: 'light', payphone: 'light', hydrant: 'light', cone: 'tree', barricade: 'tree', trashcan: 'tree', wheeliebin: 'tree', shoppingcart: 'tree', newsbox: 'tree' };
+var SP_INTERACT = { vendingmachine: 'vend', payphone: 'phone', atm: 'atm', newsbox: 'news' };
+// authored front is -x; face = direction the front should point in the world
+var SP_FACE = { W: 0, E: Math.PI, N: -Math.PI / 2, S: Math.PI / 2 };
+
+// hand-authored placements: [name, x, z, face(W/E/N/S or radians), y?]
+// sidewalks: main |z| 14..19, cross |x| 11..16; nothing on main/cross asphalt
+// except the roadwork scene on the cross-road east shoulder (z 82..118).
+var SP_PLACES = [
+  // --- RaceTrac (SE corner; store front wall z=43.5, door zone x 59.5..62.5 kept clear)
+  ['newsbox', 54.8, 42.4, 'N'], ['icechest', 57.2, 42.6, 'N'],
+  ['trashcan', 63.3, 42.5, 'N'], ['payphone', 65.2, 42.6, 'N'],
+  ['vendingmachine', 67.2, 42.6, 'N'], ['propanecage', 68.5, 44.9, 'W'],
+  ['cone', 44, 45, 0.4], ['cone', 50, 55, 1.2],
+  // --- Dollar Tree (front wall z=38)
+  ['vendingmachine', -62, 36.8, 'N'], ['atm', -59, 36.8, 'N'],
+  ['bench', -43, 36.9, 'N'], ['planter', -66, 36.9, 'N'], ['trashcan', -48.5, 36.9, 'N'],
+  ['acunit', -35.9, 52, 'E'],
+  ['shoppingcart', -46, 36.2, 0.9], ['shoppingcart', -57, 35.4, 2.3], ['shoppingcart', -38.5, 36.4, 4.0],
+  // --- strip malls (storefront walkway z~40.7; drives z 35.5..44.5; backs z 62+)
+  ['bench', -107, 40.7, 'N'], ['bench', -133, 40.7, 'N'], ['bench', -195, 40.7, 'N'],
+  ['planter', -98, 40.7, 'N'], ['planter', -142, 40.7, 'N'], ['planter', -234, 40.9, 'N'],
+  ['trashcan', -120, 40.7, 'N'], ['trashcan', -188, 40.7, 'N'],
+  ['payphone', -158, 41.0, 'N'],
+  ['dumpster', -110, 64, 'S'], ['dumpster', -178, 66, 'S'], ['dumpster', -246, 68, 'S'],
+  ['dumpster', -44, 61.2, 'E'],
+  // parking meter row on the main-road south sidewalk fronting the malls
+  ['parkingmeter', -100, 16.3, 'N'], ['parkingmeter', -110, 16.3, 'N'], ['parkingmeter', -120, 16.3, 'N'],
+  ['parkingmeter', -130, 16.3, 'N'], ['parkingmeter', -140, 16.3, 'N'],
+  // --- self-storage backlot (rows end z=134)
+  ['pallet', -62, 136.5, 0.3], ['pallet', -59.6, 139, 1.1], ['tirestack', -47, 137, 0],
+  // --- Publix (front wall z=-118, entrance x=-72; lot z -116..-76; spawn (-72,-97) kept clear)
+  ['bikerack', -77, -116.5, 'S'], ['bench', -66, -116.3, 'S'],
+  ['planter', -84, -116.3, 'S'], ['planter', -59, -116.3, 'S'],
+  ['mailbox', -53, -116.2, 'S'], ['newsbox', -56.5, -116.2, 'S'],
+  ['shoppingcart', -80, -91, 0.4], ['shoppingcart', -78.7, -89.9, 0.9],
+  ['shoppingcart', -63, -88, 2.1], ['shoppingcart', -96, -84, 5.5],
+  ['dumpster', -95, -165.8, 'N'], ['transformerbox', -110.4, -150, 'W'], ['acunit', -110.3, -128, 'W'],
+  // --- banks (porticos face +z at z=-37.5)
+  ['atm', 47.5, -36.6, 'S'], ['planter', 56, -36.5, 'S'],
+  ['atm', -52, -36.6, 'S'], ['planter', -44, -36.5, 'S'],
+  // --- Farnell Middle School (front z=-222, on its concrete pad)
+  ['busshelter', -96, -219.4, 'S'], ['bench', -64, -219.6, 'S'], ['bikerack', -88, -219.6, 'S'],
+  // --- bus shelters along the main road sidewalks
+  ['busshelter', 90, 16.8, 'N'], ['busshelter', -150, 16.8, 'N'], ['busshelter', 140, -16.8, 'S'],
+  // --- road signs (sidewalk edges + drive exits, never on asphalt)
+  ['stopsign', 46.5, 20.5, 'S'], ['stopsign', -64, 20.5, 'S'],
+  ['stopsign', 46.5, -19.8, 'N'], ['stopsign', -78.5, -19.8, 'N'],
+  ['yieldsign', -245, 20.5, 'S'],
+  ['onewaysign', 34, 20.5, 'S'], ['onewaysign', -58, -19.8, 'N'],
+  ['speedsign', 120, 16.3, 'W'], ['speedsign', -200, 16.3, 'W'], ['speedsign', 160, -16.3, 'E'],
+  // --- hydrants (~every 80m along the sidewalks)
+  ['hydrant', -220, 17.5, 'N'], ['hydrant', -95, 17.6, 'N'], ['hydrant', 25, 17.5, 'N'], ['hydrant', 105, 17.5, 'N'],
+  ['hydrant', -180, -17.5, 'S'], ['hydrant', -40, -17.5, 'S'], ['hydrant', 75, -17.5, 'S'],
+  ['hydrant', 13.4, 70, 'W'], ['hydrant', -13.4, -70, 'E'],
+  // --- roadwork scene: cross-road east shoulder z 82..118 (the ONE asphalt exception)
+  ['cone', 8.8, 82, 0, 0.1], ['cone', 9.4, 86, 0.5, 0.1], ['cone', 10, 90, 1.1, 0.1],
+  ['barricade', 9.9, 93.5, 'N', 0.1], ['barricade', 9.9, 118, 'S', 0.1],
+  ['jerseybarrier', 9.8, 98, 'W', 0.1], ['jerseybarrier', 9.8, 103, 'W', 0.1], ['jerseybarrier', 9.8, 108, 'W', 0.1],
+  ['speedsign', 13.6, 78, 'N'],
+  // --- townhouses (garage fronts at +z of each row)
+  ['homemailbox', -228, -207.8, 'S', 0.02], ['homemailbox', -212, -207.8, 'S', 0.02], ['homemailbox', -196, -207.8, 'S', 0.02],
+  ['homemailbox', -218, -237.6, 'S', 0.02],
+  ['homemailbox', -158, -112.6, 'S', 0.02], ['homemailbox', -142, -112.6, 'S', 0.02],
+  ['wheeliebin', -190, -208.3, 1.0, 0.02], ['wheeliebin', -224, -238, 2.2, 0.02],
+  // --- lake shore picnic tables (ellipse rx 77 rz 52 around (-255,-150) — kept dry)
+  ['picnictable', -176, -130, 'W', 0.02], ['picnictable', -172, -168, 'E', 0.02], ['picnictable', -232, -92, 'N', 0.02],
+  // --- odds and ends
+  ['trashcan', 13.5, 24, 'W'], ['newsbox', -110.5, -22.4, 'N'],
+  ['acunit', 65.2, -110, 'E']
+];
+
+function spOverlapsBuilding(x, z, hx, hz) {
+  for (var i = 0; i < mapBuildings.length; i++) {
+    var b = mapBuildings[i];
+    if (x + hx > b.x - b.w / 2 - 0.05 && x - hx < b.x + b.w / 2 + 0.05 &&
+        z + hz > b.z - b.d / 2 - 0.05 && z - hz < b.z + b.d / 2 + 0.05) return true;
+  }
+  return false;
+}
+(function spawnStreetProps() {
+  if (typeof STREET_PROPS === 'undefined') return;   // file absent -> game unaffected
+  for (var i = 0; i < SP_PLACES.length; i++) {
+    var P = SP_PLACES[i], name = P[0], x = P[1], z = P[2];
+    var ry = typeof P[3] === 'string' ? SP_FACE[P[3]] : (P[3] || 0);
+    var g = getStreetProp(name);
+    if (!g) continue;
+    var dims = g.userData.spDims || [1, 1, 1];
+    // world-axis half extents after yaw (AABB of the rotated box, cheap)
+    var c = Math.abs(Math.cos(ry)), s = Math.abs(Math.sin(ry));
+    var hx = (dims[0] * c + dims[2] * s) / 2, hz = (dims[0] * s + dims[2] * c) / 2;
+    if (spOverlapsBuilding(x, z, hx, hz)) { console.warn('[streetprops] skipped ' + name + ' @ ' + x + ',' + z + ' (building overlap)'); continue; }
+    g.position.set(x, P[4] !== undefined ? P[4] : 0.13, z);
+    g.rotation.y = ry;
+    scene.add(g);
+    if (SP_SOLID[name]) {
+      addCollider(x, z, hx * 2, hz * 2);
+      solidMeshes.push(g);   // bullets stop on the big stuff
+    }
+    if (SP_SNAP[name]) {
+      registerBreakable(g, x, z, Math.max(hx, hz) + 0.15, SP_SNAP[name]);
+      var bb = breakables[breakables.length - 1];
+      if (name === 'parkingmeter') bb.kind = 'meter';
+      if (name === 'hydrant') bb.kind = 'hydrant';
+    }
+    if (SP_INTERACT[name]) {
+      var it = { kind: SP_INTERACT[name], x: x, z: z, fx: -Math.cos(ry), fz: Math.sin(ry), g: g, cd: -99, robbed: false };
+      if (it.kind === 'atm') { g.userData.atm = it; if (!SP_SOLID[name]) solidMeshes.push(g); }
+      streetPropInteractables.push(it);
+    }
+  }
+})();
+
+// ---- interactions (E key + prompt; local-only) ----
+function streetPropNear() {
+  if (!state.running || state.dead || driving || inside) return null;
+  var best = null, bd = 2.2 * 2.2;
+  for (var i = 0; i < streetPropInteractables.length; i++) {
+    var p = streetPropInteractables[i];
+    var dx = player.x - p.x, dz = player.z - p.z, d2 = dx * dx + dz * dz;
+    if (d2 < bd) { best = p; bd = d2; }
+  }
+  return best;
+}
+function streetPropPrompt() {
+  var p = streetPropNear();
+  if (!p) return '';
+  if (p.kind === 'vend') return '[E] SODA — $2';
+  if (p.kind === 'phone') return T < p.cd ? '' : '[E] USE PAYPHONE';
+  if (p.kind === 'atm') return '[E] USE ATM';
+  if (p.kind === 'news') return T < p.cd ? '' : '[E] NEWSPAPER BOX';
+  return '';
+}
+function streetPropInteract() {
+  var p = streetPropNear();
+  if (!p) return false;
+  if (p.kind === 'vend') {
+    if (state.money < 2) { sfx('deny'); popup2('Need $2'); return true; }
+    state.money -= 2;
+    sfx('buy');
+    beep(880, 0.05, 0.1, 'square'); setTimeout(function () { beep(660, 0.05, 0.1, 'square'); }, 90);
+    setTimeout(function () { noiseBurst(0.09, 500, 0.35); beep(120, 0.08, 0.25, 'square', 60); }, 420);   // can drops
+    (function (pp) { setTimeout(function () { spawnSodaDrop(pp.x + pp.fx * 0.9, pp.z + pp.fz * 0.9); }, 500); })(p);
+    popup('SODA dispensed');
+  } else if (p.kind === 'phone') {
+    if (T < p.cd) return true;
+    p.cd = T + 8;
+    beep(350, 0.9, 0.06, 'sine'); beep(440, 0.9, 0.06, 'sine');   // dial tone
+    setTimeout(function () {
+      var r = Math.random();
+      if (r < 0.05) {          // ...something else on the line
+        beep(160, 0.5, 0.12, 'sawtooth', 70); noiseBurst(0.7, 400, 0.12);
+        setTimeout(function () { beep(95, 0.8, 0.14, 'sawtooth', 55); noiseBurst(0.5, 300, 0.1); }, 550);
+        popup2('...it whispers your name');
+      } else if (r < 0.5) {    // busy
+        beep(480, 0.28, 0.09, 'square'); setTimeout(function () { beep(480, 0.28, 0.09, 'square'); }, 560);
+        setTimeout(function () { beep(480, 0.28, 0.09, 'square'); }, 1120);
+      } else {                 // a random townsperson picks up (earpiece = non-spatial)
+        var names = typeof NPC_VOICES !== 'undefined' ? Object.keys(NPC_VOICES).filter(function (k) { return NPC_VOICES[k].chat; }) : [];
+        if (names.length) playNpcVoice(names[(Math.random() * names.length) | 0], 'chat', 0.4, 0.1);
+        else { beep(480, 0.28, 0.09, 'square'); }
+      }
+    }, 1100);
+  } else if (p.kind === 'atm') {
+    if (T < p.cd) return true;
+    p.cd = T + 2;
+    beep(1050, 0.07, 0.1, 'square'); setTimeout(function () { beep(1050, 0.07, 0.1, 'square'); }, 160);
+    setTimeout(function () { sfx('deny'); }, 480);
+    popup2('OUT OF SERVICE');
+  } else if (p.kind === 'news') {
+    if (T < p.cd) return true;
+    p.cd = T + 30;
+    noiseBurst(0.07, 1100, 0.35);
+    setTimeout(function () { noiseBurst(0.06, 900, 0.3); beep(320, 0.05, 0.1, 'square'); }, 100);
+    if (Math.random() < 1 / 6) { spawnCash(p.x + p.fx * 0.7, p.z + p.fz * 0.7, 5); sfx('cash'); popup('Someone left change!'); }
+    else popup('Just old news.');
+  }
+  return true;
+}
+// shooting an ATM bursts it open once — cash + instant 2 stars
+function shootAtm(a, point) {
+  puff(point, a.robbed ? 0xbbbbbb : 0xffe9a8);
+  if (a.robbed) return;
+  a.robbed = true;
+  var total = 50 + ((Math.random() * 101) | 0);
+  spawnCash(a.x + a.fx * 1.1, a.z + a.fz * 1.1, Math.ceil(total / 3));
+  spawnCash(a.x + a.fx * 1.5, a.z + a.fz * 1.5, Math.ceil(total / 3));
+  spawnCash(a.x + a.fx * 1.3 + 0.5, a.z + a.fz * 1.3 - 0.5, Math.floor(total / 3));
+  sfx('alarm'); sfx('cash');
+  popup('ATM CRACKED');
+  if (state.wanted < 2) setWanted(2); else lastCrimeT = T;
+}
+// called from breakProp for props with a .kind tag
+function onStreetPropBreak(b) {
+  if (b.kind === 'meter') {
+    spawnCash(b.x, b.z, 5 + ((Math.random() * 11) | 0));
+    sfx('cash', { x: b.x, z: b.z, range: 50 });
+  } else if (b.kind === 'hydrant') {
+    var parts = [];
+    var jm = new THREE.MeshBasicMaterial({ color: 0xcfeaff, transparent: true, opacity: 0.85 });
+    var jg = new THREE.SphereGeometry(0.13, 6, 5);
+    for (var i = 0; i < 18; i++) {
+      var m = new THREE.Mesh(jg, jm);
+      m.visible = false;
+      scene.add(m);
+      parts.push({ mesh: m, vx: 0, vy: -1, vz: 0, delay: Math.random() * 0.8 });
+    }
+    hydrantJets.push({ x: b.x, z: b.z, t: 30, parts: parts, sT: 0 });
+    noiseBurst(0.5, 800, 0.5);
+  }
+}
+// soda pickup drop (reuses the drops[] pattern with kind 'soda')
+function sodaDropMesh() {
+  var g = new THREE.Group();
+  g.add(cyl(0.11, 0.11, 0.32, 10, lamb({ color: 0xc0392b }), 0, 0, 0));
+  g.add(cyl(0.115, 0.115, 0.03, 10, phong({ color: 0xd8dce0, shininess: 90 }), 0, 0.16, 0));
+  g.add(box(0.222, 0.1, 0.02, lamb({ color: 0xf0e6d8 }), 0, 0.02, 0.105));
+  return g;
+}
+function spawnSodaDrop(x, z) {
+  var g = sodaDropMesh();
+  g.position.set(x, 0.7, z);
+  scene.add(g);
+  drops.push({ mesh: g, kind: 'soda', life: 180 });
+}
+function consumeSoda() {
+  if (state.sodas <= 0) return;
+  state.sodas--;
+  state.hp = Math.min(100, state.hp + 25);
+  sfx('eat');
+  popup('+25 HP');
+  if (state.sodas <= 0) setEquipped('fists');
+  else setEquipped('soda');   // refresh the held-count HUD
+}
+// TAB inventory row (called from refreshInv)
+function sodaInvRow(rows) {
+  if (state.sodas <= 0) return;
+  var srow = document.createElement('div'); srow.className = 'row';
+  var sleft = document.createElement('div');
+  sleft.innerHTML = '<b class="' + (state.equipped === 'soda' ? 'equipped' : '') + '">SODA &times;' + state.sodas + (state.equipped === 'soda' ? ' &#9668; equipped' : '') + '</b><small>drink to restore 25 hp</small>';
+  srow.appendChild(sleft);
+  var sbtn = document.createElement('button');
+  if (state.equipped === 'soda') { sbtn.textContent = 'UNEQUIP'; sbtn.onclick = function () { setEquipped('fists'); refreshInv(); }; }
+  else { sbtn.textContent = 'EQUIP'; sbtn.onclick = function () { setEquipped('soda'); refreshInv(); }; }
+  srow.appendChild(sbtn); rows.appendChild(srow);
+}
+// hydrant water jets (called from the main loop next to updateWorldFx)
+function updateStreetProps(dt) {
+  for (var i = hydrantJets.length - 1; i >= 0; i--) {
+    var j = hydrantJets[i];
+    j.t -= dt;
+    if (j.t <= 0) {
+      for (var k = 0; k < j.parts.length; k++) scene.remove(j.parts[k].mesh);
+      hydrantJets.splice(i, 1);
+      continue;
+    }
+    j.sT -= dt;
+    if (j.sT <= 0) {   // soft recurring splash while it gushes
+      j.sT = 1.4;
+      var sdx = j.x - player.x, sdz = j.z - player.z;
+      if (sdx * sdx + sdz * sdz < 1600) noiseBurst(0.35, 700, 0.12);
+    }
+    for (var p = 0; p < j.parts.length; p++) {
+      var fd = j.parts[p];
+      if (fd.delay > 0) { fd.delay -= dt; continue; }
+      var fp = fd.mesh.position;
+      if (!fd.mesh.visible || fp.y < 0) {
+        fd.mesh.visible = true;
+        fp.set(j.x, 0.4, j.z);
+        var a = Math.random() * Math.PI * 2, sp = 0.3 + Math.random() * 0.9;
+        fd.vx = Math.cos(a) * sp; fd.vz = Math.sin(a) * sp;
+        fd.vy = 6.5 + Math.random() * 3;
+      }
+      fd.vy -= 9.5 * dt;
+      fp.x += fd.vx * dt; fp.y += fd.vy * dt; fp.z += fd.vz * dt;
+    }
+  }
 }
 
 // ---------------- police / wanted system ----------------
@@ -4449,6 +4788,7 @@ function tryAttack() {
   if (w.snack) {
     if (T - punchT < w.rate) return;
     punchT = T;
+    if (state.equipped === 'soda') { consumeSoda(); return; }   // vending soda (streetprops)
     if (state.snacks > 0) {
       state.snacks--;
       state.hp = Math.min(100, state.hp + 50);
@@ -4548,7 +4888,7 @@ function tryAttack() {
     spawnBeam(mo.x, mo.y - 0.3, mo.z, bp.x, bp.y, bp.z, 0x66ff88);
   }
   if (hits.length) {
-    var h = hits[0], o = h.object, npcHit = null, copHit = null, carHit = null, remoteHit = null, copMHit = -1, ufoHit = false, alienHit = false;
+    var h = hits[0], o = h.object, npcHit = null, copHit = null, carHit = null, remoteHit = null, copMHit = -1, ufoHit = false, alienHit = false, atmHit = null;
     while (o) {
       if (o.userData && o.userData.npc) { npcHit = o.userData.npc; break; }
       if (o.userData && o.userData.cop) { copHit = o.userData.cop; break; }
@@ -4557,6 +4897,7 @@ function tryAttack() {
       if (o.userData && o.userData.trafficCar) { carHit = o.userData.trafficCar; break; }
       if (o.userData && o.userData.ufo) { ufoHit = true; break; }
       if (o.userData && o.userData.alien) { alienHit = true; break; }
+      if (o.userData && o.userData.atm) { atmHit = o.userData.atm; break; }
       o = o.parent;
     }
     if (ufoHit) {
@@ -4597,6 +4938,7 @@ function tryAttack() {
         if (carHit.dmgT >= 1.5 && !carHit.berserk) { goBerserk(carHit); popup('WRECKED!'); creditCivKill(); }   // trashing a ride weighs like a body
       }
     }
+    else if (atmHit) shootAtm(atmHit, h.point);   // streetprops: burst the ATM open
     else puff(h.point, 0xbbbbbb);
   }
   pitch = Math.min(1.45, pitch + 0.012 + Math.random() * 0.008);
@@ -4752,6 +5094,7 @@ function breakProp(b, dirX, dirZ) {
       b.z + (Math.random() - 0.5) * 2.4), cols[i % 3]);
   }
   sfx('crash', { x: b.x, z: b.z, range: 90 });
+  if (b.kind) onStreetPropBreak(b);   // parking meters spill change, hydrants gush
 }
 var fallAxis = new THREE.Vector3(), fallQ = new THREE.Quaternion();
 function updateWorldFx(dt) {
