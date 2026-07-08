@@ -958,6 +958,21 @@ var beamTex = (function () {
 })();
 var beamGeo = (function () { var g = new THREE.PlaneGeometry(6.4, 3.4); g.rotateX(-Math.PI / 2); g.translate(5.3, 0, 0); return g; })();
 var beamM = new THREE.MeshBasicMaterial({ map: beamTex, transparent: true, opacity: 0.5, depthWrite: false });
+// nose/tail light glows: small additive quads on the car body (night + brake flare)
+var glowTex = (function () {
+  var c = document.createElement('canvas'); c.width = 32; c.height = 32;
+  var g = c.getContext('2d');
+  var gr = g.createRadialGradient(16, 16, 1, 16, 16, 15);
+  gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.35, 'rgba(255,255,255,0.55)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 32, 32);
+  var t = new THREE.CanvasTexture(c); t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter;
+  return t;
+})();
+var glowGeo = new THREE.PlaneGeometry(1, 1);
+var headGlowM = new THREE.MeshBasicMaterial({ map: glowTex, color: 0xfff2cc, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+function makeTailGlowM() { // per-car (brake flare mutates color/opacity)
+  return new THREE.MeshBasicMaterial({ map: glowTex, color: 0xd0261c, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+}
 // ---- Meshy AI vehicles (optional meshyvehs.js): 10 early-2000s bodies,
 // blue seed paint hue-swapped at load into 5 common colors per model ----
 var VEH_LEN = 4.64;                    // match the procedural car footprint
@@ -1012,6 +1027,24 @@ function getVehMat(vi, col) {
   vehMatCache[key] = lamb({ map: tx });
   return vehMatCache[key];
 }
+// Per-model 3D-wheel placement, hand-measured against the wheels BAKED into the
+// Meshy body meshes so the spinning wheel fully covers the painted one and sits
+// on the ground: [frontX, frontR, rearX, rearR, frontZOut, rearZOut, tireWidth].
+// zOut (>0) = desired outer tire face |z| for models whose fender flares carry a
+// painted wheel hub (pickups/SUV) — the 3D wheel must sit proud of that face.
+var VEH_WHEEL_TUNE = {
+  COMPACT: [1.50, 0.36, -1.56, 0.38, 0, 0, 1.3],
+  HATCH: [1.63, 0.36, -1.66, 0.39, 0, 0, 1.3],
+  MINIVAN: [1.52, 0.35, -1.56, 0.36, 0, 0, 1.3],
+  PICKUP_BIG: [1.55, 0.42, -1.51, 0.43, 1.06, 1.10, 1.45],
+  PICKUP_FS: [1.56, 0.33, -1.40, 0.32, 0, 0.95, 1.3],
+  PICKUP_HD: [1.52, 0.36, -1.45, 0.36, 0, 1.03, 1.45],
+  SEDAN_FULL: [1.37, 0.33, -1.45, 0.35, 0, 0, 1.3],
+  SEDAN_MID: [1.27, 0.30, -1.35, 0.32, 0, 0, 1.3],
+  SEDAN_SPORT: [1.38, 0.30, -1.50, 0.35, 0, 0, 1.3],
+  SUV_MID: [1.46, 0.41, -1.53, 0.42, 1.04, 1.07, 1.3]
+};
+var WHEEL_BASE_W = 0.294;   // MESHY_WHEEL tire width at the base 0.34 radius
 function makeCar() {
   var g = new THREE.Group();
   var body = new THREE.Group();   // separate so suspension can bounce it over the wheels
@@ -1024,12 +1057,21 @@ function makeCar() {
     var vm2 = new THREE.Mesh(getVehGeo(vi), getVehMat(vi, (Math.random() * VEH_COLS.length) | 0));
     vm2.scale.set(s, s, s);
     body.add(vm2);
-    // spinning/steering wheel props sit over the baked wheels
+    // spinning/steering wheel props must fully cover the baked wheels
     wheelSpots = e.wheels.map(function (w) {
       var fx = VEH_FLIP[e.n] ? -1 : 1;
+      var t = VEH_WHEEL_TUNE[e.n];
+      if (t) {
+        var front = w[0] * fx > 0;
+        var wr2 = front ? t[1] : t[3];
+        var zOut = front ? t[4] : t[5];
+        var halfW = WHEEL_BASE_W * (wr2 / 0.34) * t[6] / 2;
+        var az = zOut > 0 ? zOut - halfW : Math.abs(w[2]) * s + 0.04;
+        return [front ? t[0] : t[2], wr2, az * (w[2] > 0 ? 1 : -1) * fx, wr2, t[6]];
+      }
       var wr = Math.min(0.44, Math.max(0.26, w[3] * s * 0.92));
       var wz = (Math.abs(w[2]) * s - 0.06) * (w[2] > 0 ? 1 : -1) * fx;
-      return [w[0] * s * fx, wr, wz, wr];
+      return [w[0] * s * fx, wr, wz, wr, 1.3];
     });
   } else {
     var col = CARCOLS[(Math.random() * CARCOLS.length) | 0];
@@ -1049,7 +1091,7 @@ function makeCar() {
       // spoke face is local -Y: flip per side so the rim always faces out
       w.rotation.x = wp[2] > 0 ? Math.PI / 2 : -Math.PI / 2;
       var ws2 = mw.s * (wp[3] / 0.34);
-      w.scale.set(ws2, ws2, ws2);
+      w.scale.set(ws2, ws2 * (wp[4] || 1), ws2);   // local Y = axle: widen the tire
     } else {
       w = new THREE.Mesh(wheelGeo, [tireMat, hubMat, hubMat]); w.rotation.x = Math.PI / 2;
       var ws = wp[3] / 0.34;
@@ -1064,8 +1106,27 @@ function makeCar() {
   var beam = new THREE.Mesh(beamGeo, beamM);
   beam.position.y = 0.16; beam.visible = false;
   g.add(beam);
+  // visible light glows at the nose (warm white) and tail (red, flares on brake)
+  var glX = 2.34, glY = 0.68, glZ = 0.55;
+  if (typeof MESHY_VEHS !== 'undefined' && MESHY_VEHS.length) {
+    glX = VEH_LEN / 2 - 0.05;
+    glY = Math.min(0.7, e.dims[1] * s * 0.38);
+    glZ = e.dims[2] * s * 0.5 * 0.58;
+  }
+  var tailM = makeTailGlowM();
+  function glowQuad(mat, gx, gy, gz, sc) {
+    var q = new THREE.Mesh(glowGeo, mat);
+    q.position.set(gx, gy, gz);
+    q.rotation.y = gx > 0 ? Math.PI / 2 : -Math.PI / 2;
+    q.scale.set(sc, sc, 1);
+    q.visible = false;
+    body.add(q);
+    return q;
+  }
+  var head1 = glowQuad(headGlowM, glX, glY, glZ, 0.17), head2 = glowQuad(headGlowM, glX, glY, -glZ, 0.17);
+  var tail1 = glowQuad(tailM, -glX, glY, glZ, 0.15), tail2 = glowQuad(tailM, -glX, glY, -glZ, 0.15);
   g.add(blobShadow(2.4, 1.15, 0.1)); scene.add(g);
-  return { group: g, body: body, wheels: wheels, pivots: pivots, beam: beam };
+  return { group: g, body: body, wheels: wheels, pivots: pivots, beam: beam, head1: head1, head2: head2, tail1: tail1, tail2: tail2, tailM: tailM, tailS: 0.15, vname: typeof MESHY_VEHS !== 'undefined' && MESHY_VEHS.length ? e.n : 'PROC' };
 }
 function staticCar(x, z, ry) { var c = makeCar(); c.group.position.set(x, 0, z); c.group.rotation.y = ry || 0; }
 // suspension spring + accel pitch + steer roll + front-wheel steering (visual only)
@@ -1090,6 +1151,25 @@ function updateCarFeel(c, dt, spd, accel, steer) {
   c.steerA += (target - c.steerA) * Math.min(1, 10 * dt);
   cc.pivots[0].rotation.y = c.steerA;
   cc.pivots[1].rotation.y = c.steerA;
+}
+// light glows: headlights/taillights follow the street lights; taillights also
+// flare bright any time the car is braking (short hold so they don't flicker)
+function updateCarLights(c, dt, braking) {
+  var cc = c.car;
+  if (!cc.head1) return;
+  if (braking) c.brkT = 0.14; else if (c.brkT > 0) c.brkT -= dt;
+  var brk = c.brkT > 0 && !c.exploded;
+  var on = lampsOn && !c.exploded;
+  if (cc.head1.visible !== on) { cc.head1.visible = on; cc.head2.visible = on; }
+  var tv = on || brk;
+  if (cc.tail1.visible !== tv) { cc.tail1.visible = tv; cc.tail2.visible = tv; }
+  if (cc.brkOn !== brk) {
+    cc.brkOn = brk;
+    var ts = brk ? cc.tailS * 2 : cc.tailS;
+    cc.tail1.scale.set(ts, ts, 1); cc.tail2.scale.set(ts, ts, 1);
+    cc.tailM.opacity = brk ? 1 : 0.85;
+    cc.tailM.color.setHex(brk ? 0xff3020 : 0xd0261c);
+  }
 }
 
 // ---------------- lake (transparent, swimmable, with fountain) ----------------
@@ -2390,7 +2470,9 @@ function copPickTarget(c) {
     if (d2 < bd) { bd = d2; best = { x: x, z: z, y: y, id: id, d: Math.sqrt(d2) }; }
   }
   if (!state.dead && !inside) cand(player.x, player.z, player.y, state.wanted, null);
-  for (var id in net.remotes) { var r = net.remotes[id]; if (!r.dead) cand(r.x, r.z, r.y || EYE, r.w || 0, id); }
+  // remotes below y -30 are in the gas-station interior (its room sits under
+  // the map) — street cops can't see them and must not shoot the pavement
+  for (var id in net.remotes) { var r = net.remotes[id]; if (!r.dead && !(r.y < -30)) cand(r.x, r.z, r.y || EYE, r.w || 0, id); }
   return best;
 }
 // point the gun arm at the target — runs AFTER animPerson each frame (same
@@ -2422,7 +2504,7 @@ function copAimArm(c, m, tgt) {
     L.armR.updateMatrixWorld(true);                        // re-derive hand/gun matrices after the swing
     gun.getWorldPosition(copAimV1);
     copAimV3.set(tgt.x, (tgt.y || EYE) - 0.15, tgt.z);
-    copAimM.lookAt(copAimV1, copAimV3, Y_UP);              // basis with -Z on the target
+    copAimM.lookAt(copAimV1, copAimV3, Y_UP);              // camera-style basis: local -Z on the target
     copAimDQ.setFromRotationMatrix(copAimM);
     hand.getWorldQuaternion(copAimPQ);
     gun.quaternion.copy(copAimPQ.invert()).multiply(copAimDQ);
@@ -2622,6 +2704,7 @@ function updateCars(dt) {
         c.pos = c.dir === 1 ? -EDGE + 4 : EDGE - 4;
         c.lane = c.lane0; c.dmgT = 0; c.berserk = false;
         c.stolen = false; c.jacked = false; c.jackCD = 0; c.playerDriven = false;
+        c.drivenBy = null;   // stale ids here made respawned traffic read as player-driven
         c.burning = false; c.carHP = undefined;
         c.speed = 8 + Math.random() * 6;
       }
@@ -2711,7 +2794,10 @@ function updateCars(dt) {
         for (var j = 0; j < cars.length; j++) {
           if (j === i || cars[j].exploded) continue;
           var om = cars[j].car.group.position;
-          if (Math.abs(om.x - ex) < 4 && Math.abs(om.z - ez) < 4) { explodeCar(cars[j]); explodeCar(c); break; }
+          if (Math.abs(om.x - ex) < 4 && Math.abs(om.z - ez) < 4) {
+            if (!cars[j].stolen && !cars[j].drivenBy) explodeCar(cars[j]);   // a driven car survives; the berserk one still goes
+            explodeCar(c); break;
+          }
         }
       }
       if (!c.exploded) { c.boomTimer -= dt; if (c.boomTimer <= 0) explodeCar(c); }
@@ -2820,6 +2906,10 @@ function updateDriving(dt) {
   c.pspeed += accel * dt;
   if (!accel) c.pspeed *= Math.max(0, 1 - 1.4 * dt);
   c.pspeed = Math.max(-9, Math.min(26, c.pspeed));
+  // brake-light input: S/Space against forward motion, or a hard one-frame
+  // speed drop (wall/car impact) — consumed by updateCarLights via updateWorldFx
+  c.brakeIn = ((keys['KeyS'] || keys['Space']) && c.pspeed > 0.5) || (c._lps !== undefined && c._lps - c.pspeed > 5);
+  c._lps = c.pspeed;
   var steer = (keys['KeyA'] ? 1 : 0) - (keys['KeyD'] ? 1 : 0);
   if (steer) h += steer * 2.1 * dt * Math.max(-1, Math.min(1, c.pspeed / 8));
   var fx = Math.cos(h), fz = -Math.sin(h);
@@ -3041,7 +3131,9 @@ function killNpcRagdoll(n, dx, dz, power) {
 
 var booms = [];
 var boomGeo = new THREE.SphereGeometry(1, 10, 8);
-function boomAt(x, z, fromNet) {
+function boomAt(x, z, fromNet, creditConn) {
+  // creditConn: when a CLIENT's rocket detonates, the host passes their conn
+  // so blast kills answer with 'kill' credit like dmgNpc/dmgCop do
   if (!fromNet && typeof netBroadcast === 'function' && net.conns.length) netBroadcast({ t: 'boom', x: x, z: z });
   var mesh = new THREE.Mesh(boomGeo, new THREE.MeshBasicMaterial({ color: 0xff8828, transparent: true, opacity: 0.95 }));
   mesh.position.set(x, 1.5, z); scene.add(mesh);
@@ -3053,12 +3145,18 @@ function boomAt(x, z, fromNet) {
     for (i = 0; i < npcs.length; i++) {
       var n = npcs[i]; if (n.state === 'down' || n.state === 'ragdoll') continue;
       var dx = n.x - x, dz = n.z - z, d = Math.sqrt(dx * dx + dz * dz);
-      if (d < 9) killNpcRagdoll(n, dx / (d || 1), dz / (d || 1), 13);
+      if (d < 9) {
+        killNpcRagdoll(n, dx / (d || 1), dz / (d || 1), 13);
+        if (creditConn) { try { creditConn.send({ t: 'kill', kind: 'npc' }); } catch (e) { } }
+      }
     }
     for (i = 0; i < cops.length; i++) {
       var cp = cops[i]; if (cp.state === 'down') continue;
       var cdx = cp.x - x, cdz = cp.z - z, cd = Math.sqrt(cdx * cdx + cdz * cdz);
-      if (cd < 9) damageCop(cp, 999, cdx / (cd || 1), cdz / (cd || 1));
+      if (cd < 9) {
+        damageCop(cp, 999, cdx / (cd || 1), cdz / (cd || 1), !!creditConn);   // silent when it's a client's kill — the stars are theirs
+        if (creditConn && cp.state === 'down') { try { creditConn.send({ t: 'kill', kind: 'cop' }); } catch (e) { } }
+      }
     }
   }
   var pdx = player.x - x, pdz = player.z - z, pd = Math.sqrt(pdx * pdx + pdz * pdz);
@@ -3066,9 +3164,12 @@ function boomAt(x, z, fromNet) {
   // chain: nearby cars go up too
   if (!isClient()) for (i = 0; i < cars.length; i++) {
     var cx = cars[i];
-    if (cx.exploded) continue;
+    if (cx.exploded || cx.stolen || cx.drivenBy) continue;   // player rides never chain silently — their driver can't be told
     var cm = cx.car.group.position;
-    if (Math.abs(cm.x - x) < 6 && Math.abs(cm.z - z) < 6) explodeCar(cx);
+    if (Math.abs(cm.x - x) < 6 && Math.abs(cm.z - z) < 6) {
+      explodeCar(cx);
+      if (creditConn) { try { creditConn.send({ t: 'kill', kind: 'car' }); } catch (e) { } }
+    }
   }
 }
 function updateBooms(dt) {
@@ -3433,7 +3534,7 @@ function updateAlien(dt) {
   var td = (state.dead || inside) ? 1e9 : Math.sqrt(tdx0 * tdx0 + tdz0 * tdz0);
   for (var rid in net.remotes) {
     var rr = net.remotes[rid];
-    if (rr.dead) continue;
+    if (rr.dead || rr.y < -30) continue;   // dead or hiding in the interior under the map
     var qx = rr.x - alien.x, qz = rr.z - alien.z, qd = Math.sqrt(qx * qx + qz * qz);
     if (qd < td) { td = qd; tx = rr.x; tz = rr.z; ty = rr.y || EYE; tid = rid; }
   }
@@ -4509,7 +4610,11 @@ function hurtPlayer(d) {
   if (state.hp <= 0) {
     state.hp = 0; state.dead = true;
     if (state.wanted >= 2) playVoice('cop_down', 0.45, 10);
-    if (driving) { driving.pspeed = 0; driving = null; document.getElementById('crosshair').style.display = ''; vm.visible = true; }
+    if (driving) {
+      // tell the host the car is free, or it keeps chasing our respawned ghost
+      if (isClient()) { var dcp = driving.car.group; netToHost({ t: 'park', i: cars.indexOf(driving), x: dcp.position.x, z: dcp.position.z, ry: dcp.rotation.y }); }
+      driving.pspeed = 0; driving = null; document.getElementById('crosshair').style.display = ''; vm.visible = true;
+    }
     if (inside) exitStore(true);   // clean up interior cops + lockout, respawn is outside anyway
     var lost = Math.floor(state.money * 0.25); state.money -= lost;
     document.getElementById('deadInfo').textContent = lost > 0 ? 'You dropped $' + lost + ' on the pavement.' : 'At least you were already broke.';
@@ -4661,6 +4766,15 @@ function updateWorldFx(dt) {
     var hx = c._bx === undefined ? m.x : c._bx, hz = c._bz === undefined ? m.z : c._bz;
     var mvx = m.x - hx, mvz = m.z - hz;
     c._bx = m.x; c._bz = m.z;
+    // brake detection: player car by input flag (updateDriving), everything else
+    // (traffic/berserk/shoved + mirrored client cars) by smoothed position-delta decel
+    var spdNow = Math.sqrt(mvx * mvx + mvz * mvz) / Math.max(dt, 1e-4);
+    if (spdNow > 60) spdNow = c._sspd || 0;   // lane wrap / respawn teleport: ignore
+    c._sspd = c._sspd === undefined ? spdNow : c._sspd + (spdNow - c._sspd) * Math.min(1, dt * 8);
+    var dec = ((c._pss === undefined ? c._sspd : c._pss) - c._sspd) / Math.max(dt, 1e-4);
+    c._pss = c._sspd;
+    var braking = c === driving ? !!c.brakeIn : (c.shoveT > 0 || (dec > 4 && c._sspd > 0.6));
+    updateCarLights(c, dt, braking);
     if (c.exploded) continue;
     var v2 = (mvx * mvx + mvz * mvz) / Math.max(dt * dt, 1e-6);
     if (v2 < 9) continue;                       // too slow to snap anything
@@ -5214,7 +5328,7 @@ function handleNet(m, conn) {
     }
     else if (net.mode === 'host') { for (var i = 0; i < net.conns.length; i++) if (net.conns[i].peer === m.to) { try { net.conns[i].send(m); } catch (e) { } } }
   } else if (m.t === 'boom') {
-    boomAt(m.x, m.z, true);
+    boomAt(m.x, m.z, true, net.mode === 'host' ? conn : null);   // host credits the shooter's blast kills
     netRelay(m, conn);
   } else if (m.t === 'world') {
     // unordered channel: never apply a snapshot older than the current one
@@ -5539,12 +5653,13 @@ function applyWorldSnap(dt) {
   // snapshot cop entries are just [x,z,ry,down] — no engage state — so mirror
   // cops approximate "gun out" with the LOCAL player's wanted level instead
   var wantGunM = state.wanted >= 1 ? (state.wanted >= 4 ? 'smg' : 'pistol') : null;
-  while (copsM.length < s.cops.length) { var cm2 = buildCop(); cm2.userData.copM = copsM.length; attachHeldGun(cm2, wantGunM); scene.add(cm2); copsM.push({ mesh: cm2, x: 0, z: 0, phase: Math.random() * 9 }); }
+  while (copsM.length < s.cops.length) { var cm2 = buildCop(); cm2.userData.copM = copsM.length; attachHeldGun(cm2, wantGunM); scene.add(cm2); copsM.push({ mesh: cm2, x: 0, z: 0, phase: Math.random() * 9, hit: false }); }
   while (copsM.length > s.cops.length) { var oldc = copsM.pop(); scene.remove(oldc.mesh); }
   for (i = 0; i < copsM.length; i++) {
     var cp = copsM[i], cs = s.cops[i];
     if (!cp.down && cp.mesh.userData.handR && (cp.mesh.userData.heldKind || null) !== wantGunM) attachHeldGun(cp.mesh, wantGunM);
     cp.x += (cs[0] / 10 - cp.x) * k; cp.z += (cs[1] / 10 - cp.z) * k;
+    if (cs[3] === 2) cp.hit = false;   // kill confirmed: free the run-over latch (slots get reused)
     cp.down = cs[3] === 2;
     cp.mesh.position.set(cp.x, 0, cp.z);
     cp.mesh.rotation.y = cs[2] / 100;
