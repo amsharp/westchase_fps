@@ -851,10 +851,20 @@ function palm(x, z) {
 
 function forestPatch(x0, x1, z0, z1, count) {
   mapForest.push({ x0: x0, x1: x1, z0: z0, z1: z1 });
-  addCollider((x0 + x1) / 2, (z0 + z1) / 2, x1 - x0, z1 - z0);
+  // Collider inset 2.5u per side: the edge tree line straddles the rect
+  // boundary, so the player stops among visible trunks instead of on an
+  // invisible plane out in the grass — and survey rects that graze a road or
+  // sidewalk corridor no longer block the pavement itself.
+  var inset = Math.min(2.5, (x1 - x0) / 4, (z1 - z0) / 4);
+  addCollider((x0 + x1) / 2, (z0 + z1) / 2, x1 - x0 - inset * 2, z1 - z0 - inset * 2);
   var area = (x1 - x0) * (z1 - z0);
   if (count === undefined) count = Math.min(60, Math.round(area / 260));
-  for (var i = 0; i < count; i++) oak(x0 + Math.random() * (x1 - x0), z0 + Math.random() * (z1 - z0));
+  for (var i = 0; i < count; i++) {
+    var fx = x0 + Math.random() * (x1 - x0), fz = z0 + Math.random() * (z1 - z0);
+    // survey houses may nose into a forest-rect edge — keep trees out of them
+    if (houseBlocksSpot(fx, fz)) continue;
+    oak(fx, fz);
+  }
 }
 
 // ---------------- perimeter forest + roadblocks ----------------
@@ -1382,7 +1392,11 @@ subdivision(-250, 130, 4, 2, 20, 16);
 forestPatch(96, 200, -232, -120);
 forestPatch(120, 210, 74, 158);
 forestPatch(150, 300, -300, -230);
-forestPatch(-330, -300, -120, 120);
+// split around the main road: the old single rect (-330,-300,-120,120)
+// straddled z=0 and stood as an invisible wall ACROSS Race Track Rd (which now
+// continues west to the 600 perimeter)
+forestPatch(-330, -300, -120, -22);
+forestPatch(-330, -300, 22, 120);
 
 // ---------------- map expansion: outer ring (survey-derived) ----------------
 // Generated offline from the OSM/satellite survey (buildings_merged.json) by
@@ -1446,7 +1460,7 @@ var EXP_ROADS = [
   [2, 552, 158, 539, 131, 539, 116]
 ];
 var EXP_PONDS = [[401, -195, 50, 44], [127, 304, 12, 62], [-78, 313, 20, 26], [-319, 275, 23, 18], [-401, 386, 20, 18], [115, 58, 26, 11], [-190, 116, 15, 17], [163, 181, 17, 12], [-253, 376, 14, 12], [315, 484, 8, 16], [239, 280, 9, 9], [304, 66, 8, 13], [539, 279, 8, 10]];
-var EXP_FOREST = [[-564, -360, -576, -396, 16], [60, 324, -576, -396, 16], [-324, -60, -564, -396, 16], [384, 564, -564, -384, 16], [-288, -264, -324, -216, 4], [-264, -228, -312, -252, 3], [-228, -204, -300, -252, 2], [336, 420, -300, -252, 6], [-576, -468, -264, -60, 16], [-264, -240, -252, -216, 2], [12, 36, -108, -60, 2], [216, 300, -108, -48, 7], [-360, -336, -72, -24, 2], [-288, -264, -60, -12, 2], [84, 120, -60, -24, 2], [-264, -168, -48, -24, 3], [-300, -276, 12, 36, 2], [228, 300, 12, 36, 3], [-384, -336, 24, 48, 2], [240, 288, 48, 72, 2], [-576, -456, 60, 264, 16], [12, 36, 60, 84, 2], [-288, -228, 72, 108, 3], [252, 288, 72, 120, 3], [228, 252, 84, 228, 5], [-456, -396, 96, 168, 7], [252, 276, 120, 240, 4], [-264, -228, 156, 192, 2], [-456, -408, 168, 192, 2], [-264, -240, 192, 216, 2], [-204, -168, 192, 240, 3], [-456, -432, 204, 228, 2], [372, 420, 204, 252, 3], [-444, -420, 228, 252, 2], [-264, -144, 264, 360, 16], [60, 96, 264, 348, 4], [-144, -120, 276, 564, 10], [372, 420, 276, 324, 3], [336, 372, 288, 324, 2], [-444, -360, 300, 348, 6], [228, 252, 312, 348, 2], [-348, -312, 324, 408, 4], [-564, -456, 336, 564, 16], [564, 588, 336, 432, 3], [-312, -288, 348, 408, 2], [-108, -72, 348, 384, 2], [-228, -144, 360, 564, 16], [0, 24, 372, 456, 3], [156, 180, 372, 396, 2], [-108, -84, 384, 564, 7], [24, 48, 384, 456, 3], [-84, -36, 396, 564, 12], [48, 72, 396, 456, 2], [-264, -228, 408, 564, 8], [72, 96, 408, 456, 2], [96, 132, 420, 456, 2], [132, 168, 432, 456, 2], [-444, -300, 444, 564, 16], [300, 336, 504, 528, 2]];
+var EXP_FOREST = [[-564, -360, -576, -396, 16], [60, 324, -576, -396, 16], [-324, -60, -564, -396, 16], [384, 564, -564, -384, 16], [-288, -264, -324, -216, 4], [-264, -228, -312, -252, 3], [-228, -204, -300, -252, 2], [336, 420, -300, -252, 6], [-576, -468, -264, -60, 16], [-264, -240, -252, -216, 2], [17, 36, -108, -60, 2], [216, 300, -108, -48, 7], [-360, -336, -72, -24, 2], [-288, -264, -60, -20, 2], [84, 120, -60, -24, 2], [-264, -168, -48, -24, 3], [-300, -276, 20, 36, 2], [228, 300, 20, 36, 3], [-384, -336, 24, 48, 2], [240, 288, 48, 72, 2], [-576, -456, 60, 264, 16], [17, 36, 60, 84, 2], [-288, -228, 72, 108, 3], [252, 288, 72, 120, 3], [228, 252, 84, 228, 5], [-456, -396, 96, 168, 7], [252, 276, 120, 240, 4], [-264, -228, 156, 192, 2], [-456, -408, 168, 192, 2], [-264, -240, 192, 216, 2], [-204, -168, 192, 240, 3], [-456, -432, 204, 228, 2], [372, 420, 204, 252, 3], [-444, -420, 228, 252, 2], [-264, -144, 264, 360, 16], [60, 96, 264, 348, 4], [-144, -120, 276, 564, 10], [372, 420, 276, 324, 3], [336, 372, 288, 324, 2], [-444, -360, 300, 348, 6], [228, 252, 312, 348, 2], [-348, -312, 324, 408, 4], [-564, -456, 336, 564, 16], [564, 588, 336, 432, 3], [-312, -288, 348, 408, 2], [-108, -72, 348, 384, 2], [-228, -144, 360, 564, 16], [0, 24, 372, 456, 3], [156, 180, 372, 396, 2], [-108, -84, 384, 564, 7], [24, 48, 384, 456, 3], [-84, -36, 396, 564, 12], [48, 72, 396, 456, 2], [-264, -228, 408, 564, 8], [72, 96, 408, 456, 2], [96, 132, 420, 456, 2], [132, 168, 432, 456, 2], [-444, -300, 444, 564, 16], [300, 336, 504, 528, 2]];
 
 // minimap registers for the expansion (drawMinimap reads these)
 var mapRoads = [];   // {x1,z1,x2,z2,hw,cls}
@@ -1552,8 +1566,12 @@ var expFillPts = [];   // [x,z] of every fill tree (debug/audit)
   var props = [getPackProp('oak1'), getPackProp('oak2'), getPackProp('oak3')];
   if (!props[0] || !props[1] || !props[2]) return;   // prop pack absent -> keep old sparse look
   var m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), pv = new THREE.Vector3(), sv = new THREE.Vector3();
-  for (var i = 0; i < EXP_FOREST.length; i++) {
-    var f = EXP_FOREST[i], x0 = f[0], x1 = f[1], z0 = f[2], z1 = f[3];
+  // include the core patches too: their random count-based planting leaves
+  // 15-25u bare gaps along their collider edges (same invisible-wall feel)
+  var fillRects = EXP_FOREST.concat([[-330, -300, -120, -22], [-330, -300, 22, 120],
+    [96, 200, -232, -120], [120, 210, 74, 158], [150, 300, -300, -230]]);
+  for (var i = 0; i < fillRects.length; i++) {
+    var f = fillRects[i], x0 = f[0], x1 = f[1], z0 = f[2], z1 = f[3];
     var w = x1 - x0, d = z1 - z0, pts = [], j;
     // tree line along each collider edge (the wall the player actually hits)
     var nx = Math.max(2, Math.round(w / 13)), nz = Math.max(2, Math.round(d / 13));
@@ -1637,7 +1655,565 @@ function expClear(x, z, m) {
 for (var oi = 0; oi < 40; oi++) {
   var ox = -CORE + 40 + Math.random() * (CORE * 2 - 80), oz = -CORE + 40 + Math.random() * (CORE * 2 - 80);
   // keep oaks off the roads/core (and off the expansion roads/ponds)
-  if (Math.abs(oz) > MAIN_HW + 6 && Math.abs(ox) > CROSS_HW + 6 && (Math.abs(ox) > 180 || Math.abs(oz) > 170) && expClear(ox, oz, 4)) oak(ox, oz);
+  if (Math.abs(oz) > MAIN_HW + 6 && Math.abs(ox) > CROSS_HW + 6 && (Math.abs(ox) > 180 || Math.abs(oz) > 170) && expClear(ox, oz, 4) && !houseBlocksSpot(ox, oz)) oak(ox, oz);
+}
+
+// ---------------- surveyed neighborhoods: AI house clusters (houses.js) ----------------
+// ~600 survey buildings (tools/housegen/plan.js) stamped into the expansion
+// ring. PERFORMANCE CONTRACT: instances are NOT scene Groups — each cluster is
+// built ONCE as a tagged triangle template (adapted from
+// tools/housegen/runtime_buildhouse.js), then every instance is baked into ONE
+// merged BufferGeometry per (cluster, variant) that samples a single 512px
+// canvas ATLAS (the 9 housegen tiles + solid swatches, variant recolor baked
+// in) — ~1 draw call per cluster-variant combo. Bullets/LOS hit invisible
+// per-instance proxy boxes in solidMeshes (merged geometry is never raycast).
+var HOUSE_ATLAS_S = 512;
+// atlas rects in canvas px (y down). Pre-tiled regions (gable/roofbig) get
+// their repeat grid drawn in; plain rects are sampled with a small inset.
+var HOUSE_RECTS = {
+  front: [4, 4, 120, 80], side: [132, 4, 120, 80], back: [260, 4, 120, 80],
+  garage: [388, 4, 116, 58], trim: [388, 70, 56, 56], conc: [452, 70, 56, 56],
+  door: [4, 92, 60, 120], glass: [72, 92, 24, 24], plain: [72, 124, 24, 24],
+  ac: [72, 156, 24, 24], gable: [104, 92, 152, 152], roofone: [264, 92, 120, 120],
+  roofbig: [4, 252, 504, 256]
+};
+// chroma-gated hue/sat/light shift (verified recolor from tools/housegen)
+function houseHue2(p, q, t) {
+  t = (t + 1) % 1;
+  if (t < 1 / 6) return p + (q - p) * 6 * t;
+  if (t < 1 / 2) return q;
+  if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+  return p;
+}
+function houseShiftPixels(px, hueDeg, satMul, lightMul, baseHex) {
+  var bn = parseInt((baseHex || '#c8b89a').slice(1), 16);
+  var br = (bn >> 16 & 255) / 255, bg = (bn >> 8 & 255) / 255, bb = (bn & 255) / 255;
+  var bav = (br + bg + bb) / 3, bcr = br - bav, bcg = bg - bav, bcb = bb - bav;
+  for (var i = 0; i < px.length; i += 4) {
+    var r = px[i] / 255, g = px[i + 1] / 255, b = px[i + 2] / 255;
+    var av = (r + g + b) / 3;
+    var dr = (r - av) - bcr, dg = (g - av) - bcg, db = (b - av) - bcb;
+    var cd = Math.sqrt(dr * dr + dg * dg + db * db);
+    var f = Math.min(1, Math.max(0, (0.09 - cd) / 0.045));
+    if (f <= 0) continue;
+    var mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2;
+    var h = 0, s = 0, d = mx - mn;
+    if (d > 0.0001) {
+      s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+      if (mx === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+      else if (mx === g) h = ((b - r) / d + 2) / 6;
+      else h = ((r - g) / d + 4) / 6;
+    }
+    var h2 = (h + (hueDeg / 360) * f + 1) % 1;
+    var s2 = Math.min(1, Math.max(0, s * (1 + (satMul - 1) * f)));
+    var l2 = Math.min(1, Math.max(0, l * (1 + (lightMul - 1) * f)));
+    var q = l2 < 0.5 ? l2 * (1 + s2) : l2 + s2 - l2 * s2, p = 2 * l2 - q;
+    px[i] = Math.round(houseHue2(p, q, h2 + 1 / 3) * 255);
+    px[i + 1] = Math.round(houseHue2(p, q, h2) * 255);
+    px[i + 2] = Math.round(houseHue2(p, q, h2 - 1 / 3) * 255);
+  }
+}
+function houseShiftHex(hex, shift) {
+  if (!shift) return hex;
+  var n = parseInt(hex.slice(1), 16);
+  var px = [n >> 16 & 255, n >> 8 & 255, n & 255, 255];
+  houseShiftPixels(px, shift[0], shift[1], shift[2], hex);
+  return '#' + ((1 << 24) + (px[0] << 16) + (px[1] << 8) + px[2]).toString(16).slice(1);
+}
+// per-cluster repeat grids for the pre-tiled atlas regions
+function houseRepeats(spec) {
+  var w = spec.dims[0], d = spec.dims[1], roofH = spec.roofH || 0;
+  var rx = spec.roofType === 'flat' ? Math.min(12, Math.max(1, Math.round(w / 8)))
+    : Math.min(12, Math.max(2, w / 5));
+  var ry = Math.min(6, Math.max(1, Math.round(d / 8)));
+  var gRep = d > 20 ? 6.4 : 3.2;
+  var gN = Math.max(1, Math.min(10, Math.ceil(Math.max(d / gRep, (roofH || 1) / gRep))));
+  return { rx: rx, ry: ry, cols: Math.ceil(rx), rows: Math.ceil(ry), gRep: gRep, gN: gN };
+}
+// ---- atlas canvases: one per (cluster, variant), tiles drawn as they decode
+var houseTileImgs = {};   // ci -> {name: {img, ok}}
+var houseAtlases = {};    // 'ci|vi' -> {canvas, tex}
+function houseDrawAtlas(ci) {
+  var cl = HOUSE_CLUSTERS[ci], tiles = houseTileImgs[ci], spec = cl.spec;
+  var rep = houseRepeats(spec);
+  for (var vi = 0; vi < cl.variants.length; vi++) {
+    var at = houseAtlases[ci + '|' + vi];
+    if (!at) continue;
+    var g = at.canvas.getContext('2d');
+    var shift = cl.variants[vi].shift || 0;
+    // solid swatches
+    function fill(r, col) { g.fillStyle = col; g.fillRect(r[0] - 2, r[1] - 2, r[2] + 4, r[3] + 4); }
+    fill(HOUSE_RECTS.plain, houseShiftHex(spec.wallColor || '#c8b89a', shift));
+    fill(HOUSE_RECTS.glass, spec.glassColor || '#2a3742');
+    fill(HOUSE_RECTS.ac, '#9aa0a2');
+    if (!(tiles.trim && tiles.trim.ok)) fill(HOUSE_RECTS.trim, spec.trimColor || '#ece8dd');
+    function draw(name, r) {
+      var t = tiles[name];
+      if (!t || !t.ok) return;
+      // gutter first (edge-ish content), then the exact rect
+      g.drawImage(t.img, r[0] - 4, r[1] - 4, r[2] + 8, r[3] + 8);
+      g.drawImage(t.img, r[0], r[1], r[2], r[3]);
+    }
+    // never-shifted tiles
+    draw('trim', HOUSE_RECTS.trim); draw('concrete', HOUSE_RECTS.conc);
+    draw('door', HOUSE_RECTS.door); draw('garage', HOUSE_RECTS.garage);
+    draw('roof', HOUSE_RECTS.roofone);
+    // pre-tiled regions
+    var rb = HOUSE_RECTS.roofbig, gb = HOUSE_RECTS.gable;
+    if (tiles.roof && tiles.roof.ok) {
+      var tw = rb[2] / rep.cols, th = rb[3] / rep.rows;
+      for (var i = 0; i < rep.cols; i++) for (var j = 0; j < rep.rows; j++) g.drawImage(tiles.roof.img, rb[0] + i * tw, rb[1] + j * th, tw + 0.5, th + 0.5);
+    }
+    var gimg = tiles.gable && tiles.gable.ok ? tiles.gable.img : null;
+    if (gimg) {
+      var gt = gb[2] / rep.gN;
+      for (var gi = 0; gi < rep.gN; gi++) for (var gj = 0; gj < rep.gN; gj++) g.drawImage(gimg, gb[0] + gi * gt, gb[1] + gj * gt, gt + 0.5, gt + 0.5);
+    } else {
+      fill(HOUSE_RECTS.gable, houseShiftHex(spec.wallColor || '#c8b89a', shift));
+    }
+    // wall tiles: variant recolor baked in
+    ['front', 'side', 'back'].forEach(function (name) {
+      var t = tiles[name === 'back' ? (tiles.back && tiles.back.ok ? 'back' : 'side') : name];
+      var r = HOUSE_RECTS[name];
+      if (!t || !t.ok) { fill(r, houseShiftHex(spec.wallColor || '#c8b89a', shift)); return; }
+      if (!shift) { g.drawImage(t.img, r[0] - 4, r[1] - 4, r[2] + 8, r[3] + 8); g.drawImage(t.img, r[0], r[1], r[2], r[3]); return; }
+      var tc = document.createElement('canvas');
+      tc.width = r[2] + 8; tc.height = r[3] + 8;
+      var tg = tc.getContext('2d');
+      tg.drawImage(t.img, 0, 0, tc.width, tc.height);
+      var id = tg.getImageData(0, 0, tc.width, tc.height);
+      houseShiftPixels(id.data, shift[0], shift[1], shift[2], spec.wallColor);
+      tg.putImageData(id, 0, 0);
+      g.drawImage(tc, r[0] - 4, r[1] - 4);
+    });
+    at.tex.needsUpdate = true;
+  }
+}
+function houseAtlasMat(ci, vi) {
+  var key = ci + '|' + vi;
+  if (houseAtlases[key]) return houseAtlases[key].mat;
+  var cl = HOUSE_CLUSTERS[ci];
+  var cv = document.createElement('canvas');
+  cv.width = cv.height = HOUSE_ATLAS_S;
+  var g = cv.getContext('2d');
+  g.fillStyle = cl.spec.wallColor || '#c8b89a';
+  g.fillRect(0, 0, HOUSE_ATLAS_S, HOUSE_ATLAS_S);
+  var t = new THREE.CanvasTexture(cv);
+  t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearMipmapLinearFilter;
+  if (typeof MAXANISO !== 'undefined') t.anisotropy = MAXANISO;
+  var mat = lamb({ map: t });
+  houseAtlases[key] = { canvas: cv, tex: t, mat: mat };
+  // kick off (or reuse) this cluster's tile decode
+  if (!houseTileImgs[ci]) {
+    var tiles = {};
+    houseTileImgs[ci] = tiles;
+    var names = ['front', 'side', 'back', 'roof', 'garage', 'door', 'trim', 'gable', 'concrete'];
+    names.forEach(function (name) {
+      var url = cl.tex[name];
+      if (!url) return;
+      var im = new Image();
+      tiles[name] = { img: im, ok: false };
+      im.onload = function () { tiles[name].ok = true; houseDrawAtlas(ci); };
+      im.src = url;
+    });
+  } else {
+    houseDrawAtlas(ci);
+  }
+  return mat;
+}
+// ---- tagged template: buildHouse geometry with {t:...} tag stand-ins for
+// materials (never rendered; the extractor bakes tags into atlas UVs)
+function houseBuildTagged(cl) {
+  var spec = cl.spec;
+  var w = spec.dims[0], d = spec.dims[1], h = spec.dims[2];
+  var roofH = spec.roofH || 2.6, ovh = 1.2;
+  var feat = spec.feat || {};
+  var rep = houseRepeats(spec);
+  var g = new THREE.Group();
+  var frontM = { t: 'front' }, sideM = { t: 'side' }, backM = { t: 'back' };
+  var plainM = { t: 'plain' }, trimM = { t: 'trim' }, gableM = { t: 'gable', s: 1 / rep.gN, gRep: rep.gRep };
+  var concM = { t: 'conc' }, glassM = { t: 'glass' }, doorM = { t: 'door' }, garM = { t: 'garage' };
+  var roofM = { t: 'roofbig', sx: rep.rx / rep.cols, sy: rep.ry / rep.rows };
+  var miniRoofM = { t: 'roofone' }, acM = { t: 'ac' };
+  function box(bw, bh, bd, mat) { return new THREE.Mesh(new THREE.BoxGeometry(bw, bh, bd), mat); }
+  if (spec.canopy) {
+    // fuel canopy: slab on columns (feat.boxes carries the columns/fascia),
+    // no solid body — cars/players pass underneath
+    var slab = new THREE.Mesh(new THREE.BoxGeometry(w, 0.5, d), [trimM, trimM, roofM, trimM, trimM, trimM]);
+    slab.position.y = h + 0.3; g.add(slab);
+  } else {
+    var topM = spec.roofType === 'flat' ? roofM : plainM;
+    var body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [sideM, sideM, topM, plainM, frontM, backM]);
+    body.position.y = h / 2 + 0.05;
+    g.add(body);
+  }
+  // ---- roof
+  if (spec.canopy) {
+    // no main roof beyond the slab
+  } else if (spec.roofType === 'hip') {
+    var hipG = new THREE.ConeGeometry(Math.SQRT1_2, 1, 4);
+    hipG.rotateY(Math.PI / 4);
+    var roof = new THREE.Mesh(hipG, roofM);
+    roof.scale.set(w + ovh, roofH, d + ovh);
+    roof.position.y = h + 0.05 + roofH / 2;
+    g.add(roof);
+  } else if (spec.roofType === 'gable') {
+    var hd = (d + ovh) / 2, slant = Math.sqrt(hd * hd + roofH * roofH), ang = Math.atan2(roofH, hd);
+    var s1 = box(w + ovh, 0.22, slant + 0.3, roofM);
+    s1.position.set(0, h + 0.05 + roofH / 2, -hd / 2); s1.rotation.x = -ang; g.add(s1);
+    var s2 = box(w + ovh, 0.22, slant + 0.3, roofM);
+    s2.position.set(0, h + 0.05 + roofH / 2, hd / 2); s2.rotation.x = ang; g.add(s2);
+    var tri = new THREE.Shape();
+    tri.moveTo(-d / 2, 0); tri.lineTo(d / 2, 0); tri.lineTo(0, roofH); tri.lineTo(-d / 2, 0);
+    var triG = new THREE.ShapeGeometry(tri);
+    var uv = triG.attributes.uv;
+    for (var ui = 0; ui < uv.count; ui++) uv.setXY(ui, (uv.getX(ui) + d / 2) / rep.gRep, uv.getY(ui) / rep.gRep);
+    triG.rotateY(Math.PI / 2);
+    var e1 = new THREE.Mesh(triG, gableM); e1.position.set(w / 2 - 0.01, h + 0.05, 0); g.add(e1);
+    var e2 = new THREE.Mesh(triG, gableM); e2.rotation.y = Math.PI; e2.position.set(-w / 2 + 0.01, h + 0.05, 0); g.add(e2);
+  } else { // flat: parapet lip wears the roof tile on top (housegen fix)
+    var lip = new THREE.Mesh(new THREE.BoxGeometry(w + 0.5, 0.5, d + 0.5), [plainM, plainM, roofM, plainM, plainM, plainM]);
+    lip.position.y = h + 0.3; g.add(lip);
+  }
+  // ---- eave soffit
+  if (feat.soffit && spec.roofType !== 'flat') {
+    var sofW = w + ovh * 0.8, sofD = d + ovh * 0.8;
+    if (spec.roofType === 'gable') sofW = w + ovh * 0.35;
+    var sof = box(sofW, 0.16, sofD, trimM);
+    sof.position.y = h + 0.02;
+    g.add(sof);
+  }
+  // ---- windows
+  function windowUnit(ww, wh) {
+    var u = new THREE.Group();
+    var fr = box(ww + 0.26, wh + 0.26, 0.14, trimM); u.add(fr);
+    var gl = box(ww, wh, 0.2, glassM); gl.position.z = 0.02; u.add(gl);
+    return u;
+  }
+  function placeOnWall(obj, face, frac, y) {
+    if (face === 'f') { obj.position.set((frac - 0.5) * w, y, d / 2); }
+    else if (face === 'b') { obj.position.set((0.5 - frac) * w, y, -d / 2); obj.rotation.y = Math.PI; }
+    else if (face === 'r') { obj.position.set(w / 2, y, d / 2 - frac * d); obj.rotation.y = Math.PI / 2; }
+    else { obj.position.set(-w / 2, y, d / 2 - frac * d); obj.rotation.y = -Math.PI / 2; }
+    g.add(obj);
+  }
+  if (feat.win) {
+    for (var fk in feat.win) {
+      var list = feat.win[fk];
+      for (var wi = 0; wi < list.length; wi++) {
+        var wn = list[wi];
+        placeOnWall(windowUnit(wn[2], wn[3]), fk, wn[0], wn[1] + 0.05);
+      }
+    }
+  }
+  // ---- front door (+ porch / recess)
+  if (feat.door) {
+    var dw = feat.door.w || 1.1, dh = feat.door.h || 2.1, dx = (feat.door.x - 0.5) * w;
+    var sur = box(dw + 0.3, dh + 0.18, 0.1, trimM);
+    sur.position.set(dx, (dh + 0.18) / 2 + 0.05, d / 2);
+    g.add(sur);
+    var dbx = new THREE.Mesh(new THREE.BoxGeometry(dw, dh, 0.16), [trimM, trimM, trimM, trimM, doorM, trimM]);
+    dbx.position.set(dx, dh / 2 + 0.05, d / 2 + 0.02);
+    g.add(dbx);
+    var porch = feat.door.porch;
+    if (porch) {
+      var pd = porch.d || 1.6, pw = Math.max(dw + 1.5, porch.w || 0);
+      var stoop = box(pw, 0.22, pd, concM);
+      stoop.position.set(dx, 0.11, d / 2 + pd / 2); g.add(stoop);
+      var step = box(pw * 0.72, 0.11, 0.42, concM);
+      step.position.set(dx, 0.055, d / 2 + pd + 0.21); g.add(step);
+      var prRot = 0.24, prY = Math.min(h - 0.15, dh + 0.95);
+      var pr = new THREE.Mesh(new THREE.BoxGeometry(pw + 0.5, 0.2, pd + 0.55), [trimM, trimM, miniRoofM, trimM, trimM, trimM]);
+      pr.position.set(dx, prY, d / 2 + (pd + 0.2) / 2);
+      pr.rotation.x = prRot;
+      g.add(pr);
+      var np = porch.posts || 2;
+      var postH = prY - Math.sin(prRot) * (pd + 0.55) / 2 - 0.08 - 0.22;
+      for (var pi = 0; pi < np; pi++) {
+        var px = np === 1 ? dx : dx - pw / 2 + 0.22 + pi * (pw - 0.44) / (np - 1);
+        var post = box(0.18, postH, 0.18, trimM);
+        post.position.set(px, 0.22 + postH / 2, d / 2 + pd - 0.22);
+        g.add(post);
+      }
+    } else if (feat.door.recess) {
+      var p1 = box(0.3, dh + 0.2, 0.55, frontM);
+      p1.position.set(dx - dw / 2 - 0.3, (dh + 0.2) / 2 + 0.05, d / 2 + 0.18); g.add(p1);
+      var p2 = box(0.3, dh + 0.2, 0.55, frontM);
+      p2.position.set(dx + dw / 2 + 0.3, (dh + 0.2) / 2 + 0.05, d / 2 + 0.18); g.add(p2);
+      var hd2 = box(dw + 1.2, 0.35, 0.55, frontM);
+      hd2.position.set(dx, dh + 0.25, d / 2 + 0.18); g.add(hd2);
+      var stp = box(dw + 0.7, 0.14, 0.9, concM);
+      stp.position.set(dx, 0.07, d / 2 + 0.45); g.add(stp);
+    }
+  }
+  // ---- garage inset
+  if (feat.garage && cl.tex.garage) {
+    var gw = feat.garage.w || 4.8, gh = feat.garage.h || 2.3, gout = feat.garage.out || 0.4;
+    var gx = (feat.garage.x - 0.5) * w;
+    var gd = new THREE.Mesh(new THREE.BoxGeometry(gw, gh, 0.12), [frontM, frontM, frontM, frontM, garM, frontM]);
+    gd.position.set(gx, gh / 2 + 0.05, d / 2 + 0.01);
+    g.add(gd);
+    var gp1 = box(0.35, gh + 0.05, gout + 0.12, frontM);
+    gp1.position.set(gx - gw / 2 - 0.17, (gh + 0.05) / 2 + 0.05, d / 2 + gout / 2); g.add(gp1);
+    var gp2 = box(0.35, gh + 0.05, gout + 0.12, frontM);
+    gp2.position.set(gx + gw / 2 + 0.17, (gh + 0.05) / 2 + 0.05, d / 2 + gout / 2); g.add(gp2);
+    var gh3 = box(gw + 0.7, 0.42, gout + 0.12, frontM);
+    gh3.position.set(gx, gh + 0.26, d / 2 + gout / 2); g.add(gh3);
+    var apron = box(gw + 0.4, 0.08, 1.6, concM);
+    apron.position.set(gx, 0.04, d / 2 + 0.8); g.add(apron);
+  }
+  // ---- chimney
+  if (feat.chimney) {
+    var cw = feat.chimney.w || 0.7;
+    var chX = (feat.chimney.x - 0.5) * w, chZ = (feat.chimney.z - 0.5) * d;
+    var chTop = h + roofH + 0.45;
+    var ch = box(cw, chTop - h + 1.2, cw * 0.8, plainM);
+    ch.position.set(chX, (chTop + h - 1.2) / 2, chZ); g.add(ch);
+    var cap = box(cw + 0.18, 0.16, cw * 0.8 + 0.18, trimM);
+    cap.position.set(chX, chTop + 0.08, chZ); g.add(cap);
+  }
+  // ---- dormer
+  if (feat.dormer && spec.roofType !== 'flat') {
+    var dmW = feat.dormer.w || 2.1, dmH = 1.7, dmD = 1.5;
+    var dmX = ((feat.dormer.x || 0.5) - 0.5) * w;
+    var hd3 = (d + ovh) / 2;
+    var zf = hd3 * 0.5;
+    var yb = h + 0.3;
+    var dm = new THREE.Mesh(new THREE.BoxGeometry(dmW, dmH, dmD), [gableM, gableM, gableM, gableM, gableM, gableM]);
+    dm.position.set(dmX, yb + dmH / 2, zf - dmD / 2);
+    g.add(dm);
+    var dwin = windowUnit(dmW - 1.0, dmH - 0.85);
+    dwin.position.set(dmX, yb + dmH / 2 - 0.08, zf);
+    g.add(dwin);
+    var drRise = 0.42;
+    var dra = Math.atan2(drRise, dmW / 2);
+    var drs = Math.sqrt(dmW * dmW / 4 + drRise * drRise) + 0.3;
+    var dr1 = box(drs, 0.1, dmD + 0.5, miniRoofM);
+    dr1.position.set(dmX - dmW / 4, yb + dmH + 0.1, zf - dmD / 2);
+    dr1.rotation.z = dra; g.add(dr1);
+    var dr2 = box(drs, 0.1, dmD + 0.5, miniRoofM);
+    dr2.position.set(dmX + dmW / 4, yb + dmH + 0.1, zf - dmD / 2);
+    dr2.rotation.z = -dra; g.add(dr2);
+  }
+  // ---- generic feature boxes (balconies, canopy columns, fascia bands...)
+  if (feat.boxes) {
+    var bMats = { trim: trimM, wall: frontM, conc: concM, gable: gableM, glass: glassM, roof: miniRoofM, door: doorM, garage: garM };
+    for (var bxi = 0; bxi < feat.boxes.length; bxi++) {
+      var bspec = feat.boxes[bxi];
+      var bmesh = box(bspec[4], bspec[5], bspec[6], bMats[bspec[0]] || trimM);
+      bmesh.position.set(bspec[1], bspec[2], bspec[3]);
+      g.add(bmesh);
+    }
+  }
+  // ---- AC unit
+  if (feat.ac) {
+    var pad = box(1.1, 0.1, 0.6, concM);
+    pad.position.set(w / 2 + 0.35, 0.05, d * 0.12); g.add(pad);
+    var ac = box(0.75, 0.62, 0.42, acM);
+    ac.position.set(w / 2 + 0.33, 0.41, d * 0.12); g.add(ac);
+  }
+  return g;
+}
+// ---- bake the tagged group into flat arrays with atlas-mapped UVs
+var houseTemplates = {};
+function houseTemplate(ci) {
+  if (houseTemplates[ci]) return houseTemplates[ci];
+  var cl = HOUSE_CLUSTERS[ci];
+  var g = houseBuildTagged(cl);
+  g.updateMatrixWorld(true);
+  var pos = [], norm = [], uv = [];
+  var V = new THREE.Vector3(), NM = new THREE.Matrix3();
+  var S = HOUSE_ATLAS_S;
+  g.traverse(function (mesh) {
+    if (!mesh.isMesh) return;
+    var geo = mesh.geometry, mw = mesh.matrixWorld;
+    NM.getNormalMatrix(mw);
+    var p = geo.attributes.position, n = geo.attributes.normal, u = geo.attributes.uv;
+    var idx = geo.index;
+    var total = idx ? idx.count : p.count;
+    var groups = Array.isArray(mesh.material) && geo.groups.length ? geo.groups : [{ start: 0, count: total, materialIndex: 0 }];
+    for (var gi = 0; gi < groups.length; gi++) {
+      var gr = groups[gi];
+      var tag = Array.isArray(mesh.material) ? mesh.material[gr.materialIndex] : mesh.material;
+      var rname = tag.t === 'conc' ? 'conc' : tag.t;
+      var R = HOUSE_RECTS[rname] || HOUSE_RECTS.plain;
+      // inset plain rects to dodge atlas bleed; tiled regions use raw edges
+      var tiled = rname === 'roofbig' || rname === 'gable';
+      var inset = tiled ? 0.5 : 2;
+      var u0 = (R[0] + inset) / S, du = (R[2] - inset * 2) / S;
+      var v0 = 1 - (R[1] + R[3] - inset) / S, dv = (R[3] - inset * 2) / S;
+      var sx = tag.sx || tag.s || 1, sy = tag.sy || tag.s || 1;
+      var end = Math.min(gr.start + gr.count, total);
+      for (var i = gr.start; i < end; i++) {
+        var vi2 = idx ? idx.getX(i) : i;
+        V.set(p.getX(vi2), p.getY(vi2), p.getZ(vi2)).applyMatrix4(mw);
+        pos.push(V.x, V.y, V.z);
+        V.set(n.getX(vi2), n.getY(vi2), n.getZ(vi2)).applyMatrix3(NM).normalize();
+        norm.push(V.x, V.y, V.z);
+        var uu = u.getX(vi2) * sx, vv = u.getY(vi2) * sy;
+        if (!tiled) { uu = Math.min(1, Math.max(0, uu)); vv = Math.min(1, Math.max(0, vv)); }
+        uv.push(u0 + uu * du, v0 + vv * dv);
+      }
+    }
+  });
+  houseTemplates[ci] = { pos: new Float32Array(pos), norm: new Float32Array(norm), uv: new Float32Array(uv) };
+  return houseTemplates[ci];
+}
+// oak/scatter guard: keeps runtime-random trees out of house footprints
+// (called from forestPatch, which runs BEFORE this section places anything —
+// hoisting + the houses.js data make that safe)
+var houseFootprints = null;
+function houseBlocksSpot(x, z) {
+  if (typeof HOUSE_INSTANCES === 'undefined') return false;
+  if (!houseFootprints) {
+    houseFootprints = [];
+    for (var i = 0; i < HOUSE_INSTANCES.length; i++) {
+      var t = HOUSE_INSTANCES[i];
+      var cl2 = HOUSE_CLUSTERS[t[0]];
+      if (!cl2) continue;
+      var sc = t[5] || 1;
+      var a = t[3] * Math.PI / 180;
+      houseFootprints.push({
+        x: t[1], z: t[2], c: Math.cos(a), s: Math.sin(a),
+        hw: cl2.spec.dims[0] * sc / 2 + 1.6, hd: cl2.spec.dims[1] * sc / 2 + 1.6,
+        r: Math.hypot(cl2.spec.dims[0], cl2.spec.dims[1]) * sc / 2 + 2
+      });
+    }
+  }
+  for (var j = 0; j < houseFootprints.length; j++) {
+    var f = houseFootprints[j];
+    var dx = x - f.x, dz = z - f.z;
+    if (dx * dx + dz * dz > f.r * f.r) continue;
+    // world -> local (rotation.y = a: local x axis = (cos a, -sin a))
+    var u2 = dx * f.c - dz * f.s, v2 = dx * f.s + dz * f.c;
+    if (Math.abs(u2) < f.hw && Math.abs(v2) < f.hd) return true;
+  }
+  return false;
+}
+var houseStats = { instances: 0, meshes: 0, tris: 0, colliders: 0 };
+(function buildSurveyHouses() {
+  if (typeof HOUSE_CLUSTERS === 'undefined') return;
+  var chunks = {};   // 'ci|vi' -> {pos:[],norm:[],uv:[]}
+  var proxyGeo = new THREE.BoxGeometry(1, 1, 1);
+  var proxyMat = lamb({ color: 0x808080 });
+  for (var i = 0; i < HOUSE_INSTANCES.length; i++) {
+    var inst = HOUSE_INSTANCES[i];
+    var ci = inst[0], x = inst[1], z = inst[2], rot = inst[3], vi = inst[4], sc = inst[5] || 1;
+    var cl = HOUSE_CLUSTERS[ci];
+    if (!cl) continue;
+    var tpl = houseTemplate(ci);
+    var key = ci + '|' + vi;
+    var ch = chunks[key];
+    if (!ch) ch = chunks[key] = { pos: [], norm: [], uv: [] };
+    var a = rot * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a);
+    var P = tpl.pos, N = tpl.norm;
+    for (var v = 0; v < P.length; v += 3) {
+      var lx = P[v] * sc, ly = P[v + 1], lz = P[v + 2] * sc;
+      // rotation.y = a: world = (lx*ca + lz*sa, ly, -lx*sa + lz*ca)
+      ch.pos.push(lx * ca + lz * sa + x, ly, -lx * sa + lz * ca + z);
+      var nx = N[v], nz = N[v + 2];
+      ch.norm.push(nx * ca + nz * sa, N[v + 1], -nx * sa + nz * ca);
+    }
+    for (var uvi = 0; uvi < tpl.uv.length; uvi++) ch.uv.push(tpl.uv[uvi]);
+    // ---- colliders + proxy + registries
+    var w = cl.spec.dims[0] * sc, d = cl.spec.dims[1] * sc, hgt = cl.spec.dims[2] + (cl.spec.roofH || 0);
+    var co = Math.abs(ca), so = Math.abs(sa);
+    var hx = (w * co + d * so) / 2, hz = (w * so + d * co) / 2;
+    if (cl.spec.canopy) {
+      // hollow: collide the columns only (walk/drive under the slab)
+      var ft = (cl.spec.feat && cl.spec.feat.boxes) || [];
+      for (var cb = 0; cb < ft.length; cb++) {
+        if (ft[cb][0] !== 'door') continue;
+        var clx = ft[cb][1] * sc, clz = ft[cb][3] * sc;
+        addCollider(clx * ca + clz * sa + x, -clx * sa + clz * ca + z, 1.1, 1.1);
+        houseStats.colliders++;
+      }
+    } else if (Math.min(co, so) > 0.25 && w > 22) {
+      // long diagonal building: split the AABB along the local x axis so the
+      // collider hugs the footprint instead of swallowing the street corner
+      var k = Math.ceil(w / 16);
+      for (var ki = 0; ki < k; ki++) {
+        var lox = -w / 2 + (ki + 0.5) * (w / k);
+        var cxk = lox * ca + x, czk = -lox * sa + z;
+        addCollider(cxk, czk, (w / k) * co + d * so, (w / k) * so + d * co);
+        houseStats.colliders++;
+      }
+    } else {
+      addCollider(x, z, hx * 2, hz * 2);
+      houseStats.colliders++;
+    }
+    // invisible raycast proxy (bullets, cop line-of-sight)
+    var proxy = new THREE.Mesh(proxyGeo, proxyMat);
+    proxy.visible = false;
+    if (cl.spec.canopy) { proxy.scale.set(w, 0.6, d); proxy.position.set(x, cl.spec.dims[2] + 0.3, z); }
+    else { proxy.scale.set(w, hgt, d); proxy.position.set(x, hgt / 2, z); }
+    proxy.rotation.y = a;
+    proxy.updateMatrixWorld(true);
+    solidMeshes.push(proxy);
+    var mmc = (cl.variants[vi] && cl.variants[vi].roof) || cl.spec.wallColor || '#b8a888';
+    mapBuildings.push({ x: x, z: z, w: hx * 2, d: hz * 2, h: cl.spec.dims[2] + (cl.spec.roofH || 0), c: mmc, pad: false, hs: true });
+    houseStats.instances++;
+  }
+  // ---- merged meshes: one per (cluster, variant)
+  for (var key2 in chunks) {
+    var ch2 = chunks[key2];
+    var geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(ch2.pos), 3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(ch2.norm), 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(ch2.uv), 2));
+    var parts = key2.split('|');
+    var mesh = new THREE.Mesh(geo, houseAtlasMat(+parts[0], +parts[1]));
+    scene.add(mesh);
+    houseStats.meshes++;
+    houseStats.tris += ch2.pos.length / 9;
+  }
+  // ---- parking aprons: ONE merged mesh for every lot
+  if (typeof HOUSE_LOTS !== 'undefined' && HOUSE_LOTS.length) {
+    var lp = [], ln = [], luv = [];
+    for (var li = 0; li < HOUSE_LOTS.length; li++) {
+      var L = HOUSE_LOTS[li];
+      var lx = L[0], lz2 = L[1], lw = L[2], ld = L[3], la = L[4] * Math.PI / 180;
+      var lc = Math.cos(la), ls = Math.sin(la);
+      // corners in local space (y up), rotated like rotation.y
+      var cs = [[-lw / 2, -ld / 2], [lw / 2, -ld / 2], [lw / 2, ld / 2], [-lw / 2, ld / 2]];
+      var wc = cs.map(function (c2) { return [c2[0] * lc + c2[1] * ls + lx, -c2[0] * ls + c2[1] * lc + lz2]; });
+      var us = [[0, 0], [lw / 22, 0], [lw / 22, ld / 22], [0, ld / 22]];
+      [[0, 1, 2], [0, 2, 3]].forEach(function (t2) {
+        for (var q = 0; q < 3; q++) {
+          lp.push(wc[t2[q]][0], 0.1, wc[t2[q]][1]);
+          ln.push(0, 1, 0);
+          luv.push(us[t2[q]][0], us[t2[q]][1]);
+        }
+      });
+      var hxL = (lw * Math.abs(lc) + ld * Math.abs(ls)) / 2, hzL = (lw * Math.abs(ls) + ld * Math.abs(lc)) / 2;
+      mapParking.push({ x: lx, z: lz2, w: hxL * 2, d: hzL * 2 });
+    }
+    var lgeo = new THREE.BufferGeometry();
+    lgeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(lp), 3));
+    lgeo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(ln), 3));
+    lgeo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(luv), 2));
+    var lt = parkingT.clone(); lt.needsUpdate = true;
+    lt.wrapS = lt.wrapT = THREE.RepeatWrapping;
+    var lmesh = new THREE.Mesh(lgeo, lamb({ map: lt }));
+    scene.add(lmesh);
+    houseStats.meshes++;
+  }
+})();
+// minimap: houses are pre-rendered once into an offscreen layer so drawMinimap
+// doesn't repaint ~600 rects every frame (entries carry .hs)
+var houseMMCanvas = null;
+function houseMMLayer(w2mFn, mmW, mmS) {
+  if (houseMMCanvas) return houseMMCanvas;
+  houseMMCanvas = document.createElement('canvas');
+  houseMMCanvas.width = houseMMCanvas.height = mmW;
+  var g = houseMMCanvas.getContext('2d');
+  for (var b = 0; b < mapBuildings.length; b++) {
+    var m = mapBuildings[b];
+    if (!m.hs) continue;
+    g.fillStyle = m.c;
+    g.fillRect(w2mFn(m.x - m.w / 2), w2mFn(m.z - m.d / 2), Math.max(1.5, m.w * mmS), Math.max(1.5, m.d * mmS));
+  }
+  return houseMMCanvas;
 }
 
 // ---------------- pavement: pads under buildings + access roads ----------------
@@ -2633,10 +3209,10 @@ function spotClear(x, z) {
   var mx = p.x - x, mz = p.z - z;
   return mx * mx + mz * mz < 0.01;
 }
-// full accept test for an expansion sidewalk spot: collider-free AND not on
-// the asphalt of a CROSSING road (expClear rechecks every road with margin
-// 0.4 — the spot's own road is ≥ hw+1.1 away by construction, so it passes)
-function expSpotOK(c) { return spotClear(c[0], c[1]) && expClear(c[0], c[1], 0.4); }
+// full accept test for an expansion sidewalk spot: collider-free AND at least
+// a curb width (0.6) off the asphalt of every road incl. CROSSING ones — the
+// spot's own road is ≥ hw+1.1 away by construction, so it always passes
+function expSpotOK(c) { return spotClear(c[0], c[1]) && expClear(c[0], c[1], 0.6); }
 // segments of `list` within R of (x,z) — a neighborhood NPC's roaming turf
 function expSegsNear(list, x, z, R) {
   var out = [];
@@ -2663,7 +3239,13 @@ function assignNpcHome(n) {
       if (expSpotOK(c)) s = c;
     }
   }
-  if (!s) { zone = 0; s = sidewalkSpot(); }
+  if (!s) {
+    // core zone (or fallback): the old strips, now with the same collider
+    // rejection — street props/parked clutter can overlap a few strip points
+    zone = 0;
+    s = sidewalkSpot();
+    for (var tc = 0; tc < 12 && !spotClear(s[0], s[1]); tc++) s = sidewalkSpot();
+  }
   n.zone = zone; n.homeX = s[0]; n.homeZ = s[1];
   n.turf = zone === 0 ? null : expSegsNear(list, s[0], s[1], 100);
   if (n.turf && !n.turf.length) { n.zone = 0; n.turf = null; }
@@ -2687,6 +3269,8 @@ function npcTargetFor(n) {
   if (!n || !n.turf) return npcTarget();
   for (var tr = 0; tr < 8; tr++) {
     var c = expWalkSpot(n.turf);
+    var hx = c[0] - n.homeX, hz = c[1] - n.homeZ;
+    if (hx * hx + hz * hz > 14400) continue;   // turf segs can outrun the 100u radius — cap at 120
     if (expSpotOK(c)) return c;
   }
   return [n.homeX, n.homeZ];

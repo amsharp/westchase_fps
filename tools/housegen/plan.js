@@ -189,6 +189,39 @@ function segRectDist(x1, z1, x2, z2, rx0, rz0, rx1, rz1) {
   return m;
 }
 
+// spatial hash grids so checkSpot doesn't SAT every rect on the map
+const GRID = 60;
+function gridKeyRange(x0, z0, x1, z1) {
+  const keys = [];
+  for (let ix = Math.floor(x0 / GRID); ix <= Math.floor(x1 / GRID); ix++)
+    for (let iz = Math.floor(z0 / GRID); iz <= Math.floor(z1 / GRID); iz++)
+      keys.push(ix + ',' + iz);
+  return keys;
+}
+class RectGrid {
+  constructor() { this.m = new Map(); }
+  add(item, x0, z0, x1, z1) {
+    for (const k of gridKeyRange(x0, z0, x1, z1)) {
+      let a = this.m.get(k);
+      if (!a) this.m.set(k, a = []);
+      a.push(item);
+    }
+  }
+  query(x0, z0, x1, z1) {
+    const out = new Set();
+    for (const k of gridKeyRange(x0, z0, x1, z1)) {
+      const a = this.m.get(k);
+      if (a) for (const it of a) out.add(it);
+    }
+    return out;
+  }
+}
+const occGrid = new RectGrid();
+const forestGrid = new RectGrid();
+const placedGrid = new RectGrid();
+const lotGrid = new RectGrid();
+
+
 // ---------------- static obstacles ----------------
 const PONDS = expdata.ponds.map(p => Array.isArray(p) ? { x: p[0], z: p[1], rx: p[2], rz: p[3] } : p);
 const FOREST = expdata.forest.map(f => Array.isArray(f) ? { x0: f[0], x1: f[1], z0: f[2], z1: f[3] } : f);
@@ -199,6 +232,8 @@ for (const p of occ.mapParking) occRects.push({ x0: p.x - p.w / 2, x1: p.x + p.w
 for (const d of occ.mapDrives) occRects.push({ x0: d.x - d.w / 2, x1: d.x + d.w / 2, z0: d.z - d.d / 2, z1: d.z + d.d / 2 });
 for (const f of (occ.mapForest || [])) occRects.push({ x0: f.x0, x1: f.x1, z0: f.z0, z1: f.z1 });
 const breaks = (occ.breakables || []).map(b => ({ x: b.x, z: b.z, r: b.r || 1 }));
+for (const R of occRects) occGrid.add(R, R.x0, R.z0, R.x1, R.z1);
+for (const f of FOREST) forestGrid.add(f, f.x0, f.z0, f.x1, f.z1);
 
 const placed = [];   // {x,z,w,d,rot, b, inst}  (oriented footprints)
 const lots = [];     // {x,z,w,d,rot,area,fx,fz,ux,uz,forB}
@@ -243,7 +278,7 @@ function checkSpot0(x, z, w, d, rotDeg, opts) {
   const hw = w / 2, hd = d / 2;
   const rad = Math.hypot(hw, hd);
   const roadM = opts.roadMargin !== undefined ? opts.roadMargin : 0;
-  if (Math.abs(x) + rad > 585 || Math.abs(z) + rad > 585) return 'wall';
+  if (Math.abs(x) + rad > 590 || Math.abs(z) + rad > 590) return 'wall';
   for (const r of roads) {
     const lim = r.clear + roadM;
     for (const g of r.segs) {
@@ -253,17 +288,17 @@ function checkSpot0(x, z, w, d, rotDeg, opts) {
     }
   }
   for (const p of PONDS) {
-    if (rectOverlap(x, z, hw, hd, a, p.x, p.z, p.rx + 2.6, p.rz + 2.6, 0, 0.5)) return 'pond';
+    if (rectOverlap(x, z, hw, hd, a, p.x, p.z, p.rx + 2.6, p.rz + 2.6, 0, 0)) return 'pond';
   }
   // houses may sink a couple of units into a forest-rect EDGE (the runtime
   // oak scatter skips points inside house footprints), never deep
   const forestM = opts.forestM !== undefined ? opts.forestM : 0.5;
-  for (const f of FOREST) {
+  for (const f of forestGrid.query(x - rad, z - rad, x + rad, z + rad)) {
     if (rectOverlap(x, z, hw, hd, a, (f.x0 + f.x1) / 2, (f.z0 + f.z1) / 2, (f.x1 - f.x0) / 2, (f.z1 - f.z0) / 2, 0, forestM)) return 'forest';
   }
   const core = Math.abs(x) < 340 + rad && Math.abs(z) < 340 + rad;
   const occM = opts.occMargin !== undefined ? opts.occMargin : (core ? 4 : 0.6);
-  for (const R of occRects) {
+  for (const R of occGrid.query(x - rad - occM, z - rad - occM, x + rad + occM, z + rad + occM)) {
     if (rectOverlap(x, z, hw, hd, a, (R.x0 + R.x1) / 2, (R.z0 + R.z1) / 2, (R.x1 - R.x0) / 2, (R.z1 - R.z0) / 2, 0, occM)) return process.env.PROBE ? 'occupied[' + JSON.stringify(R) + ']' : 'occupied';
   }
   const ca = Math.cos(a), sa = Math.sin(a);
@@ -274,11 +309,11 @@ function checkSpot0(x, z, w, d, rotDeg, opts) {
     if ((u - qu) * (u - qu) + (v - qv) * (v - qv) < (b.r + 0.4) * (b.r + 0.4)) return 'prop';
   }
   const gap = opts.gap !== undefined ? opts.gap : 1.2;
-  for (const p of placed) {
+  for (const p of placedGrid.query(x - rad - 25, z - rad - 25, x + rad + 25, z + rad + 25)) {
     if (opts.ignore && p === opts.ignore) continue;
     if (rectOverlap(x, z, hw, hd, a, p.x, p.z, p.w / 2, p.d / 2, p.rot * Math.PI / 180, gap)) return 'building';
   }
-  for (const l of lots) {
+  for (const l of lotGrid.query(x - rad - 25, z - rad - 25, x + rad + 25, z + rad + 25)) {
     if (rectOverlap(x, z, hw, hd, a, l.x, l.z, l.w / 2, l.d / 2, l.rot * Math.PI / 180, 0.3)) return 'lot';
   }
   return null;
@@ -336,6 +371,7 @@ const ROW_TYPES = { sfh: 1, townhouse_row: 1 };
 const LOT_TYPES = { retail_strip: 1, retail_box: 1, office: 1, warehouse: 1, flex_industrial: 1, apartment_block: 1, school_bldg: 1 };
 const rows = {};        // key ri|side -> [b]
 const individual = [];
+const rowLeftovers = [];   // dropped row members, retried in the fill pass
 const dropStats = {};   // area -> reason -> n
 function drop(b, reason) {
   dropStats[b.area] = dropStats[b.area] || {};
@@ -345,7 +381,7 @@ for (const b of B) {
   const nr = nearestRoad(b.gx, b.gz);
   b.nr = nr;
   if (ROW_TYPES[b.type]) {
-    if (!nr || nr.dist > 60) { drop(b, 'no-street'); continue; }
+    if (!nr || nr.dist > 60) { drop(b, 'no-street'); rowLeftovers.push(b); continue; }
     const key = nr.ri + '|' + nr.side;
     (rows[key] = rows[key] || []).push(b);
   } else {
@@ -361,12 +397,16 @@ function ciOf(gc) {
   return clusterIdx[gc];
 }
 const placeStats = {};  // area -> n
-function commit(b, x, z, rotDeg, w, d) {
+function commit(b, x, z, rotDeg, w, d, scale) {
   const gc = b.gc;
   const vi = kept[gc].indexOf(b.vi);
   const inst = [ciOf(gc), +x.toFixed(1), +z.toFixed(1), +rotDeg.toFixed(1), vi < 0 ? 0 : vi];
+  if (scale && scale !== 1) inst.push(scale);
   instances.push(inst);
-  placed.push({ x, z, w, d, rot: rotDeg, b, inst });
+  const pRec = { x, z, w, d, rot: rotDeg, b, inst };
+  placed.push(pRec);
+  const pr = Math.hypot(w, d) / 2;
+  placedGrid.add(pRec, x - pr, z - pr, x + pr, z + pr);
   placeStats[b.area] = (placeStats[b.area] || 0) + 1;
   return placed[placed.length - 1];
 }
@@ -417,7 +457,6 @@ for (const b of individual) {
 
 // ---------------- row re-spacing ----------------
 const groupOcc = {};   // 'ri|side' -> [[s0,s1],...] occupied street intervals
-const rowLeftovers = [];   // dropped row members, retried in the fill pass
 function occAdd(key, s0, s1) { (groupOcc[key] = groupOcc[key] || []).push([s0, s1]); }
 function occFree(key, s0, s1) {
   const L2 = groupOcc[key] || [];
@@ -430,29 +469,34 @@ function tryLot(P, px, pz, rotDeg, fx, fz, ux, uz, w, d, lotDepth) {
   for (const ld of [lotDepth, lotDepth * 0.7]) {
     const lx = px + fx * (d / 2 + ld / 2 + 0.8), lz = pz + fz * (d / 2 + ld / 2 + 0.8);
     if (!checkSpot(lx, lz, lw, ld, rotDeg, { roadMargin: -3, gap: -1.5, occMargin: 1, ignore: P, forestM: -3.5 })) {
-      lots.push({ x: +lx.toFixed(1), z: +lz.toFixed(1), w: +lw.toFixed(1), d: +ld.toFixed(1), rot: +rotDeg.toFixed(1), area: lw * ld, fx, fz, ux, uz, forB: P });
+      const lRec = { x: +lx.toFixed(1), z: +lz.toFixed(1), w: +lw.toFixed(1), d: +ld.toFixed(1), rot: +rotDeg.toFixed(1), area: lw * ld, fx, fz, ux, uz, forB: P };
+      lots.push(lRec);
+      const lr = Math.hypot(lw, ld) / 2;
+      lotGrid.add(lRec, lx - lr, lz - lr, lx + lr, lz + lr);
       return true;
     }
   }
   return false;
 }
 // place one building on road ri/side centered at arclength sc; returns true on success
-function placeOnStreet(m, ri, side, sc) {
-  const r = roads[ri], cl = clusters[m.gc], dims = cl.spec.dims;
-  const key = ri + '|' + side;
+function placeOnStreet(m, ri, side, sc, scale, rank) {
+  scale = scale || 1; rank = rank || 0;
+  const r = roads[ri], cl = clusters[m.gc];
+  const dims = [cl.spec.dims[0] * scale, cl.spec.dims[1] * scale];
+  const key = ri + '|' + side + '|' + rank;
   const hw2 = dims[0] / 2 + 2;
   if (!occFree(key, sc - hw2, sc + hw2)) return false;
   const wantLot = LOT_TYPES[m.type] && !cl.spec.canopy;
   const lotDepth = wantLot ? Math.max(8, Math.min(15, dims[0] * 0.35)) : 0;
   const P = roadPointAt(r, sc);
   const nx = -P.uz * side, nz = P.ux * side;
-  const off = r.clear + 0.6 + rng() * 1.2 + (wantLot ? lotDepth + 1 : 0) + dims[1] / 2;
+  const off = r.clear + 0.6 + rng() * 1.2 + (wantLot ? lotDepth + 1 : 0) + dims[1] / 2 + rank * (dims[1] + 5.5);
   const rotDeg = Math.atan2(-nx, -nz) * 180 / Math.PI;
   for (const back of [0, 2.5, 5]) {
     const px = P.x + nx * (off + back), pz = P.z + nz * (off + back);
     const fail = checkSpot(px, pz, dims[0], dims[1], rotDeg, { gap: 0.5, forestM: -3.5 });
     if (!fail) {
-      const Pl = commit(m, px, pz, rotDeg, dims[0], dims[1]);
+      const Pl = commit(m, px, pz, rotDeg, dims[0], dims[1], scale);
       occAdd(key, sc - hw2, sc + hw2);
       if (wantLot) tryLot(Pl, px, pz, rotDeg, -nx, -nz, P.ux, P.uz, dims[0], dims[1], lotDepth);
       return true;
@@ -468,7 +512,7 @@ for (const key in rows) {
   const members = rows[key];
   members.sort((a, b2) => a.nr.s - b2.nr.s);
   // drop repeats until row fits its street span
-  const smin = 8, smax = Math.max(smin, r.len - 8);
+  const smin = 5, smax = Math.max(smin, r.len - 5);
   const span = smax - smin;
   let list = members.slice();
   function totalLen(L2) {
@@ -535,7 +579,17 @@ for (const key in rows) {
   });
   const all = indivLeftovers.concat(pool, droppedRepeats);
   const TARGET = 740;
-  for (const m of all) {
+  const failedPrev = [];
+  const ROUNDS = [
+    { scale: 1, rank: 0 }, { scale: 0.85, rank: 0 },
+    { scale: 1, rank: 1 }, { scale: 0.85, rank: 1 }, { scale: 0.74, rank: 0 },
+    { scale: 0.74, rank: 1 }, { scale: 1, rank: 2 },
+  ];
+  for (let round = 1; round <= ROUNDS.length; round++) {
+    const src = round === 1 ? all : failedPrev.splice(0);
+    const scale = ROUNDS[round - 1].scale, rank = ROUNDS[round - 1].rank;   // round 2: squeeze into the tight
+    // compressed corridors (30u between parallel lanes) with a smaller print
+  for (const m of src) {
     if (instances.length >= TARGET) break;
     const dims = clusters[m.gc].spec.dims;
     // candidate road-sides within reach of the surveyed spot
@@ -550,14 +604,14 @@ for (const key in rows) {
         const d = Math.hypot(m.gx - (g.x1 + dx * t), m.gz - (g.z1 + dz * t));
         if (d < dmin) { dmin = d; sAt = g.s0 + t * g.L; }
       }
-      if (dmin < (r.cls === 0 ? 90 : 130)) cands.push({ ri, dmin, sAt });
+      if (dmin < (r.cls === 0 ? 130 : 160)) cands.push({ ri, dmin, sAt });
     }
     cands.sort((a, b2) => a.dmin - b2.dmin);
     let done = false;
     for (const c of cands) {
       if (done) break;
       const r = roads[c.ri];
-      const smin2 = 8 + dims[0] / 2, smax2 = r.len - 8 - dims[0] / 2;
+      const smin2 = 5 + dims[0] / 2, smax2 = r.len - 5 - dims[0] / 2;
       // walk outward from the closest arclength
       for (let ds = 0; ds <= Math.max(c.sAt - smin2, smax2 - c.sAt) && !done; ds += 4) {
         for (const sgn of [1, -1]) {
@@ -565,13 +619,14 @@ for (const key in rows) {
           if (sc < smin2 || sc > smax2) continue;
           const pref = (m.nr && m.nr.ri === c.ri) ? m.nr.side : 1;
           for (const side of [pref, -pref]) {
-            if (placeOnStreet(m, c.ri, side, sc)) { done = true; break; }
+            if (placeOnStreet(m, c.ri, side, sc, scale, rank)) { done = true; break; }
           }
           if (done) break;
         }
       }
     }
-    if (!done) drop(m, 'fill-failed');
+    if (!done) { if (round < ROUNDS.length) failedPrev.push(m); else drop(m, 'fill-failed'); }
+  }
   }
 }
 
