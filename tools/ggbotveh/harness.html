@@ -74,25 +74,25 @@ function label(txt, x, z, y) {
 var STEER = /steer|close/.test(location.search) ? 0.45 : 0;
 var SPIN = /steer|close/.test(location.search) ? 0.9 : 0;
 
-// ---- GGBot side: shared GG_WHEEL at true pivots
-var ggWheelGeo = decodeGeo(GGBOT_WHEEL, true);
-var ggWheelMat = texMat(GGBOT_WHEEL);
+// ---- GGBot side: per-car extracted wheel mesh (wg) at true pivots,
+// textured by the same car atlas material
 function ggCar(name, x, z, ry) {
   var e = null;
   for (var i = 0; i < GGBOT_VEHS.length; i++) if (GGBOT_VEHS[i].n === name) e = GGBOT_VEHS[i];
   var s = VEH_LEN / e.dims[0];
   var grp = new THREE.Group();
-  var body = new THREE.Mesh(decodeGeo(e), texMat(e));
+  var mat = texMat(e);
+  var body = new THREE.Mesh(decodeGeo(e), mat);
   body.scale.set(s, s, s);
   grp.add(body);
-  e.wheels.forEach(function (w) {
+  var wgGeo = e.wg && decodeGeo(e.wg, true);
+  (e.wheels || []).forEach(function (w) {
     if (!w || /nowheels/.test(location.search)) return;
     var pv = new THREE.Group();
     pv.position.set(w[0] * s, w[1] * s, w[2] * s);
-    var wm = new THREE.Mesh(ggWheelGeo, ggWheelMat);
-    wm.rotation.x = w[2] > 0 ? Math.PI / 2 : -Math.PI / 2; // rim face out
-    var ws = (w[3] * s) / (GGBOT_WHEEL.dims[0] / 2);
-    wm.scale.set(ws, ws, ws);
+    var wm = new THREE.Mesh(wgGeo, mat);
+    wm.rotation.x = w[2] > 0 ? Math.PI / 2 : -Math.PI / 2; // axle local +Y -> car Z
+    wm.scale.set(s, s, s);   // same unit space as the body
     wm.rotation.y = SPIN;                     // SPIN about the axle
     if (w[0] > 0) pv.rotation.y = STEER;      // STEER the front pivots
     pv.add(wm); grp.add(pv);
