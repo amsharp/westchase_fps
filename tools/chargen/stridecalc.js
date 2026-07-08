@@ -151,7 +151,12 @@ if (SHARED) {
       });
       const gy = e.clips && e.clips[key] ? e.clips[key].gy : 0;
       // shared FK maps source-joint order: adapt clip q layout via map/post
-      vals.push(clipStride(e, { d: sh.d, f: sh.f, q: sh.q, y: sh.y, gy: gy }, map, post));
+      const st = clipStride(e, { d: sh.d, f: sh.f, q: sh.q, y: sh.y, gy: gy }, map, post);
+      vals.push(st);
+      // store per-char too — the retargeted stride depends on leg lengths,
+      // and getMeshySkin prefers the per-char value over the set average
+      if (e.clips && e.clips[key]) e.clips[key].st = st;
+      checkSane(e.n + ' (shared)', key, st);
     }
     sh.st = vals.length ? +(vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(3) : null;
     checkSane('SHARED', key, sh.st);

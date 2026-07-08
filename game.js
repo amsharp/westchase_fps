@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.17.0';
+var GAME_VERSION = 'v1.18.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---------------- world constants ----------------
@@ -1354,15 +1354,26 @@ function crepeMyrtle(x, z) {
   registerBreakable(g, x, z, 0.7, 'tree');
 }
 
-// mast-arm traffic signals
+// mast-arm traffic signals — lamps register in signalLights and CYCLE
+// (green→yellow→red, ~20 s loop; see updateSignals in the corridor-details block)
 var poleMetal = lamb({ color: 0x8a8f94 });
 var signalBox = lamb({ color: 0x1c1c20 });
-var redM = new THREE.MeshBasicMaterial({ color: 0xd83a2a }), yelM = new THREE.MeshBasicMaterial({ color: 0xe8c020 }), grnM = new THREE.MeshBasicMaterial({ color: 0x30c040 });
+var redM = new THREE.MeshBasicMaterial({ color: 0xff3b28 }), yelM = new THREE.MeshBasicMaterial({ color: 0xffc828 }), grnM = new THREE.MeshBasicMaterial({ color: 0x35d94a });
+var redDkM = lamb({ color: 0x381210 }), yelDkM = lamb({ color: 0x383008 }), grnDkM = lamb({ color: 0x0c3212 });
+var signalLights = [];   // {mesh, lit, dark, col:'r'|'y'|'g', grp:'main'|'cross'}
 var dotGeo = new THREE.SphereGeometry(0.12, 8, 6);
 function signalHead(parent, x, y, z, fx, fz) {
   parent.add(box(0.34, 1.0, 0.34, signalBox, x, y, z));
-  var off = 0.2;
-  [[0.32, redM], [0, yelM], [-0.32, grnM]].forEach(function (d) { var s = new THREE.Mesh(dotGeo, d[1]); s.position.set(x + fx * off, y + d[0], z + fz * off); parent.add(s); });
+  // heads on arms spanning the main road face E/W traffic → 'main' group;
+  // cross-road arms face N/S traffic → 'cross'. Lamps start dark; updateSignals
+  // lights the correct one on the first frame.
+  var off = 0.2, grp = fx !== 0 ? 'main' : 'cross';
+  [[0.32, redM, redDkM, 'r'], [0, yelM, yelDkM, 'y'], [-0.32, grnM, grnDkM, 'g']].forEach(function (d) {
+    var s = new THREE.Mesh(dotGeo, d[2]);
+    s.position.set(x + fx * off, y + d[0], z + fz * off);
+    parent.add(s);
+    signalLights.push({ mesh: s, lit: d[1], dark: d[2], col: d[3], grp: grp });
+  });
 }
 function greenSign(parent, x, y, z, ry, text) {
   var m = new THREE.Mesh(new THREE.PlaneGeometry(5.5, 1.1), new THREE.MeshBasicMaterial({ map: signTex([text], '#1c6b3a', '#ffffff', 256, 52), side: THREE.DoubleSide }));
@@ -1387,14 +1398,22 @@ mastArm(-(CROSS_HW + 9), MAIN_HW + 7, 0, -1, 2 * MAIN_HW + 13, 4, 1, 0, 'RACE TR
 mastArm(CROSS_HW + 7, MAIN_HW + 9, -1, 0, 2 * CROSS_HW + 13, 3, 0, -1, 'COUNTRYWAY BLVD', Math.PI);
 mastArm(-(CROSS_HW + 7), -(MAIN_HW + 9), 1, 0, 2 * CROSS_HW + 13, 3, 0, 1, 'COUNTRYWAY BLVD', 0);
 
-// utility poles + power lines along the main road
+// utility poles + power lines along the main road (south side, like the
+// Street Views). Poles are breakable ('light'); the strung wires are static
+// scene meshes and deliberately stay up when a pole snaps (accepted jank).
 var woodPoleM = lamb({ color: 0x6a5236 }), wireM = lamb({ color: 0x1a1a1a }), xfmrM = lamb({ color: 0x555b60 });
 function utilityPole(x, z) {
-  var h = 8.6;
-  scene.add(cyl(0.22, 0.3, h, 6, woodPoleM, x, h / 2, z));
-  scene.add(box(2.6, 0.16, 0.16, woodPoleM, x, h - 0.6, z));
-  scene.add(box(0.5, 0.7, 0.4, xfmrM, x + 0.3, h - 1.8, z));
-  return { x: x, y: h - 0.55, z: z };
+  var h = 10.6, g = new THREE.Group();
+  g.add(cyl(0.16, 0.3, h, 6, woodPoleM, 0, h / 2, 0));
+  // crossarm perpendicular to the wire run (wires run E-W → arm spans z)
+  g.add(box(0.16, 0.16, 3.0, woodPoleM, 0, h - 0.55, 0));
+  g.add(cyl(0.05, 0.05, 0.26, 5, woodPoleM, 0, h - 0.34, -1.15));
+  g.add(cyl(0.05, 0.05, 0.26, 5, woodPoleM, 0, h - 0.34, 1.15));
+  g.add(box(0.5, 0.75, 0.42, xfmrM, 0.34, h - 2.2, 0));
+  g.position.set(x, 0, z);
+  scene.add(g);
+  registerBreakable(g, x, z, 0.45, 'light');
+  return { x: x, y: h - 0.3, z: z };
 }
 function wire(a, b) {
   var mid = new THREE.Vector3((a.x + b.x) / 2, (a.y + b.y) / 2 - 1.3, (a.z + b.z) / 2);
@@ -1402,11 +1421,20 @@ function wire(a, b) {
   scene.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 8, 0.03, 4, false), wireM));
 }
 (function powerline() {
+  function onDrive(x, z) {   // driveway mouths cross the pole line — dodge them
+    for (var i = 0; i < mapDrives.length; i++) {
+      var d = mapDrives[i];
+      if (x > d.x - d.w / 2 - 1.2 && x < d.x + d.w / 2 + 1.2 && z > d.z - d.d / 2 - 1.2 && z < d.z + d.d / 2 + 1.2) return true;
+    }
+    return false;
+  }
   var prev = null;
   for (var x = -300; x <= 300; x += 46) {
     if (Math.abs(x) < CROSS_HW + 16) { prev = null; continue; }
-    var p = utilityPole(x, MAIN_HW + 9);
-    if (prev) { wire({ x: prev.x - 1, y: prev.y, z: prev.z }, { x: p.x - 1, y: p.y, z: p.z }); wire({ x: prev.x + 1, y: prev.y, z: prev.z }, { x: p.x + 1, y: p.y, z: p.z }); }
+    var px = x, tries = 0;
+    while (onDrive(px, MAIN_HW + 9) && tries++ < 5) px += 3;
+    var p = utilityPole(px, MAIN_HW + 9);
+    if (prev) { wire({ x: prev.x, y: prev.y, z: prev.z - 1.15 }, { x: p.x, y: p.y, z: p.z - 1.15 }); wire({ x: prev.x, y: prev.y, z: prev.z + 1.15 }, { x: p.x, y: p.y, z: p.z + 1.15 }); }
     prev = p;
   }
 })();
@@ -1432,6 +1460,71 @@ medianSeg(-300, -(CROSS_HW + 11));
 // bushes fronting a few landmarks
 [[52, -37], [-48, -37], [-72, -116], [-52, 37], [-116, -22]].forEach(function (p) { bush(p[0], p[1]); bush(p[0] + 3, p[1]); bush(p[0] - 3, p[1]); });
 
+// ---------------- corridor details (signal cycle, corner palms, paint) ----------------
+// signal cycle: main green 8 s → main yellow 3 s → cross green 6 s → cross
+// yellow 3 s (all-red in between is implicit) — opposing approaches share a
+// group so pairs stay in sync. Visual only: traffic does NOT obey the lights
+// yet (future work). Called from updateWorldFx.
+var SIG_CYCLE = [['main', 'g', 8], ['main', 'y', 3], ['cross', 'g', 6], ['cross', 'y', 3]];
+var SIG_TOTAL = 20, sigClock = 0, sigMain = '', sigCross = '';
+function updateSignals(dt) {
+  sigClock = (sigClock + dt) % SIG_TOTAL;
+  var t = sigClock, m = 'r', x = 'r';
+  for (var i = 0; i < SIG_CYCLE.length; i++) {
+    var ph = SIG_CYCLE[i];
+    if (t < ph[2]) { if (ph[0] === 'main') m = ph[1]; else x = ph[1]; break; }
+    t -= ph[2];
+  }
+  if (m === sigMain && x === sigCross) return;
+  sigMain = m; sigCross = x;
+  for (var j = 0; j < signalLights.length; j++) {
+    var L = signalLights[j], want = L.grp === 'main' ? m : x;
+    L.mesh.material = L.col === want ? L.lit : L.dark;
+  }
+}
+
+// corner sabal-palm clusters — 3 per junction corner island (staggered heights
+// & yaw come free from palm()), placed outside the sidewalks, crosswalks,
+// mast-arm poles and corner bushes.
+[[1, 1], [1, -1], [-1, 1], [-1, -1]].forEach(function (s) {
+  palm(s[0] * 26, s[1] * 29);
+  palm(s[0] * 29.5, s[1] * 26.5);
+  palm(s[0] * 27.6, s[1] * 32.4);
+});
+
+// intersection paint: white stop bars behind each crosswalk + left-turn
+// stencil arrows in the turn pockets (satellite z19 reference). Thin planes
+// above the road (0.05) / sidewalks (0.125) but under the crosswalks (0.165).
+var stopBarM = new THREE.MeshBasicMaterial({ color: 0xdad8d0, transparent: true, opacity: 0.92, depthWrite: false });
+var turnArrowT = (function () {
+  var c = document.createElement('canvas'); c.width = 64; c.height = 128;
+  var g = c.getContext('2d'); g.clearRect(0, 0, 64, 128);
+  g.fillStyle = 'rgba(228,226,218,0.95)';
+  g.fillRect(37, 36, 12, 88);                          // shaft
+  g.fillRect(16, 36, 26, 12);                          // elbow toward the left
+  g.beginPath(); g.moveTo(2, 42); g.lineTo(24, 20); g.lineTo(24, 64); g.closePath(); g.fill();  // head
+  var t = new THREE.CanvasTexture(c); t.magFilter = THREE.LinearFilter; return t;
+})();
+var turnArrowM = new THREE.MeshBasicMaterial({ map: turnArrowT, transparent: true, depthWrite: false });
+function stopBar(x, z, w, d) {
+  var geo = new THREE.PlaneGeometry(w, d); geo.rotateX(-Math.PI / 2);
+  var m = new THREE.Mesh(geo, stopBarM); m.position.set(x, 0.15, z); scene.add(m);
+}
+function turnArrow(x, z, ry) {
+  // texture "up" = direction of travel; head hooks left. ry turns it per approach.
+  var geo = new THREE.PlaneGeometry(1.6, 3.4); geo.rotateX(-Math.PI / 2);
+  var m = new THREE.Mesh(geo, turnArrowM); m.position.set(x, 0.155, z); m.rotation.y = ry; scene.add(m);
+}
+// right-hand traffic: each bar spans only the approach half of its road
+stopBar(-16.4, 7.25, 1.1, 12.1);      // eastbound approach (from the west)
+stopBar(16.4, -7.25, 1.1, 12.1);      // westbound
+stopBar(-5.9, -19.4, 10.0, 1.1);      // southbound
+stopBar(5.9, 19.4, 10.0, 1.1);        // northbound
+turnArrow(-19.5, 2.4, -Math.PI / 2);  // eastbound left-turn pocket
+turnArrow(19.5, -2.4, Math.PI / 2);   // westbound
+turnArrow(-2.2, -22, Math.PI);        // southbound
+turnArrow(2.2, 22, 0);                // northbound
+
 // ---------------- street lights ----------------
 var streetLights = [];
 var lampOnM = new THREE.MeshBasicMaterial({ color: 0xffe9a8 });
@@ -1447,18 +1540,31 @@ var lampGlowT = (function () {
 var poolGeo = new THREE.CircleGeometry(4.5, 14); poolGeo.rotateX(-Math.PI / 2);
 var poolM = new THREE.MeshBasicMaterial({ color: 0xffdf90, transparent: true, opacity: 0.16, depthWrite: false });
 function streetlight(x, z, ax, az) {
-  // ax,az = unit direction the arm/lamp extends (toward the road)
+  // silver cobra-head on a tapered pole, arm overhanging the road (matches the
+  // Street Views). ax,az = unit direction toward the road; the arm is built
+  // along +x inside its own group and yawed into place. Same lampsOn/breakable
+  // contract as before (entry.head material swap + glow/pool visibility).
   var g = new THREE.Group();
-  g.add(cyl(0.14, 0.2, 7, 7, poleMetal, 0, 3.5, 0));
-  g.add(box(Math.abs(ax) * 2.4 + 0.16, 0.14, Math.abs(az) * 2.4 + 0.16, poleMetal, ax * 1.2, 6.9, az * 1.2));
-  var head = box(0.7, 0.22, 0.4, lampOffM, ax * 2.3, 6.78, az * 2.3);
-  g.add(head);
+  g.add(cyl(0.09, 0.18, 8.0, 8, poleMetal, 0, 4.0, 0));
+  var arm = new THREE.Group();
+  var rise = cyl(0.055, 0.075, 2.9, 6, poleMetal, 1.4, 8.08, 0);   // curves up from the pole top
+  rise.rotation.z = -(Math.PI / 2 - 0.265);
+  arm.add(rise);
+  var neck = cyl(0.05, 0.055, 1.1, 6, poleMetal, 0, 0, 0);         // levels off into the head
+  neck.rotation.z = -Math.PI / 2; neck.position.set(3.35, 8.46, 0);
+  arm.add(neck);
+  arm.add(box(1.15, 0.16, 0.34, poleMetal, 4.05, 8.44, 0));        // cobra body
+  arm.add(box(0.34, 0.12, 0.26, poleMetal, 4.68, 8.4, 0));         // drooped nose
+  var head = box(0.62, 0.07, 0.26, lampOffM, 4.05, 8.34, 0);       // lens underneath
+  arm.add(head);
   var glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: lampGlowT, transparent: true, depthWrite: false }));
-  glow.scale.set(5, 5, 1); glow.position.set(ax * 2.3, 6.6, az * 2.3); glow.visible = false;
-  g.add(glow);
+  glow.scale.set(5, 5, 1); glow.position.set(4.05, 8.15, 0); glow.visible = false;
+  arm.add(glow);
   var pool = new THREE.Mesh(poolGeo, poolM);
-  pool.position.set(ax * 2.6, 0.17, az * 2.6); pool.visible = false;
-  g.add(pool);
+  pool.position.set(4.1, 0.17, 0); pool.visible = false;
+  arm.add(pool);
+  arm.rotation.y = Math.atan2(-az, ax);
+  g.add(arm);
   g.position.set(x, 0, z);
   scene.add(g);
   var entry = { head: head, glow: glow, pool: pool, broken: false };
@@ -1840,7 +1946,8 @@ function getMeshySkin(mi) {
       if (!meshySharedDecoded[k]) meshySharedDecoded[k] = { q: new Int16Array(b64Bytes(sh.q).buffer), y: new Int16Array(b64Bytes(sh.y).buffer) };
       var gy = (e.clips[k] && e.clips[k].gy !== undefined) ? e.clips[k].gy : gyWalk;
       var post = sh.bind ? makePost(new Int16Array(b64Bytes(sh.bind).buffer)) : basePost;
-      d.clips[k] = { d: sh.d, f: sh.f, q: meshySharedDecoded[k].q, y: meshySharedDecoded[k].y, gy: gy, map: map, post: post, st: sh.st };
+      var shSt = (e.clips[k] && e.clips[k].st) || sh.st;   // per-char stride (leg lengths differ) over the clip-set average
+      d.clips[k] = { d: sh.d, f: sh.f, q: meshySharedDecoded[k].q, y: meshySharedDecoded[k].y, gy: gy, map: map, post: post, st: shSt };
     }
   }
   for (var k2 in e.clips) {
@@ -5262,6 +5369,7 @@ function breakProp(b, dirX, dirZ) {
 }
 var fallAxis = new THREE.Vector3(), fallQ = new THREE.Quaternion();
 function updateWorldFx(dt) {
+  updateSignals(dt);   // traffic-signal cycle (corridor details section)
   // cars snap trees & street lights (works on host and on mirrored client cars)
   for (var i = 0; i < cars.length; i++) {
     var c = cars[i];
@@ -6603,6 +6711,7 @@ window.__wc = {
   setRain: function (on) { raining = on; rainLeft = on ? 9999 : 0; },
   setClock: function (t2) { envT = t2; },
   envState: function () { return { envT: envT, raining: raining, dayFactor: dayFactor(), lampsOn: lampsOn, sun: sun.intensity, fogFar: scene.fog.far }; },
+  sigState: function () { return { t: sigClock, main: sigMain, cross: sigCross }; },
   goBerserk: goBerserk, igniteCar: igniteCar,
   breakables: breakables, breakProp: breakProp, lakeBedY: lakeBedY,
   streetProps: streetPropInteractables, streetPropInteract: streetPropInteract, getStreetProp: getStreetProp, hydrantJets: hydrantJets,

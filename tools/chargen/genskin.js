@@ -231,6 +231,81 @@ for (const k of Object.keys(clipsFull)) {
   console.log(' ', k, 'ground offset', clipsFull[k].gy);
 }
 
+// ---- FK stride --------------------------------------------------------------
+// Authored stride (game units of ground per gait cycle): while a toe is
+// planted (near its vertical low) its backward speed relative to the root
+// equals the authored body speed; stride = median planted speed * duration.
+// The game (animPerson) advances gait clips by distance/stride cycles so
+// feet plant instead of skating. stridecalc.js is the batch/repair version.
+function fkStride(clip) {
+  const nj = joints.length;
+  const qb = Buffer.from(clip.q, 'base64'), yb = Buffer.from(clip.y, 'base64');
+  const q = new Int16Array(qb.buffer, qb.byteOffset, qb.length / 2);
+  const y = new Int16Array(yb.buffer, yb.byteOffset, yb.length / 2);
+  const toeIdx = [];
+  jname.forEach((n, i) => { if (/ToeBase/.test(n)) toeIdx.push(i); });
+  function quatMat(qx, qy, qz, qw) {
+    const x2 = qx + qx, y2 = qy + qy, z2 = qz + qz;
+    const xx = qx * x2, xy = qx * y2, xz = qx * z2, yy = qy * y2, yz = qy * z2, zz = qz * z2, wx = qw * x2, wy = qw * y2, wz = qw * z2;
+    return [1 - (yy + zz), xy + wz, xz - wy, xy - wz, 1 - (xx + zz), yz + wx, xz + wy, yz - wx, 1 - (xx + yy)];
+  }
+  function nlerpQ(a, b, t) {
+    let d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
+    const s = d < 0 ? -1 : 1;
+    const o = [a[0] * (1 - t) + b[0] * t * s, a[1] * (1 - t) + b[1] * t * s, a[2] * (1 - t) + b[2] * t * s, a[3] * (1 - t) + b[3] * t * s];
+    const L = Math.hypot(o[0], o[1], o[2], o[3]) || 1;
+    return [o[0] / L, o[1] / L, o[2] / L, o[3] / L];
+  }
+  const SUB = 4, N = (clip.f - 1) * SUB;
+  const feet = toeIdx.map(() => []);
+  for (let s = 0; s <= N; s++) {
+    const ft = s / SUB, f0 = Math.min(clip.f - 2, Math.floor(ft)), a = ft - f0, f1 = f0 + 1;
+    const world = new Array(nj).fill(null);
+    function rotOf(i) {
+      const o0 = (f0 * nj + i) * 4, o1 = (f1 * nj + i) * 4;
+      return nlerpQ([q[o0] / 16383, q[o0 + 1] / 16383, q[o0 + 2] / 16383, q[o0 + 3] / 16383],
+                    [q[o1] / 16383, q[o1 + 1] / 16383, q[o1 + 2] / 16383, q[o1 + 3] / 16383], a);
+    }
+    function calc(i) {
+      if (world[i]) return world[i];
+      const r = rotOf(i), R = quatMat(r[0], r[1], r[2], r[3]);
+      const t = bindT[i].slice();
+      if (parentOf[i] < 0) {
+        t[1] += (clip.gy || 0) + (y[f0] / 2000) * (1 - a) + (y[f1] / 2000) * a;
+        world[i] = { R, t }; return world[i];
+      }
+      const P = calc(parentOf[i]);
+      const wt = [
+        P.R[0] * t[0] + P.R[3] * t[1] + P.R[6] * t[2] + P.t[0],
+        P.R[1] * t[0] + P.R[4] * t[1] + P.R[7] * t[2] + P.t[1],
+        P.R[2] * t[0] + P.R[5] * t[1] + P.R[8] * t[2] + P.t[2]];
+      const WR = [];
+      for (let c = 0; c < 3; c++) for (let r2 = 0; r2 < 3; r2++) {
+        WR[c * 3 + r2] = P.R[r2] * R[c * 3] + P.R[3 + r2] * R[c * 3 + 1] + P.R[6 + r2] * R[c * 3 + 2];
+      }
+      world[i] = { R: WR, t: wt };
+      return world[i];
+    }
+    toeIdx.forEach((ti, fi) => { const w = calc(ti); feet[fi].push({ x: w.t[0], y: w.t[1], z: w.t[2] }); });
+  }
+  const dt = clip.d / N, speeds = [];
+  feet.forEach(F => {
+    let mn = 1e9, mx = -1e9;
+    F.forEach(p => { mn = Math.min(mn, p.y); mx = Math.max(mx, p.y); });
+    const thr = mn + (mx - mn) * 0.15, vs = [];
+    for (let s = 1; s <= N; s++) if (F[s].y < thr && F[s - 1].y < thr) vs.push(Math.hypot(F[s].x - F[s - 1].x, F[s].z - F[s - 1].z) / dt);
+    vs.sort((a, b) => a - b);
+    speeds.push(vs.length ? vs[Math.floor(vs.length / 2)] : 0);
+  });
+  const spd = speeds.reduce((a, b) => a + b, 0) / (speeds.length || 1);
+  return +(spd * clip.d).toFixed(3);
+}
+for (const k of ['walk', 'run']) {
+  if (!clipsFull[k]) continue;
+  clipsFull[k].st = fkStride(clipsFull[k]);
+  console.log(' ', k, 'stride/cycle', clipsFull[k].st);
+}
+
 // shared-clip mode: --clips-from <json> makes this entry reference the shared
 // clip set (matched by bone NAME at runtime) instead of embedding its own —
 // all Meshy rigs share the same 24-bone skeleton, so one walk/run set drives
@@ -243,7 +318,7 @@ if (cfIdx >= 0) {
     console.log('  bone names differ from shared clips — embedding own clips');
   } else {
     clips = {};
-    for (const k of Object.keys(clipsFull)) clips[k] = { d: clipsFull[k].d, f: clipsFull[k].f, gy: clipsFull[k].gy, shared: 1 };
+    for (const k of Object.keys(clipsFull)) clips[k] = { d: clipsFull[k].d, f: clipsFull[k].f, gy: clipsFull[k].gy, st: clipsFull[k].st, shared: 1 };
   }
 }
 const scIdx = process.argv.indexOf('--emit-shared');

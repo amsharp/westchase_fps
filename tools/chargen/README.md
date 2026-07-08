@@ -93,6 +93,20 @@ creator's PRESET row; NPCs start wearing them too).
   CPU-skins any animated GLB at time t to verify a clip offline.
 - Meshy tasks show up in the web workspace where the account owner can redo
   them for free; retrieve a redo by its task id via the API.
+- **Clip stride (`st`)**: every walk/run clip entry carries `st` = authored
+  stride in game units per gait cycle, FK-measured from the planted toes
+  (while a foot is on the ground its backward speed relative to the root is
+  the authored body speed; stride = median planted speed × duration).
+  `animPerson` in game.js advances gait clips by distance/stride cycles —
+  this is what keeps feet planted instead of skating. `genskin.js` computes
+  `st` automatically for new characters; `stridecalc.js` batch-(re)computes
+  it for everything already in `meshychars.js` (own clips, the shared clip
+  set average, AND a per-character `st` for shared-clip users, whose
+  retargeted stride depends on their leg lengths) and mirrors the values
+  into `work/meshyskins_v3.json` + `work/shared_clips.json`. **Rerun
+  `stridecalc.js` after `ownclips.js` or `reshare_clips.js`** — those
+  rebuild clip data and their outputs only preserve `st` if the work JSONs
+  already carry it.
 
 ## Game integration contract (already wired, see game.js)
 
