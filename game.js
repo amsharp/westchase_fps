@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.15.0';
+var GAME_VERSION = 'v1.16.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---------------- world constants ----------------
@@ -5288,20 +5288,44 @@ function meshyNameFromCfg(cfg) {
 // ---- positional voice audio ----
 // Lines emanate from the speaker (stereo pan + linear falloff), yells carry
 // twice as far, and everything doppler-shifts as the range opens or closes.
+// `at` may carry a LIVE source in at.ref — an npc/cop/remote object (x/z
+// fields) or a mesh — and the panner then follows the mover every frame.
+// Plain {x,z} anchors still work for static/world-event sounds.
 var VOICE_RANGE = 26;    // how far normal speech carries; yells reach double
 var DOPPLER_C = 343;     // real speed of sound (m/s) — world units are meters
 var activeVoices = [];
 var audioFwd = new THREE.Vector3();
+var voicePosTmp = new THREE.Vector3();
+function voicePos(at) {
+  // refresh at.x/z/y from the live ref; keeps the LAST KNOWN spot when the
+  // source dies/despawns mid-line (a removed mesh must never crash a voice)
+  var r = at && at.ref;
+  if (!r) return at;
+  try {
+    if (r.isObject3D) {
+      r.getWorldPosition(voicePosTmp);
+      at.x = voicePosTmp.x; at.z = voicePosTmp.z; at.y = voicePosTmp.y + 1.6;
+    } else if (typeof r.x === 'number' && typeof r.z === 'number') {
+      at.x = r.x; at.z = r.z;
+      at.y = r.baseY !== undefined ? r.baseY + 1.6 : (typeof r.y === 'number' ? r.y : 1.6);
+    }
+  } catch (e) { at.ref = null; }   // ref went away — freeze at last position
+  return at;
+}
 function voiceEarshot(at) {
   if (!at) return true;
+  voicePos(at);
   var range = at.range || (at.yell ? VOICE_RANGE * 2 : VOICE_RANGE);
   var dx = at.x - player.x, dz = at.z - player.z, dy = (at.y === undefined ? 1.6 : at.y) - player.y;
   return dx * dx + dz * dz + dy * dy <= range * range;
 }
+var voiceOutPan = null;   // panner of the most recent voiceOut() — trackVoice claims it
 function voiceOut(gain, at) {
   // entry node for a voice chain: plain gain, or gain -> panner when placed
   var g = ac.createGain(); g.gain.value = gain;
+  voiceOutPan = null;
   if (!at) { g.connect(ac.destination); return g; }
+  voicePos(at);
   var range = at.range || (at.yell ? VOICE_RANGE * 2 : VOICE_RANGE);
   var y = at.y === undefined ? 1.6 : at.y;
   var p = ac.createPanner();
@@ -5311,12 +5335,14 @@ function voiceOut(gain, at) {
   if (p.positionX) { p.positionX.value = at.x; p.positionY.value = y; p.positionZ.value = at.z; }
   else p.setPosition(at.x, y, at.z);
   g.connect(p); p.connect(ac.destination);
+  voiceOutPan = p;
   return g;
 }
 function trackVoice(src, at) {
   if (!at) return;
   var dx = at.x - player.x, dz = at.z - player.z;
-  var v = { src: src, x: at.x, z: at.z, lastD: Math.sqrt(dx * dx + dz * dz), done: false };
+  var v = { src: src, at: at, pan: voiceOutPan, x: at.x, z: at.z, lsx: at.x, lsz: at.z, lastD: Math.sqrt(dx * dx + dz * dz), done: false };
+  voiceOutPan = null;
   src.addEventListener('ended', function () { v.done = true; });
   activeVoices.push(v);
 }

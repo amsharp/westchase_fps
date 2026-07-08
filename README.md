@@ -176,6 +176,26 @@ cards with alpha cutouts, from the free "retro nature pack" by
 **ElegantCrow** — and the median crepe myrtles bloom pink off the same
 leaves. They still snap like twigs if you drive through them.
 
+## Street furniture
+
+The town is dressed with over a hundred AI-generated props — dumpsters,
+benches, bus shelters, planters, shopping carts, signs, cones and jersey
+barriers around a roadwork site, mailboxes by the townhouses, picnic
+tables by the lake. The big stuff is solid (and stops bullets); poles,
+signs, cones, cans, and carts snap and scatter if you drive through them.
+Some of it does more than sit there:
+
+- **Vending machines** ($2, press E) drop a soda out the front — pick it
+  up, equip it from TAB, and drink it for +25 hp.
+- **Payphones** (E) actually dial — usually a busy signal, sometimes a
+  voice on the line.
+- **ATMs** are out of service… to your E key. A few rounds will open one
+  up for $50–150, once per machine — and it's an instant 2 stars.
+- **Parking meters** spill coins when a car snaps them off.
+- **Fire hydrants** blow a 30-second geyser when clipped.
+- **Newspaper boxes** (E) rattle, and every so often somebody's change
+  falls out.
+
 ## The lake
 
 The lake in the northwest is swimmable: the sandy bed slopes down about
