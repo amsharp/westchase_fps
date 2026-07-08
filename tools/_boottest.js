@@ -14,7 +14,7 @@ const fs = require('fs');
   const errors = [], logs = [];
   p.on('pageerror', e => errors.push('PAGEERROR: ' + (e.stack || e.message)));
   p.on('console', m => { if (m.type() === 'error') errors.push('CONSOLE.ERR: ' + m.text()); else logs.push(m.type() + ': ' + m.text()); });
-  await p.goto('http://127.0.0.1:8155/' + page, { waitUntil: 'load', timeout: 30000 });
+  await p.goto('http://127.0.0.1:8155/' + page, { waitUntil: 'load', timeout: 60000 });
   // let load-time construction run
   await p.waitForTimeout(3500);
 

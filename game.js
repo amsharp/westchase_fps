@@ -1953,6 +1953,10 @@ function buildRemapRoads() {
               if (pdx * pdx + pdz * pdz < (pd2.r + 2) * (pd2.r + 2)) { keep = false; break; }
             }
           }
+          // also break where this sidewalk would lie on ANOTHER road's asphalt
+          // (mid-road X-crossings form no junction pad, so they weren't clipped).
+          // pad 1 < sw/2+0.6, so the ribbon's own parent road never self-clips.
+          if (keep && !remapPointClear(opts[j][0], opts[j][1], 1)) keep = false;
           if (keep) run.push(opts[j]);
           else { if (run.length > 1) remapRibbon(run, sw / 2, sy, expWalkM, 1 / 8, sw / 8); run = []; }
         }
@@ -2652,7 +2656,25 @@ function houseBlocksSpot(x, z) {
   }
   return false;
 }
-var houseStats = { instances: 0, meshes: 0, tris: 0, colliders: 0 };
+// WC_REMAP: the house placement planner was authored before the true-road
+// geometry settled, so at a few road-convergence hubs (notably the SE fork)
+// instances landed on the asphalt. Drop any instance whose footprint clearly
+// overlaps a true road — deterministic (same data every peer), so no desync,
+// and it only removes on-road houses, not road-fronting ones (0.8 shrink +
+// -1.5 pad = "clearly inside asphalt", need 2+ of center/corners to hit).
+function houseOnRoad(x, z, w, d, rot, sc) {
+  if (typeof REMAP_ROADS === 'undefined') return false;
+  var a = rot * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a);
+  var hw = w * sc / 2 * 0.8, hd = d * sc / 2 * 0.8;
+  var pts = [[0, 0], [hw, hd], [-hw, hd], [hw, -hd], [-hw, -hd]], hit = 0;
+  for (var k = 0; k < pts.length; k++) {
+    var lx = pts[k][0], lz = pts[k][1];
+    var wx = lx * ca + lz * sa + x, wz = -lx * sa + lz * ca + z;
+    if (!remapPointClear(wx, wz, -1.5)) hit++;
+  }
+  return hit >= 2;
+}
+var houseStats = { instances: 0, meshes: 0, tris: 0, colliders: 0, skipped: 0 };
 (function buildSurveyHouses() {
   if (typeof HOUSE_CLUSTERS === 'undefined') return;
   var chunks = {};   // 'ci|vi' -> {pos:[],norm:[],uv:[]}
@@ -2663,6 +2685,7 @@ var houseStats = { instances: 0, meshes: 0, tris: 0, colliders: 0 };
     var ci = inst[0], x = inst[1], z = inst[2], rot = inst[3], vi = inst[4], sc = inst[5] || 1;
     var cl = HOUSE_CLUSTERS[ci];
     if (!cl) continue;
+    if (WC_REMAP && houseOnRoad(x, z, cl.spec.dims[0], cl.spec.dims[1], rot, sc)) { houseStats.skipped++; continue; }
     var tpl = houseTemplate(ci);
     var key = ci + '|' + vi;
     var ch = chunks[key];
@@ -4806,8 +4829,12 @@ function parkedHalfExt(ry) {
 }
 function parkedSlotFree(x, z, ry) {
   var h = parkedHalfExt(ry), hx = h.hx, hz = h.hz, i;
-  if (Math.abs(z) - hz < MAIN_HW + 2) return false;            // never on the main road
-  if (Math.abs(x) - hx < CROSS_HW + 2) return false;           // never on the cross road
+  if (WC_REMAP) {
+    if (!remapRectClear(x - hx, x + hx, z - hz, z + hz, 1)) return false;   // never on a true road
+  } else {
+    if (Math.abs(z) - hz < MAIN_HW + 2) return false;          // never on the main road
+    if (Math.abs(x) - hx < CROSS_HW + 2) return false;         // never on the cross road
+  }
   for (i = 0; i < colliders.length; i++) {                     // buildings/solid props/lake/fountain
     var b = colliders[i];
     if (x + hx > b.x0 - 0.2 && x - hx < b.x1 + 0.2 && z + hz > b.z0 - 0.2 && z - hz < b.z1 + 0.2) return false;
@@ -4983,6 +5010,8 @@ function updateCars(dt) {
           c.parked = true; c.speed = 0; c.shoveT = 0;
           c.car.group.position.set(c.slot.x, 0, c.slot.z);
           c.car.group.rotation.y = c.slot.ry;
+        } else if (WC_REMAP) {
+          remapSeedCar(c);   // respawn back onto the lane graph
         } else {
           c.pos = c.dir === 1 ? -EDGE + 4 : EDGE - 4;
           c.lane = c.lane0;
@@ -5040,7 +5069,9 @@ function updateCars(dt) {
       m.position.set(c.sx, 0, c.sz);
       m.rotation.y += c.sspin * dt;
       c.sspin *= 1 - dt * 1.5;
-      if (c.shoveT <= 0) c.pos = c.axis === 'x' ? c.sx : c.sz;   // rejoin the lane from here
+      if (c.shoveT <= 0) { if (WC_REMAP) remapRejoinLane(c); else c.pos = c.axis === 'x' ? c.sx : c.sz; }   // rejoin the lane from here
+    } else if (WC_REMAP) {
+      remapDriveCar(c, dt);   // follow the true-geometry lane graph (RM.edges)
     } else {
       c.pos += c.dir * c.speed * dt;
       if (c.pos > EDGE) c.pos = -EDGE;
