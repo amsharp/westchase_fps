@@ -2027,7 +2027,48 @@ function sidewalkSpot() {
   var z = WALK.z0 + Math.random() * (WALK.z1 - WALK.z0);
   return [side * (CROSS_HW + 1.5 + Math.random() * 3), z];
 }
-function npcTarget() { return Math.random() < 0.6 ? sidewalkSpot() : randTarget(); }
+function npcTarget() { return Math.random() < 0.85 ? sidewalkSpot() : randTarget(); }
+// pick a fresh wander target for an NPC; if the straight line to it crosses a
+// road, usually route through the intersection crosswalk pads first (single
+// waypoint in n.wayX/n.wayZ — no pathfinding)
+function setNpcTarget(n) {
+  var t = npcTarget(); n.tx = t[0]; n.tz = t[1];
+  n.wayX = undefined; n.wayZ = undefined;
+  if (Math.random() < 0.7) {
+    if ((n.z >= MAIN_HW && n.tz <= -MAIN_HW) || (n.z <= -MAIN_HW && n.tz >= MAIN_HW)) {
+      // crossing the E-W main road: pads at (+-13.5, 0)
+      n.wayX = (n.x < 0 ? -1 : 1) * (CROSS_HW + 2.5); n.wayZ = 0;
+    } else if ((n.x >= CROSS_HW && n.tx <= -CROSS_HW) || (n.x <= -CROSS_HW && n.tx >= CROSS_HW)) {
+      // crossing the N-S cross road: pads at (0, +-16.5)
+      n.wayX = 0; n.wayZ = (n.z < 0 ? -1 : 1) * (MAIN_HW + 2.5);
+    }
+  }
+}
+// scan traffic for a car bearing down on this NPC; returns the unit
+// perpendicular (away from the car's path) to sprint along, or null
+function npcCarThreat(n) {
+  for (var i = 0; i < cars.length; i++) {
+    var c = cars[i];
+    if (c.exploded) continue;
+    var m = c.car.group.position;
+    var dx = n.x - m.x, dz = n.z - m.z;
+    var d2 = dx * dx + dz * dz;
+    if (d2 > 49) continue;
+    var vx, vz;
+    if (c.berserk) { vx = c.bvx; vz = c.bvz; }
+    else if (c.shoveT > 0) { vx = c.svx; vz = c.svz; }
+    else if (c.stolen || carDrivenByPlayer(c) || c === driving) { vx = c._pvx || 0; vz = c._pvz || 0; }
+    else { vx = c.axis === 'x' ? c.dir * c.speed : 0; vz = c.axis === 'z' ? c.dir * c.speed : 0; }
+    var sp = Math.sqrt(vx * vx + vz * vz);
+    if (sp < 2.5) continue;                                 // parked / crawling
+    var d = Math.sqrt(d2) || 1;
+    if ((vx * dx + vz * dz) / (sp * d) < 0.6) continue;     // not headed this way
+    var pxn = -vz / sp, pzn = vx / sp;                      // perpendicular to travel
+    var side = dx * pxn + dz * pzn >= 0 ? 1 : -1;           // dodge to the nearer clear side
+    return { x: pxn * side, z: pzn * side };
+  }
+  return null;
+}
 // which roster characters are women — keeps generic yelps/barks gender-true
 // (must sit ABOVE the load-time spawnNPC loop: vars don't hoist)
 var MESHY_FEM = ['MARISOL', 'KEISHA', 'DENISE', 'PHUONG', 'GLORIA', 'AISHA', 'SUMMER', 'PATTY', 'BECCA', 'TINA', 'NIA', 'RAVEN', 'YUKI', 'COP_DIAZ', 'COP_WASHINGTON'];
