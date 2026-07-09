@@ -253,7 +253,7 @@
   <div id="bootLabel">warming up the engine…</div>
 </div>
 <script>
-var wcBootDone = 0, WC_BOOT_TOTAL = 43.4;   // ~sum of script MB below
+var wcBootDone = 0, WC_BOOT_TOTAL = 44.3;   // ~sum of script MB below
 function wcTick(w, nextLabel) {
   wcBootDone += w;
   var b = document.getElementById('bootBar');
@@ -284,7 +284,11 @@ function wcTick(w, nextLabel) {
 <script src="houses.js" onload="wcTick(2.6,'decorating the streets…')"></script>
 <!-- phase-3 density asset pack (54 decals/signs/clutter/fences); placed by
      the density layer in game.js, guarded with typeof DENSITY_PROPS -->
-<script src="densityprops.js" onload="wcTick(0.9,'building the town…')"></script>
+<script src="densityprops.js" onload="wcTick(0.9,'setting out the benches…')"></script>
+<!-- env / street-furniture asset pack (46 seating/railing/planter/sign/play/
+     misc props); placed contextually by the env-props layer in game.js,
+     guarded with typeof ENV_PROPS -->
+<script src="envprops.js" onload="wcTick(0.9,'building the town…')"></script>
 <script src="game.js" onload="wcTick(0.6,'')"></script>
 </body>
 </html>

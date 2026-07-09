@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.51.0';
+var GAME_VERSION = 'v1.52.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -5645,6 +5645,281 @@ function updateStreetProps(dt) {
   }
 }
 
+// ============================================================
+// ENV PROPS (envprops.js) — 46 environment / street-furniture assets placed
+// contextually around the WC_REMAP world. Decoded EXACTLY like getStreetProp
+// (int16 p / q, uint16 uv with 1-v flip, non-indexed, NearestFilter Lambert
+// map). High-count pure-static props MERGE by asset into one buffer/draw-call
+// (perf, like the density layer + houses); animated + interactive props stay
+// as individually-addressable Group instances (registered in `envProps` so
+// STEP-2 animation drivers + STEP-3 E-interactions can find them).
+// All render-only + singleplayer-local — never simulated or net-synced.
+// ============================================================
+var envProps = [];              // instanced (animated/interactive) records
+var envPropInteractables = [];  // subset with an interact flag (STEP 3 E-hooks)
+var envStats = { placed: 0, merged: 0, colliders: 0, batches: 0, byCat: {} };
+var ENV_BY_NAME = {};
+if (typeof ENV_PROPS !== 'undefined') for (var epi = 0; epi < ENV_PROPS.length; epi++) ENV_BY_NAME[ENV_PROPS[epi].n] = ENV_PROPS[epi];
+
+var envGeoCache = {}, envTexCache = {};
+function envDecodeGeo(e) {
+  if (envGeoCache[e.n]) return envGeoCache[e.n];
+  var qp = new Int16Array(b64Bytes(e.p).buffer), qu = new Uint16Array(b64Bytes(e.u).buffer);
+  var fp = new Float32Array(qp.length), fu = new Float32Array(qu.length);
+  for (var i = 0; i < qp.length; i++) fp[i] = qp[i] / e.q;
+  for (i = 0; i < qu.length; i += 2) { fu[i] = qu[i] / 8192; fu[i + 1] = 1 - qu[i + 1] / 8192; }
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(fp, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(fu, 2));
+  if (e.i) geo.setIndex(new THREE.BufferAttribute(new Uint16Array(b64Bytes(e.i).buffer), 1));
+  geo.computeVertexNormals();
+  return (envGeoCache[e.n] = geo);
+}
+function envTex(e) {
+  if (envTexCache[e.n]) return envTexCache[e.n];
+  var im = new Image(), tx = new THREE.Texture(im);
+  tx.magFilter = THREE.NearestFilter; tx.minFilter = THREE.NearestFilter; tx.generateMipmaps = false;
+  im.onload = function () { tx.needsUpdate = true; };
+  im.src = e.tex;
+  return (envTexCache[e.n] = tx);
+}
+// build a fresh Group instance (one Mesh) — used for animated/interactive props
+function getEnvProp(name) {
+  var e = ENV_BY_NAME[name]; if (!e) return null;
+  var g = new THREE.Group();
+  var mesh = new THREE.Mesh(envDecodeGeo(e), lamb({ map: envTex(e) }));
+  g.add(mesh);
+  g.userData.envDims = e.dims; g.userData.envName = name;
+  return g;
+}
+
+// ---- placement (WC_REMAP only; SP_PLACES-style suppression otherwise) ----
+if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
+  var deg = Math.PI / 180;
+  function rnd(a, b) { return a + Math.random() * (b - a); }
+  var VENUES = (typeof REMAP_VENUES !== 'undefined') ? REMAP_VENUES : [];
+  var SURF = (typeof REMAP_SURFACES !== 'undefined') ? REMAP_SURFACES : [];
+  var EXITS = (typeof REMAP_EXITS !== 'undefined') ? REMAP_EXITS : [];
+  var byId = {}, byType = {};
+  for (var vi = 0; vi < VENUES.length; vi++) { byId[VENUES[vi].id] = VENUES[vi]; (byType[VENUES[vi].type] = byType[VENUES[vi].type] || []).push(VENUES[vi]); }
+  function surfById(kind, minArea) { var o = []; for (var i = 0; i < SURF.length; i++) if (SURF[i].kind === kind && SURF[i].w * SURF[i].d >= (minArea || 0)) o.push(SURF[i]); return o; }
+  // outward-front frame for a venue (matches the density layer convention)
+  function vFront(v) { var yaw = (v.rot || 0) * deg; return { yaw: yaw, fx: Math.sin(yaw), fz: Math.cos(yaw), rx: Math.cos(yaw), rz: -Math.sin(yaw) }; }
+  // yaw that points the authored front (-x) toward world dir (dx,dz)
+  function faceDir(dx, dz) { return Math.atan2(dz, -dx); }
+
+  // high-count pure-static assets merge into one buffer/draw-call per asset
+  var MERGE = { handrail: 1, retaining_wall: 1, pond_fence: 1, screen_wall: 1, bollard: 1, chain_post: 1, concrete_planter: 1, tiered_planter: 1, raised_bed: 1, bird_bath: 1, mailbox_cluster: 1, park_lamp: 1, garden_gnome: 1, flamingo: 1 };
+  // props big enough that rain should shadow them (also drawn on minimap)
+  var BIGMAP = { food_truck: 1, icecream_truck: 1, playground_climber: 1, skate_ramp: 1 };
+  var EM = {};   // merged batches: name -> {pos,uv,norm}
+  var _V = new THREE.Vector3(), _N = new THREE.Vector3(), _NM = new THREE.Matrix3();
+  function bake(name, m) {
+    var e = ENV_BY_NAME[name]; if (!e) return; var geo = envDecodeGeo(e);
+    var b = EM[name] || (EM[name] = { pos: [], uv: [], norm: [] });
+    _NM.getNormalMatrix(m);
+    var p = geo.attributes.position, u = geo.attributes.uv, nm = geo.attributes.normal, idx = geo.index;
+    var count = idx ? idx.count : p.count;
+    for (var i = 0; i < count; i++) {
+      var vx = idx ? idx.getX(i) : i;
+      _V.set(p.getX(vx), p.getY(vx), p.getZ(vx)).applyMatrix4(m); b.pos.push(_V.x, _V.y, _V.z);
+      _N.set(nm.getX(vx), nm.getY(vx), nm.getZ(vx)).applyMatrix3(_NM).normalize(); b.norm.push(_N.x, _N.y, _N.z);
+      b.uv.push(u.getX(vx), u.getY(vx));
+    }
+  }
+  function mtx(x, y, z, ry) { return new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromAxisAngle(Y_UP, ry || 0), new THREE.Vector3(1, 1, 1)); }
+
+  // core placement: name at (x,z), authored-front yaw ry. opts:
+  //   y (ground offset, def 0), noCol (skip collider), mapB (force rain/minimap),
+  //   scale (uniform, instances only)
+  function place(name, x, z, ry, opts) {
+    var e = ENV_BY_NAME[name]; if (!e) return null;
+    opts = opts || {}; ry = ry || 0; var y = opts.y || 0, dims = e.dims;
+    if (MERGE[name] && !opts.instance) {
+      bake(name, mtx(x, y, z, ry)); envStats.merged++;
+    } else {
+      var g = getEnvProp(name); if (!g) return null;
+      if (opts.scale) g.scale.set(opts.scale, opts.scale, opts.scale);
+      g.position.set(x, y, z); g.rotation.y = ry; scene.add(g);
+      var rec = { name: name, g: g, x: x, z: z, ry: ry, dims: dims, anim: e.anim || '', cat: e.cat };
+      g.userData.envRec = rec; envProps.push(rec);
+      if (e.solid && !opts.noCol) solidMeshes.push(g);   // bullets stop on solid instances
+    }
+    if (e.solid && !opts.noCol) { addColliderOBB(x, z, dims[0] / 2, dims[2] / 2, ry); envStats.colliders++; }
+    if (opts.mapB || BIGMAP[name]) {
+      var c = Math.abs(Math.cos(ry)), s = Math.abs(Math.sin(ry));
+      mapBuildings.push({ x: x, z: z, w: dims[0] * c + dims[2] * s, d: dims[0] * s + dims[2] * c, c: 0x8a8f94, pad: 0, h: dims[1] });
+    }
+    if (e.interact) {
+      var it = { kind: e.interact, name: name, x: x, z: z, ry: ry, fx: -Math.cos(ry), fz: Math.sin(ry), dims: dims, spawns: !!e.spawns, cd: -99, g: opts.instance || !MERGE[name] ? g : null };
+      envPropInteractables.push(it);
+    }
+    envStats.placed++; envStats.byCat[e.cat] = (envStats.byCat[e.cat] || 0) + 1;
+    return name;
+  }
+  // tileable run A->B repeating a ~segLen unit; ry keeps the authored front facing +normal
+  function run(ax, az, bx, bz, name, faceOut) {
+    var e = ENV_BY_NAME[name]; if (!e) return; var seg = e.dims[0];
+    var dx = bx - ax, dz = bz - az, L = Math.sqrt(dx * dx + dz * dz); if (L < seg * 0.5) return;
+    var n = Math.max(1, Math.round(L / seg)), ux = dx / L, uz = dz / L;
+    // authored front -x should face perpendicular to the run (outward = faceOut side)
+    var nx = -uz * faceOut, nz = ux * faceOut, ry = faceDir(nx, nz);
+    for (var i = 0; i < n; i++) { var t = (i + 0.5) / n * L; place(name, ax + ux * t, az + uz * t, ry, { y: 0 }); }
+  }
+  function ring(cx, cz, rr, name, a0, a1, count) {
+    for (var i = 0; i < count; i++) {
+      var a = a0 + (a1 - a0) * (i + 0.5) / count;
+      var x = cx + Math.cos(a) * rr, z = cz + Math.sin(a) * rr;
+      place(name, x, z, faceDir(Math.cos(a), Math.sin(a)));   // front faces outward from centre
+    }
+  }
+
+  // ---------- 1. CAFE FRONTAGES (Dunkin / Starbucks / Sakura) ----------
+  var cafes = [byId.dunkin, byId.starbucks, byId.sushi];
+  for (var ci = 0; ci < cafes.length; ci++) {
+    var v = cafes[ci]; if (!v) continue; var f = vFront(v);
+    var fpx = v.x + f.fx * (v.d / 2 + 2.4), fpz = v.z + f.fz * (v.d / 2 + 2.4);
+    var out = faceDir(f.fx, f.fz), lat = Math.min(v.w / 2 - 1, 3.4);
+    for (var s = -1; s <= 1; s += 2) {
+      var cx = fpx + f.rx * lat * s, cz = fpz + f.rz * lat * s;
+      place('cafe_set', cx, cz, out);
+      place('patio_umbrella', cx, cz, out, { instance: true });   // canopy sways (STEP 2)
+    }
+    place('aframe_sign', v.x + f.fx * (v.d / 2 + 0.9), v.z + f.fz * (v.d / 2 + 0.9), out);
+    place('bench_back', fpx + f.rx * (lat + 2.2), fpz + f.rz * (lat + 2.2), out);
+    place('concrete_planter', fpx - f.rx * (lat + 2.2), fpz - f.rz * (lat + 2.2), 0);
+  }
+
+  // ---------- 2. STOREFRONT WALKS: bollards + planters + handrails ----------
+  var COMM = ['racetrac', 'publix', 'dollar_tree', 'bank'];
+  function isComm(t) { return COMM.indexOf(t) >= 0; }
+  for (var vp = 0; vp < VENUES.length; vp++) {
+    var vv = VENUES[vp]; if (!isComm(vv.type)) continue; var ff = vFront(vv);
+    var wx = vv.x + ff.fx * (vv.d / 2 + 1.2), wz = vv.z + ff.fz * (vv.d / 2 + 1.2);
+    var outw = faceDir(ff.fx, ff.fz), ew = Math.min(vv.w / 2 - 1.5, 8);
+    // bollard row across the frontage, leaving a door gap in the centre
+    for (var bo = -2; bo <= 2; bo++) { if (bo === 0) continue; var bfx = wx + ff.rx * (ew * bo / 2.4), bfz = wz + ff.rz * (ew * bo / 2.4); place('bollard', bfx, bfz, 0); }
+    // flanking planters
+    place('concrete_planter', wx + ff.rx * ew, wz + ff.rz * ew, 0);
+    place('concrete_planter', wx - ff.rx * ew, wz - ff.rz * ew, 0);
+    if (vv.type === 'bank') place('tiered_planter', vv.x + ff.fx * (vv.d / 2 + 2.6), vv.z + ff.fz * (vv.d / 2 + 2.6), 0);
+    // an ADA handrail run along one side of the frontage
+    if (vv.type === 'publix' || vv.type === 'racetrac') {
+      var h0x = wx + ff.rx * (ew + 0.8), h0z = wz + ff.rz * (ew + 0.8);
+      var h1x = wx + ff.rx * (ew + 5.2), h1z = wz + ff.rz * (ew + 5.2);
+      run(h0x, h0z, h1x, h1z, 'handrail', 1);
+    }
+  }
+
+  // ---------- 3. VENDING / ARCADE cluster near shopfronts (exterior) ----------
+  function vendCluster(v, list) {
+    if (!v) return; var f = vFront(v);
+    var bx = v.x + f.fx * (v.d / 2 + 1.3), bz = v.z + f.fz * (v.d / 2 + 1.3), out = faceDir(f.fx, f.fz);
+    var lat = Math.min(v.w / 2 - 2, 6);
+    for (var i = 0; i < list.length; i++) {
+      var t = (i / Math.max(1, list.length - 1) - 0.5) * 2 * lat;
+      place(list[i], bx + f.rx * t, bz + f.rz * t, out, { instance: true });
+    }
+  }
+  vendCluster(byId.racetrac, ['soda_machine', 'gumball_machine', 'claw_machine']);
+  vendCluster(byId.dollar_tree, ['soda_machine', 'gumball_machine']);
+  vendCluster(byId.publix, ['gumball_machine', 'soda_machine']);
+  // arcade + jukebox on a strip storefront (pizza unit) + boombox on a bench
+  if (byType.strip && byType.strip[0]) { var sp0 = byType.strip[0], sf0 = vFront(sp0), o0 = faceDir(sf0.fx, sf0.fz); var ax0 = sp0.x + sf0.fx * (sp0.d / 2 + 1.2), az0 = sp0.z + sf0.fz * (sp0.d / 2 + 1.2); place('arcade_cabinet', ax0 + sf0.rx * 4, az0 + sf0.rz * 4, o0, { instance: true }); place('jukebox', ax0 - sf0.rx * 4, az0 - sf0.rz * 4, o0, { instance: true }); place('pizza_sign', ax0 + sf0.rx * 10, az0 + sf0.rz * 10, o0, { instance: true }); place('barber_pole', ax0 - sf0.rx * 10, az0 - sf0.rz * 10, o0, { instance: true }); }
+
+  // ---------- 4. SIGNS: monuments at exits, flags at civic corners ----------
+  for (var xi = 0; xi < EXITS.length && xi < 3; xi++) {
+    var ex = EXITS[xi], mx = ex.x + ex.dx * 30, mz = ex.z + ex.dz * 30;
+    place('monument_sign', mx, mz, faceDir(-ex.dx, -ex.dz));   // face inbound traffic
+  }
+  var flags = [byId.regions, byId.boa, byId.farnell];
+  for (var fl = 0; fl < flags.length; fl++) { var fv = flags[fl]; if (!fv) continue; var f2 = vFront(fv); place('flagpole', fv.x + f2.fx * (fv.d / 2 + 4), fv.z + f2.fz * (fv.d / 2 + 4), 0, { instance: true }); }
+
+  // ---------- 5. PLAYGROUND SETS (near townhouses + school) ----------
+  function playground(cx, cz, rot) {
+    place('playground_climber', cx, cz, rot);
+    place('slide', cx + 3.2 * Math.cos(rot), cz + 3.2 * Math.sin(rot), rot + Math.PI);
+    place('swing_set', cx - 3.6 * Math.cos(rot), cz - 3.6 * Math.sin(rot), rot + Math.PI / 2, { instance: true });
+    place('basketball_hoop', cx + 5.5 * Math.sin(rot), cz - 5.5 * Math.cos(rot), rot);
+    place('drinking_fountain', cx + 5.5 * Math.sin(rot) + 1.5, cz - 5.5 * Math.cos(rot), rot, { instance: true });
+    place('bench_back', cx - 5.5 * Math.sin(rot), cz + 5.5 * Math.cos(rot), rot + Math.PI);
+  }
+  playground(-104, -52, 0);                 // open lawn between school and townhouses
+  if (byId.farnell) { var fa = byId.farnell, faf = vFront(fa); playground(fa.x + 22, fa.z + faf.fz * (fa.d / 2 + 8), Math.PI / 2); }
+  // skate ramp in an open cul-de-sac
+  place('skate_ramp', -46, -150, Math.PI / 2, { instance: true });
+
+  // ---------- 6. LAKESIDE PICNIC + QUIRKY WATERFRONT ----------
+  // All anchored on the BANK — outside inLake()'s ellipse (semi-axes 1.25r x
+  // 0.85r, threshold 1.25). bankPt(theta,out) returns a point just past that
+  // boundary at angle theta; props face the water (front toward LK centre).
+  var LK = (typeof LAKE !== 'undefined') ? LAKE : { x: -280, z: 55, r: 62 };
+  function bankPt(theta, out) { var k = 1.118 * (out || 1.06), A = LK.r * 1.25 * k, B = LK.r * 0.85 * k; return [LK.x + A * Math.cos(theta), LK.z + B * Math.sin(theta)]; }
+  function faceLake(x, z) { return faceDir(LK.x - x, LK.z - z); }
+  function placeBank(name, theta, out, opts) { var p = bankPt(theta, out); if (typeof inLake === 'function' && inLake(p[0], p[1])) return; place(name, p[0], p[1], faceLake(p[0], p[1]), opts); }
+  // east-bank picnic run (theta 0 = due east, negative = toward the road/N)
+  placeBank('bench_back', -0.15, 1.06);
+  placeBank('patio_umbrella', -0.15, 1.14, { instance: true });
+  placeBank('bbq_grill', -0.34, 1.07, { instance: true });
+  placeBank('fire_pit', -0.5, 1.08, { instance: true });
+  placeBank('bird_bath', 0.05, 1.1);
+  placeBank('bench_back', 0.22, 1.06);
+  placeBank('park_lamp', -0.62, 1.12); placeBank('park_lamp', 0.34, 1.12);
+  placeBank('fountain', -0.02, 1.24, { instance: true });   // set back from the water
+  placeBank('windmill', 0.55, 1.16, { instance: true });
+  placeBank('flamingo', 0.12, 1.04); placeBank('flamingo', 0.16, 1.045);
+  // decorative pond-fence arc on the road-facing (E/NE) bank
+  for (var pf = 0; pf < 8; pf++) { var a = bankPt(-0.7 + 0.9 * (pf + 0.05) / 8, 1.0), b = bankPt(-0.7 + 0.9 * (pf + 0.95) / 8, 1.0); place('pond_fence', (a[0] + b[0]) / 2, (a[1] + b[1]) / 2, faceLake((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)); }
+
+  // ---------- 7. TOWNHOUSE YARDS: mailboxes, beds, quirky décor ----------
+  var ths = byType.townhouse || [];
+  for (var th = 0; th < ths.length; th++) {
+    var tv = ths[th], tf = vFront(tv);
+    var fx = tv.x + tf.fx * (tv.d / 2 + 1.3), fz = tv.z + tf.fz * (tv.d / 2 + 1.3), tout = faceDir(tf.fx, tf.fz);
+    place('mailbox_cluster', fx + tf.rx * (tv.w / 2 - 3), fz + tf.rz * (tv.w / 2 - 3), tout);
+    if (th % 2 === 0) place('raised_bed', fx - tf.rx * (tv.w / 2 - 4), fz - tf.rz * (tv.w / 2 - 4), tout);
+    if (th % 3 === 0) place('garden_gnome', fx + tf.rx * rnd(-3, 3), fz + tf.rz * rnd(-3, 3), rnd(0, 6.28));
+    if (th % 3 === 1) place('flamingo', fx + tf.rx * rnd(-3, 3), fz + tf.rz * rnd(-3, 3), rnd(0, 6.28));
+    if (th % 4 === 0) place('bird_bath', fx + tf.rx * rnd(-2, 2), fz + tf.rz * rnd(-2, 2), 0);
+    if (th === 0) { place('lemonade_stand', fx + tf.rx * 5, fz + tf.rz * 5, tout, { instance: true }); place('fire_pit', tv.x - tf.fx * 4, tv.z - tf.fz * 4, 0, { instance: true }); }
+    if (th === 2) place('bbq_grill', tv.x - tf.fx * 4, tv.z - tf.fz * 4, tout, { instance: true });
+  }
+  // red-house ornamental yard
+  if (byId.red_house) { var rh = byId.red_house, rf = vFront(rh); place('windmill', rh.x + rf.fx * (rh.d / 2 + 4), rh.z + rf.fz * (rh.d / 2 + 4), 0, { instance: true }); place('garden_gnome', rh.x + rf.fx * (rh.d / 2 + 3) + rf.rx * 3, rh.z + rf.fz * (rh.d / 2 + 3) + rf.rz * 3, rnd(0, 6.28)); place('bird_bath', rh.x + rf.fx * (rh.d / 2 + 3) - rf.rx * 3, rh.z + rf.fz * (rh.d / 2 + 3) - rf.rz * 3, 0); }
+
+  // ---------- 8. FOOD TRUCKS / CARTS / TUBE-MAN in lots + forecourts ----------
+  var lots = surfById('parking', 900);
+  if (lots[0]) place('food_truck', lots[0].x, lots[0].z, (lots[0].rot || 0) * deg + Math.PI / 2, { instance: true });
+  if (lots[1]) place('icecream_truck', lots[1].x, lots[1].z, (lots[1].rot || 0) * deg + Math.PI / 2, { instance: true });
+  if (byId.racetrac) { var rt = byId.racetrac, rtf = vFront(rt); place('hotdog_cart', rt.x + rtf.fx * (rt.d / 2 + 5), rt.z + rtf.fz * (rt.d / 2 + 5), faceDir(rtf.fx, rtf.fz), { instance: true }); place('tube_man', rt.x + rtf.fx * (rt.d / 2 + 9), rt.z + rtf.fz * (rt.d / 2 + 9), 0, { instance: true }); }
+  // tube-man promo at a strip mall too
+  if (byType.strip && byType.strip[1]) { var sp1 = byType.strip[1], sf1 = vFront(sp1); place('tube_man', sp1.x + sf1.fx * (sp1.d / 2 + 6), sp1.z + sf1.fz * (sp1.d / 2 + 6), 0, { instance: true }); }
+
+  // ---------- 9. ROADWORK / UTILITY (porta-potty + screen walls) ----------
+  if (byId.storage) { var st = byId.storage, stf = vFront(st); place('porta_potty', st.x - stf.fx * (st.d / 2 + 3), st.z - stf.fz * (st.d / 2 + 3), faceDir(stf.fx, stf.fz), { instance: true }); place('trash_recycle', st.x - stf.fx * (st.d / 2 + 3) + stf.rx * 3, st.z - stf.fz * (st.d / 2 + 3) + stf.rz * 3, 0, { instance: true }); }
+  // screen walls hiding the mechanical yard behind a bank/strip
+  if (byId.regions) { var rg = byId.regions, rgf = vFront(rg); var scx = rg.x - rgf.fx * (rg.d / 2 + 2), scz = rg.z - rgf.fz * (rg.d / 2 + 2); run(scx - rgf.rx * 2.5, scz - rgf.rz * 2.5, scx + rgf.rx * 2.5, scz + rgf.rz * 2.5, 'screen_wall', -1); }
+
+  // ---------- 10. PARK LAMPS + retaining-wall accents along a lot edge ----------
+  if (lots[0]) { var lo = lots[0], loc = Math.cos((lo.rot || 0) * deg), los = Math.sin((lo.rot || 0) * deg); var ex0 = lo.x - loc * (lo.w / 2 + 2), ez0 = lo.z + los * (lo.w / 2 + 2); place('park_lamp', ex0, ez0, 0); place('park_lamp', lo.x + loc * (lo.w / 2 + 2), lo.z - los * (lo.w / 2 + 2), 0); run(lo.x - lo.w / 2 * loc, lo.z + lo.w / 2 * los, lo.x + lo.w / 2 * loc, lo.z - lo.w / 2 * los, 'retaining_wall', 1); }
+
+  // ---- flush merged batches (one draw call per asset) ----
+  for (var nm in EM) {
+    var b = EM[nm]; if (!b.pos.length) continue;
+    var g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(b.pos), 3));
+    g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(b.norm), 3));
+    g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(b.uv), 2));
+    scene.add(new THREE.Mesh(g, lamb({ map: envTex(ENV_BY_NAME[nm]) })));
+    envStats.batches++;
+  }
+})();
+
+// ---- STEP 2 (animations) + STEP 3 (interactions) drivers: filled in below.
+function updateEnvProps(dt) { /* STEP 2 */ }
+function envPropPrompt() { return ''; }     /* STEP 3 */
+function envPropInteract() { return false; } /* STEP 3 */
+
 // ---------------- police / wanted system ----------------
 var cops = [];
 var copNid = 1;   // stable per-cop id: the cops array is spliced on despawn, so
@@ -10430,6 +10705,7 @@ document.addEventListener('keydown', function (e) {
     var gdx = player.x - gasRob.x, gdz = player.z - gasRob.z;
     if (gdx * gdx + gdz * gdz < 40) { enterStore(); return; }
     if (streetPropInteract()) return;   // vending / payphone / ATM / newsbox
+    if (envPropInteract()) return;      // env props: sit / drink / buy / play / vend / read
     var sc = nearestStealableCar();
     if (sc) {
       if (sc.parked) startBreakIn(sc);   // empty lot car: 0.9s break-in first
@@ -10592,7 +10868,7 @@ function updatePlayer(dt) {
     if (ddx * ddx + ddz * ddz < 36) prompt.textContent = '[E] BUY GUNS';
     else if (gdx * gdx + gdz * gdz < 40) prompt.textContent = (T < gasClosedUntil) ? 'STORE CLOSED' : '[E] ENTER GAS STATION';
     else {
-      var spp = breakIn ? null : streetPropPrompt();   // streetprops: vending/atm/payphone/newsbox
+      var spp = breakIn ? null : (streetPropPrompt() || envPropPrompt());   // street + env prop E-prompts
       var nsc = spp || breakIn ? null : nearestStealableCar();
       if (breakIn) prompt.textContent = 'BREAKING IN…';
       else if (spp) prompt.textContent = spp;
@@ -10613,7 +10889,7 @@ function loop(now) {
   var dt = Math.min(0.05, (now - last) / 1000); last = now;
   if (!state.running) { renderer.render(scene, camera); renderCreatorFrame(dt); return; }
   T += dt;
-  updatePlayer(dt); updateNPCs(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateUfo(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateStreetProps(dt); updateEnv(dt); updateVoiceAudio(dt); updateNet(dt); updateNpcTags(); updateHUD(); drawMinimap();
+  updatePlayer(dt); updateNPCs(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateUfo(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateVoiceAudio(dt); updateNet(dt); updateNpcTags(); updateHUD(); drawMinimap();
   renderer.render(scene, camera);
 }
 setEquipped('fists');
@@ -10727,6 +11003,7 @@ window.__wc = {
   densityInfo: function () { return densityStats; },
   forestFillPts: expFillPts,
   streetProps: streetPropInteractables, streetPropInteract: streetPropInteract, getStreetProp: getStreetProp, hydrantJets: hydrantJets,
+  envProps: envProps, envPropInteractables: envPropInteractables, envStats: envStats, getEnvProp: getEnvProp, envPropInteract: envPropInteract,
   houses: houseStats, houseBlocksSpot: houseBlocksSpot, houseMeshesRef: houseMeshesRef,
   isUnderwater: function () { return underwater; },
   net: net, startGame: startGame, hostGame: hostGame, joinGame: joinGame, handleNet: handleNet,
@@ -10741,7 +11018,7 @@ window.__wc = {
   creatorSpin: function (v) { if (cprev) cprev.spin = v; },
   getPlayerChar: function () { return playerChar; },
   setPlayerChar: function (c) { playerChar = c; },
-  tick: function (dt) { T += dt; updatePlayer(dt); updateNPCs(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateUfo(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateStreetProps(dt); updateEnv(dt); updateVoiceAudio(dt); updateNet(dt); renderer.render(scene, camera); }
+  tick: function (dt) { T += dt; updatePlayer(dt); updateNPCs(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateUfo(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateVoiceAudio(dt); updateNet(dt); renderer.render(scene, camera); }
 };
 
 // ---------------- boot screen handoff + menu cover art ----------------
