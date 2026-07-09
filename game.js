@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.35.0';
+var GAME_VERSION = 'v1.36.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -4197,7 +4197,15 @@ function npcCarThreat(n) {
     var vx, vz;
     if (c.berserk) { vx = c.bvx; vz = c.bvz; }
     else if (c.shoveT > 0) { vx = c.svx; vz = c.svz; }
-    else if (c.stolen || carDrivenByPlayer(c) || c === driving) { vx = c._pvx || 0; vz = c._pvz || 0; }
+    else if (c.stolen || carDrivenByPlayer(c) || c === driving) {
+      // a car driven by a REMOTE player is a synced world car (host mirrors its
+      // pos via drivenBy) — use that remote's mirrored velocity so it registers
+      // as a threat between the 14Hz updates; local/host-driven cars fall back
+      // to the per-frame position-delta sample (c._pvx/_pvz).
+      var rd = (c.drivenBy && net.remotes) ? net.remotes[c.drivenBy] : null;
+      if (rd) { vx = rd.vx || c._pvx || 0; vz = rd.vz || c._pvz || 0; }
+      else { vx = c._pvx || 0; vz = c._pvz || 0; }
+    }
     else { vx = c.axis === 'x' ? c.dir * c.speed : 0; vz = c.axis === 'z' ? c.dir * c.speed : 0; }
     var sp = Math.sqrt(vx * vx + vz * vz);
     if (sp < 2.5) continue;                                 // parked / crawling
@@ -9004,6 +9012,10 @@ function updateNet(dt) {
     r.yaw += dy * k;
     var moved = Math.sqrt((r.x - r.lx) * (r.x - r.lx) + (r.z - r.lz) * (r.z - r.lz));
     r.phase += moved * 3.4;
+    // smoothed world velocity of this remote — the host's only handle on a
+    // remote-driven car's speed/heading (npcCarThreat reads it so pedestrians
+    // dodge cars piloted by other players, not just host-simmed traffic)
+    if (dt > 0) { r.vx = (r.vx || 0) * 0.6 + ((r.x - r.lx) / dt) * 0.4; r.vz = (r.vz || 0) * 0.6 + ((r.z - r.lz) / dt) * 0.4; }
     r.lx = r.x; r.lz = r.z;
     if (r.drv) {
       // their car is a synced world car — just hide the walking avatar
