@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.56.5';
+var GAME_VERSION = 'v1.57.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -12104,7 +12104,83 @@ function updatePlayer(dt) {
     }
   }
 }
-function updateHUD() { document.getElementById('money').textContent = '$' + state.money; document.getElementById('hpBar').style.width = Math.max(0, state.hp) + '%'; }
+// ---------------- pixelated HUD canvas (PS1-on-a-TV) ----------------
+// Everything readable (money, hp, weapon, stars, prompt, rocket cd) is drawn
+// into ONE low-res canvas at a fixed logical height, then CSS upscales it with
+// image-rendering:pixelated — chunky bitmap-look glyphs at any resolution. The
+// hidden DOM readouts (updated below + by scattered code) are the data source.
+var hudCv = document.getElementById('hudCanvas');
+var hudCx = hudCv.getContext('2d');
+var HUD_H = 360;                        // logical height (square pixels, upscaled)
+var hudW = 640, hudH = HUD_H;
+function sizeHud() {
+  var aspect = window.innerWidth / Math.max(1, window.innerHeight);
+  hudH = HUD_H;
+  hudW = Math.max(320, Math.round(HUD_H * aspect));
+  hudCv.width = hudW; hudCv.height = hudH;
+  // minimap: hold ~26% of screen height on any resolution (TV-overlay consistent)
+  var ms = Math.max(150, Math.min(300, Math.round(window.innerHeight * 0.26)));
+  mm.style.width = ms + 'px'; mm.style.height = ms + 'px';
+}
+window.addEventListener('resize', sizeHud); sizeHud();
+// chunky glyph: hard black drop-shadow → reads as an outlined bitmap once upscaled
+function hudText(txt, x, y, size, fill, align) {
+  hudCx.font = 'bold ' + size + 'px "Courier New",monospace';
+  hudCx.textAlign = align || 'left';
+  hudCx.textBaseline = 'alphabetic';
+  var off = Math.max(1, Math.round(size / 11));
+  hudCx.fillStyle = '#000'; hudCx.fillText(txt, x + off, y + off);
+  hudCx.fillStyle = fill; hudCx.fillText(txt, x, y);
+}
+function hudBar(x, y, w, h, frac, fill, notches) {
+  hudCx.fillStyle = '#000'; hudCx.fillRect(x - 2, y - 2, w + 4, h + 4);
+  hudCx.fillStyle = '#cfc7b0'; hudCx.fillRect(x - 1, y - 1, w + 2, h + 2);
+  hudCx.fillStyle = '#241014'; hudCx.fillRect(x, y, w, h);
+  hudCx.fillStyle = fill; hudCx.fillRect(x, y, Math.round(w * Math.max(0, Math.min(1, frac))), h);
+  if (notches) { hudCx.fillStyle = '#000'; for (var s = 1; s < notches; s++) hudCx.fillRect(x + Math.round(w * s / notches), y, 2, h); }
+}
+function drawHudCanvas() {
+  var W = hudW, H = hudH, M = 18;
+  hudCx.clearRect(0, 0, W, H);
+  // money + hp plate (top-left)
+  var money = '$' + state.money;
+  hudCx.font = 'bold 26px "Courier New",monospace';
+  var mwid = hudCx.measureText(money).width;
+  var plateW = Math.max(192, mwid) + 14;
+  hudCx.fillStyle = 'rgba(8,11,18,0.5)'; hudCx.fillRect(M - 7, M - 5, plateW, 62);
+  hudText(money, M, M + 22, 26, '#8ee87f', 'left');
+  var hp = Math.max(0, Math.min(100, state.hp)) / 100;
+  var hpcol = hp > 0.5 ? '#d94f3d' : (hp > 0.25 ? '#e0902e' : '#e5533d');
+  hudBar(M, M + 34, 176, 16, hp, hpcol, 10);
+  // wanted stars (top-center)
+  var sw = state.wanted | 0, gap = 32, sx = W / 2 - gap * 2;
+  for (var i = 0; i < 5; i++) hudText('★', sx + i * gap, M + 28, 30, i < sw ? '#ffd94a' : '#39404d', 'center');
+  // weapon box (bottom-right) — mirror the hidden DOM readout (keeps DRIVING/reload subtext)
+  var wb = document.getElementById('weaponBox'), main = '', sub = '';
+  if (wb) {
+    var cn = wb.childNodes;
+    main = (cn[0] && cn[0].nodeType === 3) ? cn[0].textContent : (wb.textContent || '');
+    var sm = wb.querySelector('small'); sub = sm ? sm.textContent : '';
+  }
+  main = (main || '').trim(); sub = (sub || '').replace(/ /g, ' ').trim();
+  var wy = H - M;
+  if (sub) { hudText(sub, W - M, wy, 13, '#b9b19a', 'right'); wy -= 19; }
+  hudText(main, W - M, wy, 24, '#fff', 'right');
+  // rocket cooldown (just below the crosshair)
+  if (rocketCdEl && !rocketCdEl.classList.contains('hidden')) {
+    var pct = (parseFloat(rocketCdBar.style.width) || 0) / 100;
+    hudBar(W / 2 - 44, H / 2 + 22, 88, 9, pct, '#ffd94a', 0);
+  }
+  // context prompt (lower-center) — sits well below the crosshair, never over it
+  var pr = document.getElementById('prompt'), pt = pr ? (pr.textContent || '').trim() : '';
+  if (pt) {
+    hudCx.font = 'bold 19px "Courier New",monospace';
+    var pw = hudCx.measureText(pt).width, px = W / 2, py = Math.round(H * 0.80);
+    hudCx.fillStyle = 'rgba(8,11,18,0.6)'; hudCx.fillRect(px - pw / 2 - 12, py - 20, pw + 24, 30);
+    hudText(pt, px, py, 19, '#ffe9a0', 'center');
+  }
+}
+function updateHUD() { document.getElementById('money').textContent = '$' + state.money; document.getElementById('hpBar').style.width = Math.max(0, state.hp) + '%'; drawHudCanvas(); }
 
 // ---------------- main loop ----------------
 var last = performance.now();
