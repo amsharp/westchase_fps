@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.25.0';
+var GAME_VERSION = 'v1.26.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -1393,24 +1393,41 @@ var fountainDrops = [];
 })();
 
 // ---------------- lay out the city ----------------
-// R3 landmark relocation: under WC_REMAP each corner landmark is built at its
-// true satellite pose from REMAP_CLEAR (real position + rotation) instead of
-// the legacy axis spot, so buildings front the diagonal roads rather than
-// straddling them. venueClear() finds the non-poly footprint for an id;
-// placeVenue() builds the landmark at the origin (facing +z) while capturing
-// everything it registers, then rotates + translates the whole group into
-// place and re-registers colliders as OBBs / minimap boxes in world space.
-// The legacy world (WC_REMAP off, or an id with no REMAP_CLEAR entry) builds
-// straight at the old coordinates — byte-identical to before.
-function venueClear(id) {
-  if (!WC_REMAP || typeof REMAP_CLEAR === 'undefined') return null;
-  for (var vi = 0; vi < REMAP_CLEAR.length; vi++) if (REMAP_CLEAR[vi].id === id && !REMAP_CLEAR[vi].poly) return REMAP_CLEAR[vi];
-  return null;
+// R3 venue placement (editor-authored): under WC_REMAP every landmark is built
+// from REMAP_VENUES — {type,x,z,rot,w,d} authored in the in-game map editor.
+// venueBuilder() maps a type to a builder that makes the landmark at the origin
+// facing +z at its NATIVE size; placeVenueData() scales the built group to the
+// authored footprint, rotates (+180 for builders whose storefront faces -z so
+// facing matches the editor's front arrow) and translates it into place, then
+// re-registers colliders as OBBs / minimap boxes / parking in world space.
+// Legacy world (WC_REMAP off) uses the hardcoded axis calls in the else block.
+var VENUE_FRONT180 = { racetrac: 1, dollar_tree: 1, dunkin: 1, strip: 1 };  // storefront authored at local -z
+function venueBuilder(v) {
+  var id = v.id || '';
+  switch (v.type) {
+    case 'racetrac':    return { fn: function () { gasStation(0, 0); }, nw: 36, nd: 22 };
+    case 'publix':      return { fn: function () { supermarket(0, 0); }, nw: 74, nd: 44 };
+    case 'farnell':     return { fn: function () { school(0, 0); }, nw: 82, nd: 32 };
+    case 'bank':        return { fn: function () { bankBldg(0, 0, id === 'boa' ? 'BANK OF AMERICA' : id === 'regions' ? 'REGIONS BANK' : 'BANK'); }, nw: 26, nd: 20 };
+    case 'pharmacy':    return { fn: function () { shop(0, 0, 24, 20, 6, '#e8dcc6', ['WESTCHASE PHARMACY'], '#1c4d8f', '#ffe9a0', { face: 1, mmColor: '#3f8fd0' }); }, nw: 24, nd: 20 };
+    case 'sushi':       return { fn: function () { shop(0, 0, 28, 22, 7, '#c0392b', ['SAKURA SUSHI'], '#111111', '#ffcf3a', { face: 1, mmColor: '#d94f3d' }); }, nw: 28, nd: 22 };
+    case 'dollar_tree': return { fn: function () { shop(0, 0, 30, 20, 6, '#3f7f4a', ['DOLLAR TREE'], '#1c5e2a', '#ffe9a0', { face: -1, mmColor: '#2fae4a' }); }, nw: 30, nd: 20 };
+    case 'storage':     return { fn: function () { storage(0, 0); }, nw: 46, nd: 40 };
+    case 'strip':       return { fn: function () { stripMall(0, 0, 50, id === 'strip_a' ? ['AUTO', 'GYM'] : id === 'strip_b' ? ['PIZZA', 'VAPE', 'TAX'] : ['NAILS', 'SUBS', 'LAUNDRY']); }, nw: 50, nd: 20 };
+    case 'dunkin':      return { fn: function () { shop(0, 0, 12, 11, 5, '#e8862e', ['DUNKIN'], '#e01a7a', '#ff8c42', { face: -1, mmColor: '#e8862e' }); }, nw: 12, nd: 11 };
+    case 'starbucks':   return { fn: function () { coffeeShop(0, 0); }, nw: 15, nd: 13 };
+    case 'offices':     return { fn: function () { shop(0, 0, 20, 16, 6, '#e5d7bc', ['WEST PARK OFFICES'], '#3a3a3a', '#ffe9a0', { face: 1, mmColor: '#c9b98a' }); }, nw: 20, nd: 16 };
+    case 'yoga':        return { fn: function () { shop(0, 0, 16, 14, 5, '#e0d2b8', ['YOGA'], '#5a2e6a', '#ffe9a0', { face: 1, mmColor: '#b07acd' }); }, nw: 16, nd: 14 };
+    case 'townhouse':   return { fn: function () { townhouseRow(0, 0, 6, 0); }, nw: 48, nd: 10 };
+    case 'red_house':   return { fn: function () { redHouse(0, 0); }, nw: 18, nd: 18 };
+    case 'house':       return { fn: function () { house(0, 0); }, nw: 11, nd: 9 };
+    default:            return { fn: function () { shop(0, 0, 20, 16, 6, '#cfc8b8', ['SHOP'], '#333333', '#ffe9a0', { face: 1, mmColor: '#b8b0a0' }); }, nw: 20, nd: 16 };
+  }
 }
-function placeVenue(id, oldX, oldZ, buildAt) {
-  var cl = venueClear(id);
-  if (!cl) { buildAt(oldX, oldZ); return; }
-  var yaw = (cl.rot || 0) * Math.PI / 180;
+function placeVenueData(v) {
+  var spec = venueBuilder(v);
+  var sx = v.w / spec.nw, sz = v.d / spec.nd;
+  var yaw = ((v.rot || 0) + (VENUE_FRONT180[v.type] ? 180 : 0)) * Math.PI / 180;
   var vg = new THREE.Group();
   var realAdd = scene.add.bind(scene), savedCol = addCollider, savedOBB = addColliderOBB;
   var cols = [], mbs = [], parks = [];
@@ -1419,57 +1436,59 @@ function placeVenue(id, oldX, oldZ, buildAt) {
   addColliderOBB = function (cx, cz, hw, hd, y) { cols.push([cx, cz, hw, hd, y || 0]); };
   mapBuildings.push = function (e) { mbs.push(e); return mbs.length; };
   mapParking.push = function (e) { parks.push(e); return parks.length; };
-  try { buildAt(0, 0); }
-  finally {
-    delete scene.add; addCollider = savedCol; addColliderOBB = savedOBB;
-    delete mapBuildings.push; delete mapParking.push;
-  }
-  vg.position.set(cl.x, 0, cl.z); vg.rotation.y = yaw;
+  try { spec.fn(); }
+  finally { delete scene.add; addCollider = savedCol; addColliderOBB = savedOBB; delete mapBuildings.push; delete mapParking.push; }
+  vg.position.set(v.x, 0, v.z); vg.rotation.y = yaw; vg.scale.set(sx, 1, sz);
   realAdd(vg); vg.updateMatrixWorld(true);
   var cy = Math.cos(yaw), sy = Math.sin(yaw), k, w;
-  function toW(lx, lz) { return [lx * cy + lz * sy + cl.x, -lx * sy + lz * cy + cl.z]; }
-  for (k = 0; k < cols.length; k++) { var c = cols[k]; w = toW(c[0], c[1]); addColliderOBB(w[0], w[1], c[2], c[3], yaw + c[4]); }
+  function toW(lx, lz) { var ax = lx * sx, az = lz * sz; return [ax * cy + az * sy + v.x, -ax * sy + az * cy + v.z]; }
+  for (k = 0; k < cols.length; k++) { var c = cols[k]; w = toW(c[0], c[1]); addColliderOBB(w[0], w[1], c[2] * sx, c[3] * sz, yaw + c[4]); }
   for (k = 0; k < mbs.length; k++) {
-    var e = mbs[k]; w = toW(e.x, e.z);
-    mapBuildings.push({ x: w[0], z: w[1], w: Math.abs(e.w * cy) + Math.abs(e.d * sy), d: Math.abs(e.w * sy) + Math.abs(e.d * cy), h: e.h, c: e.c, pad: e.pad });
+    var e = mbs[k]; w = toW(e.x, e.z); var ew = e.w * sx, ed = e.d * sz;
+    mapBuildings.push({ x: w[0], z: w[1], w: Math.abs(ew * cy) + Math.abs(ed * sy), d: Math.abs(ew * sy) + Math.abs(ed * cy), h: e.h, c: e.c, pad: e.pad });
   }
-  for (k = 0; k < parks.length; k++) { var p = parks[k]; w = toW(p.x, p.z); mapParking.push({ x: w[0], z: w[1], w: p.w, d: p.d }); }
+  for (k = 0; k < parks.length; k++) { var p = parks[k]; w = toW(p.x, p.z); mapParking.push({ x: w[0], z: w[1], w: p.w * sx, d: p.d * sz }); }
 }
-// SE gas station (robbable)
-placeVenue('racetrac', 55, 50, function (x, z) { gasStation(x, z); });
-// SW dollar store + storage + strip malls
-placeVenue('dollar_tree', -52, 48, function (x, z) { shop(x, z, 30, 20, 6, '#3f7f4a', ['DOLLAR TREE'], '#1c5e2a', '#ffe9a0', { face: -1, mmColor: '#2fae4a' }); });
-placeVenue('storage', -52, 116, function (x, z) { storage(x, z); });
-placeVenue('strip_c', -120, 52, function (x, z) { stripMall(x, z, 50, ['NAILS', 'SUBS', 'LAUNDRY']); });
-placeVenue('strip_b', -188, 54, function (x, z) { stripMall(x, z, 52, ['PIZZA', 'VAPE', 'TAX']); });
-placeVenue('strip_a', -256, 56, function (x, z) { stripMall(x, z, 48, ['AUTO', 'GYM']); });
-// Dunkin fronts the blue-roof plaza, across the main road from Starbucks
-// (the gas station stands alone on its corner of the intersection)
-placeVenue('dunkin', -116, 31, function (x, z) { shop(x, z, 12, 11, 5, '#e8862e', ['DUNKIN'], '#e01a7a', '#ff8c42', { face: -1, mmColor: '#e8862e' }); });
-// NE bank / pharmacy / sushi
-placeVenue('regions', 52, -48, function (x, z) { bankBldg(x, z, 'REGIONS BANK'); });
-placeVenue('pharmacy', 52, -112, function (x, z) { shop(x, z, 24, 20, 6, '#e8dcc6', ['WESTCHASE PHARMACY'], '#1c4d8f', '#ffe9a0', { face: 1, mmColor: '#3f8fd0' }); });
-placeVenue('sushi', 108, -112, function (x, z) { shop(x, z, 28, 22, 7, '#c0392b', ['SAKURA SUSHI'], '#111111', '#ffcf3a', { face: 1, mmColor: '#d94f3d' }); });
-// NW bank / supermarket / school / townhouses
-placeVenue('boa', -48, -48, function (x, z) { bankBldg(x, z, 'BANK OF AMERICA'); });
-placeVenue('publix', -72, -140, function (x, z) { supermarket(x, z); });
-placeVenue('farnell', -72, -238, function (x, z) { school(x, z); });
-placeVenue('th_a', -150, -120, function (x, z) { townhouseRow(x, z, 6, 0); });
-placeVenue('th_b', -150, -150, function (x, z) { townhouseRow(x, z, 6, 0); });
-placeVenue('th_c', -210, -215, function (x, z) { townhouseRow(x, z, 6, 0); });
-placeVenue('th_d', -210, -245, function (x, z) { townhouseRow(x, z, 6, 0); });
-// west along the main road
-placeVenue('starbucks', -116, -30, function (x, z) { coffeeShop(x, z); });
-placeVenue('offices', -135, -82, function (x, z) { shop(x, z, 20, 16, 6, '#e5d7bc', ['WEST PARK OFFICES'], '#3a3a3a', '#ffe9a0', { face: 1, mmColor: '#c9b98a' }); });
-placeVenue('yoga', -108, -82, function (x, z) { shop(x, z, 16, 14, 5, '#e0d2b8', ['YOGA'], '#5a2e6a', '#ffe9a0', { face: 1, mmColor: '#b07acd' }); });
-placeVenue('red_house', -278, -78, function (x, z) { redHouse(x, z); });
-
-// gameplay anchors follow their venues under WC_REMAP (spawn/dealer in the
-// Publix lot, rob zone at RaceTrac) — refined against the true poses.
-if (WC_REMAP) {
-  player.x = -24; player.z = -31;        // publix_lot clear poly (east of the store)
-  dealerPos.x = -26; dealerPos.z = -34;
-  gasRob.x = 47.9; gasRob.z = 3.7;       // RaceTrac footprint centre
+// editor-authored parking lots + pavement (rotated planes) under WC_REMAP
+function remapSurfaces() {
+  if (typeof REMAP_SURFACES === 'undefined') return;
+  for (var i = 0; i < REMAP_SURFACES.length; i++) {
+    var s = REMAP_SURFACES[i], park = s.kind === 'parking';
+    var geo = new THREE.PlaneGeometry(s.w, s.d); geo.rotateX(-Math.PI / 2);
+    var m = lamb({ map: (park ? parkingT : concreteT).clone() });
+    m.map.repeat.set(Math.max(1, s.w / (park ? 22 : 6)), Math.max(1, s.d / (park ? 22 : 6))); m.map.needsUpdate = true;
+    var mesh = new THREE.Mesh(geo, m);
+    mesh.position.set(s.x, park ? 0.1 : 0.115, s.z); mesh.rotation.y = s.rot * Math.PI / 180;
+    scene.add(mesh);
+    (park ? mapParking : mapPave).push({ x: s.x, z: s.z, w: s.w, d: s.d });
+  }
+}
+if (WC_REMAP && typeof REMAP_VENUES !== 'undefined') {
+  remapSurfaces();
+  for (var vqi = 0; vqi < REMAP_VENUES.length; vqi++) placeVenueData(REMAP_VENUES[vqi]);
+  // gameplay anchors: spawn + dealer in the Publix lot, rob zone at RaceTrac
+  player.x = -63; player.z = 4; dealerPos.x = -60; dealerPos.z = 0;
+  gasRob.x = 85; gasRob.z = -4;
+} else {
+  gasStation(55, 50);
+  shop(-52, 48, 30, 20, 6, '#3f7f4a', ['DOLLAR TREE'], '#1c5e2a', '#ffe9a0', { face: -1, mmColor: '#2fae4a' });
+  storage(-52, 116);
+  stripMall(-120, 52, 50, ['NAILS', 'SUBS', 'LAUNDRY']);
+  stripMall(-188, 54, 52, ['PIZZA', 'VAPE', 'TAX']);
+  stripMall(-256, 56, 48, ['AUTO', 'GYM']);
+  shop(-116, 31, 12, 11, 5, '#e8862e', ['DUNKIN'], '#e01a7a', '#ff8c42', { face: -1, mmColor: '#e8862e' });
+  bankBldg(52, -48, 'REGIONS BANK');
+  shop(52, -112, 24, 20, 6, '#e8dcc6', ['WESTCHASE PHARMACY'], '#1c4d8f', '#ffe9a0', { face: 1, mmColor: '#3f8fd0' });
+  shop(108, -112, 28, 22, 7, '#c0392b', ['SAKURA SUSHI'], '#111111', '#ffcf3a', { face: 1, mmColor: '#d94f3d' });
+  bankBldg(-48, -48, 'BANK OF AMERICA');
+  supermarket(-72, -140);
+  school(-72, -238);
+  townhouseRow(-150, -120, 6, 0); townhouseRow(-150, -150, 6, 0);
+  townhouseRow(-210, -215, 6, 0); townhouseRow(-210, -245, 6, 0);
+  coffeeShop(-116, -30);
+  shop(-135, -82, 20, 16, 6, '#e5d7bc', ['WEST PARK OFFICES'], '#3a3a3a', '#ffe9a0', { face: 1, mmColor: '#c9b98a' });
+  shop(-108, -82, 16, 14, 5, '#e0d2b8', ['YOGA'], '#5a2e6a', '#ffe9a0', { face: 1, mmColor: '#b07acd' });
+  redHouse(-278, -78);
 }
 
 // neighborhoods (moderate) — the survey houses (houses.js) fill the true-road

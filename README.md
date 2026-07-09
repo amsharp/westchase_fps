@@ -286,11 +286,11 @@ gets to it first, not to whoever made it show up. Probably nothing.
   sidewalks (they stick to their own neighborhood, and jaywalk — no
   crosswalks out there) and the odd soul along a collector or Lynmar.
   The corner landmarks (Publix, RaceTrac, the strip malls, banks, school,
-  Dunkin, Starbucks, sushi, pharmacy, townhouses, the red house) have been
-  re-anchored to their true satellite positions and angles, so they front
-  the diagonal roads instead of straddling them. (Still to come: per-venue
-  parking lots and the street furniture — benches, ATMs, carts — around the
-  relocated stores.)
+  Dunkin, Starbucks, sushi, pharmacy, townhouses, the red house) sit at
+  hand-placed positions/angles fronting the roads, each with its own
+  parking lot. The whole layout — roads, buildings, and parking/pavement —
+  is authored in a built-in map editor (`editor.html`) and imported into
+  the game by `tools/mapimport.js` (source of truth: `tools/westchase_map.json`).
 - The map is finite — a wall rings the city.
 - Watch for traffic; cars hurt.
 - Getting knocked out costs you 25% of your cash.
