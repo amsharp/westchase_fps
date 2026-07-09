@@ -10,7 +10,7 @@ const path = require('path');
 const http = require('http');
 let chromium; try { ({ chromium } = require('playwright')); } catch (e) { ({ chromium } = require('/opt/node22/lib/node_modules/playwright')); }
 const ROOT = path.join(__dirname, '..', '..'), WORK = path.join(__dirname, 'work');
-const PORT = 8205;
+const PORT = +(process.env.KIDSHEET_PORT || 8205);
 
 const OUT = process.argv[2] || path.join(__dirname, 'aigen', 'kids_contact.png');
 const CYCLE = process.argv.indexOf('--only') >= 0 && !isNaN(+process.argv[3]) ? +process.argv[3] : (+process.argv[3] || 0.28);
@@ -35,7 +35,7 @@ if (fs.existsSync(manPath)) {
 console.log('looks:', looks.length);
 
 // serialize the entries + looks the page needs
-const payload = { entries: baseByName, looks: looks.map(l => ({ label: l.label, base: l.base, tex: l.tex || null })), cycle: CYCLE };
+const payload = { entries: baseByName, looks: looks.map(l => ({ label: l.label, base: l.base, tex: l.tex || null })), cycle: CYCLE, cell: +(process.env.KIDSHEET_CELL || 200) };
 
 const PAGE = '<!doctype html><html><head><meta charset=utf8></head><body><script src="/three.min.js"></script></body></html>';
 const server = http.createServer((req, res) => {
@@ -108,7 +108,7 @@ const server = http.createServer((req, res) => {
 
     const cols = Math.ceil(Math.sqrt(pay.looks.length)) + 1;
     const rows = Math.ceil(pay.looks.length / cols);
-    const CELL = 200, LBL = 16;
+    const CELL = pay.cell || 200, LBL = 16;
     const W = cols * CELL, H = rows * (CELL + LBL);
     const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     renderer.setSize(CELL, CELL);
