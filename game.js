@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.54.0';
+var GAME_VERSION = 'v1.55.2';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -516,6 +516,10 @@ var clapSageM = lamb2(clapboardTex('#a7ad92'));            // Starbucks sage cla
 var bayGlassM = lamb2(bayGlassT);                          // storefront glass
 var venCapM = lamb({ color: 0xcfc7b4 });                  // parapet capstone
 var venAcM = lamb({ color: 0x9a9a94 });                   // rooftop AC
+var orangeMetalM = lamb2(seamMetalTex('#e8862e'));        // Dunkin orange metal awning
+var grayBlockM = lamb2(stuccoTex('#bcbab4'));             // Dunkin gray split-face block
+var stuccoMatCache = {};
+function stuccoMat(color) { if (!stuccoMatCache[color]) stuccoMatCache[color] = lamb2(stuccoTex(color)); return stuccoMatCache[color]; }
 
 // ---- venue depth primitives (builder-local, all FLAT single-material meshes so
 // placeVenueData can merge them by material for perf; front faces +z, dir=+1/-1
@@ -525,6 +529,11 @@ var venAcM = lamb({ color: 0x9a9a94 });                   // rooftop AC
 function vWin(x, y, wallZ, dir, w, h, trimM, glassM) {
   var fr = box(w + 0.34, h + 0.34, 0.12, trimM); fr.position.set(x, y, wallZ + dir * 0.06); scene.add(fr);
   var gl = box(w, h, 0.16, glassM || bayGlassM); gl.position.set(x, y, wallZ - dir * 0.05); scene.add(gl);
+}
+// punched window on an x-facing wall (dir=+1 => +x face); w spans along z
+function vWinX(z, y, wallX, dir, w, h, trimM, glassM) {
+  var fr = box(0.12, h + 0.34, w + 0.34, trimM); fr.position.set(wallX + dir * 0.06, y, z); scene.add(fr);
+  var gl = box(0.16, h, w, glassM || bayGlassM); gl.position.set(wallX - dir * 0.05, y, z); scene.add(gl);
 }
 // NOTE: Object3D.add() returns the PARENT — never chain .position onto scene.add().
 // storefront glass bay: solid bulkhead + recessed mullion glass + header + sill
@@ -737,26 +746,33 @@ function bldg(x, z, w, d, h, color, o) {
   return b;
 }
 // storefront-fronted shop (front faces +z toward road unless o.face given)
+// storefront-fronted shop with real depth: stucco/brick body, parapet or hip roof,
+// terracotta piers, recessed storefront glass bays flanking a canopied entrance,
+// rooftop AC. o.wallMat/pierMat/canopyMat/roofMat + roofType('flat'|'hip') tune it.
 function shop(x, z, w, d, h, color, lines, bg, fg, o) {
   o = o || {};
-  var face = o.face || 1; // 1 => front at +z, -1 => front at -z
-  var fac = nightLit(lamb({ map: facadeTex(color, Math.max(w, d), h, false) }));
-  var front = nightLit(lamb({ map: storefrontTex(color) }), 0xfff0c8);
-  var side = fac;
-  var px = face === 1 ? side : side, nx = side;
-  var pz = face === 1 ? front : fac, nz = face === 1 ? fac : front;
-  var b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [side, side, flatRoofM, flatRoofM, pz, nz]);
+  var face = o.face || 1, fz = z + face * d / 2;
+  var wallM = o.wallMat || stuccoMat(color);
+  var b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [wallM, wallM, flatRoofM, flatRoofM, wallM, wallM]);
   b.position.set(x, h / 2 + 0.1, z);
   scene.add(b); solidMeshes.push(b); addCollider(x, z, w, d);
-  scene.add(box(w + 0.5, 0.5, d + 0.5, parapetM(color), x, h + 0.35, z));
+  if (o.roofType === 'hip') {
+    var rh = o.roofH || 2.6, rf = new THREE.Mesh(hipGeo, o.roofMat || grayHipM);
+    rf.scale.set(w + 1.6, rh, d + 1.6); rf.position.set(x, h + 0.1 + rh / 2, z); scene.add(rf);
+    vEave(x, z, w, d, h + 0.02, venCapM);
+  } else {
+    vParapet(x, z, w, d, h + 0.1, venCapM);
+  }
+  // storefront glass bays flanking a center entrance
+  var units = Math.max(2, Math.round(w / 6)), seg = w / units, EHW = Math.min(w * 0.3, seg * 0.95);
+  for (var i = 0; i <= units; i++) { var pxp = x - w / 2 + i * seg; if (Math.abs(pxp - x) < EHW - 0.6) continue; vPier(pxp, fz, face, 0.9, h - 0.4, 0.4, o.pierMat || terracottaM, o.brickBase ? brickBaseM : null); }
+  for (i = 0; i < units; i++) { var bx = x - w / 2 + seg * (i + 0.5); if (Math.abs(bx - x) < EHW) continue; vBay(bx, 0.2, fz, face, seg - 2.2, Math.min(h - 1.0, 4.2), venCapM, bayGlassM); }
+  vBay(x, 0.2, fz, face, 2 * EHW - 2, Math.min(h - 0.8, 4.4), venCapM, bayGlassM);
+  vCanopy(x, fz, face, 2 * EHW, 2.2, Math.min(h - 0.6, 3.8), o.canopyMat || greenMetalM, o.pierMat || terracottaM);
+  vAC(x, z - face * d * 0.2, h + 0.1, venAcM);
   if (lines) {
-    var sz = z + face * (d / 2 + 0.06);
-    signPlane(x, h - 0.6, sz, face === 1 ? 0 : Math.PI, Math.min(w - 2, 12), 1.5, lines, bg, fg);
-    // striped awning
-    var awn = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(w - 1, 13), 1.5), lamb({ map: awningTex(bg, '#e8e2d0'), side: THREE.DoubleSide }));
-    awn.rotation.x = face === 1 ? -0.6 : 0.6;
-    awn.position.set(x, h * 0.55, z + face * (d / 2 + 0.7));
-    scene.add(awn);
+    var sz = z + face * (d / 2 + 0.08);
+    signPlane(x, h - 0.5, sz, face === 1 ? 0 : Math.PI, Math.min(w - 2, 12), 1.4, lines, bg, fg);
   }
   mapBuildings.push({ x: x, z: z, w: w, d: d, h: h, c: o.mmColor || fg || color, pad: o.pad !== false });
   return b;
@@ -814,15 +830,24 @@ function gasStation(x, z) {
   signPlane(x - 17, 6.4, z + 5, 0, 3.2, 2, ['GAS', '$3.29'], '#12508f', '#ffd94a');
 }
 
+// self-storage: rows of roll-up doors under low gray standing-seam metal gable
+// roofs, with a glass front-office bay + sign.
 function storage(x, z) {
   for (var r = 0; r < 3; r++) {
     var rz = z - 14 + r * 14;
     var b = box(46, 4, 8, storageDoorM, x, 2.1, rz);
     scene.add(b); solidMeshes.push(b); addCollider(x, rz, 46, 8);
-    scene.add(box(47, 1.6, 9, lamb({ color: 0x8a8478 }), x, 4.6, rz));
+    var peak = 1.0, sl = Math.sqrt(16 + peak * peak), ang = Math.atan2(peak, 4);
+    var p1 = box(47, 0.2, sl, grayHipM, x, 4.2 + peak / 2, rz - 2); p1.rotation.x = ang; scene.add(p1);
+    var p2 = box(47, 0.2, sl, grayHipM, x, 4.2 + peak / 2, rz + 2); p2.rotation.x = -ang; scene.add(p2);
+    scene.add(box(47, 0.25, 0.3, grayHipM, x, 4.2 + peak, rz));
     if (r === 0) mapBuildings.push({ x: x, z: z, w: 46, d: 40, h: 4.5, c: '#c9662a', pad: true });
   }
-  signPlane(x, 3, z - 18.4, 0, 12, 1.6, ['SELF STORAGE'], '#243b5a', '#ffe9a0');
+  // glass front-office bay on the road-facing end of the first row
+  vBay(x - 17, 0.2, z - 18.1, -1, 6.5, 3.4, venCapM, bayGlassM);
+  vPier(x - 21.5, z - 18.1, -1, 0.9, 4, 0.4, brickBaseM, null);
+  vPier(x - 12.5, z - 18.1, -1, 0.9, 4, 0.4, brickBaseM, null);
+  signPlane(x, 5.4, z - 18.4, 0, 12, 1.6, ['SELF STORAGE'], '#243b5a', '#ffe9a0');
 }
 
 // Publix anchor (geo_ref sv_aldi_front): beige stucco, terracotta pilasters w/
@@ -855,9 +880,28 @@ function supermarket(x, z) {
   for (i = -1; i <= 1; i++) scene.add(cyl(0.2, 0.2, 7, 6, lamb({ color: 0x555 }), x + i * 26, 3.5, z + 44));
 }
 
+// Farnell Middle (geo_ref sv_farnell): long 2-story tan panel building, ribbon
+// windows on two floors, brown entry tower + canopy, rooftop AC, track/field.
 function school(x, z) {
-  bldg(x, z, 82, 32, 8, '#e4d8c0', { flat: true, door: false, mmColor: '#c8a24a' });
-  signPlane(x, 6.6, z + 16.1, 0, 26, 2.4, ['FARNELL', 'MIDDLE SCHOOL'], '#2c3e70', '#ffe9a0');
+  var w = 82, d = 32, h = 8, fz = z + d / 2;
+  var wallM = stuccoMat('#e4d8c0'), pierM = stuccoMat('#d8c9a8');
+  var b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [wallM, wallM, flatRoofM, flatRoofM, wallM, wallM]);
+  b.position.set(x, h / 2 + 0.1, z); scene.add(b); solidMeshes.push(b); addCollider(x, z, w, d);
+  mapBuildings.push({ x: x, z: z, w: w, d: d, h: h, c: '#c8a24a', pad: true });
+  vParapet(x, z, w, d, h + 0.1, venCapM);
+  var bays = 10, seg = w / bays;
+  for (var i = 0; i <= bays; i++) vPier(x - w / 2 + i * seg, fz, 1, 0.9, h - 0.2, 0.3, pierM, null);
+  for (i = 0; i < bays; i++) {
+    var bx = x - w / 2 + seg * (i + 0.5);
+    if (i === 4 || i === 5) continue;   // center entry
+    vWin(bx, 5.7, fz, 1, seg - 1.5, 1.7, venCapM, bayGlassM);
+    vWin(bx, 2.9, fz, 1, seg - 1.5, 1.7, venCapM, bayGlassM);
+  }
+  scene.add(box(2 * seg + 1, h + 2.4, 0.9, stuccoMat('#a9855a'), x, (h + 2.4) / 2 + 0.1, fz + 0.25));
+  vBay(x, 0.2, fz, 1, 2 * seg - 3, 4.8, venCapM, bayGlassM);
+  vCanopy(x, fz, 1, 2 * seg, 3.0, 4.4, venCapM, stuccoMat('#a9855a'));
+  vAC(x - 20, z - 5, h + 0.1, venAcM); vAC(x + 20, z - 5, h + 0.1, venAcM);
+  signPlane(x, 7.2, fz + 0.95, 0, 24, 2.2, ['FARNELL', 'MIDDLE SCHOOL'], '#2c3e70', '#ffe9a0');
   // running track + field to the north
   var track = new THREE.Mesh(new THREE.CircleGeometry(24, 28), lamb({ color: 0xb05a3a }));
   track.rotation.x = -Math.PI / 2; track.scale.set(1.4, 1, 1); track.position.set(x, 0.14, z - 34); scene.add(track);
@@ -866,13 +910,29 @@ function school(x, z) {
   parkingLot(x + 54, z, 24, 44);
 }
 
+// red-brick bank (geo_ref: Regions = cream arched entry parapet; BoA = gray
+// standing-seam hip roof + flagpole). Front faces +z; sides get punched windows.
 function bankBldg(x, z, name) {
-  bldg(x, z, 26, 20, 7, '#eae3d2', { flat: true, door: false, mmColor: '#3f6f9c' });
-  // columns portico facing road
-  var pm = lamb({ color: 0xf2ecdd });
-  for (var i = -1; i <= 1; i++) scene.add(cyl(0.5, 0.5, 5.5, 10, pm, x + i * 8, 2.85, z + 10.5));
-  scene.add(box(24, 0.8, 3, pm, x, 5.9, z + 10.5));
-  signPlane(x, 5, z + 10.1, 0, 16, 1.6, [name], '#123a6a', '#ffe9a0');
+  var w = 26, d = 20, h = 7, fz = z + d / 2, boa = name.indexOf('AMERICA') >= 0;
+  var b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [brickBankM, brickBankM, flatRoofM, flatRoofM, brickBankM, brickBankM]);
+  b.position.set(x, h / 2 + 0.1, z); scene.add(b); solidMeshes.push(b); addCollider(x, z, w, d);
+  mapBuildings.push({ x: x, z: z, w: w, d: d, h: h, c: '#3f6f9c', pad: true });
+  if (boa) {
+    var roof = new THREE.Mesh(hipGeo, grayHipM); roof.scale.set(w + 1.8, 3.0, d + 1.8); roof.position.set(x, h + 0.1 + 1.5, z); scene.add(roof);
+    vEave(x, z, w, d, h + 0.02, venCapM);
+    scene.add(cyl(0.09, 0.09, 7, 6, lamb({ color: 0xdddddd }), x - w / 2 + 1.6, 3.6, fz + 2));
+  } else {
+    vParapet(x, z, w, d, h + 0.1, venCapM);
+    scene.add(box(9, 2.4, 0.7, stuccoBeigeM, x, h + 1.0, fz + 0.1));   // cream arched entry parapet
+  }
+  // entrance glass + canopy, flanking punched windows (cream trim)
+  vBay(x, 0.2, fz, 1, 5.5, 4.2, venCapM, bayGlassM);
+  vCanopy(x, fz, 1, 8, 2.6, 4.0, boa ? grayHipM : venCapM, brickBaseM);
+  vWin(x - 8.5, 3.7, fz, 1, 3.0, 2.4, venCapM, bayGlassM);
+  vWin(x + 8.5, 3.7, fz, 1, 3.0, 2.4, venCapM, bayGlassM);
+  for (var s = -1; s <= 1; s += 2) { vWinX(z - 4.5, 3.7, x + s * w / 2, s, 3.0, 2.4, venCapM, bayGlassM); vWinX(z + 4.5, 3.7, x + s * w / 2, s, 3.0, 2.4, venCapM, bayGlassM); }
+  vAC(x, z - 5, h + 0.1, venAcM);
+  signPlane(x, h - 0.6, fz + 0.14, 0, 16, 1.4, [name], '#123a6a', '#ffe9a0');
 }
 
 function townhouseRow(x, z, units, ry) {
@@ -926,8 +986,11 @@ function redHouse(x, z) {
   for (var f = 1; f <= 4; f++) scene.add(box(19, 0.3, 19, lamb({ color: 0xcbbfa4 }), x, 0.1 + f * (22 / 5), z));
 }
 
+// Starbucks (geo_ref sv_starbucks): sage clapboard siding, gray standing-seam
+// metal hip roof, brick base, dark-green channel letters.
 function coffeeShop(x, z) {
-  shop(x, z, 15, 13, 5, '#e2d6bc', ['STARBUCKS'], '#0a5c3a', '#ffffff', { face: 1, mmColor: '#0a5c3a' });
+  shop(x, z, 15, 13, 5, '#a7ad92', ['STARBUCKS'], '#0a5c3a', '#ffffff',
+    { face: 1, wallMat: clapSageM, roofType: 'hip', roofMat: grayHipM, canopyMat: grayHipM, brickBase: true, mmColor: '#0a5c3a' });
 }
 
 // ---------------- breakable props (trees + street lights vs cars) ----------------
@@ -1687,11 +1750,11 @@ function venueBuilder(v) {
     case 'farnell':     return { fn: function () { school(0, 0); }, nw: 82, nd: 32 };
     case 'bank':        return { fn: function () { bankBldg(0, 0, id === 'boa' ? 'BANK OF AMERICA' : id === 'regions' ? 'REGIONS BANK' : 'BANK'); }, nw: 26, nd: 20 };
     case 'pharmacy':    return { fn: function () { shop(0, 0, 24, 20, 6, '#e8dcc6', ['WESTCHASE PHARMACY'], '#1c4d8f', '#ffe9a0', { face: 1, mmColor: '#3f8fd0' }); }, nw: 24, nd: 20 };
-    case 'sushi':       return { fn: function () { shop(0, 0, 28, 22, 7, '#c0392b', ['SAKURA SUSHI'], '#111111', '#ffcf3a', { face: 1, mmColor: '#d94f3d' }); }, nw: 28, nd: 22 };
-    case 'dollar_tree': return { fn: function () { shop(0, 0, 30, 20, 6, '#3f7f4a', ['DOLLAR TREE'], '#1c5e2a', '#ffe9a0', { face: -1, mmColor: '#2fae4a' }); }, nw: 30, nd: 20 };
+    case 'sushi':       return { fn: function () { shop(0, 0, 28, 22, 7, '#e2d4b6', ['SAKURA SUSHI'], '#111111', '#ffcf3a', { face: 1, wallMat: stuccoTanM, canopyMat: lamb({ color: 0x1a1a1a }), mmColor: '#d94f3d' }); }, nw: 28, nd: 22 };
+    case 'dollar_tree': return { fn: function () { shop(0, 0, 30, 20, 6, '#e2d4b6', ['DOLLAR TREE'], '#1c5e2a', '#ffe9a0', { face: -1, wallMat: stuccoTanM, brickBase: true, mmColor: '#2fae4a' }); }, nw: 30, nd: 20 };
     case 'storage':     return { fn: function () { storage(0, 0); }, nw: 46, nd: 40 };
     case 'strip':       return { fn: function () { stripMall(0, 0, 50, id === 'strip_a' ? ['AUTO', 'GYM'] : id === 'strip_b' ? ['PIZZA', 'VAPE', 'TAX'] : ['NAILS', 'SUBS', 'LAUNDRY']); }, nw: 50, nd: 20 };
-    case 'dunkin':      return { fn: function () { shop(0, 0, 12, 11, 5, '#e8862e', ['DUNKIN'], '#e01a7a', '#ff8c42', { face: -1, mmColor: '#e8862e' }); }, nw: 12, nd: 11 };
+    case 'dunkin':      return { fn: function () { shop(0, 0, 12, 11, 5, '#e8862e', ['DUNKIN'], '#e01a7a', '#ff8c42', { face: -1, wallMat: grayBlockM, canopyMat: orangeMetalM, pierMat: grayBlockM, mmColor: '#e8862e' }); }, nw: 12, nd: 11 };
     case 'starbucks':   return { fn: function () { coffeeShop(0, 0); }, nw: 15, nd: 13 };
     case 'offices':     return { fn: function () { shop(0, 0, 20, 16, 6, '#e5d7bc', ['WEST PARK OFFICES'], '#3a3a3a', '#ffe9a0', { face: 1, mmColor: '#c9b98a' }); }, nw: 20, nd: 16 };
     case 'yoga':        return { fn: function () { shop(0, 0, 16, 14, 5, '#e0d2b8', ['YOGA'], '#5a2e6a', '#ffe9a0', { face: 1, mmColor: '#b07acd' }); }, nw: 16, nd: 14 };
@@ -6225,6 +6288,7 @@ function updateEnvProps(dt) {
       }
     }
   }
+  if (typeof updateEnvToys === 'function') updateEnvToys(dt);   // gumball/claw prize balls
 }
 // fountain / drinking-fountain water spray (mirrors the lake fountainDrops loop)
 function updateEnvFlow(r, dt) {
@@ -6239,8 +6303,118 @@ function updateEnvFlow(r, dt) {
     f.vy -= 9.5 * dt; p.x += f.vx * dt; p.y += f.vy * dt; p.z += f.vz * dt;
   }
 }
-function envPropPrompt() { return ''; }     /* STEP 3 */
-function envPropInteract() { return false; } /* STEP 3 */
+// ---- STEP 3: env-prop E-interactions (singleplayer-local, like interiors) ----
+var envToyGeo = new THREE.SphereGeometry(0.09, 7, 6), envToys = [];
+var ENV_BUY = { hotdog_cart: { price: 3, heal: 15, item: 'HOT DOG' }, icecream_truck: { price: 2, heal: 10, item: 'ICE CREAM' }, food_truck: { price: 5, heal: 25, item: 'STREET TACO' }, lemonade_stand: { price: 1, heal: 8, item: 'LEMONADE' } };
+var ENV_SIGNS = ['WESTCHASE', 'RACE TRACK RD', 'COUNTRYWAY BLVD', 'NOW LEASING', 'GRAND OPENING', 'SLOW — CHILDREN AT PLAY', 'GARAGE SALE SAT 8AM', 'HONK IF YOU LOVE TAMPA'];
+var GUMBALL_COLS = [0xff4d4d, 0x4da6ff, 0x5bd75b, 0xffd24d, 0xff7ad2, 0xa26bff, 0xff9a3d];
+function spawnEnvToy(x, y, z, color) { var m = new THREE.Mesh(envToyGeo, new THREE.MeshLambertMaterial({ color: color })); m.position.set(x, y, z); scene.add(m); envToys.push({ mesh: m, vy: 2 + Math.random() * 1.6, vx: (Math.random() - 0.5) * 1.7, vz: (Math.random() - 0.5) * 1.7, life: 8 }); }
+function updateEnvToys(dt) {
+  for (var i = envToys.length - 1; i >= 0; i--) {
+    var t = envToys[i], p = t.mesh.position;
+    t.vy -= 9.5 * dt; p.x += t.vx * dt; p.y += t.vy * dt; p.z += t.vz * dt;
+    if (p.y < 0.09) { p.y = 0.09; t.vy = -t.vy * 0.45; t.vx *= 0.7; t.vz *= 0.7; }
+    t.life -= dt;
+    if (t.life <= 0) { scene.remove(t.mesh); t.mesh.material.dispose(); envToys.splice(i, 1); }
+  }
+}
+// short positional chiptune melody (procedural — no assets), gain by distance
+function playChiptune(x, z) {
+  if (!ac) return;
+  var dx = x - player.x, dz = z - player.z, g = 0.11 * (1 - Math.sqrt(dx * dx + dz * dz) / 42);
+  if (g <= 0.005) return;
+  var notes = [523, 659, 784, 659, 587, 784, 880, 784, 698, 587, 523];
+  for (var i = 0; i < notes.length; i++) (function (n, i) { setTimeout(function () { beep(n, 0.12, g, 'square'); if (i % 2 === 0) beep(n / 2, 0.12, g * 0.5, 'triangle'); }, i * 135); })(notes[i], i);
+}
+function envPropNear() {
+  if (!state.running || state.dead || driving || inside) return null;
+  var best = null, bd = 1e9;
+  for (var i = 0; i < envPropInteractables.length; i++) {
+    var p = envPropInteractables[i];
+    var reach = 2.2 + Math.max(p.dims[0], p.dims[2]) / 2; reach *= reach;
+    var dx = player.x - p.x, dz = player.z - p.z, d2 = dx * dx + dz * dz;
+    if (d2 < reach && d2 < bd) { best = p; bd = d2; }
+  }
+  return best;
+}
+function envPropPrompt() {
+  if (state.sitting) return '[E] STAND';
+  var p = envPropNear(); if (!p) return '';
+  var k = p.kind;
+  if (k === 'sit') return '[E] SIT';
+  if (k === 'drink') return T < p.cd ? '' : '[E] DRINK';
+  if (k === 'read') return '[E] READ SIGN';
+  if (k === 'cook') return '[E] COOK';
+  if (k === 'vend') return p.name === 'gumball_machine' ? '[E] GUMBALL — $1' : '[E] SODA — $2';
+  if (k === 'buy') { var b = ENV_BUY[p.name]; return b ? '[E] BUY ' + b.item + ' — $' + b.price : '[E] BUY'; }
+  if (k === 'play') return p.name === 'claw_machine' ? '[E] CLAW — $2' : (p.name === 'jukebox' || p.name === 'arcade_cabinet' || p.name === 'boombox' ? '[E] PLAY MUSIC' : '[E] PLAY');
+  return '';
+}
+function envPropInteract() {
+  if (state.sitting) { state.sitting = false; return true; }
+  var p = envPropNear(); if (!p) return false;
+  var k = p.kind;
+  if (k === 'sit') {
+    state.sitting = true; sfx('eat', { x: p.x, z: p.z, range: 20 });   // soft cloth/thud on sit
+    return true;
+  }
+  if (k === 'drink') {
+    if (T < p.cd) return true; p.cd = T + 1.6;
+    state.hp = Math.min(100, state.hp + 5);
+    noiseBurst(0.25, 620, 0.14); popup('refreshing');
+    return true;
+  }
+  if (k === 'read') {
+    p.txt = p.txt || ENV_SIGNS[(Math.random() * ENV_SIGNS.length) | 0];
+    popup(p.txt); beep(660, 0.05, 0.06, 'square');
+    return true;
+  }
+  if (k === 'cook') {
+    noiseBurst(0.4, 500, 0.16); for (var s = 0; s < 4; s++) puff(new THREE.Vector3(p.x + (Math.random() - 0.5) * 0.5, p.dims[1] + 0.3, p.z + (Math.random() - 0.5) * 0.5), 0xbbbbbb);
+    if (p.spawns && Math.random() < 0.5) { popup('BURGER’S READY (+12 hp)'); state.hp = Math.min(100, state.hp + 12); sfx('eat'); }
+    else popup('sizzle…');
+    return true;
+  }
+  if (k === 'vend') {
+    if (p.name === 'gumball_machine') {
+      if (state.money < 1) { sfx('deny'); popup2('Need $1'); return true; }
+      state.money -= 1; beep(440, 0.05, 0.1, 'square'); noiseBurst(0.06, 700, 0.25);
+      spawnEnvToy(p.x + p.fx * 0.6, 0.9, p.z + p.fz * 0.6, GUMBALL_COLS[(Math.random() * GUMBALL_COLS.length) | 0]);
+      state.hp = Math.min(100, state.hp + 2); popup('gumball!');
+      return true;
+    }
+    if (state.money < 2) { sfx('deny'); popup2('Need $2'); return true; }
+    state.money -= 2; sfx('buy'); beep(880, 0.05, 0.1, 'square');
+    (function (pp) { setTimeout(function () { spawnSodaDrop(pp.x + pp.fx * 0.9, pp.z + pp.fz * 0.9); }, 260); })(p);
+    popup('SODA dispensed');
+    return true;
+  }
+  if (k === 'buy') {
+    var b = ENV_BUY[p.name]; if (!b) return true;
+    if (state.money < b.price) { sfx('deny'); popup2('Need $' + b.price); return true; }
+    state.money -= b.price; sfx('buy');
+    state.hp = Math.min(100, state.hp + b.heal);
+    toast('Bought a <b>' + b.item + '</b> — +' + b.heal + ' hp', 2600);
+    return true;
+  }
+  if (k === 'play') {
+    if (p.name === 'claw_machine') {
+      if (T < p.cd) return true; p.cd = T + 0.4;
+      if (state.money < 2) { sfx('deny'); popup2('Need $2'); return true; }
+      state.money -= 2; beep(700, 0.06, 0.1, 'square'); noiseBurst(0.3, 400, 0.12);
+      if (Math.random() < 0.28) { spawnEnvToy(p.x + p.fx * 0.7, 1.0, p.z + p.fz * 0.7, GUMBALL_COLS[(Math.random() * GUMBALL_COLS.length) | 0]); spawnCash(p.x + p.fx * 0.9, p.z + p.fz * 0.9, 5 + ((Math.random() * 16) | 0)); sfx('cash'); popup('A PRIZE!'); }
+      else popup2('so close…');
+      return true;
+    }
+    if (p.name === 'jukebox' || p.name === 'arcade_cabinet' || p.name === 'boombox') { playChiptune(p.x, p.z); popup('♪ music ♪'); return true; }
+    // playground equipment: flavor chirp
+    if (T < p.cd) return true; p.cd = T + 0.8;
+    beep(700, 0.08, 0.06, 'square', 1000); setTimeout(function () { beep(1000, 0.08, 0.06, 'square', 700); }, 110);
+    popup('wheee!');
+    return true;
+  }
+  return false;
+}
 
 // ---------------- police / wanted system ----------------
 var cops = [];
@@ -11071,6 +11245,7 @@ function updatePlayer(dt) {
   updateBreakIn(dt);
   var f = 0, s = 0;
   if (keys['KeyW']) f += 1; if (keys['KeyS']) f -= 1; if (keys['KeyD']) s += 1; if (keys['KeyA']) s -= 1;
+  if (state.sitting) { if (f || s || keys['Space']) state.sitting = false; else { f = 0; s = 0; } }   // env sit: stand on any move input
   var spd = keys['ShiftLeft'] || keys['ShiftRight'] ? 8.4 : 5.2;
   if (f || s) { var inv = spd / Math.sqrt(f * f + s * s); var fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw); player.x += (fx * f + rx * s) * inv * dt; player.z += (fz * f + rz * s) * inv * dt; }
   if (keys['Space'] && player.grounded) { player.vy = 5.6; player.grounded = false; }
@@ -11117,6 +11292,7 @@ function updatePlayer(dt) {
   recoilPitch += -recoilPitch * Math.min(1, dt * 5);   // recoil recovers back to the aim over ~0.4s (was: pitch climbed and stuck)
   camera.position.set(player.x, player.y, player.z); camera.rotation.y = yaw; camera.rotation.x = Math.max(-1.45, Math.min(1.45, pitch + recoilPitch));
   var moving = (f || s) && player.grounded; var bob = moving ? Math.sin(T * (spd > 6 ? 13 : 9)) * 0.035 : 0; camera.position.y += bob;
+  if (state.sitting) camera.position.y -= 0.55;   // seated eye height
   recoil = Math.max(0, recoil - dt * 8); vm.position.z = recoil * 0.07; vm.position.y = bob * 0.5; vm.rotation.x = recoil * 0.06;
   gunBloom = Math.max(0, gunBloom - dt * 0.06);   // spread recovers ~0.7s after easing off
   // weapon draw + rocket reload animations (procedural, PS1-cheap)
@@ -11340,7 +11516,7 @@ window.__wc = {
   densityInfo: function () { return densityStats; },
   forestFillPts: expFillPts,
   streetProps: streetPropInteractables, streetPropInteract: streetPropInteract, getStreetProp: getStreetProp, hydrantJets: hydrantJets,
-  envProps: envProps, envPropInteractables: envPropInteractables, envStats: envStats, getEnvProp: getEnvProp, envPropInteract: envPropInteract,
+  envProps: envProps, envPropInteractables: envPropInteractables, envStats: envStats, getEnvProp: getEnvProp, envPropInteract: envPropInteract, envPropPrompt: envPropPrompt, envToys: envToys,
   solidMeshes: solidMeshes, nightEmis: nightEmis,
   houses: houseStats, houseBlocksSpot: houseBlocksSpot, houseMeshesRef: houseMeshesRef,
   isUnderwater: function () { return underwater; },
