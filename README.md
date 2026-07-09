@@ -209,8 +209,11 @@ cards with alpha cutouts, from the free "retro nature pack" by
 leaves. They still snap like twigs if you drive through them.
 
 The main intersection is dressed like the real one: galvanized mast-arm
-**traffic signals that actually cycle** (green street-name blades and
-all — traffic doesn't obey them yet), cobra-head streetlights, wood
+**traffic signals that actually cycle** — and now **traffic obeys them**:
+cars slow and queue bumper-to-bumper at a red, wait out the cycle, and
+pull away on green. They also keep a safe following gap on the open road
+and tap the brakes for a beat at the smaller uncontrolled intersections.
+There are cobra-head streetlights, wood
 utility poles trailing sagging lines down the main road, sabal-palm
 clusters on every corner, and proper road paint — stop bars, ladder
 crosswalks, and left-turn arrows in the pockets.

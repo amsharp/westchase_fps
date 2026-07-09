@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.33.0';
+var GAME_VERSION = 'v1.34.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2190,7 +2190,7 @@ function buildRemapLanes(stitches) {
         var dx = RM.nodes[j].x - ends[en][0], dz = RM.nodes[j].z - ends[en][1];
         if (dx * dx + dz * dz < 25) { nd = RM.nodes[j]; break; }
       }
-      if (!nd) { nd = { x: ends[en][0], z: ends[en][1], legs: [] }; RM.nodes.push(nd); }
+      if (!nd) { nd = { x: ends[en][0], z: ends[en][1], legs: [], id: RM.nodes.length }; RM.nodes.push(nd); }
       nd.legs.push({ e: i, end: en });
       e.node[en] = nd;
     }
@@ -2217,7 +2217,8 @@ function remapSeedCar(c, rng) {
   c.rLane = (rnd() * e.lanes.length) | 0;
   c.rOff = e.lanes[c.rLane];
   c.rS = e.m0 + rnd() * Math.max(1, e.len - e.m0 - e.m1);
-  c.speed = e.spdA + rnd() * e.spdB;
+  c.cruise = e.spdA + rnd() * e.spdB;
+  c.speed = c.cruise;
   var p = rmLanePos(c, c.rS);
   c.rTx = p.tx; c.rTz = p.tz;
   c.car.group.position.set(p.x, 0, p.z);
@@ -2241,7 +2242,7 @@ function remapAdvance(c, dt) {
     c.rLane = Math.min(c.rLane, ne.lanes.length - 1);
     c.rOff = ne.lanes[c.rLane];
     c.rS = pk.end === 0 ? ne.m0 : ne.len - ne.m1;
-    c.speed = ne.spdA + Math.random() * ne.spdB;
+    c.cruise = ne.spdA + Math.random() * ne.spdB;   // new free-flow target; keep current c.speed for a smooth turn
   } else {
     c.rDir = -c.rDir;   // dead end / ROAD CLOSED barrier: turn around
     c.rS = Math.max(lo, Math.min(hi, c.rS));
@@ -3216,6 +3217,78 @@ function updateSignals(dt) {
     var L = signalLights[j], want = L.grp === 'main' ? m : x;
     L.mesh.material = L.col === want ? L.lit : L.dark;
   }
+}
+
+// ---- traffic control: car-following + red-light + stop-sign speed governor ----
+// carSignals holds the signalized Y-junction approaches (populated by the R3
+// junction furniture): {x,z, ux,uz (inbound unit dir toward junction), hw,
+// grp:'main'|'cross', barX,barZ (stop-bar center)}. Cars read the live lamp
+// color via sigMain/sigCross. Host-side only; clients mirror positions.
+var carSignals = [];
+var CAR_STOP_D = 5.6;     // center-to-center spacing when queued (car len 4.64 + gap)
+var CAR_HEADWAY = 0.85;   // time-headway (s) turning gap into a target speed
+// desired speed for a remap traffic car: the min of free-flow cruise, the gap
+// to the leader ahead, the distance to a red light, and any stop-sign hold.
+function carDesiredSpeed(c, idx, dt) {
+  var des = c.cruise !== undefined ? c.cruise : c.speed;
+  var m = c.car.group.position;
+  var hx = c.rTx, hz = c.rTz;
+  if (hx === undefined) { var hr = c.car.group.rotation.y; hx = Math.cos(hr); hz = -Math.sin(hr); }
+  // (a) car-following: nearest car ahead in the same-lane cone
+  var bestGap = Infinity;
+  for (var j = 0; j < cars.length; j++) {
+    if (j === idx) continue;
+    var o = cars[j];
+    if (o.exploded) continue;
+    var om = o.car.group.position;
+    var dx = om.x - m.x, dz = om.z - m.z;
+    var fwd = dx * hx + dz * hz;
+    if (fwd <= 0.05) continue;                        // behind or beside us
+    if (fwd > 26) continue;                           // out of headway range
+    var lat = -dx * hz + dz * hx; if (lat < 0) lat = -lat;
+    if (lat > 2.3) continue;                          // different lane / off our path
+    // ignore oncoming traffic (car forward = (cos ry, -sin ry) for every car)
+    var oh = o.car.group.rotation.y, ohx = Math.cos(oh), ohz = -Math.sin(oh);
+    if (!o.parked && (hx * ohx + hz * ohz) < 0.1) continue;
+    if (fwd < bestGap) bestGap = fwd;
+  }
+  if (bestGap < Infinity) des = Math.min(des, Math.max(0, bestGap - CAR_STOP_D) / CAR_HEADWAY);
+  // (b) red lights: stop at the bar of the approach we're driving toward
+  for (var s = 0; s < carSignals.length; s++) {
+    var lg = carSignals[s];
+    var col = lg.grp === 'main' ? sigMain : sigCross;
+    if (col !== 'r' && col !== 'y') continue;         // green -> go
+    if (hx * lg.ux + hz * lg.uz < 0.6) continue;      // not heading in on this leg
+    var bx = lg.barX - m.x, bz = lg.barZ - m.z;
+    var bf = bx * hx + bz * hz;
+    if (bf < -1.5) continue;                          // already through the bar
+    var bl = -bx * hz + bz * hx; if (bl < 0) bl = -bl;
+    if (bl > lg.hw + 2) continue;                     // not on this approach lane
+    // on yellow only start stopping if there's comfortable room; else clear it
+    if (col === 'y' && bf < 6) continue;
+    des = Math.min(des, Math.max(0, bf - 1.8) / 0.65);
+  }
+  // (c) stop signs: brief hold at uncontrolled 3+ leg nodes (never the central
+  // signal Y near the origin). Per-node one-shot with a hard timeout -> no deadlock.
+  if (RM) {
+    var e = RM.edges[c.rEdge], end = c.rDir > 0 ? 1 : 0, nd = e.node[end];
+    if (nd && nd.legs.length >= 3 && (nd.x * nd.x + nd.z * nd.z) > 1600) {
+      var distNode = c.rDir > 0 ? (e.len - c.rS) : c.rS;
+      if (distNode < 8) {
+        if (c._ssNode !== nd.id) { c._ssNode = nd.id; c._ssT = 1.2; }   // arrive: arm the stop
+        if (c._ssT > 0) { c._ssT -= dt; des = Math.min(des, Math.max(0, distNode - 2.5) / 0.55); }
+      }
+    }
+  }
+  return des;
+}
+// ease actual speed toward the governor's target (firmer decel than accel)
+function applyCarGovernor(c, idx, dt) {
+  var des = carDesiredSpeed(c, idx, dt);
+  var rate = des < c.speed ? 24 : 8;
+  var d = des - c.speed, step = rate * dt;
+  c.speed += d < -step ? -step : (d > step ? step : d);
+  if (c.speed < 0) c.speed = 0;
 }
 
 // corner sabal-palm clusters — 3 per junction corner island (staggered heights
@@ -4733,6 +4806,9 @@ if (WC_REMAP) (function densityLayer() {
       // rotated stop bar + crosswalk paint just inside the junction
       var ry = Math.atan2(-perpZ, perpX);          // bar long axis spans the road
       var barX = L.x + L.ux * 1.6, barZ = L.z + L.uz * 1.6;
+      // register this approach so traffic stops at the bar on red (same grp
+      // mapping as the lamps: alternating legs share the main/cross cycle)
+      carSignals.push({ x: L.x, z: L.z, ux: L.ux, uz: L.uz, hw: L.hw, grp: (kj % 2) === 0 ? 'main' : 'cross', barX: barX, barZ: barZ });
       var sbar = box(L.hw * 2 - 1, 0.04, 0.9, stopBarM, barX, 0.165, barZ); sbar.rotation.y = ry; scene.add(sbar);
       var cwX = L.x + L.ux * 4.2, cwZ = L.z + L.uz * 4.2, cwRy = Math.atan2(L.ux, L.uz);
       for (var cb = -1; cb <= 1; cb++) {
@@ -5760,6 +5836,7 @@ function updateCars(dt) {
       c.sspin *= 1 - dt * 1.5;
       if (c.shoveT <= 0) { if (WC_REMAP) remapRejoinLane(c); else c.pos = c.axis === 'x' ? c.sx : c.sz; }   // rejoin the lane from here
     } else if (WC_REMAP) {
+      applyCarGovernor(c, i, dt);   // car-following + red-light + stop-sign speed control
       remapDriveCar(c, dt);   // follow the true-geometry lane graph (RM.edges)
     } else {
       c.pos += c.dir * c.speed * dt;
@@ -9407,6 +9484,22 @@ window.__wc = {
   setClock: function (t2) { envT = t2; },
   envState: function () { return { envT: envT, raining: raining, dayFactor: dayFactor(), lampsOn: lampsOn, sun: sun.intensity, fogFar: scene.fog.far }; },
   sigState: function () { return { t: sigClock, main: sigMain, cross: sigCross }; },
+  setSigClock: function (t2) { sigClock = t2; updateSignals(0); },   // force a phase for tests
+  carSignalsRef: function () { return carSignals; },
+  carGovState: function () { return cars.map(function (c, i) { return c.parked || c.stolen || c.exploded ? null : { i: i, spd: Math.round(c.speed * 100) / 100, cruise: Math.round((c.cruise || 0) * 100) / 100, x: Math.round(c.car.group.position.x * 10) / 10, z: Math.round(c.car.group.position.z * 10) / 10, ry: Math.round(c.car.group.rotation.y * 100) / 100 }; }).filter(function (e) { return e; }); },
+  placeCarOnLane: function (i, x, z, hx, hz) {   // test hook: seat car i on the nearest lane point facing (hx,hz)
+    var c = cars[i]; if (!c || !RM) return false;
+    var best = -1, bestD = 1e9, bs = 0;
+    for (var e = 0; e < RM.edges.length; e++) { var ed = RM.edges[e]; var pr = rmProject(ed.pts, ed.cum, x, z); if (pr.d * pr.d < bestD) { bestD = pr.d * pr.d; best = e; bs = pr.s; } }
+    if (best < 0) return false;
+    var ed = RM.edges[best]; c.rEdge = best; c.rS = Math.max(ed.m0, Math.min(ed.len - ed.m1, bs));
+    var p = rmAt(ed.pts, ed.cum, c.rS); c.rDir = (p.ux * hx + p.uz * hz) >= 0 ? 1 : -1;
+    c.rLane = 0; c.rOff = ed.lanes[0];
+    c.parked = false; c.stolen = false; c.exploded = false; c.berserk = false; c.shoveT = 0; c.dmgT = 0;
+    c.cruise = ed.spdA; c.speed = ed.spdA;
+    var lp = rmLanePos(c, c.rS); c.car.group.position.set(lp.x, 0, lp.z); c.rTx = lp.tx; c.rTz = lp.tz; c.car.group.rotation.y = Math.atan2(-lp.tz, lp.tx);
+    return { x: Math.round(lp.x * 10) / 10, z: Math.round(lp.z * 10) / 10 };
+  },
   goBerserk: goBerserk, igniteCar: igniteCar, explodeCar: explodeCar,
   makeCar: makeCar,   // roster/model-mix testing (remember to scene.remove(.group))
   startBreakIn: startBreakIn,
