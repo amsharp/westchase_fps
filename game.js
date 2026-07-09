@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.41.0';
+var GAME_VERSION = 'v1.42.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -1236,6 +1236,16 @@ var VEH_WHEEL_TUNE = {
   SUV_MID: [1.46, 0.41, -1.53, 0.42, 1.04, 1.07, 1.3]
 };
 var WHEEL_BASE_W = 0.294;   // MESHY_WHEEL tire width at the base 0.34 radius
+// painted head/taillight centers per GGBot body (MODEL units, pre-scale):
+// hy/hz = headlight y/lateral-z, ty/tz = taillight. Measured offline by
+// pixel-locating the lights in gridded night renders and unprojecting onto the
+// nose/tail face; quads mirror to ±z. Models absent here use the generic guess.
+var GG_LIGHT_TUNE = {
+  GG_WAGON: { hy: 0.96, hz: 0.87, ty: 1.10, tz: 0.76 },
+  GG_SEDAN: { hy: 1.10, hz: 0.75, ty: 1.08, tz: 0.67 },
+  GG_TAXI: { hy: 1.09, hz: 0.76, ty: 1.06, tz: 0.71 },
+  GG_STEPVAN: { hy: 1.10, hz: 0.97, ty: 0.91, tz: 1.09 }
+};
 function makeCar() {
   var g = new THREE.Group();
   var body = new THREE.Group();   // separate so suspension can bounce it over the wheels
@@ -1335,6 +1345,12 @@ function makeCar() {
     glY = Math.min(0.62, e.dims[1] * s * 0.36);
     glZ = e.dims[2] * s * 0.5 * 0.58;
   }
+  // measured painted-light centers per GGBot model (model units; validated by
+  // pixel-reading night renders — the generic 0.36*h guess sat too LOW on every
+  // body). Head and tail differ, so each gets its own y/z.
+  var LT = GG_LIGHT_TUNE[vname];
+  var hY = LT ? LT.hy * s : glY, hZ = LT ? LT.hz * s : glZ;
+  var tY = LT ? LT.ty * s : glY, tZ = LT ? LT.tz * s : glZ;
   var tailM = makeTailGlowM();
   function glowQuad(mat, gx, gy, gz, sc) {
     var q = new THREE.Mesh(glowGeo, mat);
@@ -1345,8 +1361,8 @@ function makeCar() {
     body.add(q);
     return q;
   }
-  var head1 = glowQuad(headGlowM, glNX, glY, glZ, 0.26), head2 = glowQuad(headGlowM, glNX, glY, -glZ, 0.26);
-  var tail1 = glowQuad(tailM, glTX, glY, glZ, 0.2), tail2 = glowQuad(tailM, glTX, glY, -glZ, 0.2);
+  var head1 = glowQuad(headGlowM, glNX, hY, hZ, 0.26), head2 = glowQuad(headGlowM, glNX, hY, -hZ, 0.26);
+  var tail1 = glowQuad(tailM, glTX, tY, tZ, 0.2), tail2 = glowQuad(tailM, glTX, tY, -tZ, 0.2);
   g.add(blobShadow(2.4, 1.15, 0.1)); scene.add(g);
   return { group: g, body: body, wheels: wheels, pivots: pivots, beam: beam, head1: head1, head2: head2, tail1: tail1, tail2: tail2, tailM: tailM, tailS: 0.15, vname: vname };
 }
@@ -1511,9 +1527,25 @@ function remapSurfaces() {
     (park ? mapParking : mapPave).push({ x: s.x, z: s.z, w: s.w, d: s.d });
   }
 }
+// building entrances NPCs/cops can walk in/out of: {x,z (door on the face),
+// sx,sz (stand point just outside), nx,nz (outward normal), yaw}
+var npcDoors = [];
+function registerDoor(doorX, doorZ, nx, nz, clear) {
+  npcDoors.push({ x: doorX, z: doorZ, sx: doorX + nx * (clear || 2.5), sz: doorZ + nz * (clear || 2.5), nx: nx, nz: nz, yaw: Math.atan2(nx, nz) });
+}
 if (WC_REMAP && typeof REMAP_VENUES !== 'undefined') {
   remapSurfaces();
   for (var vqi = 0; vqi < REMAP_VENUES.length; vqi++) placeVenueData(REMAP_VENUES[vqi]);
+  // register venue entrances: placeVenueData normalizes every storefront to
+  // local +z (VENUE_FRONT180 flips), so the door sits at the front-face center.
+  // skips: storage (front inverted, not walk-in), racetrac (functional robbable
+  // door — NPCs must not path onto gasRob), red_house (door:false)
+  for (var vdi = 0; vdi < REMAP_VENUES.length; vdi++) {
+    var vd = REMAP_VENUES[vdi];
+    if (vd.type === 'storage' || vd.type === 'racetrac' || vd.type === 'red_house') continue;
+    var vr = vd.rot * Math.PI / 180, vnx = Math.sin(vr), vnz = Math.cos(vr);
+    registerDoor(vd.x + vnx * vd.d / 2, vd.z + vnz * vd.d / 2, vnx, vnz, 2.5);
+  }
   // gameplay anchors: spawn + dealer in the Publix lot, rob zone at RaceTrac
   player.x = -63; player.z = 4; spawnX = -63; spawnZ = 4; dealerPos.x = -60; dealerPos.z = 0;
   gasRob.x = 85; gasRob.z = -4;
@@ -2834,6 +2866,12 @@ var houseMeshesRef = [];   // merged house meshes (perf A/B toggle hook)
     var w = cl.spec.dims[0] * sc, d = cl.spec.dims[1] * sc, hgt = cl.spec.dims[2] + (cl.spec.roofH || 0);
     var co = Math.abs(ca), so = Math.abs(sa);
     var hx = (w * co + d * so) / 2, hz = (w * so + d * co) / 2;
+    // register the front door (authored on the local +z face) so NPCs can
+    // come and go from houses; canopy (hollow commercial) shells skip
+    if (!cl.spec.canopy && cl.spec.feat && cl.spec.feat.door) {
+      var dxl = (cl.spec.feat.door.x - 0.5) * w;
+      registerDoor(dxl * ca + (d / 2) * sa + x, -dxl * sa + (d / 2) * ca + z, sa, ca, 2.2);
+    }
     if (cl.spec.canopy) {
       // hollow: collide the columns only (walk/drive under the slab)
       var ft = (cl.spec.feat && cl.spec.feat.boxes) || [];
@@ -4708,19 +4746,34 @@ function buildCop() {
   return g;
 }
 function spawnCop(nearPlayer) {
-  var mesh = buildCop(), x, z;
+  var mesh = buildCop(), x, z, doorYaw = null;
   if (nearPlayer) {
     var a = Math.random() * Math.PI * 2, r = 50 + Math.random() * 30;
     x = Math.max(-HALF + 6, Math.min(HALF - 6, player.x + Math.cos(a) * r));
     z = Math.max(-HALF + 6, Math.min(HALF - 6, player.z + Math.sin(a) * r));
   } else { var t = randTarget(); x = t[0]; z = t[1]; }
+  // officers step OUT of a nearby building entrance instead of materializing
+  // in the open — snap the picked point to the nearest registered door (but
+  // never one right on top of the player: responding cops shouldn't pop out
+  // of the store you're standing in front of)
+  if (npcDoors.length) {
+    var bd = -1, bdd = 55 * 55;
+    for (var di = 0; di < npcDoors.length; di++) {
+      var dq = npcDoors[di];
+      var qdx = dq.sx - x, qdz = dq.sz - z, qd2 = qdx * qdx + qdz * qdz;
+      var pdx = dq.sx - player.x, pdz = dq.sz - player.z;
+      if (qd2 < bdd && pdx * pdx + pdz * pdz > 30 * 30) { bdd = qd2; bd = di; }
+    }
+    if (bd >= 0) { x = npcDoors[bd].sx; z = npcDoors[bd].sz; doorYaw = npcDoors[bd].yaw; }
+  }
   var p = pushOut(x, z, 0.6); x = p.x; z = p.z;
   var t2 = randTarget();
   var c = { mesh: mesh, nid: copNid++, x: x, z: z, hp: 100, state: 'patrol', tx: t2[0], tz: t2[1], phase: Math.random() * 9, fireT: 0.5 + Math.random(), downT: 0, hurtFlash: 0, vname: mesh.userData.vname || null, fem: MESHY_FEM.indexOf(mesh.userData.vname || '') >= 0 };
   // no gun at spawn: patrol cops keep it holstered, updateCops draws it on
   // 'engage'. (This also dodges a load-order trap: the boot-time spawnCop
   // calls ran before the var gun materials existed -> all-white pistols.)
-  mesh.position.set(x, 0, z); mesh.userData.cop = c;
+  mesh.position.set(x, 0, z); if (doorYaw !== null) mesh.rotation.y = doorYaw;
+  mesh.userData.cop = c;
   scene.add(mesh); cops.push(c); return c;
 }
 function spawnInteriorCops(n) {
@@ -5312,7 +5365,7 @@ function updateCars(dt) {
     // run over pedestrians: ragdoll them
     for (var ni2 = 0; ni2 < npcs.length; ni2++) {
       var n2 = npcs[ni2];
-      if (n2.state === 'down' || n2.state === 'ragdoll') continue;
+      if (n2.state === 'down' || n2.state === 'ragdoll' || n2.state === 'hidden') continue;
       var ndx = n2.x - m.position.x, ndz = n2.z - m.position.z;
       var lon = c.axis === 'x' ? ndx : ndz, lat = c.axis === 'x' ? ndz : ndx;
       if (Math.abs(lon) < 2.8 && Math.abs(lat) < 1.5) {
@@ -5516,7 +5569,7 @@ function updateDriving(dt) {
     // run over pedestrians — this is on you
     for (var i = 0; i < npcs.length; i++) {
       var n = npcs[i];
-      if (n.state === 'down' || n.state === 'ragdoll') continue;
+      if (n.state === 'down' || n.state === 'ragdoll' || n.state === 'hidden') continue;
       var dx = n.x - p.x, dz = n.z - p.z;
       var lon = dx * fx + dz * fz, lat = -dx * fz + dz * fx;
       if (Math.abs(lon) < 2.8 && Math.abs(lat) < 1.5) {
@@ -5692,7 +5745,7 @@ function updateDecals(dt) {
 
 // ---------------- ragdoll kills + explosions ----------------
 function killNpcRagdoll(n, dx, dz, power) {
-  if (n.state === 'down' || n.state === 'ragdoll') return;
+  if (n.state === 'down' || n.state === 'ragdoll' || n.state === 'hidden') return;
   breakNpcChat(n);   // free the chat partner before this one goes flying
   n.state = 'ragdoll'; n.hp = 0;
   stopNpcVoice(n.vname);
@@ -5723,7 +5776,7 @@ function boomAt(x, z, fromNet, creditConn) {
   sfx('boom', { x: x, z: z, range: 260 });
   if (!isClient()) {   // kills are host-authoritative; clients get them via snapshot
     for (i = 0; i < npcs.length; i++) {
-      var n = npcs[i]; if (n.state === 'down' || n.state === 'ragdoll') continue;
+      var n = npcs[i]; if (n.state === 'down' || n.state === 'ragdoll' || n.state === 'hidden') continue;
       var dx = n.x - x, dz = n.z - z, d = Math.sqrt(dx * dx + dz * dz);
       if (d < 9) {
         killNpcRagdoll(n, dx / (d || 1), dz / (d || 1), 13);
@@ -5877,7 +5930,7 @@ function updateRockets(dt) {
       for (var b = 0; b < colliders.length; b++) { var bb = colliders[b]; if (r.x > bb.x0 && r.x < bb.x1 && r.z > bb.z0 && r.z < bb.z1) { hit = true; break; } }
     }
     if (!hit && r.y < 2.4) {
-      for (var n = 0; n < npcs.length && !hit; n++) { var nn = npcs[n]; if (nn.state === 'down' || nn.state === 'ragdoll') continue; var dx = nn.x - r.x, dz = nn.z - r.z; if (dx * dx + dz * dz < 1.7) hit = true; }
+      for (var n = 0; n < npcs.length && !hit; n++) { var nn = npcs[n]; if (nn.state === 'down' || nn.state === 'ragdoll' || nn.state === 'hidden') continue; var dx = nn.x - r.x, dz = nn.z - r.z; if (dx * dx + dz * dz < 1.7) hit = true; }
       for (var cpi = 0; cpi < cops.length && !hit; cpi++) { var cp = cops[cpi]; if (cp.state === 'down') continue; var cdx = cp.x - r.x, cdz = cp.z - r.z; if (cdx * cdx + cdz * cdz < 1.7) hit = true; }
       for (var ci2 = 0; ci2 < cars.length && !hit; ci2++) { var cc = cars[ci2]; if (cc.exploded) continue; var om = cc.car.group.position; if (Math.abs(om.x - r.x) < 2.8 && Math.abs(om.z - r.z) < 2.2) hit = true; }
     }
@@ -6275,7 +6328,7 @@ function updateUfo(dt) {
 
 // ---------------- NPC logic (wander) ----------------
 function damageNPC(n, dmg, kx, kz, silent) {
-  if (n.state === 'down') return;
+  if (n.state === 'down' || n.state === 'hidden') return;
   breakNpcChat(n);   // taking damage ends a conversation mid-line
   if (!silent && !playNpcVoice(n.vname, 'hit', 0.65, 4, { x: n.x, z: n.z, yell: true, ref: n })) playVoiceAny(n.fem ? ['pedf_hit', 'pedf_hit_2'] : ['pedm_hit_1', 'pedm_hit_2', 'pedo_hit'], 0.6, 'pedHit', 5, { x: n.x, z: n.z, yell: true, ref: n });
   n.hp -= dmg; n.hurtFlash = 0.12; n.x += (kx || 0) * 0.5; n.z += (kz || 0) * 0.5;
@@ -6424,8 +6477,34 @@ function updateNPCs(dt) {
     }
     if (n.state === 'down') {
       n.downT -= dt; m.rotation.x = Math.max(-1.45, m.rotation.x - dt * 7);
-      if (n.downT <= 0) { assignNpcHome(n); setNpcTarget(n); n.hp = 100; n.state = 'walk'; m.rotation.x = 0; if (m.userData.shadow) m.userData.shadow.visible = true; }
+      if (n.downT <= 0) {
+        if (npcDoors.length) {
+          // replacement pedestrian WALKS OUT of a building entrance instead of
+          // popping into existence: brief hidden dwell, then the door emit below
+          n.doorI = (Math.random() * npcDoors.length) | 0;
+          n.state = 'hidden'; n.dwellT = 0.6 + Math.random() * 2.5; n.hp = 100;
+          m.visible = false; if (m.userData.shadow) m.userData.shadow.visible = false;
+        } else { assignNpcHome(n); setNpcTarget(n); n.hp = 100; n.state = 'walk'; m.rotation.x = 0; if (m.userData.shadow) m.userData.shadow.visible = true; }
+      }
       m.position.set(n.x, m.position.y, n.z); continue;
+    }
+    if (n.state === 'hidden') {
+      // inside a building — invisible, unhittable; re-emerge from the door
+      n.dwellT -= dt;
+      if (n.dwellT <= 0) {
+        var hd = npcDoors[n.doorI];
+        if (hd) {
+          n.x = hd.sx; n.z = hd.sz;
+          n.tx = hd.sx + hd.nx * (6 + Math.random() * 7); n.tz = hd.sz + hd.nz * (6 + Math.random() * 7);
+          m.rotation.y = hd.yaw;
+        } else { assignNpcHome(n); setNpcTarget(n); }
+        n.wayX = undefined; n.wayZ = undefined; n.doorSeek = undefined;
+        n.state = 'walk'; n.hp = 100; n.stuckT = 0; n.roadT = 0;
+        m.rotation.x = 0; m.visible = true;
+        if (m.userData.shadow) m.userData.shadow.visible = true;
+        m.position.set(n.x, 0, n.z);
+      }
+      continue;
     }
     if (n.state === 'stand') {
       n.stateT -= dt; n.animT += dt;
@@ -6504,11 +6583,50 @@ function updateNPCs(dt) {
       var dx = gx - n.x, dz = gz - n.z, d = Math.sqrt(dx * dx + dz * dz);
       if (d < 1) {
         if (n.wayX !== undefined) { n.wayX = undefined; n.wayZ = undefined; continue; }   // crosswalk reached: carry on to the real target
+        if (n.doorSeek !== undefined) {
+          // reached the doorway: step inside (hidden dwell, re-emerge later)
+          breakNpcChat(n); stopNpcVoice(n.vname);
+          n.doorI = n.doorSeek; n.doorSeek = undefined;
+          n.state = 'hidden'; n.dwellT = 9 + Math.random() * 28;
+          m.visible = false; if (m.userData.shadow) m.userData.shadow.visible = false;
+          continue;
+        }
+        // errands: sometimes head into a nearby building instead of wandering on
+        if (Math.random() < 0.14 && npcDoors.length) {
+          var bestDoor = -1, bestDD = 32 * 32;
+          for (var dsi = 0; dsi < npcDoors.length; dsi++) {
+            var dsd = npcDoors[dsi];
+            var ddx2 = dsd.sx - n.x, ddz2 = dsd.sz - n.z, dd2 = ddx2 * ddx2 + ddz2 * ddz2;
+            if (dd2 < bestDD && dd2 > 9) { bestDD = dd2; bestDoor = dsi; }
+          }
+          if (bestDoor >= 0) {
+            var dgo = npcDoors[bestDoor];
+            n.doorSeek = bestDoor;
+            n.wayX = dgo.sx; n.wayZ = dgo.sz;   // approach the stoop first...
+            n.tx = dgo.x; n.tz = dgo.z;         // ...then the door itself
+            continue;
+          }
+        }
         setNpcTarget(n);
         if (Math.random() < 0.3) { n.state = 'stand'; n.stateT = 2.5 + Math.random() * 6; n.animT = Math.random() * 3; n.idleVar = Math.random() < 0.4; }
         continue;
       }
       vx = dx / d; vz = dz / d;
+      // steer around obstacles BEFORE contact: probe ~1.5u ahead every 3rd
+      // frame; if blocked, hold the first clear side bearing for a beat instead
+      // of grinding into the wall until pushOut + stuck-detection bail us out
+      if (n.avoidT > 0) { n.avoidT -= dt; vx = n.avoidVX; vz = n.avoidVZ; }
+      else if ((npcAnimF + i) % 3 === 0 && d > 2.2 && n.doorSeek === undefined) {   // doorway targets sit ON a wall face — don't steer away from them
+        var lookA = 1.5 + spd * 0.22;
+        if (!pointFree(n.x + vx * lookA, n.z + vz * lookA, 0.45)) {
+          for (var aw = 0; aw < 4; aw++) {
+            var ang = (aw < 2 ? 0.66 : 1.25) * (aw % 2 === 0 ? 1 : -1);   // ±38°, then ±72°
+            var ca2 = Math.cos(ang), sa2 = Math.sin(ang);
+            var wx = vx * ca2 - vz * sa2, wz = vx * sa2 + vz * ca2;
+            if (pointFree(n.x + wx * lookA, n.z + wz * lookA, 0.45)) { n.avoidVX = wx; n.avoidVZ = wz; n.avoidT = 0.35; vx = wx; vz = wz; break; }
+          }
+        }
+      }
     }
     var preX = n.x, preZ = n.z;
     n.x += vx * spd * dt; n.z += vz * spd * dt;
@@ -6523,15 +6641,16 @@ function updateNPCs(dt) {
         n.stuckT = 0;
         var back = npcTargetFor(n);
         n.tx = back[0]; n.tz = back[1];
-        n.wayX = undefined; n.wayZ = undefined;
+        n.wayX = undefined; n.wayZ = undefined; n.doorSeek = undefined;   // give up on an unreachable doorway too
         n.fleeDX = -vx; n.fleeDZ = -vz;   // fleeing NPCs bounce back the way they came
       }
     } else n.stuckT = 0;
     // sidewalk discipline: loitering on road asphalt (off the intersection /
     // crosswalk area) for 2s steers the target to the nearest sidewalk band
-    if (n.state === 'walk' && WC_REMAP) {
+    if (n.state === 'walk' && WC_REMAP && n.doorSeek === undefined) {
       // remap version: loitering on any true-road ribbon steers to the
-      // nearest curb (perpendicular escape off the polyline)
+      // nearest curb (perpendicular escape off the polyline). skipped while
+      // door-seeking (an errand may legitimately cross a driveway apron)
       var esc = remapRoadEscape(n.x, n.z);
       if (esc) {
         n.roadT = (n.roadT || 0) + dt;
@@ -6628,6 +6747,23 @@ function animPerson(m, spd, dt, phase) {
 }
 
 // ---------------- collision ----------------
+// cheap boolean "is this point clear of colliders" — used by the NPC steer-ahead
+// probe. Same slab math as pushOut but returns on FIRST overlap (no push vector).
+function pointFree(px, pz, r) {
+  var L = colliders;
+  for (var i = 0; i < L.length; i++) {
+    var b = L[i];
+    if (px < b.x0 - r || px > b.x1 + r || pz < b.z0 - r || pz > b.z1 + r) continue;
+    if (b.obb) {
+      var odx = px - b.x, odz = pz - b.z;
+      var u = odx * b.c - odz * b.s, v = odx * b.s + odz * b.c;
+      if (u < -b.hx - r || u > b.hx + r || v < -b.hz - r || v > b.hz + r) continue;
+      return false;
+    }
+    return false;
+  }
+  return true;
+}
 function pushOut(px, pz, r, list) {
   var L = list || colliders;
   for (var i = 0; i < L.length; i++) {
@@ -7186,7 +7322,7 @@ function tryAttack() {
     meleeHit = true;   // fists: damageNPC rolls fight-back + punch reacts (ranged resets this in the raycast path)
     var fx = -Math.sin(yaw), fz = -Math.cos(yaw), best = null, bestD = 99, bestCop = null;
     for (var i = 0; i < npcs.length; i++) {
-      var n = npcs[i]; if (n.state === 'down') continue;
+      var n = npcs[i]; if (n.state === 'down' || n.state === 'hidden') continue;
       var dx = n.x - player.x, dz = n.z - player.z, d = Math.sqrt(dx * dx + dz * dz);
       if (d < w.range && (dx * fx + dz * fz) / (d || 1) > 0.55 && d < bestD) { best = n; bestCop = null; bestD = d; }
     }
@@ -7251,7 +7387,7 @@ function tryAttack() {
   dir.x += (Math.random() - 0.5) * sp * 2; dir.y += (Math.random() - 0.5) * sp * 2; dir.z += (Math.random() - 0.5) * sp * 2; dir.normalize();
   raycaster.set(camera.position.clone(), dir); raycaster.far = 300;
   npcRootsAlive.length = 0;
-  for (var k = 0; k < npcs.length; k++) if (npcs[k].state !== 'down') npcRootsAlive.push(npcs[k].mesh);
+  for (var k = 0; k < npcs.length; k++) if (npcs[k].state !== 'down' && npcs[k].state !== 'hidden') npcRootsAlive.push(npcs[k].mesh);
   for (k = 0; k < cops.length; k++) if (cops[k].state !== 'down') npcRootsAlive.push(cops[k].mesh);
   if (isClient()) for (k = 0; k < copsM.length; k++) npcRootsAlive.push(copsM[k].mesh);
   for (k = 0; k < cars.length; k++) if (!cars[k].exploded) npcRootsAlive.push(cars[k].car.group);
@@ -7908,7 +8044,7 @@ function drawMinimap() {
   // cars
   mg.fillStyle = '#e8a13a'; for (var c = 0; c < cars.length; c++) { var cm = cars[c].car.group.position; mg.fillRect(w2m(cm.x) - 1, w2m(cm.z) - 1, 2, 2); }
   // npcs
-  mg.fillStyle = '#eeeeee'; for (var n = 0; n < npcs.length; n++) { if (npcs[n].state === 'down') continue; mg.fillRect(w2m(npcs[n].x) - 1, w2m(npcs[n].z) - 1, 2, 2); }
+  mg.fillStyle = '#eeeeee'; for (var n = 0; n < npcs.length; n++) { if (npcs[n].state === 'down' || npcs[n].state === 'hidden') continue; mg.fillRect(w2m(npcs[n].x) - 1, w2m(npcs[n].z) - 1, 2, 2); }
   // cops (blue, slightly bigger)
   mg.fillStyle = '#3f8fe8'; for (var cop = 0; cop < cops.length; cop++) { if (cops[cop].state === 'down') continue; mg.fillRect(w2m(cops[cop].x) - 1.5, w2m(cops[cop].z) - 1.5, 3, 3); }
   for (var cop2 = 0; cop2 < copsM.length; cop2++) { mg.fillRect(w2m(copsM[cop2].x) - 1.5, w2m(copsM[cop2].z) - 1.5, 3, 3); }
@@ -8090,7 +8226,7 @@ function updateNpcTags() {
   var pool = npcTagPool, i;
   if (!netActive() || !state.running || inside || state.dead) { for (i = 0; i < pool.length; i++) pool[i].visible = false; return; }
   var px = player.x, pz = player.z, R2 = NPC_TAG_RANGE * NPC_TAG_RANGE, cands = [];
-  for (i = 0; i < npcs.length; i++) { var n = npcs[i]; if (n.state === 'down' || n.state === 'ragdoll') continue; var d2 = (n.x - px) * (n.x - px) + (n.z - pz) * (n.z - pz); if (d2 < R2) cands.push({ e: n, d2: d2, kind: 'npc', by: 0 }); }
+  for (i = 0; i < npcs.length; i++) { var n = npcs[i]; if (n.state === 'down' || n.state === 'ragdoll' || n.state === 'hidden') continue; var d2 = (n.x - px) * (n.x - px) + (n.z - pz) * (n.z - pz); if (d2 < R2) cands.push({ e: n, d2: d2, kind: 'npc', by: 0 }); }
   for (i = 0; i < cops.length; i++) { var cp = cops[i]; if (cp.state === 'down' || cp.interior) continue; var cd2 = (cp.x - px) * (cp.x - px) + (cp.z - pz) * (cp.z - pz); if (cd2 < R2) cands.push({ e: cp, d2: cd2, kind: 'cop', by: cp.baseY || 0 }); }
   // clients mirror street cops in copsM (their `cops` array is empty) — no hp on
   // the wire, so their bar reads full until they go down
@@ -8236,7 +8372,7 @@ function handleNet(m, conn) {
     // ---- client → host world actions (host is authoritative) ----
     if (m.t === 'dmgNpc') {
       var n = npcs[m.i];
-      if (n && n.state !== 'down' && n.state !== 'ragdoll') {
+      if (n && n.state !== 'down' && n.state !== 'ragdoll' && n.state !== 'hidden') {
         damageNPC(n, clampf(m.dmg, 0, 250), clampf(m.kx, -2, 2), clampf(m.kz, -2, 2), true);
         if (n.state === 'down') { try { conn.send({ t: 'kill', kind: 'npc' }); } catch (e) { } }
       }
@@ -8260,7 +8396,7 @@ function handleNet(m, conn) {
       }
     } else if (m.t === 'ragNpc') {
       var rn = npcs[m.i];
-      if (rn && rn.state !== 'down' && rn.state !== 'ragdoll') killNpcRagdoll(rn, m.kx, m.kz, m.pw || 9);
+      if (rn && rn.state !== 'down' && rn.state !== 'ragdoll' && rn.state !== 'hidden') killNpcRagdoll(rn, m.kx, m.kz, m.pw || 9);
     } else if (m.t === 'steal') {
       var sc = cars[m.i];
       if (sc && !sc.exploded) {
@@ -8505,7 +8641,7 @@ function updateNet(dt) {
       for (i = 0; i < npcs.length; i++) {
         var nn = npcs[i];
         npcArr.push([Math.round(nn.x * 10), Math.round(nn.z * 10), Math.round(nn.mesh.rotation.y * 100),
-          nn.state === 'down' ? 2 : (nn.state === 'ragdoll' ? 3 : 0), Math.round(nn.mesh.position.y * 10)]);
+          nn.state === 'down' ? 2 : (nn.state === 'ragdoll' ? 3 : (nn.state === 'hidden' ? 4 : 0)), Math.round(nn.mesh.position.y * 10)]);
       }
       net.copList = [];
       var copArr = [];
@@ -8618,9 +8754,15 @@ function applyWorldSnap(dt) {
   for (i = 0; i < s.npcs.length && i < npcs.length; i++) {
     var n = npcs[i], b = s.npcs[i], nm = n.mesh;
     var nox = n.x, noz = n.z;
-    n.x += (b[0] / 10 - n.x) * k; n.z += (b[1] / 10 - n.z) * k;
     var st = b[3];
-    n.state = st === 2 ? 'down' : (st === 3 ? 'ragdoll' : 'walk');
+    // hidden (st 4) = inside a building: mesh invisible, and position SNAPS on
+    // the way in/out — teleports through doors must not glide across the map
+    var isHid = st === 4;
+    if (isHid !== !!n.hiddenM) { n.x = b[0] / 10; n.z = b[1] / 10; nox = n.x; noz = n.z; }
+    else { n.x += (b[0] / 10 - n.x) * k; n.z += (b[1] / 10 - n.z) * k; }
+    n.hiddenM = isHid;
+    nm.visible = !isHid;
+    n.state = st === 2 ? 'down' : (st === 3 ? 'ragdoll' : (isHid ? 'hidden' : 'walk'));
     nm.position.set(n.x, st === 3 ? (b[4] / 10 || 0) : 0, n.z);
     nm.rotation.y = b[2] / 100;
     if (st === 3) {
@@ -8632,7 +8774,7 @@ function applyWorldSnap(dt) {
     } else {
       n.cRag = 0; nm.rotation.x = st === 2 ? -1.5 : 0; nm.rotation.z = 0;
     }
-    if (nm.userData.shadow) nm.userData.shadow.visible = st < 2;
+    if (nm.userData.shadow) nm.userData.shadow.visible = st < 2;   // hidden st=4 also hides (>= 2)
     // animate from the mirrored movement so idle/standing NPCs don't "march in
     // place" — speed derived from the position delta, stride-matched phase
     if (st === 0) { var nmv = Math.hypot(n.x - nox, n.z - noz); n.phase += nmv * 3.4; animPerson(nm, (dt > 0 && nmv / dt > 0.5) ? nmv / dt : 0, dt, n.phase); }
@@ -9063,7 +9205,7 @@ function updatePlayer(dt) {
   // pedestrians are solid-ish: you shoulder past them, not through them
   if (!inside && !state.dead) for (var pci = 0; pci < npcs.length; pci++) {
     var pcn = npcs[pci];
-    if (pcn.state === 'down' || pcn.state === 'ragdoll') continue;
+    if (pcn.state === 'down' || pcn.state === 'ragdoll' || pcn.state === 'hidden') continue;
     var pcx = player.x - pcn.x, pcz = player.z - pcn.z, pc2 = pcx * pcx + pcz * pcz;
     if (pc2 < 0.6 && pc2 > 0.0001) {
       var pcd = Math.sqrt(pc2), pcp = 0.78 - pcd;
@@ -9281,6 +9423,7 @@ window.__wc = {
   breakables: breakables, breakProp: breakProp, lakeBedY: lakeBedY,
   colliders: colliders, mapForestReg: mapForest, mapBuildingsReg: mapBuildings,
   spawnNPC: spawnNPC, assignNpcHome: assignNpcHome, npcTargetFor: npcTargetFor, spotClear: spotClear, mapRoadsReg: mapRoads,
+  npcDoors: npcDoors, pointFree: pointFree, spawnCop: spawnCop,
   expWalkInfo: function () { return { res: expWalkRes.length, col: expWalkCol.length, resLen: Math.round(expWalkRes.total || 0), colLen: Math.round(expWalkCol.total || 0) }; },
   landCollidersRef: function () { return landColliders; }, pushOut: pushOut,
   solidMeshesReg: solidMeshes,

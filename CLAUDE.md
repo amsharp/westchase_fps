@@ -118,8 +118,15 @@ forest walls + "ROAD CLOSED" barriers at the four road exits.
 - **Sidewalk layering gotcha**: sidewalks are 4 flanking strips (y 0.12 /
   0.125 for cross to avoid corner z-fights) laid AFTER roadStrip (y 0.05).
   A full-width sidewalk slab under the road once hid the asphalt entirely.
-- NPCs spawn/respawn on sidewalks (`sidewalkSpot`) and wander with a 60%
-  sidewalk bias (`npcTarget`); cops still use `randTarget`.
+- NPCs wander with an 85% sidewalk bias (`npcTarget`). Buildings register
+  entrances in `npcDoors` (venues via the REMAP_VENUES front-face formula,
+  houses via `feat.door`); NPCs run errands into them (`doorSeek` →
+  state `'hidden'` = inside, unhittable, mesh invisible → re-emerge), killed
+  NPCs respawn by WALKING OUT of a door (never pop in), and `spawnCop` snaps
+  to the nearest door ≥30u from the player. The `hidden` state is wire value
+  4 in the world snapshot; clients SNAP position (no lerp glide) on hidden
+  transitions. NPCs also steer around obstacles pre-contact (`pointFree`
+  whisker probe, every 3rd frame, walk state only).
 - **Breakables**: every oak/palm/streetlight registers in `breakables`
   (`registerBreakable`); any car moving >3 u/s snaps them (`breakProp` →
   ease-out topple + puff burst, 60 s respawn) in `updateWorldFx`, which
