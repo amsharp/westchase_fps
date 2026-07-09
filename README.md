@@ -269,6 +269,7 @@ bed runs under everything.
 - **Tab** — inventory: equip or unequip weapons (you must unequip to punch)
 - **Enter** — open text chat (multiplayer), **Esc** to cancel
 - **Hold V** — push-to-talk voice chat (multiplayer)
+- **F8** — report a bug (grabs a screenshot + your note, sent for triage)
 - **Esc** — release mouse / close menus
 
 ## Rumors
