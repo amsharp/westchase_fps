@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.30.0';
+var GAME_VERSION = 'v1.31.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -4422,6 +4422,450 @@ function spOverlapsBuilding(x, z, hx, hz) {
       streetPropInteractables.push(it);
     }
   }
+})();
+
+// ============================================================
+// PHASE 3 — DENSITY LAYER (WC_REMAP only)
+// Re-adds the detail layer the true-geometry cutover left un-placed
+// (street/yard trees, contextual street props, Y-junction traffic
+// furniture, frontage landscaping) AND integrates the 54
+// densityprops.js assets (decals / signs / clutter / fences).
+// All static scenery: render-only, never simulated or net-synced.
+// Decals/signs/clutter/fences of one texture merge into a single
+// BufferGeometry (one draw call per distinct asset) to stay well
+// under the added-draw-call budget; only solid props/fences take
+// colliders.
+// ============================================================
+var densityStats = { trees: 0, props: 0, decals: 0, signs: 0, clutter: 0, fence: 0, batches: 0 };
+if (WC_REMAP) (function densityLayer() {
+  var deg = Math.PI / 180;
+  function rnd(a, b) { return a + Math.random() * (b - a); }
+  function pick(a) { return a[(Math.random() * a.length) | 0]; }
+  // ---- shared unit geometries, baked through a matrix into merged batches ----
+  var UDECAL = new THREE.PlaneGeometry(1, 1); UDECAL.rotateX(-Math.PI / 2);   // faces +y (XZ plane)
+  var USIGN = new THREE.PlaneGeometry(1, 1);                                    // faces +z (XY plane)
+  var UBOX = new THREE.BoxGeometry(1, 1, 1);
+  var UCYL = new THREE.CylinderGeometry(0.5, 0.5, 1, 10);
+  function mtx(px, py, pz, ry, sx, sy, sz) {
+    var m = new THREE.Matrix4();
+    return m.compose(new THREE.Vector3(px, py, pz), new THREE.Quaternion().setFromAxisAngle(Y_UP, ry || 0), new THREE.Vector3(sx, sy, sz));
+  }
+  // ---- DENSITY_PROPS registry + keyed textures ----
+  var dAsset = {};
+  if (typeof DENSITY_PROPS !== 'undefined') for (var di = 0; di < DENSITY_PROPS.length; di++) dAsset[DENSITY_PROPS[di].n] = DENSITY_PROPS[di];
+  // every sign is authored on a black field -> key the gutter transparent; a
+  // handful of decals/clutter/fences read best keyed too (luminance < thr -> clear)
+  var KEY = {};
+  ['billboard_ad', 'storefront_sign', 'grand_opening_banner', 'flyer_sheet', 'for_sale_sign', 'menu_board', 'bus_route_sign', 'graffiti_panel', 'wall_mural', 'roadwork_sign', 'stop_sign', 'gas_price_sign', 'yard_sign', 'lost_pet_flyer', 'neon_bar_sign', 'parking_sign', 'speed_limit_sign', 'garage_sale_sign'].forEach(function (n) { KEY[n] = 40; });
+  ['grass_tuft', 'leaves_scatter', 'litter_scatter', 'crosswalk', 'center_line', 'road_arrow', 'skid_marks', 'chainlink_fence', 'potted_plant'].forEach(function (n) { KEY[n] = 46; });
+  var dTexCache = {};
+  function dTex(name) {
+    if (dTexCache[name] !== undefined) return dTexCache[name];
+    var a = dAsset[name]; if (!a) return (dTexCache[name] = null);
+    var keyed = KEY[name], cnv = document.createElement('canvas'); cnv.width = cnv.height = 256;
+    var tx = new THREE.CanvasTexture(cnv);
+    tx.wrapS = tx.wrapT = THREE.RepeatWrapping;
+    tx.magFilter = THREE.LinearFilter; tx.minFilter = THREE.LinearMipmapLinearFilter;
+    var im = new Image();
+    im.onload = (function (tx, cnv, keyed, im) { return function () {
+      var g = cnv.getContext('2d'); g.drawImage(im, 0, 0, 256, 256);
+      if (keyed) {
+        var d = g.getImageData(0, 0, 256, 256), p = d.data;
+        for (var k = 0; k < p.length; k += 4) { if (p[k] * 0.299 + p[k + 1] * 0.587 + p[k + 2] * 0.114 < keyed) p[k + 3] = 0; }
+        g.putImageData(d, 0, 0);
+      }
+      tx.needsUpdate = true;
+    }; })(tx, cnv, keyed, im);
+    im.src = a.tex;
+    return (dTexCache[name] = { tex: tx, keyed: !!keyed });
+  }
+  // ---- merged batches: one draw call per key ----
+  var BATCH = {}, _NM = new THREE.Matrix3(), _V = new THREE.Vector3(), _N = new THREE.Vector3();
+  function batch(key, meta) { var e = BATCH[key]; if (!e) e = BATCH[key] = { pos: [], norm: [], uv: [], meta: meta || {} }; return e; }
+  function bake(key, meta, geo, m) {
+    var e = batch(key, meta);
+    _NM.getNormalMatrix(m);
+    var p = geo.attributes.position, u = geo.attributes.uv, nm = geo.attributes.normal, idx = geo.index;
+    var count = idx ? idx.count : p.count;
+    for (var i = 0; i < count; i++) {
+      var vi = idx ? idx.getX(i) : i;
+      _V.set(p.getX(vi), p.getY(vi), p.getZ(vi)).applyMatrix4(m); e.pos.push(_V.x, _V.y, _V.z);
+      if (nm) { _N.set(nm.getX(vi), nm.getY(vi), nm.getZ(vi)).applyMatrix3(_NM).normalize(); e.norm.push(_N.x, _N.y, _N.z); } else e.norm.push(0, 1, 0);
+      e.uv.push(u ? u.getX(vi) : 0, u ? u.getY(vi) : 0);
+    }
+  }
+  function flush() {
+    var n = 0;
+    for (var key in BATCH) {
+      var e = BATCH[key]; if (!e.pos.length) continue;
+      var g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(e.pos), 3));
+      g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(e.norm), 3));
+      g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(e.uv), 2));
+      var o = e.meta, mo = {};
+      if (o.texName) { var t = dTex(o.texName); if (t) { mo.map = t.tex; if (t.keyed) { mo.transparent = true; mo.alphaTest = 0.5; mo.side = THREE.DoubleSide; } } }
+      if (o.color !== undefined) mo.color = o.color;
+      if (o.double) mo.side = THREE.DoubleSide;
+      var mat = lamb(mo);
+      if (o.decal) { mat.polygonOffset = true; mat.polygonOffsetFactor = -2; mat.polygonOffsetUnits = -2; }
+      var mesh = new THREE.Mesh(g, mat); if (o.decal) mesh.frustumCulled = false;
+      scene.add(mesh); n++;
+    }
+    densityStats.batches = n;
+  }
+  // helpers to place one asset instance into the right batch
+  function dDecal(name, x, z, y, ry, scale) { if (!dAsset[name]) return; var a = dAsset[name]; var w = a.dims[0] * (scale || 1), d = a.dims[1] * (scale || 1); bake('d_' + name, { texName: name, decal: true }, UDECAL, mtx(x, y, z, ry || 0, w, 1, d)); densityStats.decals++; }
+  function dSign(name, x, y, z, ry, scale) { if (!dAsset[name]) return; var a = dAsset[name]; bake('d_' + name, { texName: name, double: true }, USIGN, mtx(x, y, z, ry, a.dims[0] * (scale || 1), a.dims[1] * (scale || 1), 1)); densityStats.signs++; }
+  function dBoxAsset(name, x, y, z, ry) { if (!dAsset[name]) return; var a = dAsset[name]; bake('d_' + name, { texName: name }, UBOX, mtx(x, y, z, ry || 0, a.dims[0], a.dims[1], a.dims[2])); densityStats.clutter++; }
+  function dCylAsset(name, x, y, z) { if (!dAsset[name]) return; var a = dAsset[name]; bake('d_' + name, { texName: name }, UCYL, mtx(x, y, z, 0, a.dims[0], a.dims[1], a.dims[0])); densityStats.clutter++; }
+  function pole(x, z, h, r) { r = r || 0.11; bake('_pole', { color: 0x8a8f94 }, UCYL, mtx(x, h / 2, z, 0, r * 2, h, r * 2)); }
+  // tileable fence/wall run A->B, height H, texture repeating along its length
+  function fenceRun(ax, az, bx, bz, name, solid) {
+    var a = dAsset[name]; if (!a) return;
+    var H = a.dims[0], dx = bx - ax, dz = bz - az, L = Math.sqrt(dx * dx + dz * dz);
+    if (L < 0.6) return;
+    var rep = Math.max(1, Math.round(L / (H * 1.4)));
+    var g = new THREE.PlaneGeometry(L, H), uv = g.attributes.uv;
+    for (var i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * rep);
+    var ry = Math.atan2(-dz, dx);
+    bake('d_' + name, { texName: name, double: true }, g, mtx((ax + bx) / 2, H / 2 + 0.02, (az + bz) / 2, ry, 1, 1, 1));
+    if (solid) addColliderOBB((ax + bx) / 2, (az + bz) / 2, L / 2, 0.25, ry);
+    densityStats.fence++;
+  }
+  function fenceRect(cx, cz, w, d, rot, name, solid) {
+    var r = rot * deg, c = Math.cos(r), s = Math.sin(r), hw = w / 2, hd = d / 2;
+    function cp(u, v) { return [cx + u * c + v * s, cz - u * s + v * c]; }
+    var p0 = cp(-hw, -hd), p1 = cp(hw, -hd), p2 = cp(hw, hd), p3 = cp(-hw, hd);
+    fenceRun(p0[0], p0[1], p1[0], p1[1], name, solid); fenceRun(p1[0], p1[1], p2[0], p2[1], name, solid);
+    fenceRun(p2[0], p2[1], p3[0], p3[1], name, solid); fenceRun(p3[0], p3[1], p0[0], p0[1], name, solid);
+  }
+  // a sign mounted on a fresh pole/stake
+  function poleSign(name, x, z, ry, mountY, poleH, poleR) {
+    pole(x, z, poleH, poleR);
+    var a = dAsset[name]; if (!a) return;
+    dSign(name, x + Math.sin(ry) * 0.06, mountY, z + Math.cos(ry) * 0.06, ry);
+  }
+
+  // ---- surface geometry references ----
+  var SURF = (typeof REMAP_SURFACES !== 'undefined') ? REMAP_SURFACES : [];
+  var VENUES = (typeof REMAP_VENUES !== 'undefined') ? REMAP_VENUES : [];
+  var EXITS = (typeof REMAP_EXITS !== 'undefined') ? REMAP_EXITS : [];
+  var COMM = { racetrac: 1, publix: 1, dollar_tree: 1, storage: 1, starbucks: 1, bank: 1, strip: 1, dunkin: 1, offices: 1, yoga: 1, pharmacy: 1, sushi: 1, farnell: 1 };
+  function vFront(v) { var yaw = ((v.rot || 0) + (VENUE_FRONT180[v.type] ? 180 : 0)) * deg; return { yaw: yaw, fx: Math.sin(yaw), fz: Math.cos(yaw), rx: Math.cos(yaw), rz: -Math.sin(yaw) }; }
+  // scatter a local point in a rotated rect -> world [x,z]
+  function rectPt(s, u, v) { var r = (s.rot || 0) * deg, c = Math.cos(r), sn = Math.sin(r); return [s.x + u * c + v * sn, s.z - u * sn + v * c]; }
+
+  // ============ 1. STREET / YARD TREES + FRONTAGE LANDSCAPING ============
+  var TREE_CAP = 130, side = 1;
+  if (RM) {
+    for (var ri = 0; ri < RM.roads.length; ri++) {
+      var r = RM.roads[ri]; if (r.cls > 2 || r.dirt) continue;
+      var len = r.cum[r.cum.length - 1], step = r.cls <= 1 ? 30 : 42;
+      for (var sc = 18; sc < len - 14 && densityStats.trees < TREE_CAP; sc += step) {
+        var pt = rmAt(r.pts, r.cum, sc), off = r.hw + (r.cls <= 1 ? 4.5 : 3.2);
+        var tx = pt.x - pt.uz * off * side, tz = pt.z + pt.ux * off * side; side = -side;
+        if (!remapPointClear(tx, tz, 2) || inLake(tx, tz) || houseBlocksSpot(tx, tz) || remapInClear(tx, tz, 1) || !spotClear(tx, tz)) continue;
+        if (Math.random() < 0.34) palm(tx, tz); else oak(tx, tz, 0.78 + Math.random() * 0.42);
+        densityStats.trees++;
+      }
+    }
+  }
+  // parking-lot island trees (edge midpoints of the bigger lots)
+  for (var pj = 0; pj < SURF.length; pj++) {
+    var su = SURF[pj]; if (su.kind !== 'parking' || su.w * su.d < 900) continue;
+    var e1 = rectPt(su, 0, su.d / 2 - 1.5), e2 = rectPt(su, 0, -su.d / 2 + 1.5);
+    [e1, e2].forEach(function (p) { if (spotClear(p[0], p[1]) && !inLake(p[0], p[1])) { palm(p[0], p[1]); } });
+  }
+  // frontage bushes + crepe myrtles at each commercial venue
+  for (var vf = 0; vf < VENUES.length; vf++) {
+    var v = VENUES[vf]; if (!COMM[v.type]) continue;
+    var f = vFront(v), fpx = v.x + f.fx * (v.d / 2 + 2.2), fpz = v.z + f.fz * (v.d / 2 + 2.2);
+    var e = v.w / 2 - 1.5;
+    bush(fpx + f.rx * e, fpz + f.rz * e); bush(fpx - f.rx * e, fpz - f.rz * e);
+    if (Math.random() < 0.7) crepeMyrtle(fpx + f.rx * (e * 0.4), fpz + f.rz * (e * 0.4));
+  }
+
+  // ============ 2. Y-JUNCTION TRAFFIC FURNITURE ============
+  // mast-arm signals + stop bars + crosswalk paint on the true approaches to
+  // the main junction at the origin (a 3-leg Y). Legs identified from the roads
+  // that pass near (0,0); approach tangent points inward toward the junction.
+  if (RM) {
+    var legs = [];
+    for (var li = 0; li < RM.roads.length; li++) {
+      var rd = RM.roads[li]; if (rd.cls > 1 || rd.dirt) continue;
+      // sample this road's closest approach to the origin, gather inbound dirs
+      var lenR = rd.cum[rd.cum.length - 1];
+      for (var ss = 0; ss <= lenR; ss += 4) {
+        var q = rmAt(rd.pts, rd.cum, ss), dd = q.x * q.x + q.z * q.z;
+        if (dd < 34 * 34 && dd > 15 * 15) {
+          // inbound tangent = pointing toward origin
+          var towardX = -q.x, towardZ = -q.z, tl = Math.sqrt(dd) || 1;
+          var dot = (q.ux * towardX + q.uz * towardZ);
+          var dir = dot >= 0 ? 1 : -1;
+          legs.push({ x: q.x, z: q.z, ux: q.ux * dir, uz: q.uz * dir, hw: rd.hw, d: Math.sqrt(dd) });
+          break;
+        }
+      }
+    }
+    // de-dupe near-parallel legs, keep up to 4 approaches
+    var kept = [];
+    for (var ki = 0; ki < legs.length && kept.length < 4; ki++) {
+      var lg = legs[ki], dup = false;
+      for (var kk = 0; kk < kept.length; kk++) { if (Math.abs(kept[kk].ux * lg.ux + kept[kk].uz * lg.uz) > 0.9 && (kept[kk].x * lg.x + kept[kk].z * lg.z) > 0) dup = true; }
+      if (!dup) kept.push(lg);
+    }
+    // rotation-correct mast arm: arm along local +x, whole rig yawed (the legacy
+    // mastArm() only handles axis-aligned arms — it degenerates to a square
+    // plate on the diagonal Y approaches). Reuses signalHead() so the lamps
+    // register in signalLights and cycle via updateSignals.
+    function yMastArm(px, pz, armDirX, armDirZ, len, nHeads, grpMain) {
+      var g = new THREE.Group(); g.position.set(px, 0, pz);
+      g.rotation.y = Math.atan2(-armDirZ, armDirX);   // local +x -> (armDirX,armDirZ)
+      var poleH = 7.8, armY = poleH - 0.5;
+      g.add(cyl(0.28, 0.34, poleH, 10, poleMetal, 0, poleH / 2, 0));
+      g.add(box(len + 0.25, 0.22, 0.25, poleMetal, len / 2, armY, 0));
+      for (var i = 0; i < nHeads; i++) {
+        var t = (i + 1) / (nHeads + 1) * len;
+        g.add(box(0.06, 0.5, 0.06, poleMetal, t, armY - 0.3, 0));
+        signalHead(g, t, armY - 0.78, 0, grpMain ? 1 : 0, grpMain ? 0 : 1);
+      }
+      scene.add(g);
+    }
+    for (var kj = 0; kj < kept.length; kj++) {
+      var L = kept[kj];
+      var perpX = -L.uz, perpZ = L.ux;             // across-road direction
+      var poleX = L.x + perpX * (L.hw + 3), poleZ = L.z + perpZ * (L.hw + 3);
+      // opposing/alternating approaches share a signal group so the cycle pairs up
+      yMastArm(poleX, poleZ, -perpX, -perpZ, 2 * L.hw + 6, 3, (kj % 2) === 0);
+      // rotated stop bar + crosswalk paint just inside the junction
+      var ry = Math.atan2(-perpZ, perpX);          // bar long axis spans the road
+      var barX = L.x + L.ux * 1.6, barZ = L.z + L.uz * 1.6;
+      var sbar = box(L.hw * 2 - 1, 0.04, 0.9, stopBarM, barX, 0.165, barZ); sbar.rotation.y = ry; scene.add(sbar);
+      var cwX = L.x + L.ux * 4.2, cwZ = L.z + L.uz * 4.2, cwRy = Math.atan2(L.ux, L.uz);
+      for (var cb = -1; cb <= 1; cb++) {
+        dDecal('crosswalk', cwX - perpX * cb * 2.4, cwZ - perpZ * cb * 2.4, 0.175, cwRy, 1.0);
+      }
+      // left-turn arrow decal on the approach lane
+      dDecal('road_arrow', L.x + L.ux * 8 - perpX * (L.hw * 0.4), L.z + L.uz * 8 - perpZ * (L.hw * 0.4), 0.172, cwRy, 1.1);
+    }
+  }
+
+  // ============ 3. DECALS (roads / lots / sidewalks / verges) ============
+  var ROAD_DEC = ['oil_stain', 'asphalt_cracks', 'asphalt_patch', 'manhole', 'skid_marks', 'storm_drain', 'utility_plate'];
+  var LOT_DEC = ['oil_stain', 'asphalt_patch', 'asphalt_cracks', 'manhole', 'utility_plate'];
+  var WALK_DEC = ['sidewalk_gum', 'litter_scatter', 'leaves_scatter', 'cracked_slab'];
+  var VERGE_DEC = ['grass_tuft', 'leaves_scatter', 'puddle', 'mud_patch', 'litter_scatter'];
+  // road surface decals + dashed centreline
+  if (RM) {
+    for (var rd2 = 0; rd2 < RM.roads.length; rd2++) {
+      var rr = RM.roads[rd2]; if (rr.cls > 2 || rr.dirt) continue;
+      var lenA = rr.cum[rr.cum.length - 1];
+      for (var s2 = 8; s2 < lenA - 6; s2 += rr.cls <= 1 ? 7 : 11) {
+        var pa = rmAt(rr.pts, rr.cum, s2), ry2 = Math.atan2(pa.ux, pa.uz);
+        // dashed centre line on arterials/collectors
+        if (rr.cls <= 1 && (s2 % 14 < 7)) dDecal('center_line', pa.x, pa.z, 0.172, ry2, 1);
+        if (Math.random() < 0.5) {
+          var lane = rnd(-rr.hw * 0.6, rr.hw * 0.6);
+          var dx2 = pa.x - pa.uz * lane, dz2 = pa.z + pa.ux * lane;
+          dDecal(pick(ROAD_DEC), dx2, dz2, 0.17, rnd(0, 6.28), rnd(0.8, 1.3));
+        }
+      }
+    }
+  }
+  // parking-lot + pavement surface decals
+  for (var sp2 = 0; sp2 < SURF.length; sp2++) {
+    var sf = SURF[sp2], n2 = Math.min(28, Math.round(sf.w * sf.d / 60));
+    for (var q2 = 0; q2 < n2; q2++) {
+      var u2 = rnd(-sf.w / 2 + 1, sf.w / 2 - 1), vv = rnd(-sf.d / 2 + 1, sf.d / 2 - 1), wp = rectPt(sf, u2, vv);
+      if (inLake(wp[0], wp[1])) continue;
+      dDecal(pick(LOT_DEC), wp[0], wp[1], sf.kind === 'parking' ? 0.13 : 0.14, rnd(0, 6.28), rnd(0.8, 1.2));
+    }
+  }
+  // sidewalk + verge decals along the core-leg ribbons
+  if (RM && RM.coreWalk) {
+    for (var cw2 = 0; cw2 < RM.coreWalk.length; cw2++) {
+      var w2 = RM.coreWalk[cw2];
+      for (var t2 = 4; t2 < w2.L - 4; t2 += rnd(6, 12)) {
+        var sideS = Math.random() < 0.5 ? 1 : -1;
+        var offW = w2.hw + 0.8 + Math.random() * (w2.sw - 1);
+        var wx = w2.x + w2.ux * t2 - w2.uz * offW * sideS, wz = w2.z + w2.uz * t2 + w2.ux * offW * sideS;
+        if (spotClear(wx, wz)) dDecal(pick(WALK_DEC), wx, wz, 0.14, rnd(0, 6.28), rnd(0.8, 1.1));
+        // verge decal a little further out onto the grass
+        var offV = w2.hw + w2.sw + 1 + Math.random() * 4;
+        var vx = w2.x + w2.ux * t2 - w2.uz * offV * sideS, vz = w2.z + w2.uz * t2 + w2.ux * offV * sideS;
+        if (Math.random() < 0.5 && spotClear(vx, vz) && !inLake(vx, vz) && !remapInClear(vx, vz, 0)) dDecal(pick(VERGE_DEC), vx, vz, 0.06, rnd(0, 6.28), rnd(0.8, 1.2));
+      }
+    }
+  }
+
+  // ============ 4. SIGNS (facades / poles / yards / billboards / walls) ============
+  var FACADE = {
+    racetrac: ['storefront_sign'], publix: ['storefront_sign', 'grand_opening_banner'],
+    dollar_tree: ['storefront_sign'], starbucks: ['storefront_sign', 'menu_board'],
+    bank: ['storefront_sign'], strip: ['storefront_sign', 'neon_bar_sign'],
+    dunkin: ['storefront_sign', 'menu_board'], offices: ['storefront_sign'],
+    yoga: ['neon_bar_sign', 'storefront_sign'], pharmacy: ['storefront_sign'],
+    sushi: ['neon_bar_sign', 'storefront_sign'], storage: ['graffiti_panel'], farnell: ['wall_mural']
+  };
+  for (var vg = 0; vg < VENUES.length; vg++) {
+    var vv2 = VENUES[vg], fl = FACADE[vv2.type]; if (!fl) continue;
+    var f2 = vFront(vv2), wallx = vv2.x + f2.fx * (vv2.d / 2 + 0.12), wallz = vv2.z + f2.fz * (vv2.d / 2 + 0.12);
+    for (var fi = 0; fi < fl.length; fi++) {
+      var nm = fl[fi], a2 = dAsset[nm]; if (!a2) continue;
+      var lateral = (fi - (fl.length - 1) / 2) * Math.min(vv2.w * 0.4, 6);
+      var mount = (nm === 'wall_mural' || nm === 'graffiti_panel') ? a2.dims[1] / 2 + 1.0 : 3.4;
+      dSign(nm, wallx + f2.rx * lateral, mount, wallz + f2.rz * lateral, f2.yaw, nm === 'grand_opening_banner' ? 1 : 1);
+    }
+    // gas pylon out at the RaceTrac frontage
+    if (vv2.type === 'racetrac') { var px = vv2.x + f2.fx * (vv2.d / 2 + 7), pz = vv2.z + f2.fz * (vv2.d / 2 + 7); pole(px, pz, 3.2, 0.14); dSign('gas_price_sign', px, 4.2, pz, f2.yaw); }
+    // freestanding entrance clutter markers
+  }
+  // billboards on 2-post frames at two road exits (facing inward)
+  for (var xi = 0; xi < EXITS.length && xi < 2; xi++) {
+    var ex = EXITS[xi], bx = ex.x + ex.dx * 24, bz = ex.z + ex.dz * 24, byaw = Math.atan2(ex.dx, ex.dz) + Math.PI;
+    pole(bx - ex.dz * 5, bz + ex.dx * 5, 6, 0.2); pole(bx + ex.dz * 5, bz - ex.dx * 5, 6, 0.2);
+    dSign('billboard_ad', bx, 6.6, bz, byaw);
+  }
+  // roadside sign poles along arterials/collectors: stop at junction approaches,
+  // speed/parking/bus elsewhere
+  if (RM) {
+    for (var rs = 0; rs < RM.roads.length; rs++) {
+      var rc = RM.roads[rs]; if (rc.cls > 1 || rc.dirt) continue;
+      var lenS = rc.cum[rc.cum.length - 1], sd = 1;
+      for (var sv = 40; sv < lenS - 30; sv += 78) {
+        var ps = rmAt(rc.pts, rc.cum, sv), of = rc.hw + 2.4;
+        var sx = ps.x - ps.uz * of * sd, sz = ps.z + ps.ux * of * sd; sd = -sd;
+        if (!spotClear(sx, sz) || remapInClear(sx, sz, 0)) continue;
+        var facing = Math.atan2(-ps.ux, -ps.uz);   // face oncoming traffic
+        var kind = pick(['speed_limit_sign', 'parking_sign', 'bus_route_sign', 'roadwork_sign']);
+        poleSign(kind, sx, sz, facing, kind === 'bus_route_sign' ? 2.2 : 1.7, kind === 'bus_route_sign' ? 2.6 : 2.1);
+      }
+    }
+  }
+  // yard signs near residential frontages
+  if (RM) {
+    for (var yr = 0; yr < RM.roads.length; yr++) {
+      var ry3 = RM.roads[yr]; if (ry3.cls < 2 || ry3.dirt) continue;
+      var lenY = ry3.cum[ry3.cum.length - 1], yd = 1;
+      for (var yv = 30; yv < lenY - 20; yv += 46) {
+        var py = rmAt(ry3.pts, ry3.cum, yv), oy = ry3.hw + rnd(3, 6);
+        var yx = py.x - py.uz * oy * yd, yz = py.z + py.ux * oy * yd; yd = -yd;
+        if (!spotClear(yx, yz) || inLake(yx, yz) || remapInClear(yx, yz, 0)) continue;
+        if (Math.random() < 0.55) { var yk = pick(['for_sale_sign', 'yard_sign', 'garage_sale_sign', 'lost_pet_flyer']); pole(yx, yz, 0.9, 0.05); dSign(yk, yx, 0.9, yz, rnd(0, 6.28)); }
+      }
+    }
+  }
+
+  // ============ 5. CLUTTER (behind commercial, wall units, entrances) ============
+  var BACK_CLUTTER = ['cardboard_box', 'wooden_crate', 'trash_bags', 'wood_pallet', 'blue_tarp', 'bucket'];
+  for (var vc = 0; vc < VENUES.length; vc++) {
+    var vv3 = VENUES[vc]; if (!COMM[vv3.type]) continue;
+    var f3 = vFront(vv3);
+    // dumpster + junk pile behind the store (opposite the front)
+    var backx = vv3.x - f3.fx * (vv3.d / 2 + 2.6), backz = vv3.z - f3.fz * (vv3.d / 2 + 2.6);
+    var byaw2 = Math.atan2(-f3.fx, -f3.fz);
+    if (typeof getStreetProp !== 'undefined') spFull('dumpster', backx, backz, byaw2 + Math.PI / 2);
+    for (var jc = 0; jc < 4; jc++) {
+      var jx = backx + f3.rx * rnd(-vv3.w * 0.3, vv3.w * 0.3) + f3.fx * rnd(-1, 1);
+      var jz = backz + f3.rz * rnd(-vv3.w * 0.3, vv3.w * 0.3) + f3.fz * rnd(-1, 1);
+      var cn = pick(BACK_CLUTTER), ca = dAsset[cn]; if (!ca) continue;
+      if (cn === 'bucket') dCylAsset(cn, jx, ca.dims[1] / 2 + 0.02, jz);
+      else dBoxAsset(cn, jx, ca.dims[1] / 2 + 0.02, jz, rnd(0, 6.28));
+    }
+    // AC condenser + utility box against a side wall
+    var sidex = vv3.x + f3.rx * (vv3.w / 2 + 0.6), sidez = vv3.z + f3.rz * (vv3.w / 2 + 0.6);
+    dBoxAsset('ac_condenser', sidex, 0.4, sidez, f3.yaw);
+    dBoxAsset('utility_box', sidex + f3.fx * 2, 0.5, sidez + f3.fz * 2, f3.yaw);
+    if (Math.random() < 0.6) dCylAsset('propane_tank', sidex - f3.fx * 2, 0.6, sidez - f3.fz * 2);
+    // potted plants + mulch bed flanking the entrance
+    var frx = vv3.x + f3.fx * (vv3.d / 2 + 1.3), frz = vv3.z + f3.fz * (vv3.d / 2 + 1.3), ee = Math.min(vv3.w / 2 - 1, 4);
+    dBoxAsset('potted_plant', frx + f3.rx * ee, 0.35, frz + f3.rz * ee, 0);
+    dBoxAsset('potted_plant', frx - f3.rx * ee, 0.35, frz - f3.rz * ee, 0);
+    dDecal('mulch_bed', frx, frz, 0.13, f3.yaw, 1);
+  }
+  // barrel delineators + sandbags at the road-closed barriers
+  for (var xb = 0; xb < EXITS.length; xb++) {
+    var eb = EXITS[xb], cbx = eb.x + eb.dx * 16, cbz = eb.z + eb.dz * 16, rrx = -eb.dz, rrz = eb.dx;
+    for (var bd = -2; bd <= 2; bd++) {
+      var dbx = cbx + rrx * bd * 2.2, dbz = cbz + rrz * bd * 2.2;
+      if (bd % 2) dCylAsset('barrel_delineator', dbx, 0.5, dbz); else dBoxAsset('sandbag', dbx, 0.13, dbz, Math.atan2(rrx, rrz));
+    }
+  }
+
+  // ============ 6. FENCES (property lines / lot edges / yards) ============
+  // chainlink around the self-storage + school footprints
+  for (var vh = 0; vh < VENUES.length; vh++) {
+    var vv4 = VENUES[vh];
+    if (vv4.type === 'storage') fenceRect(vv4.x, vv4.z, vv4.w + 6, vv4.d + 6, vv4.rot || 0, 'chainlink_fence', true);
+    if (vv4.type === 'farnell') fenceRect(vv4.x, vv4.z, vv4.w + 10, vv4.d + 14, vv4.rot || 0, 'chainlink_fence', true);
+    // hedge along the back of each townhouse row
+    if (vv4.type === 'townhouse') {
+      var f4 = vFront(vv4), hw2 = vv4.w / 2 - 1, bx2 = vv4.x - f4.fx * (vv4.d / 2 + 1.2), bz2 = vv4.z - f4.fz * (vv4.d / 2 + 1.2);
+      fenceRun(bx2 - f4.rx * hw2, bz2 - f4.rz * hw2, bx2 + f4.rx * hw2, bz2 + f4.rz * hw2, Math.random() < 0.5 ? 'hedge_row' : 'privacy_fence', true);
+    }
+    // low brick wall along the street edge of Publix / BofA lots
+    if (vv4.id === 'publix' || vv4.id === 'boa') {
+      var f5 = vFront(vv4), ew2 = vv4.w / 2 + 2, fx5 = vv4.x + f5.fx * (vv4.d / 2 + 6), fz5 = vv4.z + f5.fz * (vv4.d / 2 + 6);
+      fenceRun(fx5 - f5.rx * ew2, fz5 - f5.rz * ew2, fx5 + f5.rx * ew2, fz5 + f5.rz * ew2, 'brick_low_wall', false);
+    }
+  }
+
+  // ============ 7. CONTEXTUAL STREET PROPS (streetprops.js) ============
+  // Reuses getStreetProp; keeps colliders/interactions (vending/atm/hydrant)
+  // intact. Modest count to respect the draw-call budget.
+  function spFull(name, x, z, ry, y) {
+    if (typeof getStreetProp === 'undefined') return;
+    var g = getStreetProp(name); if (!g) return;
+    var dims = g.userData.spDims || [1, 1, 1];
+    var c = Math.abs(Math.cos(ry)), s = Math.abs(Math.sin(ry));
+    var hx = (dims[0] * c + dims[2] * s) / 2, hz = (dims[0] * s + dims[2] * c) / 2;
+    if (spOverlapsBuilding(x, z, hx, hz)) return;
+    g.position.set(x, y === undefined ? 0.13 : y, z); g.rotation.y = ry; scene.add(g);
+    if (SP_SOLID[name]) { addCollider(x, z, hx * 2, hz * 2); solidMeshes.push(g); }
+    if (SP_SNAP[name]) { registerBreakable(g, x, z, Math.max(hx, hz) + 0.15, SP_SNAP[name]); var bb = breakables[breakables.length - 1]; if (name === 'parkingmeter') bb.kind = 'meter'; if (name === 'hydrant') bb.kind = 'hydrant'; }
+    if (SP_INTERACT[name]) { var it = { kind: SP_INTERACT[name], x: x, z: z, fx: -Math.cos(ry), fz: Math.sin(ry), g: g, cd: -99, robbed: false }; if (it.kind === 'atm') { g.userData.atm = it; if (!SP_SOLID[name]) solidMeshes.push(g); } streetPropInteractables.push(it); }
+    densityStats.props++;
+  }
+  if (typeof STREET_PROPS !== 'undefined') {
+    // storefront benches / trashcans / bike racks / a vending machine per commercial venue
+    for (var vp = 0; vp < VENUES.length; vp++) {
+      var vv5 = VENUES[vp]; if (!COMM[vv5.type]) continue;
+      var f6 = vFront(vv5), fpx2 = vv5.x + f6.fx * (vv5.d / 2 + 1.4), fpz2 = vv5.z + f6.fz * (vv5.d / 2 + 1.4);
+      var frontYaw = Math.atan2(f6.fx, f6.fz);   // prop front (-x authored) faces outward
+      var lat = Math.min(vv5.w / 2 - 2, 5);
+      spFull('bench', fpx2 + f6.rx * lat, fpz2 + f6.rz * lat, frontYaw);
+      spFull('trashcan', fpx2 - f6.rx * lat, fpz2 - f6.rz * lat, frontYaw);
+      if (vv5.type === 'publix' || vv5.type === 'dollar_tree') spFull('vendingmachine', fpx2 + f6.rx * (lat * 0.4), fpz2 + f6.rz * (lat * 0.4), frontYaw);
+      if (vv5.type === 'bank') spFull('atm', fpx2, fpz2, frontYaw);
+      if (vv5.type === 'farnell' || vv5.type === 'publix') spFull('bikerack', fpx2 + f6.rx * (lat * 0.7), fpz2 + f6.rz * (lat * 0.7), frontYaw);
+    }
+    // hydrants ~ every 90u + occasional bus shelter along arterials/collectors
+    if (RM) {
+      for (var hp = 0; hp < RM.roads.length; hp++) {
+        var hr = RM.roads[hp]; if (hr.cls > 1 || hr.dirt) continue;
+        var lenH = hr.cum[hr.cum.length - 1], hd2 = 1;
+        for (var hv = 50; hv < lenH - 30; hv += 90) {
+          var ph = rmAt(hr.pts, hr.cum, hv), ofh = hr.hw + 2.0;
+          var hx2 = ph.x - ph.uz * ofh * hd2, hz2 = ph.z + ph.ux * ofh * hd2; hd2 = -hd2;
+          if (spotClear(hx2, hz2) && !remapInClear(hx2, hz2, 0)) spFull('hydrant', hx2, hz2, 0);
+        }
+        // one bus shelter per long arterial
+        if (hr.cls === 0 && lenH > 120) {
+          var pbs = rmAt(hr.pts, hr.cum, lenH * 0.5), ofb = hr.hw + 3.4;
+          var bsx = pbs.x - pbs.uz * ofb, bsz = pbs.z + pbs.ux * ofb;
+          if (spotClear(bsx, bsz)) spFull('busshelter', bsx, bsz, Math.atan2(pbs.ux, pbs.uz));
+        }
+      }
+    }
+    // mailboxes at townhouse rows
+    for (var mp = 0; mp < VENUES.length; mp++) {
+      var vv6 = VENUES[mp]; if (vv6.type !== 'townhouse') continue;
+      var f7 = vFront(vv6), mfx = vv6.x + f7.fx * (vv6.d / 2 + 1.2), mfz = vv6.z + f7.fz * (vv6.d / 2 + 1.2);
+      for (var me = -1; me <= 1; me += 2) { var mx = mfx + f7.rx * (vv6.w / 2 - 4) * me, mz = mfz + f7.rz * (vv6.w / 2 - 4) * me; spFull('homemailbox', mx, mz, Math.atan2(f7.fx, f7.fz), 0.02); }
+    }
+  }
+
+  flush();
 })();
 
 // ---- interactions (E key + prompt; local-only) ----
@@ -8884,6 +9328,7 @@ window.__wc = {
   landCollidersRef: function () { return landColliders; }, pushOut: pushOut,
   solidMeshesReg: solidMeshes,
   oakInfo: function () { return { count: oakCount, cap: OAK_CAP }; },
+  densityInfo: function () { return densityStats; },
   forestFillPts: expFillPts,
   streetProps: streetPropInteractables, streetPropInteract: streetPropInteract, getStreetProp: getStreetProp, hydrantJets: hydrantJets,
   houses: houseStats, houseBlocksSpot: houseBlocksSpot, houseMeshesRef: houseMeshesRef,
