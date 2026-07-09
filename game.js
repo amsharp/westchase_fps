@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.38.0';
+var GAME_VERSION = 'v1.39.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -36,7 +36,7 @@ var NE_EXIT_Z = -200, SE_EXIT_X = 278;
 
 var WEAPONS = {
   fists:  { name: 'FISTS',  melee: true, dmg: 34, rate: 0.42, range: 2.4 },
-  pistol: { name: 'PISTOL', price: 150, dmg: 40, rate: 0.34, auto: false, spread: 0.014, desc: '9mm sidearm. Reliable.', flashAt: [0.26, -0.265, -0.9] },
+  pistol: { name: 'PISTOL', price: 150, dmg: 40, rate: 0.2, auto: false, spread: 0.014, desc: '9mm sidearm. Reliable.', flashAt: [0.26, -0.265, -0.9] },
   smg:    { name: 'SMG',    price: 400, dmg: 15, rate: 0.065, auto: true, spread: 0.008, spreadMax: 0.05, bloomPerShot: 0.006, desc: 'First shots on target. Then it sprays.', flashAt: [0.26, -0.262, -1.2] },
   rifle:  { name: 'RIFLE',  price: 600, dmg: 95, rate: 0.8,  auto: false, spread: 0.004, desc: 'One shot, one nap. Right-click to scope.', flashAt: [0.24, -0.235, -1.38] },
   auto:   { name: 'AK-47',  price: 1000, dmg: 34, rate: 0.11, auto: true, spread: 0.012, desc: 'Full auto, long range.', flashAt: [0.26, -0.255, -1.2] },
@@ -60,7 +60,9 @@ var state = {
 var keys = {}, mouseDown = false;
 var yaw = 0, pitch = 0;
 var player = { x: -72, z: -97, y: EYE, vy: 0, grounded: true };   // Publix lot, next to the dealer
+var spawnX = -72, spawnZ = -97;   // where death respawns you — overridden to the real spawn per world
 var lastShot = -99, punchT = -99, recoil = 0, punchSide = false, punchSlap = false, gunBloom = 0, equipT = -99;
+var lastShotBy = {};   // per-weapon last-fire time so a fast gun can't lock out a slow one you switch to — and a weapon's own reload (the RPG's 5s) can't be dodged by switching away and back
 var recoilPitch = 0;   // camera kick from firing, decays back to the aim pitch (separate from mouse-look pitch)
 var T = 0;
 var driving = null;   // traffic-car entry the player is driving
@@ -1483,7 +1485,7 @@ if (WC_REMAP && typeof REMAP_VENUES !== 'undefined') {
   remapSurfaces();
   for (var vqi = 0; vqi < REMAP_VENUES.length; vqi++) placeVenueData(REMAP_VENUES[vqi]);
   // gameplay anchors: spawn + dealer in the Publix lot, rob zone at RaceTrac
-  player.x = -63; player.z = 4; dealerPos.x = -60; dealerPos.z = 0;
+  player.x = -63; player.z = 4; spawnX = -63; spawnZ = 4; dealerPos.x = -60; dealerPos.z = 0;
   gasRob.x = 85; gasRob.z = -4;
 } else {
   gasStation(55, 50);
@@ -7092,9 +7094,6 @@ function setEquipped(w) {
   if (inside && w && w !== 'fists' && w !== 'snack' && w !== 'soda') playVoice('clerk_scared', 0.55, 45, { ref: clerk });
   setZoom(false);
   gunBloom = 0;
-  // fire cooldowns are per-timestamp globals; reset them on a real weapon swap
-  // so a fast gun's recent shot can't lock out a slow one you just drew
-  if (w !== state.equipped) { lastShot = -99; punchT = -99; }
   if (w !== state.equipped && w !== 'fists' && w !== 'snack' && w !== 'soda') equipT = T;   // draw animation
   state.equipped = w;
   // the skinned arms ride inside the equipped viewmodel group so the
@@ -7176,8 +7175,8 @@ function tryAttack() {
     if (meleeAt) sfx(punchSlap ? 'slap' : 'punchhit', { x: meleeAt.x, z: meleeAt.z, range: 45 });
     return;
   }
-  if (T - lastShot < w.rate) return;
-  lastShot = T; recoil = 1;
+  if (T - (lastShotBy[state.equipped] || -99) < w.rate) return;
+  lastShotBy[state.equipped] = T; lastShot = T; recoil = 1;
   if (w.rocket) {
     // RPG: no front muzzle flash — the launch kicks smoke out the REAR tube
     recoil = 2.2;
@@ -7310,7 +7309,7 @@ function hurtPlayer(d) {
       dropped++;
     });
     setEquipped('fists');
-    setTimeout(function () { player.x = -72; player.z = -97; player.y = EYE; yaw = 0; pitch = 0; state.hp = 100; state.dead = false; document.getElementById('deadScreen').classList.add('hidden'); }, 2600);
+    setTimeout(function () { player.x = spawnX; player.z = spawnZ; player.y = EYE; yaw = 0; pitch = 0; recoilPitch = 0; state.hp = 100; state.dead = false; document.getElementById('deadScreen').classList.add('hidden'); }, 2600);
   }
 }
 
@@ -8980,6 +8979,7 @@ function updatePlayer(dt) {
     if (state.hp < 100 && T - state.lastHurt > 5) state.hp = Math.min(100, state.hp + 5 * dt);
     if (flashT > 0) { flashT -= dt; if (flashT <= 0) flash.visible = false; }
     document.getElementById('prompt').textContent = '[E] EXIT CAR';
+    rocketCdEl.classList.add('hidden');   // the vm/reload block below is skipped while driving — don't leave the bar stuck
     return;
   }
   updateBreakIn(dt);
@@ -9046,7 +9046,7 @@ function updatePlayer(dt) {
     }
   }
   if (state.equipped === 'rocket' && wg) {
-    var rcd = T - lastShot;
+    var rcd = T - (lastShotBy.rocket || -99);
     if (rcd >= 0 && rcd < WEAPONS.rocket.rate) {
       // reload: launcher dips down-right, a fresh rocket slides into the muzzle
       var dip = Math.min(1, rcd / 0.55, (WEAPONS.rocket.rate - rcd) / 0.7);
@@ -9174,7 +9174,7 @@ window.__wc = {
   armsInfo: function () { return psxArms ? { clips: Object.keys(psxArms.clips), np: psxArms.np, anchor: psxArms.root.position.toArray().map(function (v) { return Math.round(v * 100) / 100; }) } : null; },
   isInside: function () { return inside; },
   storeState: function () { return { robbed: robbedVisit, copsCalled: copsCalledVisit, closedUntil: gasClosedUntil, now: T }; },
-  resetCooldowns: function () { punchT = -99; lastShot = -99; },
+  resetCooldowns: function () { punchT = -99; lastShot = -99; lastShotBy = {}; },
   gunBloom: function () { return gunBloom; },
   setGunHold: function (c, t) { gunHold.clip = c; gunHold.t = t; },   // debug: tune the arms hold pose
 
