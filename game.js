@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.37.0';
+var GAME_VERSION = 'v1.38.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -50,7 +50,7 @@ var GUN_LIST = ['pistol', 'smg', 'rifle', 'auto', 'rocket', 'raygun'];
 // ---------------- state ----------------
 var state = {
   running: false, menu: null,
-  money: 95000, hp: 100, dead: false,
+  money: 400, hp: 100, dead: false,
   owned: { pistol: false, smg: false, rifle: false, auto: false, rocket: false, raygun: false },
   equipped: 'fists',
   lastHurt: -99, lastCarHit: -99, lastRob: -99,
@@ -61,6 +61,7 @@ var keys = {}, mouseDown = false;
 var yaw = 0, pitch = 0;
 var player = { x: -72, z: -97, y: EYE, vy: 0, grounded: true };   // Publix lot, next to the dealer
 var lastShot = -99, punchT = -99, recoil = 0, punchSide = false, punchSlap = false, gunBloom = 0, equipT = -99;
+var recoilPitch = 0;   // camera kick from firing, decays back to the aim pitch (separate from mouse-look pitch)
 var T = 0;
 var driving = null;   // traffic-car entry the player is driving
 
@@ -4903,6 +4904,13 @@ function updateCops(dt) {
       var qdx = cc.x - player.x, qdz = cc.z - player.z;
       if (qdx * qdx + qdz * qdz < 2500) { nearCop = true; break; }
     }
+    // on a client the host's street cops live in copsM (spliced out of `cops`),
+    // so also check the mirror or heat decays while cops are actively hunting
+    if (!nearCop && isClient()) for (i = 0; i < copsM.length; i++) {
+      var cmc = copsM[i]; if (cmc.down) continue;
+      var mdx = cmc.x - player.x, mdz = cmc.z - player.z;
+      if (mdx * mdx + mdz * mdz < 2500) { nearCop = true; break; }
+    }
     if (!nearCop) {
       state.wanted--; lastCrimeT = T; updateStarsHUD();
       if (state.wanted === 0) { popup('You lost the heat'); state.civKills = 0; state.copKills = 0; }   // fresh spree, fresh thresholds
@@ -7084,6 +7092,9 @@ function setEquipped(w) {
   if (inside && w && w !== 'fists' && w !== 'snack' && w !== 'soda') playVoice('clerk_scared', 0.55, 45, { ref: clerk });
   setZoom(false);
   gunBloom = 0;
+  // fire cooldowns are per-timestamp globals; reset them on a real weapon swap
+  // so a fast gun's recent shot can't lock out a slow one you just drew
+  if (w !== state.equipped) { lastShot = -99; punchT = -99; }
   if (w !== state.equipped && w !== 'fists' && w !== 'snack' && w !== 'soda') equipT = T;   // draw animation
   state.equipped = w;
   // the skinned arms ride inside the equipped viewmodel group so the
@@ -7176,7 +7187,7 @@ function tryAttack() {
     puff(new THREE.Vector3(bbP.x, bbP.y - 0.3, bbP.z), 0x9a9a94);
     puff(new THREE.Vector3(bbP.x - bbDir.x * 0.5, bbP.y - 0.35, bbP.z - bbDir.z * 0.5), 0x767670);
     fireRocket();
-    pitch = Math.min(1.45, pitch + 0.04);
+    recoilPitch += 0.04;
     return;
   }
   flash.visible = true; flash.position.set(w.flashAt[0], w.flashAt[1], w.flashAt[2]); flash.rotation.z = Math.random() * Math.PI; flash.scale.setScalar((w.flashScale || 1) * (0.85 + Math.random() * 0.35)); flashT = 0.045;
@@ -7266,7 +7277,7 @@ function tryAttack() {
     else if (atmHit) shootAtm(atmHit, h.point);   // streetprops: burst the ATM open
     else puff(h.point, 0xbbbbbb);
   }
-  pitch = Math.min(1.45, pitch + 0.012 + Math.random() * 0.008);
+  recoilPitch += 0.012 + Math.random() * 0.008;
 }
 
 function hurtPlayer(d) {
@@ -9017,7 +9028,8 @@ function updatePlayer(dt) {
   }
   if (mouseDown && !WEAPONS[state.equipped].melee && WEAPONS[state.equipped].auto) tryAttack();
   if (state.hp < 100 && T - state.lastHurt > 5) state.hp = Math.min(100, state.hp + 5 * dt);
-  camera.position.set(player.x, player.y, player.z); camera.rotation.y = yaw; camera.rotation.x = pitch;
+  recoilPitch += -recoilPitch * Math.min(1, dt * 5);   // recoil recovers back to the aim over ~0.4s (was: pitch climbed and stuck)
+  camera.position.set(player.x, player.y, player.z); camera.rotation.y = yaw; camera.rotation.x = Math.max(-1.45, Math.min(1.45, pitch + recoilPitch));
   var moving = (f || s) && player.grounded; var bob = moving ? Math.sin(T * (spd > 6 ? 13 : 9)) * 0.035 : 0; camera.position.y += bob;
   recoil = Math.max(0, recoil - dt * 8); vm.position.z = recoil * 0.07; vm.position.y = bob * 0.5; vm.rotation.x = recoil * 0.06;
   gunBloom = Math.max(0, gunBloom - dt * 0.06);   // spread recovers ~0.7s after easing off
