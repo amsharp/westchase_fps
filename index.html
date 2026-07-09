@@ -61,6 +61,22 @@
   .pop { color:#8ee87f; font-size:22px; font-weight:bold; text-shadow:2px 2px 0 #000; animation:rise .9s forwards; }
   .pop.bad { color:#e5533d; }
   @keyframes rise { from { opacity:1; transform:translateY(0);} to { opacity:0; transform:translateY(-46px);} }
+  #chatWrap { position:absolute; left:14px; bottom:196px; width:400px; max-width:44vw; z-index:8;
+    display:flex; flex-direction:column; gap:5px; pointer-events:none; }
+  #chatLog { display:flex; flex-direction:column; gap:3px; align-items:flex-start; }
+  .chatMsg { color:#fff; font-size:13px; line-height:1.4; text-shadow:1px 1px 0 #000, 0 0 3px #000;
+    background:rgba(8,12,20,.42); padding:2px 8px; border-radius:2px; max-width:100%;
+    word-wrap:break-word; animation:chatIn .18s ease-out; }
+  .chatMsg.fade { opacity:0; transition:opacity .8s; }
+  .chatMsg .who { font-weight:bold; color:#5ad6ff; }
+  .chatMsg.sys { color:#ffd94a; font-style:italic; }
+  .chatMsg.sys .who { color:#ffd94a; }
+  @keyframes chatIn { from { opacity:0; transform:translateX(-8px);} to { opacity:1; transform:none;} }
+  #chatInput { pointer-events:auto; width:100%; box-sizing:border-box; font:inherit; font-size:14px;
+    color:#fff; background:rgba(8,12,20,.85); border:2px solid #5ad6ff; padding:6px 9px; outline:none; }
+  #voiceInd { position:absolute; left:14px; bottom:172px; z-index:8; color:#8ee87f; font-size:12px;
+    font-weight:bold; text-shadow:1px 1px 0 #000; }
+  #voiceInd.hidden { display:none; }
   #dmgFlash { position:fixed; inset:0; background:#c00; opacity:0; pointer-events:none; z-index:9; transition:opacity .45s; }
   #waterFx { position:fixed; inset:0; pointer-events:none; z-index:7;
     background:radial-gradient(circle at center, rgba(20,80,150,0.38) 0%, rgba(8,40,90,0.55) 100%); }
@@ -116,6 +132,11 @@
   <div id="toast" class="hidden"></div>
   <div id="popups"></div>
 </div>
+<div id="chatWrap">
+  <div id="chatLog"></div>
+  <input id="chatInput" class="hidden" maxlength="140" autocomplete="off" spellcheck="false">
+</div>
+<div id="voiceInd" class="hidden">🎙 talking…</div>
 <div id="dmgFlash"></div>
 <div id="waterFx" class="hidden"></div>
 <div id="scope" class="hidden"></div>

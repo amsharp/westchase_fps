@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.30.2';
+var GAME_VERSION = 'v1.31.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -1206,8 +1206,11 @@ function makeCar() {
   var body = new THREE.Group();   // separate so suspension can bounce it over the wheels
   var wheels = [], pivots = [];
   var wheelSpots = [[1.42, 0.34, 0.86, 0.34], [1.42, 0.34, -0.86, 0.34], [-1.42, 0.34, 0.86, 0.34], [-1.42, 0.34, -0.86, 0.34]];
-  // roster: every Meshy body + every GG_TRAFFIC body at equal weight
-  var nMeshy = typeof MESHY_VEHS !== 'undefined' && MESHY_VEHS.length ? MESHY_VEHS.length : 0;
+  // roster: GGBot imported bodies only (the Meshy set was retired as "V1").
+  // nMeshy pinned to 0 so pickN ranges over GG_TRAFFIC and the GG branch always
+  // wins; the Meshy + procedural branches below stay as graceful fallbacks only
+  // if ggbotvehs.js is ever missing.
+  var nMeshy = (typeof GGBOT_VEHS !== 'undefined' && GG_TRAFFIC.length) ? 0 : (typeof MESHY_VEHS !== 'undefined' && MESHY_VEHS.length ? MESHY_VEHS.length : 0);
   var pickN = (Math.random() * (nMeshy + GG_TRAFFIC.length)) | 0;
   var e = null, s = 1, ends = null, ggw = null, vname = 'PROC';
   if (pickN >= nMeshy && GG_TRAFFIC.length) {
@@ -3415,7 +3418,9 @@ function randomCharConfig(rng) {
   cfg.glasses = rng() < 0.3 ? 1 + ((rng() * 2) | 0) : 0;
   cfg.extra = rng() < 0.4 ? 1 + ((rng() * 3) | 0) : 0;
   cfg.faceX = rng() < 0.35 ? 1 + ((rng() * 3) | 0) : 0;
-  cfg.preset = rng() < 0.3 ? 1 + ((rng() * 3) | 0) : (rng() < 0.45 && MESHY_CIVS.length ? 4 + ((rng() * MESHY_CIVS.length) | 0) : 0);
+  // never the plain blocky procedural look (preset 0, "V1"): mostly Meshy
+  // skinned civilians, occasionally a painted PSX preset (JESS/MARCUS/SPIKE)
+  cfg.preset = (MESHY_CIVS.length && rng() < 0.85) ? 4 + ((rng() * MESHY_CIVS.length) | 0) : 1 + ((rng() * PSX_SKINS.length) | 0);
   return cfg;
 }
 function encodeCC(cfg) {
@@ -3812,6 +3817,17 @@ function buildCharacter(cfg) {
   var legL = pivotGroup('legL', 0), legR = pivotGroup('legR', 0);
   var armL = pivotGroup('armL', -1.42), armR = pivotGroup('armR', 1.42);
   g.add(torso, head, legL, legR, armL, armR);
+  // give PSX / painted-preset avatars a right-hand gun mount (skinned-Meshy
+  // chars get one from their bones) so their held weapon is visible to OTHER
+  // players — without this a preset player firing looks empty-handed to peers.
+  // arm parts are authored relative to the shoulder pivot; the hand is the far
+  // end of the T-pose arm (largest |x|), so anchor there.
+  (function () {
+    var ab = PP.armR.geo; if (!ab.boundingBox) ab.computeBoundingBox();
+    var bb = ab.boundingBox, hand = new THREE.Group();
+    hand.position.set(Math.abs(bb.min.x) > Math.abs(bb.max.x) ? bb.min.x : bb.max.x, (bb.min.y + bb.max.y) / 2, (bb.min.z + bb.max.z) / 2);
+    armR.add(hand); g.userData.handR = hand;
+  })();
   // the asset's actual glasses lens mesh doubles as shades / eyeglasses
   if (cfg.glasses === 1) {
     g.add(new THREE.Mesh(PP.glasses.geo, phong({ color: 0x14181e, shininess: 70, specular: 0x556677 })));
@@ -7947,6 +7963,9 @@ function netRelay(m, fromConn) {
   if (net.mode !== 'host') return;
   for (var i = 0; i < net.conns.length; i++) { if (net.conns[i] !== fromConn) { try { net.conns[i].send(m); } catch (e) { } } }
 }
+// NaN-safe clamp for values a client puts on the wire — the host must never
+// trust a peer's damage/rate/cash numbers verbatim (grief/exploit guard)
+function clampf(v, lo, hi) { v = +v; if (v !== v) return lo; return v < lo ? lo : (v > hi ? hi : v); }
 function updateLobbyStatus() {
   var el = document.getElementById('lobbyStatus');
   if (el) el.textContent = net.conns.length + (net.conns.length === 1 ? ' friend connected' : ' friends connected');
@@ -7991,6 +8010,7 @@ function removeRemote(id) {
   if (!r) return;
   scene.remove(r.mesh); scene.remove(r.tag);
   delete net.remotes[id];
+  if (r.namedOnce && r.name) chatNotice(r.name + ' left');
   // free any car they were driving
   for (var i = 0; i < cars.length; i++) if (cars[i].drivenBy === id) cars[i].drivenBy = null;
 }
@@ -8003,7 +8023,7 @@ function handleNet(m, conn) {
     r.lastSeen = T;
     r.tx = m.x / 10; r.tz = m.z / 10; r.ty = (m.y || 0) / 10; r.tyaw = (m.yaw || 0) / 100;
     r.drv = m.drv || 0; r.h = (m.h || 0) / 100; r.dead = m.dead || 0; r.w = m.w || 0;
-    if (m.n) r.name = m.n;
+    if (m.n) { r.name = m.n; if (!r.namedOnce) { r.namedOnce = true; chatNotice(r.name + ' joined'); } }
     if (m.hp !== undefined) r.hp = m.hp;
     var req = m.e || 0;
     if (r.eq !== req) { r.eq = req; attachHeldGun(r.mesh, req ? GUN_LIST[req - 1] : null); }
@@ -8027,12 +8047,13 @@ function handleNet(m, conn) {
     netRelay(m, conn);
   } else if (m.t === 'hit') {
     if (m.to === net.id) {
+      var hdmg = clampf(m.dmg, 0, 100);   // never trust a peer's damage number
       if (driving) {
-        driving.carHP = (driving.carHP === undefined ? 100 : driving.carHP) - m.dmg * 2;
+        driving.carHP = (driving.carHP === undefined ? 100 : driving.carHP) - hdmg * 2;
         var cp3 = driving.car.group.position;
         puff(new THREE.Vector3(cp3.x + (Math.random() - 0.5) * 2, 1 + Math.random(), cp3.z + (Math.random() - 0.5) * 2), 0xd8c860);
         if (driving.carHP <= 0) igniteCar(driving);
-      } else hurtPlayer(m.dmg);
+      } else hurtPlayer(hdmg);
     }
     else if (net.mode === 'host') { for (var i = 0; i < net.conns.length; i++) if (net.conns[i].peer === m.to) { try { net.conns[i].send(m); } catch (e) { } } }
   } else if (m.t === 'boom') {
@@ -8046,6 +8067,10 @@ function handleNet(m, conn) {
       envT = m.envT; raining = m.raining; rainLeft = m.rainLeft;
       if (m.gasCD) gasClosedUntil = Math.max(gasClosedUntil, T + m.gasCD);   // late joiners inherit the lockout
     }
+  } else if (m.t === 'chat') {
+    var cn = ('' + (m.name || 'PLAYER')).replace(/[^\x20-\x7E]/g, '').slice(0, 12) || 'PLAYER';
+    var ct = ('' + (m.text || '')).replace(/[\x00-\x1F]/g, '').slice(0, 140);
+    if (ct) { addChatMsg(cn, ct, null); if (net.mode === 'host') netRelay(m, conn); }
   } else if (m.t === 'bye') {
     removeRemote(m.id);
     netRelay(m, conn);
@@ -8072,19 +8097,19 @@ function handleNet(m, conn) {
     if (m.t === 'dmgNpc') {
       var n = npcs[m.i];
       if (n && n.state !== 'down' && n.state !== 'ragdoll') {
-        damageNPC(n, m.dmg, m.kx, m.kz, true);
+        damageNPC(n, clampf(m.dmg, 0, 250), clampf(m.kx, -2, 2), clampf(m.kz, -2, 2), true);
         if (n.state === 'down') { try { conn.send({ t: 'kill', kind: 'npc' }); } catch (e) { } }
       }
     } else if (m.t === 'dmgCop') {
       var cpx = net.copList[m.i];
       if (cpx && cpx.state !== 'down') {
-        damageCop(cpx, m.dmg, m.kx, m.kz, true);
+        damageCop(cpx, clampf(m.dmg, 0, 250), clampf(m.kx, -2, 2), clampf(m.kz, -2, 2), true);
         if (cpx.state === 'down') { try { conn.send({ t: 'kill', kind: 'cop' }); } catch (e) { } }
       }
     } else if (m.t === 'shootCar') {
       var scc = cars[m.i];
       if (scc && !scc.stolen && !scc.exploded) {
-        scc.dmgT += m.rate;
+        scc.dmgT += clampf(m.rate, 0, 0.5);
         if (scc.dmgT >= 1.5 && !scc.berserk) { goBerserk(scc); try { conn.send({ t: 'kill', kind: 'car' }); } catch (e) { } }
       }
     } else if (m.t === 'ragNpc') {
@@ -8109,24 +8134,28 @@ function handleNet(m, conn) {
       }
     } else if (m.t === 'park') {
       var pk = cars[m.i];
-      if (pk) { pk.drivenBy = null; pk.stolen = true; pk.car.group.position.set(m.x, 0, m.z); pk.car.group.rotation.y = m.ry; }
+      // only the car's actual driver may park it — else a client can null
+      // another driver's ownership and teleport a car it isn't in
+      if (pk && pk.drivenBy === conn.peer) { pk.drivenBy = null; pk.stolen = true; pk.car.group.position.set(clampf(m.x, -HALF, HALF), 0, clampf(m.z, -HALF, HALF)); pk.car.group.rotation.y = clampf(m.ry, -7, 7); }
     } else if (m.t === 'ram') {
       var rc = cars[m.i];
       if (rc && !rc.stolen && !rc.exploded && !rc.berserk) { goBerserk(rc); try { conn.send({ t: 'kill', kind: 'car' }); } catch (e) { } }
     } else if (m.t === 'ramHit') {
       var rhc = cars[m.i];
       if (rhc && !rhc.stolen && !rhc.exploded && !rhc.berserk) {
-        shoveCar(rhc, m.kx / 10, m.kz / 10, m.sp / 10);
-        rhc.dmgT += m.dmg;
+        shoveCar(rhc, clampf(m.kx / 10, -3, 3), clampf(m.kz / 10, -3, 3), clampf(m.sp / 10, 0, 6));
+        rhc.dmgT += clampf(m.dmg, 0, 1);
         if (rhc.dmgT >= 1.5) { goBerserk(rhc); try { conn.send({ t: 'kill', kind: 'car' }); } catch (e) { } }
       }
     } else if (m.t === 'carBoom') {
+      // only the car's driver can self-detonate it (was: any client, any car)
       var bc = cars[m.i];
-      if (bc) { bc.drivenBy = null; if (!bc.exploded) explodeCar(bc); }
+      if (bc && bc.drivenBy === conn.peer) { bc.drivenBy = null; if (!bc.exploded) explodeCar(bc); }
     } else if (m.t === 'atmCash') {
       // a client cracked an ATM/meter — spawn the cash into the authoritative
-      // world so it snapshots to everyone (and the cracker can loot it)
-      spawnCash(m.x, m.z, m.val || 10);
+      // world so it snapshots to everyone (and the cracker can loot it).
+      // clamp val + position: never trust a peer's cash amount/coords
+      spawnCash(clampf(m.x, -HALF, HALF), clampf(m.z, -HALF, HALF), clampf(m.val, 1, 200) | 0);
     } else if (m.t === 'takeCash') {
       var bi = -1, bd2 = 6;
       for (var ci = 0; ci < cashes.length; ci++) {
@@ -8206,6 +8235,15 @@ function makeVConn(peerId) {
   };
 }
 function vconnFor(id) { for (var i = 0; i < net.conns.length; i++) if (net.conns[i].peer === id) return net.conns[i]; return null; }
+// wipe all per-session net state so a host/join in the SAME page load starts
+// clean — otherwise stale sequence counters reject the new host's snapshots
+// (world freezes) and old avatars leak into the new session
+function resetNetSession() {
+  for (var id in net.remotes) { var r = net.remotes[id]; if (r) { scene.remove(r.mesh); scene.remove(r.tag); } }
+  net.remotes = {}; net.conns = []; net.worldSnap = null; net.copList = []; net.copFxBuf = [];
+  net.sQ = 0; net.worldQ = 0; net.lastWorldQ = 0; net.sN = 0; net.cfxQ = -1;
+  net.sendT = 0; net.envSyncT = 0; net.worldT = 0;
+}
 function connectServer(onReady) {
   var url = WC_SERVER_URL;
   if (!url || url.indexOf('REPLACE_AFTER_DEPLOY') >= 0) { netError('Multiplayer server not configured yet.'); return; }
@@ -8217,7 +8255,10 @@ function connectServer(onReady) {
   sock.onerror = function () { netError('Multiplayer server error (is it online?).'); };
   sock.onclose = function () {
     for (var i = net.conns.length - 1; i >= 0; i--) { if (net.conns[i]._emit) net.conns[i]._emit('close'); }
-    net.conns = []; net.sock = null;
+    net.conns = [];
+    for (var rid in net.remotes) { var rr = net.remotes[rid]; if (rr) { scene.remove(rr.mesh); scene.remove(rr.tag); } }
+    net.remotes = {};   // host-leave / disconnect: clear EVERY avatar, not just the host's
+    net.sock = null;
   };
   sock.onmessage = function (ev) {
     var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
@@ -8246,6 +8287,7 @@ function connectServer(onReady) {
   };
 }
 function hostGame() {
+  resetNetSession();
   net.mode = 'host';
   netError('Creating lobby…');
   saveName();
@@ -8255,6 +8297,7 @@ function joinGame(code) {
   var room = code.indexOf('#join=') >= 0 ? code.split('#join=').pop() : code;
   room = (room || '').trim().toUpperCase();
   if (!room) { netError('Paste an invite link or room code first'); return; }
+  resetNetSession();
   net.mode = 'client';
   netError('Joining…');
   saveName();
@@ -8264,7 +8307,10 @@ function joinGame(code) {
 // froze the whole shared world for every client — pump the net loop on a
 // plain timer whenever the tab is hidden so state keeps flowing
 setInterval(function () {
-  if (document.hidden && net.mode === 'host' && state.running) updateNet(0.125);
+  // a backgrounded tab's requestAnimationFrame is throttled to ~0; pump the net
+  // loop on a timer for BOTH host (keeps the shared world flowing) and clients
+  // (keeps their 's' heartbeat alive so the host doesn't false-reap them)
+  if (document.hidden && net.sock && state.running) updateNet(0.125);
 }, 125);
 function updateNet(dt) {
   if (!net.sock) return;
@@ -8327,8 +8373,10 @@ function updateNet(dt) {
   // interpolate remote players
   for (var id in net.remotes) {
     var r = net.remotes[id];
-    // closed tabs don't always fire a clean disconnect — reap silent ghosts
-    if (r.lastSeen !== undefined && T - r.lastSeen > 6) { removeRemote(id); if (net.mode === 'host') netBroadcast({ t: 'bye', id: id }); continue; }
+    // closed tabs don't always fire a clean disconnect — reap silent ghosts.
+    // but NEVER reap a peer whose socket the host still holds (a backgrounded
+    // tab stops sending 's' yet is still connected) — let WS close / 'bye' end it
+    if (r.lastSeen !== undefined && T - r.lastSeen > 6 && !(net.mode === 'host' && vconnFor(id))) { removeRemote(id); if (net.mode === 'host') netBroadcast({ t: 'bye', id: id }); continue; }
     var k = Math.min(1, dt * 12);
     r.x += (r.tx - r.x) * k; r.z += (r.tz - r.z) * k; r.y += (r.ty - r.y) * k;
     var dy = r.tyaw - r.yaw; while (dy > Math.PI) dy -= Math.PI * 2; while (dy < -Math.PI) dy += Math.PI * 2;
@@ -8586,8 +8634,70 @@ document.addEventListener('wheel', function (e) {
   if (document.pointerLockElement !== canvas) return;
   cycleEquip(e.deltaY > 0 ? 1 : -1);
 }, { passive: true });
+// ---------------- multiplayer text chat ----------------
+var chatOpen = false;
+var chatMsgs = [];   // { el, tw } — tw = wall-clock ms, for auto-fade when closed
+function addChatMsg(name, text, kind) {
+  var log = document.getElementById('chatLog');
+  if (!log) return;
+  var el = document.createElement('div');
+  el.className = 'chatMsg' + (kind === 'sys' ? ' sys' : '');
+  if (kind === 'sys') { el.textContent = text; }
+  else {
+    var who = document.createElement('span'); who.className = 'who'; who.textContent = name + ': ';
+    el.appendChild(who); el.appendChild(document.createTextNode(text));   // textContent path = no HTML injection
+  }
+  log.appendChild(el);
+  chatMsgs.push({ el: el, tw: performance.now() });
+  while (chatMsgs.length > 8) { var old = chatMsgs.shift(); if (old.el.parentNode) old.el.remove(); }
+}
+setInterval(function () {
+  var now = performance.now();
+  for (var i = 0; i < chatMsgs.length; i++) {
+    var m = chatMsgs[i];
+    if (chatOpen) m.el.classList.remove('fade');
+    else if (now - m.tw > 9000) m.el.classList.add('fade');
+  }
+}, 500);
+function openChat() {
+  if (chatOpen || !state.running || state.menu || state.dead) return;
+  chatOpen = true;
+  var inp = document.getElementById('chatInput');
+  inp.classList.remove('hidden'); inp.value = '';
+  for (var k in keys) keys[k] = false;   // stop walking while typing
+  document.exitPointerLock && document.exitPointerLock();
+  setTimeout(function () { inp.focus(); }, 0);
+}
+function closeChat(send) {
+  if (!chatOpen) return;
+  chatOpen = false;
+  var inp = document.getElementById('chatInput');
+  var text = inp.value.replace(/[\x00-\x1F]/g, '').trim().slice(0, 140);
+  inp.value = ''; inp.classList.add('hidden'); inp.blur();
+  if (send && text) sendChat(text);
+  if (state.running && !state.menu) lockPointer();
+}
+function sendChat(text) {
+  var name = getPlayerName();
+  addChatMsg(name, text, null);   // echo my own line immediately
+  if (isHost()) netBroadcast({ t: 'chat', name: name, text: text });
+  else if (isClient()) netToHost({ t: 'chat', name: name, text: text });
+}
+function chatNotice(text) { addChatMsg(null, text, 'sys'); }
+(function () {
+  var inp = document.getElementById('chatInput');
+  if (!inp) return;
+  inp.addEventListener('keydown', function (e) {
+    e.stopPropagation();   // never leak typing to the game key handler
+    if (e.code === 'Enter' || e.code === 'NumpadEnter') { e.preventDefault(); closeChat(true); }
+    else if (e.code === 'Escape') { e.preventDefault(); closeChat(false); }
+  });
+  inp.addEventListener('blur', function () { if (chatOpen) closeChat(false); });
+})();
 document.addEventListener('keydown', function (e) {
+  if (chatOpen) return;   // the chat input owns the keyboard while open
   keys[e.code] = true;
+  if ((e.code === 'Enter' || e.code === 'NumpadEnter') && state.running && !state.menu && netActive()) { e.preventDefault(); openChat(); return; }
   if (e.code === 'Tab') { e.preventDefault(); if (!state.running) return; if (state.menu === 'inv') closeMenus(); else { closeMenus(false); openMenu('inv'); } }
   if (e.code === 'KeyE') {
     if (!state.running) return;
@@ -8862,6 +8972,7 @@ window.__wc = {
   net: net, startGame: startGame, hostGame: hostGame, joinGame: joinGame, handleNet: handleNet,
   buildIceConfig: buildIceConfig, hmacSha1B64: hmacSha1B64,
   buildCharacter: buildCharacter, randomCharConfig: randomCharConfig, buildMeshySkinned: buildMeshySkinned,
+  sendChat: sendChat, attachHeldGun: attachHeldGun, addChatMsg: addChatMsg,
   encodeCC: encodeCC, decodeCC: decodeCC, seededRng: seededRng,
   openCreator: openCreator, closeCreator: closeCreator,
   creatorSpin: function (v) { if (cprev) cprev.spin = v; },
