@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.36.0';
+var GAME_VERSION = 'v1.37.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -5353,11 +5353,15 @@ function copAimArm(c, m, tgt) {
   }
 }
 // world-space muzzle tip of the cop's held gun (null while holstered)
+// front-of-barrel z for each held (dropMesh) gun = -halfDepth of its main body
+// box, so the world/cop muzzle flash sits ON the tip (not floating past it)
+var HELD_MUZZLE_Z = { pistol: -0.225, smg: -0.30, rifle: -0.475, auto: -0.425, rocket: -0.5, raygun: -0.30 };
 function copMuzzle(c) {
   var gun = c.mesh.userData.heldGun;
   if (!gun) return null;
   c.mesh.updateMatrixWorld(true);   // copAimArm may have just re-rotated the gun
-  return new THREE.Vector3(0, 0, c.mesh.userData.heldKind === 'smg' ? -0.45 : -0.35).applyMatrix4(gun.matrixWorld);
+  var mz = HELD_MUZZLE_Z[c.mesh.userData.heldKind];
+  return new THREE.Vector3(0, 0, mz === undefined ? -0.35 : mz).applyMatrix4(gun.matrixWorld);
 }
 function copShoot(c, wpn, dt, tgt) {
   c.fireT -= dt;
@@ -7284,6 +7288,36 @@ function gunFlashAt(px, py, pz, len, dy) {
   var th = -Math.PI / 2 + 0.22;
   return [px - Math.cos(th) * len / 2, py + (dy || 0), pz + Math.sin(th) * len / 2];
 }
+// exact barrel-tip of a positioned Meshy gun group: the models author the
+// muzzle along local -x, so the forward-most vertex is min authored-x. We map
+// it through the (already-placed, un-parented) group so the flash lands ON the
+// tip instead of an approximated center+len/2 (which ignored barrel y/z offset
+// and the model's x-tilt). Returns [x,y,z] in the group's parent (= vm) space.
+var _mzV = new THREE.Vector3();
+function meshyMuzzleAt(mg) {
+  mg.updateMatrixWorld(true);
+  // pass 1: forward-most authored-x. pass 2: average the ring of vertices at
+  // the tip (within 2cm) so the flash centers on the BORE, not a rim vertex.
+  var minlx = 1e9, meshes = [];
+  mg.traverse(function (o) {
+    if (o.isMesh && !o.isSkinnedMesh && o.geometry && o.geometry.attributes.position) {
+      o.updateMatrixWorld(true); meshes.push(o);
+      var pos = o.geometry.attributes.position;
+      for (var i = 0; i < pos.count; i++) if (pos.getX(i) < minlx) minlx = pos.getX(i);
+    }
+  });
+  var bx = 0, by = 0, bz = 0, n = 0;
+  for (var m = 0; m < meshes.length; m++) {
+    var o = meshes[m], pos = o.geometry.attributes.position;
+    for (var i = 0; i < pos.count; i++) {
+      if (pos.getX(i) <= minlx + 0.02) {
+        _mzV.set(pos.getX(i), pos.getY(i), pos.getZ(i)).applyMatrix4(o.matrixWorld);
+        bx += _mzV.x; by += _mzV.y; bz += _mzV.z; n++;
+      }
+    }
+  }
+  return n ? [bx / n, by / n, bz / n] : [0, 0, 0];
+}
 function vmArm(x, y, z, yawR) {
   var g = new THREE.Group();
   var foreGeo = new THREE.CylinderGeometry(0.032, 0.04, 0.22, 8); foreGeo.rotateX(Math.PI / 2);
@@ -7485,7 +7519,7 @@ var vmPistol = new THREE.Group();
     mg.rotation.x = 0.05;
     vmPistol.add(mg);
     var pAr = vmArm(0.29, -0.47, -0.34, 0.18); pAr.userData.gunArm = 1; vmPistol.add(pAr);
-    WEAPONS.pistol.flashAt = gunFlashAt(0.27, -0.33, -0.5, 0.30, 0.06);
+    WEAPONS.pistol.flashAt = meshyMuzzleAt(mg);
     WEAPONS.pistol.flashScale = 0.55;   // muzzle sits closer to camera than the old model
     return;
   }
@@ -7508,7 +7542,7 @@ var vmSmg = new THREE.Group();
     mg.rotation.x = 0.05;
     vmSmg.add(mg);
     var sAr = vmArm(0.29, -0.47, -0.24, 0.18); sAr.userData.gunArm = 1; vmSmg.add(sAr);
-    WEAPONS.smg.flashAt = gunFlashAt(0.27, -0.29, -0.55, 0.5, 0.08);
+    WEAPONS.smg.flashAt = meshyMuzzleAt(mg);
     WEAPONS.smg.flashScale = 0.65;
     return;
   }
@@ -7553,7 +7587,7 @@ var vmRifle = new THREE.Group();
     vmRifle.add(mg);
     var rAr1 = vmArm(0.27, -0.47, -0.34, 0.18); rAr1.userData.gunArm = 1; vmRifle.add(rAr1);
     var rAr2 = vmArm(0.11, -0.44, -0.82, -0.32); rAr2.userData.gunArm = 1; vmRifle.add(rAr2);
-    WEAPONS.rifle.flashAt = gunFlashAt(0.25, -0.29, -0.72, 0.95, 0.04);
+    WEAPONS.rifle.flashAt = meshyMuzzleAt(mg);
     WEAPONS.rifle.flashScale = 0.8;
     return;
   }
@@ -7579,7 +7613,7 @@ var vmAuto = new THREE.Group();
     vmAuto.add(mg);
     var aAr1 = vmArm(0.29, -0.47, -0.3, 0.18); aAr1.userData.gunArm = 1; vmAuto.add(aAr1);
     var aAr2 = vmArm(0.13, -0.44, -0.72, -0.3); aAr2.userData.gunArm = 1; vmAuto.add(aAr2);
-    WEAPONS.auto.flashAt = gunFlashAt(0.26, -0.30, -0.62, 0.8, 0.05);
+    WEAPONS.auto.flashAt = meshyMuzzleAt(mg);
     WEAPONS.auto.flashScale = 0.75;
     return;
   }
