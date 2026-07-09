@@ -77,17 +77,75 @@ function listBugs() {
 function corsHead(res, code, type) {
   res.writeHead(code, { 'Content-Type': type, 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Content-Type', 'Access-Control-Allow-Methods': 'GET,POST,OPTIONS' });
 }
+
+// ---- static game files + the WORLD BOT -----------------------------------
+// The repo root (one level up) holds the game. Serving it here lets the
+// server run a headless Chromium "world bot" that loads the game from its own
+// origin and permanently hosts room MAIN — so the WORLD SIM lives on Railway
+// and human players are never hosts. (It also means the game is playable
+// straight from the relay URL.)
+var GAME_DIR = path.resolve(__dirname, '..');
+var MIME = { '.html': 'text/html', '.js': 'application/javascript', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.md': 'text/plain', '.ico': 'image/x-icon' };
+function serveGameFile(pathname, res) {
+  var rel = pathname === '/index.html' || pathname === '/game' ? 'index.html' : pathname.slice(1);
+  if (!/^[A-Za-z0-9_][A-Za-z0-9_.-]*$/.test(rel)) return false;   // flat files only, no dotfiles/traversal
+  var ext = path.extname(rel).toLowerCase();
+  if (!MIME[ext]) return false;
+  var full = path.join(GAME_DIR, rel);
+  try {
+    var buf = fs.readFileSync(full);
+    res.writeHead(200, { 'Content-Type': MIME[ext], 'Cache-Control': 'no-cache' });
+    res.end(buf);
+    return true;
+  } catch (e) { return false; }
+}
+// world-bot process manager: launch headless Chromium at /index.html?bot=1,
+// relaunch (with backoff) if it dies. Requires BOT_ENABLE=1 + playwright.
+var botRestarts = 0;
+function startWorldBot() {
+  if (process.env.BOT_ENABLE !== '1') { console.log('[BOT] disabled (set BOT_ENABLE=1 to run the world on this server)'); return; }
+  var pw;
+  try { pw = require('playwright'); } catch (e) { console.error('[BOT] playwright not installed — world bot disabled'); return; }
+  var exe = process.env.BOT_CHROMIUM || undefined;   // Docker image ships browsers; sandbox tests override
+  pw.chromium.launch({ executablePath: exe, args: ['--use-gl=angle', '--use-angle=swiftshader', '--no-sandbox', '--enable-unsafe-swiftshader', '--disable-dev-shm-usage'] }).then(function (browser) {
+    return browser.newContext({ viewport: { width: 128, height: 96 } }).then(function (ctx) {
+      return ctx.addInitScript('window.WC_SERVER_URL = "ws://127.0.0.1:' + PORT + '";').then(function () { return ctx.newPage(); });
+    }).then(function (page) {
+      page.on('pageerror', function (e) { console.error('[BOT] pageerror', ('' + e).slice(0, 300)); });
+      page.on('crash', function () { console.error('[BOT] page crashed'); browser.close().catch(function () {}); });
+      browser.on('disconnected', function () {
+        var delay = Math.min(60000, 2000 * Math.pow(2, botRestarts++));
+        console.error('[BOT] browser gone — relaunching in ' + delay + 'ms');
+        setTimeout(startWorldBot, delay);
+      });
+      return page.goto('http://127.0.0.1:' + PORT + '/index.html?bot=1', { waitUntil: 'domcontentloaded', timeout: 120000 }).then(function () {
+        console.log('[BOT] world bot up — hosting room MAIN');
+        setTimeout(function () { botRestarts = 0; }, 120000);   // stable for 2min = reset backoff
+      });
+    });
+  }).catch(function (e) {
+    var delay = Math.min(60000, 2000 * Math.pow(2, botRestarts++));
+    console.error('[BOT] launch failed: ' + ('' + e).slice(0, 300) + ' — retry in ' + delay + 'ms');
+    setTimeout(startWorldBot, delay);
+  });
+}
 function newRoomCode() { var c; do { c = rid(4); } while (rooms[c]); return c; }
 function send(ws, obj) { if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify(obj)); } catch (e) {} } }
 
 var httpServer = http.createServer(function (req, res) {
   var u = req.url.split('?'), pathname = u[0], qs = u[1] || '';
   if (req.method === 'OPTIONS') { corsHead(res, 204, 'text/plain'); res.end(); return; }
-  if (pathname === '/health' || pathname === '/') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    var n = 0; for (var k in rooms) n++;
+  if (pathname === '/health') {
+    var n = 0, players = 0;
+    for (var k in rooms) { n++; var pr = rooms[k].peers; for (var pk in pr) if (!pr[pk].bot) players++; }   // humans only — the world bot isn't a player
     var nb = 0; try { nb = fs.readdirSync(BUG_DIR).filter(function (f) { return f.slice(-5) === '.json'; }).length; } catch (e) {}
-    res.end(JSON.stringify({ ok: true, rooms: n, bugs: nb }));
+    corsHead(res, 200, 'application/json');   // CORS: the game menu polls this for the players-online count
+    res.end(JSON.stringify({ ok: true, rooms: n, players: players, bugs: nb }));
+    return;
+  }
+  // the game itself (also what the local world bot loads)
+  if (req.method === 'GET' && (pathname === '/' || pathname === '/game' || serveGameFile(pathname, res))) {
+    if (pathname === '/' || pathname === '/game') serveGameFile('/index.html', res);
     return;
   }
   // submit a bug report (public — anyone in-game can file one)
@@ -137,6 +195,26 @@ wss.on('connection', function (ws) {
     if (!m || typeof m !== 'object') return;
 
     // ---- room setup (before a peer is placed) ----
+    // the ONE shared world: everyone joins room MAIN, no codes. The first
+    // player in becomes the (invisible) host; when the host leaves, the
+    // longest-connected peer is PROMOTED (see close handler) so the world
+    // survives — the "dedicated server" feel with a listen-server engine.
+    if (m.t === 'joinMain' && !ws.room) {
+      var mroom = rooms.MAIN;
+      var mid = rid(8);
+      ws.room = 'MAIN'; ws.id = mid; ws.name = (m.name || '').slice(0, 16); ws.joinedAt = Date.now();
+      ws.bot = m.bot === 1;   // the server's own world bot — excluded from player counts, preferred as host
+      if (!mroom) {
+        rooms.MAIN = { host: mid, peers: {} };
+        rooms.MAIN.peers[mid] = ws;
+        send(ws, { t: 'hosted', room: 'MAIN', id: mid, main: 1 });
+      } else {
+        mroom.peers[mid] = ws;
+        send(ws, { t: 'joined', room: 'MAIN', id: mid, host: mroom.host });
+        send(mroom.peers[mroom.host], { t: 'peer-join', id: mid, name: ws.name });
+      }
+      return;
+    }
     if (m.t === 'host' && !ws.room) {
       var code = newRoomCode();
       var id = rid(8);
@@ -180,9 +258,24 @@ wss.on('connection', function (ws) {
     var r = rooms[code];
     delete r.peers[ws.id];
     if (ws.id === r.host) {
-      // host left: notify everyone and tear the room down
-      for (var pid in r.peers) send(r.peers[pid], { t: 'host-left' });
-      delete rooms[code];
+      var ids = Object.keys(r.peers);
+      if (code === 'MAIN' && ids.length) {
+        // the shared world survives its host: promote the world bot if one is
+        // connected, else the longest-connected human — they convert their
+        // mirrored world into the authoritative one
+        var best = ids[0];
+        for (var bi = 1; bi < ids.length; bi++) {
+          var cand = r.peers[ids[bi]], cur = r.peers[best];
+          if ((cand.bot && !cur.bot) || (cand.bot === cur.bot && (cand.joinedAt || 0) < (cur.joinedAt || 0))) best = ids[bi];
+        }
+        r.host = best;
+        send(r.peers[best], { t: 'host-promote', room: code, oldHost: ws.id });
+        for (var np in r.peers) if (np !== best) send(r.peers[np], { t: 'host-changed', host: best, oldHost: ws.id });
+      } else {
+        // coded rooms keep the old behavior: host left = room over
+        for (var pid in r.peers) send(r.peers[pid], { t: 'host-left' });
+        delete rooms[code];
+      }
     } else {
       // host-only (host then broadcasts 'bye' to clients at the game level)
       send(r.peers[r.host], { t: 'peer-leave', id: ws.id });
@@ -199,4 +292,7 @@ setInterval(function () {
   });
 }, 30000);
 
-httpServer.listen(PORT, function () { console.log('Westchase relay server listening on :' + PORT); });
+httpServer.listen(PORT, function () {
+  console.log('Westchase relay server listening on :' + PORT);
+  startWorldBot();
+});

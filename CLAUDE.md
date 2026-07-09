@@ -164,10 +164,22 @@ forest walls + "ROAD CLOSED" barriers at the four road exits.
   `updateEnv`.
 - **Weapon switching**: scroll wheel cycles owned weapons (`cycleEquip`,
   requires pointer lock) alongside the TAB inventory.
-- **Multiplayer** (PeerJS, host-as-hub): menu offers Singleplayer / Host
-  (invite link `…#join=<peerid>`) / Join, plus a display-name input
-  (localStorage `wc_name`; sent as `n`+`hp` in state msgs, drawn on the
-  overhead tag sprite with a health bar). `buildIceConfig()` mints
+- **Multiplayer** (WebSocket relay on Railway; ONE shared world): menu is
+  PLAY ONLINE / Singleplayer + a display-name input (localStorage `wc_name`;
+  sent as `n`+`hp` in state msgs, drawn on the overhead tag sprite with a
+  health bar). No host codes: everyone joins room `MAIN` via `joinMain`; the
+  server's own **world bot** (server.js `startWorldBot`, headless Chromium
+  loading `index.html?bot=1`, `WC_BOT` in game.js — never sends `'s'`, player
+  parked at 320,320, cop response uses `hottestPlayerPos()`) permanently
+  hosts, so humans are always pure clients. If the host dies the server
+  PROMOTES the bot first, else the longest-connected human (`host-promote` /
+  `host-changed`; `becomeHost()` converts the mirrors into authoritative
+  state, on-demand vconns adopt peers). `/health` reports `players` (humans
+  only) — the home screen polls it for the "N players in town" ticker. The
+  server also serves the game statically (the bot loads it from its own
+  origin) and deploys via the root Dockerfile (playwright base image,
+  BOT_ENABLE=1). Legacy coded rooms (hostGame/joinGame) still work for tests.
+  OLD PeerJS/TURN notes (dead code kept in-file): `buildIceConfig()` mints
   short-lived TURN credentials in-browser (TURN REST scheme: username =
   expiry unix time, credential = HMAC-SHA1(`openrelayprojectsecret`,
   username) — pure-ES5 sha1/hmac in game.js) for

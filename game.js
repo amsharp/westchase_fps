@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.43.1';
+var GAME_VERSION = 'v1.44.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -4806,12 +4806,21 @@ function buildCop() {
   g.add(box(0.06, 0.1, 0.16, holsterM, 0.24, 0.82, 0.06));    // holster
   return g;
 }
+// where the police response converges: the highest-wanted ALIVE player, local
+// or remote. Matters on a world-bot host (its own "player" is parked off-map)
+// and fixes cops mobbing a clean host while a remote player rampages.
+function hottestPlayerPos() {
+  var hx = player.x, hz = player.z, hw = (state.dead || inside || WC_BOT) ? -1 : (state.wanted || 0);
+  for (var id in net.remotes) { var r = net.remotes[id]; if (r && !r.dead && (r.w || 0) > hw) { hw = r.w; hx = r.x; hz = r.z; } }
+  return { x: hx, z: hz };
+}
 function spawnCop(nearPlayer) {
   var mesh = buildCop(), x, z, doorYaw = null;
+  var hp0 = hottestPlayerPos();
   if (nearPlayer) {
     var a = Math.random() * Math.PI * 2, r = 50 + Math.random() * 30;
-    x = Math.max(-HALF + 6, Math.min(HALF - 6, player.x + Math.cos(a) * r));
-    z = Math.max(-HALF + 6, Math.min(HALF - 6, player.z + Math.sin(a) * r));
+    x = Math.max(-HALF + 6, Math.min(HALF - 6, hp0.x + Math.cos(a) * r));
+    z = Math.max(-HALF + 6, Math.min(HALF - 6, hp0.z + Math.sin(a) * r));
   } else { var t = randTarget(); x = t[0]; z = t[1]; }
   // officers step OUT of a nearby building entrance instead of materializing
   // in the open — snap the picked point to the nearest registered door (but
@@ -4822,7 +4831,7 @@ function spawnCop(nearPlayer) {
     for (var di = 0; di < npcDoors.length; di++) {
       var dq = npcDoors[di];
       var qdx = dq.sx - x, qdz = dq.sz - z, qd2 = qdx * qdx + qdz * qdz;
-      var pdx = dq.sx - player.x, pdz = dq.sz - player.z;
+      var pdx = dq.sx - hp0.x, pdz = dq.sz - hp0.z;
       if (qd2 < bdd && pdx * pdx + pdz * pdz > 30 * 30) { bdd = qd2; bd = di; }
     }
     if (bd >= 0) { x = npcDoors[bd].sx; z = npcDoors[bd].sz; doorYaw = npcDoors[bd].yaw; }
@@ -8229,6 +8238,10 @@ function savePlayerChar() { try { localStorage.setItem('wc_char', encodeCC(playe
   var el = document.getElementById('playerName');
   try { var sv = localStorage.getItem('wc_name'); if (el && sv) el.value = sv; } catch (e) { }
 })();
+// world-bot mode: the dedicated server loads the game headless with ?bot=1 and
+// hosts room MAIN forever. The bot sims the world but is NOT a player: it never
+// broadcasts 's' state, so nobody sees an avatar for it.
+var WC_BOT = /[?&]bot=1/.test(location.search);
 function netActive() { return net.conns.length > 0; }
 function isClient() { return net.mode === 'client' && net.conns.length > 0; }
 function isHost() { return net.mode === 'host' && net.conns.length > 0; }
@@ -8401,7 +8414,7 @@ function handleNet(m, conn) {
     }
   } else if (m.t === 'voice') {
     var vid = m.id || (conn && conn.peer) || 'x';
-    if (m.d) playVoiceFrame(vid, m.r || 16000, m.d);
+    if (m.d && !WC_BOT) playVoiceFrame(vid, m.r || 16000, m.d);   // the headless world bot just relays voice, never plays it
     var vr = net.remotes[vid]; if (vr) vr.talkT = T;   // drive the "talking" tag pop
     if (net.mode === 'host') netRelay(m, conn);
   } else if (m.t === 'chat') {
@@ -8621,9 +8634,12 @@ function connectServer(onReady) {
     if (m.t === 'hosted') {
       net.id = m.id; net.room = m.room;
       document.getElementById('netErr').classList.add('hidden');
-      document.getElementById('inviteLink').value = location.href.split('#')[0] + '#join=' + m.room;
-      document.getElementById('menuMain').classList.add('hidden');
-      document.getElementById('lobby').classList.remove('hidden');
+      if (m.main) { net.mode = 'host'; startGame(); }   // shared world: first one in hosts INVISIBLY — no lobby, no codes
+      else {
+        document.getElementById('inviteLink').value = location.href.split('#')[0] + '#join=' + m.room;
+        document.getElementById('menuMain').classList.add('hidden');
+        document.getElementById('lobby').classList.remove('hidden');
+      }
     } else if (m.t === 'joined') {
       net.id = m.id; net.room = m.room;
       document.getElementById('netErr').classList.add('hidden');
@@ -8633,10 +8649,26 @@ function connectServer(onReady) {
       onConn(makeVConn(m.id));
     } else if (m.t === 'peer-leave') {
       var vc = vconnFor(m.id); if (vc) vc._emit('close');
+    } else if (m.t === 'host-promote') {
+      becomeHost(m.oldHost);   // the previous host left; WE now run the shared world
+    } else if (m.t === 'host-changed') {
+      // rewire our single host conn to the promoted peer; sequence counters
+      // restart on their side, so drop the dedup floors or we'd reject
+      // everything the new host sends
+      removeRemote(m.oldHost);
+      for (var hci = net.conns.length - 1; hci >= 0; hci--) { var oc2 = net.conns[hci]; if (oc2.peer === m.oldHost) net.conns.splice(hci, 1); }
+      if (!vconnFor(m.host)) onConn(makeVConn(m.host));
+      var nr = net.remotes[m.host]; if (nr) { nr.lastQ = 0; }
+      net.lastWorldQ = 0; net.cfxQ = -1; net.worldSnap = null;
+      chatNotice('connection migrated to a new host');
     } else if (m.t === 'host-left') {
       netError('The host left — the game has ended.'); sock.close();
     } else if (m.t === 'msg') {
-      var c = vconnFor(m.from); if (c) c._emit('data', m.data);
+      var c = vconnFor(m.from);
+      // a freshly-promoted host has no vconns for its peers (peer-join was
+      // only ever sent to the ORIGINAL host) — adopt them on first message
+      if (!c && net.mode === 'host') { c = makeVConn(m.from); onConn(c); }
+      if (c) c._emit('data', m.data);
     } else if (m.t === 'error') {
       netError(m.msg || 'Server error');
     }
@@ -8659,6 +8691,46 @@ function joinGame(code) {
   saveName();
   connectServer(function () { net.sock.send(JSON.stringify({ t: 'join', room: room, name: getPlayerName() })); });
 }
+// THE shared world: everyone connects to room MAIN on the dedicated relay —
+// no host codes. The server elects the first player as the (invisible) host
+// and promotes a survivor when they leave, so the town persists.
+function playOnline() {
+  resetNetSession();
+  net.mode = 'client';   // provisional; flips to host if the server says we're first in
+  netError('Connecting…');
+  saveName();
+  connectServer(function () { net.sock.send(JSON.stringify({ t: 'joinMain', name: WC_BOT ? 'SERVER' : getPlayerName(), bot: WC_BOT ? 1 : 0 })); });
+}
+// host migration: the old host vanished and the server picked US. Convert the
+// mirrored world into the authoritative one and start simming.
+function becomeHost(oldHostId) {
+  removeRemote(oldHostId);
+  for (var i = net.conns.length - 1; i >= 0; i--) if (net.conns[i].peer === oldHostId) net.conns.splice(i, 1);
+  net.mode = 'host';
+  net.worldQ = 0; net.copFxBuf = []; net.worldSnap = null; net.copList = []; net.cfxQ = -1;
+  // street-cop mirrors are lightweight husks — drop them; desiredCops respawns
+  // real ones from building doors within a few seconds
+  for (i = 0; i < copsM.length; i++) scene.remove(copsM[i].mesh);
+  copsM.length = 0;
+  // mirrored cash carries no values (the old host owned them) — clear it
+  for (i = 0; i < cashes.length; i++) scene.remove(cashes[i].mesh);
+  cashes.length = 0;
+  // net drops become locally-owned with a fresh rot timer
+  for (i = 0; i < drops.length; i++) { drops[i].net = false; drops[i].pend = false; if (drops[i].life > 900) drops[i].life = 120; }
+  // NPC mirrors are full NPC objects, but mirror-only states need their sim
+  // fields rebuilt before the host branches run them
+  for (i = 0; i < npcs.length; i++) {
+    var n = npcs[i];
+    n.hiddenM = false;
+    if (n.state === 'hidden') { if (!(n.dwellT > 0)) n.dwellT = 4 + Math.random() * 10; if (npcDoors.length && !(npcDoors[n.doorI])) n.doorI = (Math.random() * npcDoors.length) | 0; }
+    else if (n.state === 'ragdoll') { n.state = 'down'; n.downT = 3; n.mesh.rotation.x = -1.5; n.mesh.rotation.z = 0; n.airY = 0; }
+    else if (n.state === 'down') { if (!(n.downT > 0)) n.downT = 3; }
+    else { n.state = 'walk'; n.wayX = undefined; n.wayZ = undefined; n.doorSeek = undefined; n.pause = 0; setNpcTarget(n); }
+  }
+  // traffic resumes from each car's internal lane state (a one-time reshuffle;
+  // parked/exploded cars keep their mirrored flags)
+  chatNotice('the previous host left — you now run the town');
+}
 // a backgrounded host tab has requestAnimationFrame throttled to zero, which
 // froze the whole shared world for every client — pump the net loop on a
 // plain timer whenever the tab is hidden so state keeps flowing
@@ -8672,7 +8744,7 @@ function updateNet(dt) {
   if (!net.sock) return;
   // broadcast our state ~14x/s
   net.sendT -= dt;
-  if (net.sendT <= 0 && netActive()) {
+  if (net.sendT <= 0 && netActive() && !WC_BOT) {   // the world bot is not a player — no avatar/state for it
     net.sendT = 0.07;
     // integers on the wire (binarypack floats are 9 bytes each) + a sequence
     // number so unordered delivery can't rewind us; name/cc only every 10th
@@ -8988,6 +9060,25 @@ document.getElementById('btnCharRandom').addEventListener('click', function () {
   savePlayerChar(); renderCreatorRows(); refreshCreatorChar();
 });
 document.getElementById('btnSP').addEventListener('click', startGame);
+document.getElementById('btnPlay').addEventListener('click', playOnline);
+// players-online ticker on the home screen: poll the relay's /health while at
+// the menu (silently blank when offline / file:// with no reachable server)
+(function () {
+  var el = document.getElementById('onlineCount');
+  if (!el) return;
+  function poll() {
+    if (state.running) return;   // stop caring once in-game
+    var base = bugServerUrl();
+    if (!base) { el.innerHTML = '&nbsp;'; return; }
+    fetch(base + '/health').then(function (r) { return r.json(); }).then(function (j) {
+      if (state.running || !j || !j.ok) return;
+      var np = j.players | 0;
+      el.textContent = np === 0 ? 'server online — nobody in town yet' : (np === 1 ? '1 player in town' : np + ' players in town');
+    }).catch(function () { el.innerHTML = '&nbsp;'; });
+  }
+  poll();
+  setInterval(poll, 10000);
+})();
 document.getElementById('btnHost').addEventListener('click', hostGame);
 document.getElementById('btnEnter').addEventListener('click', startGame);
 document.getElementById('btnJoin').addEventListener('click', function () { joinGame(document.getElementById('joinCode').value); });
@@ -9401,8 +9492,10 @@ function updateHUD() { document.getElementById('money').textContent = '$' + stat
 
 // ---------------- main loop ----------------
 var last = performance.now();
+var lastRafMs = performance.now();   // bot mode watches this to detect RAF starvation
 function loop(now) {
   requestAnimationFrame(loop);
+  lastRafMs = performance.now();
   var dt = Math.min(0.05, (now - last) / 1000); last = now;
   if (!state.running) { renderer.render(scene, camera); renderCreatorFrame(dt); return; }
   T += dt;
@@ -9494,6 +9587,7 @@ window.__wc = {
   houses: houseStats, houseBlocksSpot: houseBlocksSpot, houseMeshesRef: houseMeshesRef,
   isUnderwater: function () { return underwater; },
   net: net, startGame: startGame, hostGame: hostGame, joinGame: joinGame, handleNet: handleNet,
+  playOnline: playOnline, becomeHost: becomeHost,
   buildIceConfig: buildIceConfig, hmacSha1B64: hmacSha1B64,
   buildCharacter: buildCharacter, randomCharConfig: randomCharConfig, buildMeshySkinned: buildMeshySkinned,
   sendChat: sendChat, attachHeldGun: attachHeldGun, addChatMsg: addChatMsg, updateNpcTags: updateNpcTags, npcTagPool: function () { return npcTagPool; },
@@ -9506,5 +9600,26 @@ window.__wc = {
   setPlayerChar: function (c) { playerChar = c; },
   tick: function (dt) { T += dt; updatePlayer(dt); updateNPCs(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateUfo(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateStreetProps(dt); updateEnv(dt); updateVoiceAudio(dt); updateNet(dt); renderer.render(scene, camera); }
 };
+
+// ---------------- world-bot boot (?bot=1: the dedicated server's headless host)
+if (WC_BOT) {
+  // shrink the offscreen render, park the bot's never-seen player at the map
+  // edge, and connect as the (invisible) MAIN host
+  try { renderer.setSize(128, 96); } catch (e) { }
+  player.x = 320; player.z = 320;
+  spawnX = 320; spawnZ = 320;   // if the world ever kills the parked bot it stays parked
+  setTimeout(function () { playOnline(); }, 400);
+  // keep the world simming even if headless Chromium throttles RAF: run the
+  // full tick on a timer whenever RAF has been starved for >250ms
+  setInterval(function () {
+    if (!state.running) return;
+    if (performance.now() - lastRafMs > 250) { try { window.__wc.tick(0.05); } catch (e) { } }
+  }, 50);
+  // if the socket ever drops (server restart won't matter — we die with it —
+  // but a transient close might), retry joining
+  setInterval(function () {
+    if (!net.sock && !state.dead) { try { playOnline(); } catch (e) { } }
+  }, 5000);
+}
 
 })();

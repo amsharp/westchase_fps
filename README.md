@@ -24,12 +24,13 @@ head in-game as a **bright-green name + health bar**, so everyone can see who
 you are and how hurt you are (the name is remembered for next time). Real
 players always read green; nearby **NPCs and cops get their own tags in a
 muted colour** (grey for civilians, steel-blue for police) so you can tell
-humans from AI at a glance. Hosting creates a lobby and gives you an
-**invite link / code** to send to friends (needs internet — everyone
-connects through a **dedicated relay server** hosted on Railway; no
-peer-to-peer / WebRTC / NAT hassles, so same-wifi joins just work. Host =
-create a room, Join = paste the room code). Friends open the game and paste
-the link or code into the JOIN box. You'll see each other in-world (on foot
+humans from AI at a glance. Press **PLAY ONLINE** and you're in — everyone
+shares **one persistent town** on the dedicated Railway server. No host
+codes, no lobbies, no invite links: the home screen shows how many players
+are in town right now, and whoever's there is who you'll meet. (Under the
+hood the first player in quietly runs the world sim, and if they leave the
+server hands the world to the longest-connected player, so the town doesn't
+reset when someone quits.) You'll see each other in-world (on foot
 or driving, with name tags and green minimap dots) and can shoot and punch
 each other — **downing another player pays a bounty and heats you up** — or
 steal each other's wheels: press **E** on a car a friend is driving to

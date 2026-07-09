@@ -20,6 +20,8 @@
     background:#2b3242; color:#fff; border:2px solid #cfc7b0; outline:2px solid #000; padding:12px 0; }
   .menuBtn:hover { background:#3d465c; }
   .menuBtn:disabled { opacity:.4; cursor:default; }
+  #onlineCount { width:340px; margin:4px auto 0; text-align:center; font-size:13px; letter-spacing:1px;
+    color:#6dff8b; text-shadow:1px 1px 0 #000; min-height:17px; }
   .joinRow { display:flex; width:340px; margin:10px auto 0; gap:6px; }
   .joinRow input, #inviteLink { flex:1; font-family:inherit; font-size:13px; background:#10141c; color:#8ee87f;
     border:2px solid #4a4436; padding:10px 8px; }
@@ -184,22 +186,17 @@
   <div id="menuMain">
     <div class="joinRow"><input id="playerName" maxlength="12" placeholder="your display name (shown in multiplayer)"></div>
     <button class="menuBtn" id="btnChar">CHARACTER</button>
+    <button class="menuBtn" id="btnPlay">PLAY ONLINE</button>
+    <div id="onlineCount">&nbsp;</div>
     <button class="menuBtn" id="btnSP">SINGLEPLAYER</button>
-    <button class="menuBtn" id="btnHost">HOST MULTIPLAYER</button>
-    <div class="joinRow">
-      <input id="joinCode" placeholder="paste an invite link or code">
-      <button id="btnJoin">JOIN</button>
+    <!-- legacy coded-room elements: hidden, kept for the headless test harness
+         (and because game.js wires listeners to them at load) -->
+    <div class="hidden">
+      <button id="btnHost"></button><input id="joinCode"><button id="btnJoin"></button>
+      <input id="inviteLink"><button id="btnCopy"></button><p id="lobbyStatus"></p><button id="btnEnter"></button>
     </div>
   </div>
-  <div id="lobby" class="hidden">
-    <p>Send this invite link to your friends:</p>
-    <div class="inviteRow">
-      <input id="inviteLink" readonly>
-      <button id="btnCopy">COPY</button>
-    </div>
-    <p id="lobbyStatus">0 friends connected</p>
-    <button class="menuBtn" id="btnEnter">ENTER WESTCHASE</button>
-  </div>
+  <div id="lobby" class="hidden"></div>
   <div id="netErr" class="hidden"></div>
   <div id="gameVer"></div>
 </div>
