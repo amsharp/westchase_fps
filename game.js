@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.34.1';
+var GAME_VERSION = 'v1.34.2';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -8052,6 +8052,7 @@ function removeRemote(id) {
   if (!r) return;
   scene.remove(r.mesh); scene.remove(r.tag);
   delete net.remotes[id];
+  if (voicePlay[id]) delete voicePlay[id];   // free the per-speaker voice cursor
   if (r.namedOnce && r.name) chatNotice(r.name + ' left');
   // free any car they were driving
   for (var i = 0; i < cars.length; i++) if (cars[i].drivenBy === id) cars[i].drivenBy = null;
@@ -8171,7 +8172,7 @@ function handleNet(m, conn) {
     } else if (m.t === 'shootCar') {
       var scc = cars[m.i];
       if (scc && !scc.stolen && !scc.exploded) {
-        scc.dmgT += clampf(m.rate, 0, 0.5);
+        scc.dmgT += clampf(m.rate, 0, 1);   // covers the rifle's 0.8 rate; still bounds garbage
         if (scc.dmgT >= 1.5 && !scc.berserk) { goBerserk(scc); try { conn.send({ t: 'kill', kind: 'car' }); } catch (e) { } }
       }
     } else if (m.t === 'ragNpc') {
@@ -8198,15 +8199,15 @@ function handleNet(m, conn) {
       var pk = cars[m.i];
       // only the car's actual driver may park it — else a client can null
       // another driver's ownership and teleport a car it isn't in
-      if (pk && pk.drivenBy === conn.peer) { pk.drivenBy = null; pk.stolen = true; pk.car.group.position.set(clampf(m.x, -HALF, HALF), 0, clampf(m.z, -HALF, HALF)); pk.car.group.rotation.y = clampf(m.ry, -7, 7); }
+      if (pk && pk.drivenBy === conn.peer) { pk.drivenBy = null; pk.stolen = true; pk.car.group.position.set(clampf(m.x, -HALF, HALF), 0, clampf(m.z, -HALF, HALF)); pk.car.group.rotation.y = clampf(m.ry, -1e4, 1e4); }   // heading accumulates unwrapped; only reject NaN/garbage
     } else if (m.t === 'ram') {
       var rc = cars[m.i];
       if (rc && !rc.stolen && !rc.exploded && !rc.berserk) { goBerserk(rc); try { conn.send({ t: 'kill', kind: 'car' }); } catch (e) { } }
     } else if (m.t === 'ramHit') {
       var rhc = cars[m.i];
       if (rhc && !rhc.stolen && !rhc.exploded && !rhc.berserk) {
-        shoveCar(rhc, clampf(m.kx / 10, -3, 3), clampf(m.kz / 10, -3, 3), clampf(m.sp / 10, 0, 6));
-        rhc.dmgT += clampf(m.dmg, 0, 1);
+        shoveCar(rhc, clampf(m.kx / 10, -3, 3), clampf(m.kz / 10, -3, 3), clampf(m.sp / 10, 0, 30));
+        rhc.dmgT += clampf(m.dmg, 0, 2);   // real ram impulse peaks ~1.42; bound garbage, don't nerf
         if (rhc.dmgT >= 1.5) { goBerserk(rhc); try { conn.send({ t: 'kill', kind: 'car' }); } catch (e) { } }
       }
     } else if (m.t === 'carBoom') {
@@ -8301,6 +8302,9 @@ function vconnFor(id) { for (var i = 0; i < net.conns.length; i++) if (net.conns
 // clean — otherwise stale sequence counters reject the new host's snapshots
 // (world freezes) and old avatars leak into the new session
 function resetNetSession() {
+  // close any leftover socket (e.g. a prior attempt that only soft-errored) so
+  // its onmessage/onclose closures can't keep mutating net after a retry
+  if (net.sock) { try { net.sock.onclose = null; net.sock.onmessage = null; net.sock.close(); } catch (e) { } net.sock = null; }
   for (var id in net.remotes) { var r = net.remotes[id]; if (r) { scene.remove(r.mesh); scene.remove(r.tag); } }
   net.remotes = {}; net.conns = []; net.worldSnap = null; net.copList = []; net.copFxBuf = [];
   net.sQ = 0; net.worldQ = 0; net.lastWorldQ = 0; net.sN = 0; net.cfxQ = -1;
@@ -8693,7 +8697,7 @@ if (location.hash.indexOf('#join=') === 0) {
   document.getElementById('joinCode').value = location.hash.split('#join=').pop();
 }
 pauseScreen.addEventListener('click', function () { pauseScreen.classList.add('hidden'); lockPointer(); });
-document.addEventListener('pointerlockchange', function () { var locked = document.pointerLockElement === canvas; if (!locked && state.running && !state.menu) pauseScreen.classList.remove('hidden'); else if (locked) pauseScreen.classList.add('hidden'); });
+document.addEventListener('pointerlockchange', function () { var locked = document.pointerLockElement === canvas; if (!locked && state.running && !state.menu && !chatOpen) pauseScreen.classList.remove('hidden'); else if (locked) pauseScreen.classList.add('hidden'); });
 document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 document.addEventListener('mousemove', function (e) { if (document.pointerLockElement !== canvas || state.menu) return; var sens = 0.0022 * (zoomed ? 0.35 : 1); yaw -= e.movementX * sens; pitch -= e.movementY * sens; pitch = Math.max(-1.45, Math.min(1.45, pitch)); });
 document.addEventListener('mousedown', function (e) {
