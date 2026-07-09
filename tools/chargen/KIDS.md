@@ -61,10 +61,16 @@ Texture-only; body/rig identical to `base`.
 east_asian 3, south_asian 2. Every look carries a `race` field so #72 can spawn a
 kid whose ethnicity matches a nearby parent NPC.
 
-**Weakest variants (accepted):** MAYA_HAZEL / MAYA_INK / LEO_COCO / LEO_SUN show
-some gpt-image-1 recolor blotching on limbs (skin-tone reskins over scattered UV
-islands — clothing-only recolors came out cleaner). Readable at gameplay
-distance; combat-exempt background NPCs. Re-roll via `kidreskins.sh` if desired.
+**Variant recolor technique (v2):** the original gpt-image-1 whole-atlas repaint
+smeared dark/burned blotches across the scattered UV islands (nearly every
+variant failed a ship-it review). Replaced by a DETERMINISTIC programmatic canvas
+recolor — `kidrecolor.js`. It classifies every non-background atlas pixel to the
+nearest per-base REFERENCE color (Lab distance) -> a semantic GROUP
+(skin/hair/top/bottom/shoe/keep), then remaps only the groups a variant changes:
+clothing keeps its print shading via a sat+lightness OFFSET (graphics on separate
+clusters stay untouched); skin/hair use FLAT target saturation + damped lightness
+so warm highlights never blow out to orange. Untouched groups stay byte-identical
+-> zero smear. All 24 looks now pass. No AI/Meshy calls needed to re-roll.
 
 ## Scale (important — how kids stay short)
 
@@ -166,10 +172,18 @@ adult voices). Callouts are the hook for the mini-games below.
     step and it "fails" its sanity check on kid meshes — harmless. The rigged GLB
     is already saved, so a second `kidwave.js --only NAME` run skips charpipe and
     finishes via genskin.
-- Variants: `kid_reskins_manifest.json` → `kidreskins.sh` (gpt-image-1 layout-
-  preserving recolors). Verify with `kidsheet.js` (renders all looks in-mesh).
-- Contact sheet: `node kidsheet.js aigen/kids_contact24.png 0.28` (one chromium,
-  PORT 8205; builds each look exactly like the game and poses it mid-walk).
+- Variants: `kid_reskins_manifest.json` gives the roster (name/base/race/file);
+  the recolor SPEC (per-base reference-color -> group palette + per-variant target
+  colors) lives in `kidrecolor.js`. Regenerate the 16 variant atlases with
+  `node kidrecolor.js` (writes `work/kidreskin_<NAME>.jpg`); inspect classification
+  first with `node kidrecolor.js --mask` -> `aigen/kid_masks.png`, and dominant
+  clusters with `node kidcluster.js` -> `aigen/kid_clusters.png`. The old
+  `kidreskins.sh` + `reskin.js` (gpt-image-1) path is DEPRECATED (see "Variant
+  recolor technique (v2)" above). Verify with `kidsheet.js` (renders all looks
+  in-mesh); diagnose a base's rig from many angles with `node kidinspect.js NAME`.
+- Contact sheet: `KIDSHEET_PORT=8208 node kidsheet.js aigen/kids_contact24.png 0.28`
+  (one chromium; builds each look exactly like the game and poses it mid-walk;
+  `KIDSHEET_CELL=400 ... --only NAME,NAME` for close-ups). Default PORT 8205.
 - Voices: `kid_voices.json` (personas + lookMap) + `kid_lines.json` (silly script)
   → `FISH_API_KEY=... node tools/ttsgen/kidvoicegen.js` → `kidvoices1.js`.
 
@@ -177,4 +191,7 @@ adult voices). Callouts are the hook for the mini-games below.
 
 Meshy: ~500 credits (8 kids × ~35 base + remesh fallbacks + KAI regen + SOFIA/MAYA
 regen + KAI re-rig). Balance after: ~1234. gpt-image-1: 8 seeds (+3 retries) +
-16 reskins (+3 retries). Fish: 122 clips.
+16 reskins (+3 retries).  **v2 variant recolor fix: $0 — fully programmatic
+(`kidrecolor.js`), no Meshy/gpt-image-1 calls. MAYA's base "arm blob" was
+diagnosed via `kidinspect.js` as a chunky low-poly hand (not a rig fault), so no
+re-rig was spent.** Fish: 122 clips.

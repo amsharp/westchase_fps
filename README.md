@@ -313,7 +313,11 @@ gets to it first, not to whoever made it show up. Probably nothing.
   The corner landmarks (Publix, RaceTrac, the strip malls, banks, school,
   Dunkin, Starbucks, sushi, pharmacy, townhouses, the red house) sit at
   hand-placed positions/angles fronting the roads, each with its own
-  parking lot. The whole layout — roads, buildings, and parking/pavement —
+  parking lot. The businesses carry real 3D depth — punched-in storefront
+  glass bays, terracotta pilasters with brick bases, green metal awning
+  bands, parapet caps and rooftop AC units — skinned with reality-matched
+  procedural materials (tan-stucco Publix + plaza strips) instead of the
+  old flat painted walls. The whole layout — roads, buildings, and parking/pavement —
   is authored in a built-in map editor (`editor.html`) and imported into
   the game by `tools/mapimport.js` (source of truth: `tools/westchase_map.json`).
 - The map is finite — a wall rings the city.
