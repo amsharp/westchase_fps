@@ -82,7 +82,7 @@
     <button class="tbtn" id="undoBtn" title="Undo (Ctrl+Z)">↶</button>
     <button class="tbtn" id="redoBtn" title="Redo (Ctrl+Shift+Z)">↷</button>
     <div class="spacer"></div>
-    <button class="tbtn" id="fitBtn" title="Fit view (F)">⤢ Fit</button>
+    <button class="tbtn" id="fitBtn" title="Recenter / fit the whole map in view (F)" style="background:#3a4a63;border-color:#5b7aa8;">⤢ Recenter</button>
     <button class="tbtn" id="helpBtn">? Help</button>
     <button class="tbtn" id="loadBtn">⤒ Load</button>
     <button class="tbtn" id="resetBtn" title="Reload the original game map">↺ Reset</button>
@@ -143,7 +143,7 @@
     <span id="zoomRead">100%</span>
     <span id="selRead"></span>
     <span class="spacer" style="flex:1"></span>
-    <span id="hint">V select · R road · B building · P prop · right-drag pan · wheel zoom</span>
+    <span id="hint"><b style="color:#8fbfff">F</b> recenter · V select · R road · B building · P prop · right-drag pan · wheel zoom</span>
   </div>
 </div>
 
@@ -276,7 +276,22 @@ function resize(){ VW=wrap.clientWidth; VH=wrap.clientHeight; var dpr=window.dev
 window.addEventListener('resize', resize);
 function w2s(wx,wz){ return [ VW/2 + (wx-cam.x)*cam.zoom, VH/2 + (wz-cam.y)*cam.zoom ]; }
 function s2w(sx,sz){ return [ (sx-VW/2)/cam.zoom + cam.x, (sz-VH/2)/cam.zoom + cam.y ]; }
-function fitView(){ cam.x=-40; cam.y=-20; cam.zoom=Math.min(VW,VH)/760; }
+// keep the camera near the map so you can never pan/zoom into empty void
+function clampCam(){ var m=HALF+160; cam.x=Math.max(-m,Math.min(m,cam.x)); cam.y=Math.max(-m,Math.min(m,cam.y));
+  cam.zoom=Math.max(0.22,Math.min(14,cam.zoom)); }
+// Fit frames whatever content exists (roads + buildings + props), padded
+function fitView(){
+  var mnx=1e9,mnz=1e9,mxx=-1e9,mxz=-1e9,any=false;
+  function ext(x,z){ any=true; if(x<mnx)mnx=x; if(x>mxx)mxx=x; if(z<mnz)mnz=z; if(z>mxz)mxz=z; }
+  S.roads.forEach(function(r){ r.pts.forEach(function(p){ ext(p[0],p[1]); }); });
+  S.buildings.forEach(function(b){ ext(b.x,b.z); });
+  S.props.forEach(function(p){ ext(p.x,p.z); });
+  if(!any){ mnx=mnz=-HALF; mxx=mxz=HALF; }
+  var pad=45; mnx-=pad; mnz-=pad; mxx+=pad; mxz+=pad;
+  cam.x=(mnx+mxx)/2; cam.y=(mnz+mxz)/2;
+  cam.zoom=Math.max(0.22, Math.min(14, Math.min(VW/(mxx-mnx||1), VH/(mxz-mnz||1))));
+  document.getElementById('zoomRead').textContent=Math.round(cam.zoom*70)+'%';
+}
 
 // ============================ geometry helpers ============================
 function bcorners(b){
@@ -426,7 +441,7 @@ window.addEventListener('mousemove', function(e){
   var rect=cvs.getBoundingClientRect(), sx=e.clientX-rect.left, sz=e.clientY-rect.top;
   var w=s2w(sx,sz); mouseW=w;
   document.getElementById('coordRead').textContent='x '+w[0].toFixed(0)+', z '+w[1].toFixed(0);
-  if(panning){ cam.x-=(e.clientX-lastMouse[0])/cam.zoom; cam.y-=(e.clientY-lastMouse[1])/cam.zoom; lastMouse=[e.clientX,e.clientY]; return; }
+  if(panning){ cam.x-=(e.clientX-lastMouse[0])/cam.zoom; cam.y-=(e.clientY-lastMouse[1])/cam.zoom; lastMouse=[e.clientX,e.clientY]; clampCam(); return; }
   if(!drag) return;
   if(drag.type==='move'){ drag.o.x=snap(w[0]+drag.dx); drag.o.z=snap(w[1]+drag.dz); syncProps(); }
   else if(drag.type==='vertex'){ drag.r.pts[drag.i]=[snap(w[0]),snap(w[1])]; }
@@ -439,8 +454,8 @@ window.addEventListener('mouseup', function(){ panning=false; if(drag){ drag=nul
 function snapAngle(a){ a=(a%360+360)%360; if(document.getElementById('snapChk').checked) a=Math.round(a/5)*5; return Math.round(a*10)/10; }
 cvs.addEventListener('wheel', function(e){ e.preventDefault();
   var rect=cvs.getBoundingClientRect(), sx=e.clientX-rect.left, sz=e.clientY-rect.top;
-  var before=s2w(sx,sz); cam.zoom*=Math.exp(-e.deltaY*0.0012); cam.zoom=Math.max(0.15,Math.min(14,cam.zoom));
-  var after=s2w(sx,sz); cam.x+=before[0]-after[0]; cam.y+=before[1]-after[1];
+  var before=s2w(sx,sz); cam.zoom*=Math.exp(-e.deltaY*0.0012); cam.zoom=Math.max(0.22,Math.min(14,cam.zoom));
+  var after=s2w(sx,sz); cam.x+=before[0]-after[0]; cam.y+=before[1]-after[1]; clampCam();
   document.getElementById('zoomRead').textContent=Math.round(cam.zoom*70)+'%';
 }, {passive:false});
 
