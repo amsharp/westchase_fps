@@ -285,10 +285,12 @@ gets to it first, not to whoever made it show up. Probably nothing.
   the junction stays busiest, but you'll meet people on the residential
   sidewalks (they stick to their own neighborhood, and jaywalk — no
   crosswalks out there) and the odd soul along a collector or Lynmar.
-  (Work in progress: a few of the original corner landmarks — Publix, the
-  strip malls, the banks — still sit on their old grid positions and can
-  straddle the new diagonals until they're re-anchored to the true
-  geometry.)
+  The corner landmarks (Publix, RaceTrac, the strip malls, banks, school,
+  Dunkin, Starbucks, sushi, pharmacy, townhouses, the red house) have been
+  re-anchored to their true satellite positions and angles, so they front
+  the diagonal roads instead of straddling them. (Still to come: per-venue
+  parking lots and the street furniture — benches, ATMs, carts — around the
+  relocated stores.)
 - The map is finite — a wall rings the city.
 - Watch for traffic; cars hurt.
 - Getting knocked out costs you 25% of your cash.

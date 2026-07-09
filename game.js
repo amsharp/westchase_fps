@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.24.0';
+var GAME_VERSION = 'v1.25.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -1393,40 +1393,92 @@ var fountainDrops = [];
 })();
 
 // ---------------- lay out the city ----------------
+// R3 landmark relocation: under WC_REMAP each corner landmark is built at its
+// true satellite pose from REMAP_CLEAR (real position + rotation) instead of
+// the legacy axis spot, so buildings front the diagonal roads rather than
+// straddling them. venueClear() finds the non-poly footprint for an id;
+// placeVenue() builds the landmark at the origin (facing +z) while capturing
+// everything it registers, then rotates + translates the whole group into
+// place and re-registers colliders as OBBs / minimap boxes in world space.
+// The legacy world (WC_REMAP off, or an id with no REMAP_CLEAR entry) builds
+// straight at the old coordinates — byte-identical to before.
+function venueClear(id) {
+  if (!WC_REMAP || typeof REMAP_CLEAR === 'undefined') return null;
+  for (var vi = 0; vi < REMAP_CLEAR.length; vi++) if (REMAP_CLEAR[vi].id === id && !REMAP_CLEAR[vi].poly) return REMAP_CLEAR[vi];
+  return null;
+}
+function placeVenue(id, oldX, oldZ, buildAt) {
+  var cl = venueClear(id);
+  if (!cl) { buildAt(oldX, oldZ); return; }
+  var yaw = (cl.rot || 0) * Math.PI / 180;
+  var vg = new THREE.Group();
+  var realAdd = scene.add.bind(scene), savedCol = addCollider, savedOBB = addColliderOBB;
+  var cols = [], mbs = [], parks = [];
+  scene.add = function (o) { vg.add(o); return scene; };
+  addCollider = function (cx, cz, w, d) { cols.push([cx, cz, w / 2, d / 2, 0]); };
+  addColliderOBB = function (cx, cz, hw, hd, y) { cols.push([cx, cz, hw, hd, y || 0]); };
+  mapBuildings.push = function (e) { mbs.push(e); return mbs.length; };
+  mapParking.push = function (e) { parks.push(e); return parks.length; };
+  try { buildAt(0, 0); }
+  finally {
+    delete scene.add; addCollider = savedCol; addColliderOBB = savedOBB;
+    delete mapBuildings.push; delete mapParking.push;
+  }
+  vg.position.set(cl.x, 0, cl.z); vg.rotation.y = yaw;
+  realAdd(vg); vg.updateMatrixWorld(true);
+  var cy = Math.cos(yaw), sy = Math.sin(yaw), k, w;
+  function toW(lx, lz) { return [lx * cy + lz * sy + cl.x, -lx * sy + lz * cy + cl.z]; }
+  for (k = 0; k < cols.length; k++) { var c = cols[k]; w = toW(c[0], c[1]); addColliderOBB(w[0], w[1], c[2], c[3], yaw + c[4]); }
+  for (k = 0; k < mbs.length; k++) {
+    var e = mbs[k]; w = toW(e.x, e.z);
+    mapBuildings.push({ x: w[0], z: w[1], w: Math.abs(e.w * cy) + Math.abs(e.d * sy), d: Math.abs(e.w * sy) + Math.abs(e.d * cy), h: e.h, c: e.c, pad: e.pad });
+  }
+  for (k = 0; k < parks.length; k++) { var p = parks[k]; w = toW(p.x, p.z); mapParking.push({ x: w[0], z: w[1], w: p.w, d: p.d }); }
+}
 // SE gas station (robbable)
-gasStation(55, 50);
+placeVenue('racetrac', 55, 50, function (x, z) { gasStation(x, z); });
 // SW dollar store + storage + strip malls
-shop(-52, 48, 30, 20, 6, '#3f7f4a', ['DOLLAR TREE'], '#1c5e2a', '#ffe9a0', { face: -1, mmColor: '#2fae4a' });
-storage(-52, 116);
-stripMall(-120, 52, 50, ['NAILS', 'SUBS', 'LAUNDRY']);
-stripMall(-188, 54, 52, ['PIZZA', 'VAPE', 'TAX']);
-stripMall(-256, 56, 48, ['AUTO', 'GYM']);
+placeVenue('dollar_tree', -52, 48, function (x, z) { shop(x, z, 30, 20, 6, '#3f7f4a', ['DOLLAR TREE'], '#1c5e2a', '#ffe9a0', { face: -1, mmColor: '#2fae4a' }); });
+placeVenue('storage', -52, 116, function (x, z) { storage(x, z); });
+placeVenue('strip_c', -120, 52, function (x, z) { stripMall(x, z, 50, ['NAILS', 'SUBS', 'LAUNDRY']); });
+placeVenue('strip_b', -188, 54, function (x, z) { stripMall(x, z, 52, ['PIZZA', 'VAPE', 'TAX']); });
+placeVenue('strip_a', -256, 56, function (x, z) { stripMall(x, z, 48, ['AUTO', 'GYM']); });
 // Dunkin fronts the blue-roof plaza, across the main road from Starbucks
 // (the gas station stands alone on its corner of the intersection)
-shop(-116, 31, 12, 11, 5, '#e8862e', ['DUNKIN'], '#e01a7a', '#ff8c42', { face: -1, mmColor: '#e8862e' });
+placeVenue('dunkin', -116, 31, function (x, z) { shop(x, z, 12, 11, 5, '#e8862e', ['DUNKIN'], '#e01a7a', '#ff8c42', { face: -1, mmColor: '#e8862e' }); });
 // NE bank / pharmacy / sushi
-bankBldg(52, -48, 'REGIONS BANK');
-shop(52, -112, 24, 20, 6, '#e8dcc6', ['WESTCHASE PHARMACY'], '#1c4d8f', '#ffe9a0', { face: 1, mmColor: '#3f8fd0' });
-shop(108, -112, 28, 22, 7, '#c0392b', ['SAKURA SUSHI'], '#111111', '#ffcf3a', { face: 1, mmColor: '#d94f3d' });
+placeVenue('regions', 52, -48, function (x, z) { bankBldg(x, z, 'REGIONS BANK'); });
+placeVenue('pharmacy', 52, -112, function (x, z) { shop(x, z, 24, 20, 6, '#e8dcc6', ['WESTCHASE PHARMACY'], '#1c4d8f', '#ffe9a0', { face: 1, mmColor: '#3f8fd0' }); });
+placeVenue('sushi', 108, -112, function (x, z) { shop(x, z, 28, 22, 7, '#c0392b', ['SAKURA SUSHI'], '#111111', '#ffcf3a', { face: 1, mmColor: '#d94f3d' }); });
 // NW bank / supermarket / school / townhouses
-bankBldg(-48, -48, 'BANK OF AMERICA');
-supermarket(-72, -140);
-school(-72, -238);
-townhouseRow(-150, -120, 6, 0);
-townhouseRow(-150, -150, 6, 0);
-// these two rows used to sit in the lake — moved to dry land north of it
-townhouseRow(-210, -215, 6, 0);
-townhouseRow(-210, -245, 6, 0);
+placeVenue('boa', -48, -48, function (x, z) { bankBldg(x, z, 'BANK OF AMERICA'); });
+placeVenue('publix', -72, -140, function (x, z) { supermarket(x, z); });
+placeVenue('farnell', -72, -238, function (x, z) { school(x, z); });
+placeVenue('th_a', -150, -120, function (x, z) { townhouseRow(x, z, 6, 0); });
+placeVenue('th_b', -150, -150, function (x, z) { townhouseRow(x, z, 6, 0); });
+placeVenue('th_c', -210, -215, function (x, z) { townhouseRow(x, z, 6, 0); });
+placeVenue('th_d', -210, -245, function (x, z) { townhouseRow(x, z, 6, 0); });
 // west along the main road
-coffeeShop(-116, -30);
-shop(-135, -82, 20, 16, 6, '#e5d7bc', ['WEST PARK OFFICES'], '#3a3a3a', '#ffe9a0', { face: 1, mmColor: '#c9b98a' });
-shop(-108, -82, 16, 14, 5, '#e0d2b8', ['YOGA'], '#5a2e6a', '#ffe9a0', { face: 1, mmColor: '#b07acd' });
-redHouse(-278, -78);
+placeVenue('starbucks', -116, -30, function (x, z) { coffeeShop(x, z); });
+placeVenue('offices', -135, -82, function (x, z) { shop(x, z, 20, 16, 6, '#e5d7bc', ['WEST PARK OFFICES'], '#3a3a3a', '#ffe9a0', { face: 1, mmColor: '#c9b98a' }); });
+placeVenue('yoga', -108, -82, function (x, z) { shop(x, z, 16, 14, 5, '#e0d2b8', ['YOGA'], '#5a2e6a', '#ffe9a0', { face: 1, mmColor: '#b07acd' }); });
+placeVenue('red_house', -278, -78, function (x, z) { redHouse(x, z); });
 
-// neighborhoods (moderate)
-subdivision(70, -292, 5, 2, 20, 16);
-subdivision(255, -30, 3, 2, 22, 18);
-subdivision(-250, 130, 4, 2, 20, 16);
+// gameplay anchors follow their venues under WC_REMAP (spawn/dealer in the
+// Publix lot, rob zone at RaceTrac) — refined against the true poses.
+if (WC_REMAP) {
+  player.x = -24; player.z = -31;        // publix_lot clear poly (east of the store)
+  dealerPos.x = -26; dealerPos.z = -34;
+  gasRob.x = 47.9; gasRob.z = 3.7;       // RaceTrac footprint centre
+}
+
+// neighborhoods (moderate) — the survey houses (houses.js) fill the true-road
+// neighborhoods under WC_REMAP, so the axis-grid subdivisions stay legacy-only
+if (!WC_REMAP) {
+  subdivision(70, -292, 5, 2, 20, 16);
+  subdivision(255, -30, 3, 2, 22, 18);
+  subdivision(-250, 130, 4, 2, 20, 16);
+}
 
 // interior forest patches (undeveloped green)
 forestPatch(96, 200, -232, -120);
@@ -2804,36 +2856,41 @@ function houseMMLayer(w2mFn, mmW, mmS) {
 // ---------------- pavement: pads under buildings + access roads ----------------
 // concrete apron under every commercial building
 mapBuildings.forEach(function (b) { if (b.pad) pavePad(b.x, b.z, b.w + 7, b.d + 7); });
-// gas station forecourt (canopy + pumps)
-pavePad(47, 50, 44, 22);
+// axis-grid forecourt / connector driveways / plaza parking — all keyed to the
+// OLD landmark positions, so WC_REMAP suppresses them (the true roads already
+// front the relocated venues; per-venue lots are R4). Legacy world keeps them.
+if (!WC_REMAP) {
+  // gas station forecourt (canopy + pumps)
+  pavePad(47, 50, 44, 22);
 
-// smaller roads / driveways linking each cluster to the main & cross roads
-// SE — RaceTrac + Dunkin
-drive(40, 39, 74, 9);
-drive(40, 26.5, 9, 25);
-// SW — Dollar Tree + strip malls + storage
-drive(-160, 40, 232, 9);
-drive(-70, 26.5, 9, 25);
-drive(-250, 26.5, 9, 25);
-drive(-52, 80, 9, 78);
-// NE — Regions bank + pharmacy + sushi
-drive(52, -30, 9, 34);
-drive(30, -48, 42, 9);
-drive(52, -80, 9, 66);
-drive(80, -112, 58, 9);
-// NW — Bank of America + Publix + school + Starbucks + offices
-drive(-30, -48, 40, 9);
-drive(-72, -31, 10, 92);
-drive(-124, -113, 9, 254);
-drive(-122, -79, 62, 9);
-drive(-116, -22, 9, 18);
+  // smaller roads / driveways linking each cluster to the main & cross roads
+  // SE — RaceTrac + Dunkin
+  drive(40, 39, 74, 9);
+  drive(40, 26.5, 9, 25);
+  // SW — Dollar Tree + strip malls + storage
+  drive(-160, 40, 232, 9);
+  drive(-70, 26.5, 9, 25);
+  drive(-250, 26.5, 9, 25);
+  drive(-52, 80, 9, 78);
+  // NE — Regions bank + pharmacy + sushi
+  drive(52, -30, 9, 34);
+  drive(30, -48, 42, 9);
+  drive(52, -80, 9, 66);
+  drive(80, -112, 58, 9);
+  // NW — Bank of America + Publix + school + Starbucks + offices
+  drive(-30, -48, 40, 9);
+  drive(-72, -31, 10, 92);
+  drive(-124, -113, 9, 254);
+  drive(-122, -79, 62, 9);
+  drive(-116, -22, 9, 18);
 
-// customer parking strips (satellite: every plaza fronts a small lot) —
-// registered in mapParking; the parked-car pass fills them with cars
-parkingLot(-160, 27.5, 220, 17);   // strip malls + Dollar Tree frontage
-parkingLot(61, 67, 22, 12);        // RaceTrac side lot
-parkingLot(74, -48, 16, 24);       // Regions Bank east lot
-parkingLot(-48, -68, 26, 12);      // Bank of America south lot
+  // customer parking strips (satellite: every plaza fronts a small lot) —
+  // registered in mapParking; the parked-car pass fills them with cars
+  parkingLot(-160, 27.5, 220, 17);   // strip malls + Dollar Tree frontage
+  parkingLot(61, 67, 22, 12);        // RaceTrac side lot
+  parkingLot(74, -48, 16, 24);       // Regions Bank east lot
+  parkingLot(-48, -68, 26, 12);      // Bank of America south lot
+}
 
 // ---------------- street furniture & landscaping ----------------
 var bushMats = [lamb({ color: 0x3f6f2e }), lamb({ color: 0x4a7d34 }), lamb({ color: 0x355f28 })];
@@ -3122,12 +3179,15 @@ function streetlight(x, z, ax, az) {
       streetlight(CROSS_HW + 5.5, z + 32 <= 290 ? z + 32 : z - 32, -1, 0);
     }
   }
-  // parking lots
-  streetlight(-92, -96, 1, 0); streetlight(-52, -96, -1, 0);        // Publix lot
-  streetlight(-18, -238, -1, 0);                                    // school lot
-  streetlight(-160, 34, 0, 1); streetlight(-250, 36, 0, 1);         // strip mall frontage
-  streetlight(40, 33, 0, 1);                                        // RaceTrac frontage
-  streetlight(-116, 22, 0, 1);                                      // Dunkin
+  // parking-lot lights (keyed to the OLD lot positions — legacy world only;
+  // the remap streetlight rows already light the relocated venues' roads)
+  if (!WC_REMAP) {
+    streetlight(-92, -96, 1, 0); streetlight(-52, -96, -1, 0);        // Publix lot
+    streetlight(-18, -238, -1, 0);                                    // school lot
+    streetlight(-160, 34, 0, 1); streetlight(-250, 36, 0, 1);         // strip mall frontage
+    streetlight(40, 33, 0, 1);                                        // RaceTrac frontage
+    streetlight(-116, 22, 0, 1);                                      // Dunkin
+  }
 })();
 var lampsOn = false;
 function setLamps(on) {
@@ -4276,6 +4336,10 @@ function spOverlapsBuilding(x, z, hx, hz) {
 }
 (function spawnStreetProps() {
   if (typeof STREET_PROPS === 'undefined') return;   // file absent -> game unaffected
+  // SP_PLACES are hand-authored against the OLD landmark walls; WC_REMAP moved
+  // the venues, so suppress them rather than strand benches/ATMs on grass at
+  // the old spots. Per-venue remap props are R4.
+  if (WC_REMAP) return;
   for (var i = 0; i < SP_PLACES.length; i++) {
     var P = SP_PLACES[i], name = P[0], x = P[1], z = P[2];
     var ry = typeof P[3] === 'string' ? SP_FACE[P[3]] : (P[3] || 0);
@@ -4805,7 +4869,10 @@ function addParkedCar(x, z, ry) {
 // hand-authored slot rows inside the mapParking lots: rows run along each
 // lot's long axis, cars nose-in toward the building, ~3.2u stall pitch.
 // n = how many of the row's slots get a car (random subset = natural gaps).
-var PARKED_ROWS = [
+// Venue lot rows are keyed to the OLD lot positions; WC_REMAP suppresses them
+// (the venues relocated, and their axis lots with them — per-venue remap lots
+// are R4). The survey neighborhoods still contribute HOUSE_PARKED_ROWS below.
+var PARKED_ROWS = WC_REMAP ? [] : [
   // Publix (78x40 lot; aisle at z~-96 stays clear: player spawn -72,-97 + dealer -72,-106)
   { x: -106, z: -104, dx: 3.2, dz: 0, slots: 20, ry: Math.PI / 2, n: 5 },
   { x: -106, z: -88, dx: 3.2, dz: 0, slots: 20, ry: -Math.PI / 2, n: 4 },
@@ -4820,7 +4887,7 @@ var PARKED_ROWS = [
   // Farnell school east lot (single row — the lot's east half hugs the cross road)
   { x: -24, z: -255, dx: 0, dz: 3.3, slots: 11, ry: Math.PI, n: 4 }
 ];
-var PARKED_CLEAR = [[-72, -97], [-72, -106]];   // player spawn + gun dealer
+var PARKED_CLEAR = WC_REMAP ? [[-24, -31], [-26, -34]] : [[-72, -97], [-72, -106]];   // player spawn + gun dealer
 // survey-neighborhood lots contribute extra deterministic rows (houses.js)
 if (typeof HOUSE_PARKED_ROWS !== 'undefined') PARKED_ROWS = PARKED_ROWS.concat(HOUSE_PARKED_ROWS);
 function parkedHalfExt(ry) {
