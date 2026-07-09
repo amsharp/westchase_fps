@@ -1,0 +1,66 @@
+{
+ "_comment": "SILLY child dialogue, keyed by PERSONA (see kid_voices.json). Categories: chatter (random kid chatter), parent (kid whining AT their parent), play (playground squeals/laughs), tag / hide / rlgl (game callouts for Tag, Hide-and-Seek, Red-Light-Green-Light). PARENT_* keys are generic parent-to-kid lines on existing adult voices. Tone markers are stripped by speakable() at synth time.",
+
+ "KID_BOY_BRIGHT": {
+  "chatter": ["I can run SO fast, watch me!", "Do you like dinosaurs? I LOVE dinosaurs!", "Look how high I can jump!", "Bet you can't do this!"],
+  "parent": ["Can we get ice cream, please? Pleeease?", "Are we there yet?", "Look at me! Look look look!"],
+  "play": ["Wheee!", "This is so much fun!", "Yaaay!"],
+  "tag": ["Tag! You're it!", "Can't catch me!"],
+  "hide": ["One, two, three, ready or not, here I come!", "Found you!"],
+  "rlgl": ["Green light!", "Red light! Everybody stop!"]
+ },
+ "KID_BOY_HYPER": {
+  "chatter": ["I'm the fastest kid in the whole world!", "Watch this, watch this!", "I scored a hundred points!", "I'm not tired, you're tired!"],
+  "parent": ["Five more minutes, come on!", "I don't wanna go home yet!", "Can I get new sneakers? Pleeease?"],
+  "play": ["Last one there's a rotten egg!", "Woohoo!", "Beat you again!"],
+  "tag": ["You're it, no tag-backs!", "Too slow, missed me!"],
+  "hide": ["You're cheating, I can see your feet!", "Olly olly oxen free!"],
+  "rlgl": ["Red light! You moved! Back to the start!", "Freeze! I saw you wiggle!"]
+ },
+ "KID_BOY_SOFT": {
+  "chatter": ["My tooth is loose. See? Wiggle wiggle.", "I found a really cool rock.", "I'm gonna be an astronaut.", "Where did the ducky go?"],
+  "parent": ["Carry me, my legs are tired.", "I'm hungry, can we eat now?", "I'm sleepy."],
+  "play": ["Whee!", "Again, again!", "Look, a butterfly!"],
+  "tag": ["Tag! You're it!", "No tag-backs!"],
+  "hide": ["Ready or not, here I come!", "I can't find you anywhere."],
+  "rlgl": ["Green light!", "Red light, stop!"]
+ },
+ "KID_GIRL_BRIGHT": {
+  "chatter": ["Wanna see me do a cartwheel?", "I can do a somersault, watch!", "My shoes light up when I stomp!", "I'm the jump rope champion!"],
+  "parent": ["Look at me, Mom! Look!", "Can I have that? Pleeease?", "I'm so booored."],
+  "play": ["Wheee, spin me again!", "This is the best day ever!", "Yaaay!"],
+  "tag": ["Tag! You're it!", "Can't catch me, too slow!"],
+  "hide": ["One, two, three, four, ready or not!", "Found you, I found you!"],
+  "rlgl": ["Green light, go go go!", "Red light! You moved!"]
+ },
+ "KID_GIRL_SWEET": {
+  "chatter": ["I like unicorns and rainbows.", "Do you wanna be my friend?", "I picked a pretty flower.", "My kitty is named Sprinkles."],
+  "parent": ["Can we get ice cream? Pretty please?", "Hold my hand.", "I don't wanna go yet."],
+  "play": ["Wheee!", "Ring around the rosie!", "So pretty!"],
+  "tag": ["Tag! You're it now!", "You can't catch me!"],
+  "hide": ["Ready or not, here I come!", "I see you hiding!"],
+  "rlgl": ["Green light!", "Red light, everybody freeze!"]
+ },
+ "KID_GIRL_LATINA": {
+  "chatter": ["Watch me, watch me spin!", "I can count all the way to a hundred!", "My abuela makes the best cookies!", "I have new sparkly shoes!"],
+  "parent": ["Mami, can we get ice cream, please?", "Five more minutes, please?", "Look what I made!"],
+  "play": ["Wheee!", "This is so much fun!", "Yaaay, again!"],
+  "tag": ["Tag! You're it!", "Too slow, can't catch me!"],
+  "hide": ["One, two, three, ready or not, here I come!", "Found you!"],
+  "rlgl": ["Green light!", "Red light! You moved, go back!"]
+ },
+ "KID_GIRL_INDIAN": {
+  "chatter": ["Look how fast I can run!", "I got a gold star at school today!", "Do you want to see my drawing?", "I can hop on one foot!"],
+  "parent": ["Please, please can I have that?", "I'm tired, will you carry me?", "Are we there yet?"],
+  "play": ["Wheee!", "This is the best!", "Again, again!"],
+  "tag": ["Tag! You are it!", "No tag-backs!"],
+  "hide": ["Ready or not, here I come!", "I found you, you were cheating!"],
+  "rlgl": ["Green light!", "Red light! Stop right there!"]
+ },
+
+ "PARENT_DAD": { "tokid": ["Slow down! Don't run too far ahead.", "Come on, let's go, kiddo."] },
+ "PARENT_MOM": { "tokid": ["Hold my hand crossing the street.", "Stay where I can see you."] },
+ "PARENT_GRAN": { "tokid": ["Five more minutes, then we head home.", "Be careful, sweetie."] },
+ "PARENT_MOM2": { "tokid": ["Stop running, you'll fall!", "Not so loud, please."] },
+ "PARENT_POP": { "tokid": ["Watch where you're going now!", "Quit your hollerin', ya hear?"] }
+}
