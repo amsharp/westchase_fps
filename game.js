@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.28.0';
+var GAME_VERSION = 'v1.29.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -4909,9 +4909,41 @@ function addParkedCar(x, z, ry) {
 // lot's long axis, cars nose-in toward the building, ~3.2u stall pitch.
 // n = how many of the row's slots get a car (random subset = natural gaps).
 // Venue lot rows are keyed to the OLD lot positions; WC_REMAP suppresses them
-// (the venues relocated, and their axis lots with them — per-venue remap lots
-// are R4). The survey neighborhoods still contribute HOUSE_PARKED_ROWS below.
-var PARKED_ROWS = WC_REMAP ? [] : [
+// (the venues relocated, and their axis lots with them). The survey
+// neighborhoods still contribute HOUSE_PARKED_ROWS below.
+// WC_REMAP: derive parked rows straight from the editor-authored parking
+// surfaces (REMAP_SURFACES) so the true-geometry lots fill with cars. Rows run
+// along each lot's long (local-x) axis with a central aisle; every candidate
+// slot is still vetted by parkedSlotFree (never on a road/collider/spawn), so
+// bad slots simply drop out. Deterministic order (REMAP_SURFACES order) keeps
+// host/client cars[] indices aligned for world snapshots.
+function buildRemapParkedRows() {
+  if (typeof REMAP_SURFACES === 'undefined') return [];
+  var rows = [], placed = 0, CAP = 40;
+  for (var i = 0; i < REMAP_SURFACES.length && placed < CAP; i++) {
+    var s = REMAP_SURFACES[i];
+    if (s.kind !== 'parking') continue;
+    var th = s.rot * Math.PI / 180;
+    var ux = Math.cos(th), uz = Math.sin(th);     // local +x (row runs this way)
+    var vx = -Math.sin(th), vz = Math.cos(th);    // local +z (rows stack across)
+    var pitch = 3.4, rowGap = 6.6;
+    var wUse = s.w - 5, dUse = s.d - 5;
+    if (wUse < 6 || dUse < 3) continue;
+    var nSlots = Math.floor(wUse / pitch);
+    var nRows = Math.max(1, Math.min(2, Math.floor(dUse / rowGap)));   // 1-2 rows/lot
+    for (var rIdx = 0; rIdx < nRows && placed < CAP; rIdx++) {
+      var zoff = nRows === 1 ? 0 : (-dUse / 2 + rowGap / 2 + rIdx * rowGap);
+      var startX = -wUse / 2 + pitch / 2;
+      var rx = s.x + ux * startX + vx * zoff, rz = s.z + uz * startX + vz * zoff;
+      var face = th + (zoff <= 0 ? Math.PI / 2 : -Math.PI / 2);   // nose toward the aisle
+      var want = Math.max(1, Math.min(5, Math.round(nSlots * 0.4)));
+      rows.push({ x: rx, z: rz, dx: ux * pitch, dz: uz * pitch, slots: nSlots, ry: face, n: want });
+      placed += want;
+    }
+  }
+  return rows;
+}
+var PARKED_ROWS = WC_REMAP ? buildRemapParkedRows() : [
   // Publix (78x40 lot; aisle at z~-96 stays clear: player spawn -72,-97 + dealer -72,-106)
   { x: -106, z: -104, dx: 3.2, dz: 0, slots: 20, ry: Math.PI / 2, n: 5 },
   { x: -106, z: -88, dx: 3.2, dz: 0, slots: 20, ry: -Math.PI / 2, n: 4 },
@@ -4926,7 +4958,7 @@ var PARKED_ROWS = WC_REMAP ? [] : [
   // Farnell school east lot (single row — the lot's east half hugs the cross road)
   { x: -24, z: -255, dx: 0, dz: 3.3, slots: 11, ry: Math.PI, n: 4 }
 ];
-var PARKED_CLEAR = WC_REMAP ? [[-24, -31], [-26, -34]] : [[-72, -97], [-72, -106]];   // player spawn + gun dealer
+var PARKED_CLEAR = WC_REMAP ? [[-63, 4], [-60, 0]] : [[-72, -97], [-72, -106]];   // player spawn + gun dealer
 // survey-neighborhood lots contribute extra deterministic rows (houses.js)
 if (typeof HOUSE_PARKED_ROWS !== 'undefined') PARKED_ROWS = PARKED_ROWS.concat(HOUSE_PARKED_ROWS);
 function parkedHalfExt(ry) {
