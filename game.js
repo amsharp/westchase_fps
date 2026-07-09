@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.39.1';
+var GAME_VERSION = 'v1.40.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -297,6 +297,10 @@ function facadeTex(base, w, h, withDoor) {
   var c = document.createElement('canvas'); c.width = c.height = 256;
   var g = c.getContext('2d');
   stucco(g, 256, base);
+  // companion NIGHT-emissive canvas: black walls, only windows/doorway emit —
+  // used as emissiveMap so at night this reads as lit windows, not a glowing wall
+  var ce = document.createElement('canvas'); ce.width = ce.height = 256;
+  var ge = ce.getContext('2d'); ge.fillStyle = '#000'; ge.fillRect(0, 0, 256, 256);
   var cw = 256 / cols, rh = 256 / rows;
   g.fillStyle = 'rgba(0,0,0,0.07)';
   for (var r = 1; r < rows; r++) g.fillRect(0, r * rh - 1, 256, 2);
@@ -305,6 +309,10 @@ function facadeTex(base, w, h, withDoor) {
     if (withDoor && r === rows - 1 && cc === (cols >> 1)) {
       g.fillStyle = 'rgba(0,0,0,0.2)'; g.fillRect(x - 3, y - 3, ww + 6, rh * 0.82);
       g.fillStyle = '#4a3220'; g.fillRect(x, y, ww, rh * 0.82 - 4);
+      // warm entrance light spilling over the doorway (outdoor lighting)
+      var dg = ge.createLinearGradient(0, y - 6, 0, y + rh * 0.82);
+      dg.addColorStop(0, '#ffdd90'); dg.addColorStop(1, '#7a5620');
+      ge.fillStyle = dg; ge.fillRect(x - 4, y - 6, ww + 8, rh * 0.82);
       continue;
     }
     g.fillStyle = '#ddd6c4'; g.fillRect(x - 2.5, y - 2.5, ww + 5, hh + 5);
@@ -315,8 +323,13 @@ function facadeTex(base, w, h, withDoor) {
     g.fillStyle = gr; g.fillRect(x, y, ww, hh);
     if (!lit) { g.strokeStyle = 'rgba(255,255,255,0.3)'; g.lineWidth = 2.5; g.beginPath(); g.moveTo(x + ww * 0.18, y + hh); g.lineTo(x + ww * 0.62, y); g.stroke(); }
     g.fillStyle = 'rgba(35,40,46,0.85)'; g.fillRect(x + ww / 2 - 1, y, 2, hh); g.fillRect(x, y + hh / 2 - 1, ww, 2);
+    // ~38% of windows are lit warm at night; the rest a faint cool (dark room)
+    if (Math.random() < 0.38) { var eg = ge.createLinearGradient(0, y, 0, y + hh); eg.addColorStop(0, '#fff0c6'); eg.addColorStop(1, '#e2b465'); ge.fillStyle = eg; }
+    else ge.fillStyle = '#16283e';
+    ge.fillRect(x, y, ww, hh);
   }
   var t = finishTex(new THREE.CanvasTexture(c));
+  t.userData = { emis: finishTex(new THREE.CanvasTexture(ce)) };
   facadeCache[key] = t; return t;
 }
 function storefrontTex(base) {
@@ -385,6 +398,22 @@ var gripT = tex(32, function (g, s) {
 
 // ---------------- materials / geo helpers ----------------
 function lamb(opt) { return new THREE.MeshLambertMaterial(opt); }
+// give a textured building material a NIGHT self-glow: its own map doubles as an
+// emissiveMap so windows (bright in the texture) read as lit at night. No new
+// lights/objects — emissiveIntensity is toggled from the day factor in updateEnv.
+var nightEmis = [];
+function nightLit(mat, warm) {
+  if (mat && mat.map) {
+    var em = mat.map.userData && mat.map.userData.emis;   // windows-only map (facades) vs whole texture (storefront/houses)
+    mat.emissive = new THREE.Color(em ? 0xffffff : (warm || 0xffe6b0));
+    mat.emissiveMap = em || mat.map;
+    mat.emissiveIntensity = 0;
+    mat.userData = mat.userData || {};
+    mat.userData.emisBase = em ? 0.95 : 0.22;   // windows-only can burn bright; whole-texture stays a subtle wash
+    mat.needsUpdate = true; nightEmis.push(mat);
+  }
+  return mat;
+}
 function lamb2(map) { return new THREE.MeshLambertMaterial({ map: map }); }
 function phong(opt) { return new THREE.MeshPhongMaterial(opt); }
 function box(w, h, d, mat, x, y, z) { var m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); m.position.set(x || 0, y || 0, z || 0); return m; }
@@ -545,7 +574,7 @@ function parapetM(color) { return lamb({ color: new THREE.Color(color).multiplyS
 
 function bldg(x, z, w, d, h, color, o) {
   o = o || {};
-  var fac = lamb({ map: facadeTex(color, Math.max(w, d), h, o.door !== false) });
+  var fac = nightLit(lamb({ map: facadeTex(color, Math.max(w, d), h, o.door !== false) }));
   var topM = o.hip ? fac : flatRoofM;
   var b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [fac, fac, topM, topM, fac, fac]);
   b.position.set(x, h / 2 + 0.1, z);
@@ -566,8 +595,8 @@ function bldg(x, z, w, d, h, color, o) {
 function shop(x, z, w, d, h, color, lines, bg, fg, o) {
   o = o || {};
   var face = o.face || 1; // 1 => front at +z, -1 => front at -z
-  var fac = lamb({ map: facadeTex(color, Math.max(w, d), h, false) });
-  var front = lamb({ map: storefrontTex(color) });
+  var fac = nightLit(lamb({ map: facadeTex(color, Math.max(w, d), h, false) }));
+  var front = nightLit(lamb({ map: storefrontTex(color) }), 0xfff0c8);
   var side = fac;
   var px = face === 1 ? side : side, nx = side;
   var pz = face === 1 ? front : fac, nz = face === 1 ? fac : front;
@@ -691,7 +720,7 @@ function townhouseRow(x, z, units, ry) {
   for (var i = 0; i < units; i++) {
     var ux = -uw * units / 2 + uw * (i + 0.5);
     var col = PASTELS[(i * 3) % PASTELS.length];
-    var fac = lamb({ map: facadeTex(col, uw, 7, false) });
+    var fac = nightLit(lamb({ map: facadeTex(col, uw, 7, false) }));
     var b = new THREE.Mesh(new THREE.BoxGeometry(uw - 0.2, 7, 10), [fac, fac, flatRoofM, flatRoofM, fac, fac]);
     b.position.set(ux, 3.6, 0); g.add(b);
     var rt = roofTileT.clone(); rt.repeat.set(2, 2); rt.needsUpdate = true;
@@ -1315,8 +1344,8 @@ function makeCar() {
     body.add(q);
     return q;
   }
-  var head1 = glowQuad(headGlowM, glNX, glY, glZ, 0.17), head2 = glowQuad(headGlowM, glNX, glY, -glZ, 0.17);
-  var tail1 = glowQuad(tailM, glTX, glY, glZ, 0.15), tail2 = glowQuad(tailM, glTX, glY, -glZ, 0.15);
+  var head1 = glowQuad(headGlowM, glNX, glY, glZ, 0.26), head2 = glowQuad(headGlowM, glNX, glY, -glZ, 0.26);
+  var tail1 = glowQuad(tailM, glTX, glY, glZ, 0.2), tail2 = glowQuad(tailM, glTX, glY, -glZ, 0.2);
   g.add(blobShadow(2.4, 1.15, 0.1)); scene.add(g);
   return { group: g, body: body, wheels: wheels, pivots: pivots, beam: beam, head1: head1, head2: head2, tail1: tail1, tail2: tail2, tailM: tailM, tailS: 0.15, vname: vname };
 }
@@ -2470,7 +2499,7 @@ function houseAtlasMat(ci, vi) {
     for (var tk in houseTileImgs[ci]) if (!houseTileImgs[ci][tk].ok) ready = false;
     if (ready) houseDrawAtlas(ci);
   }
-  return mat;
+  return nightLit(mat, 0xffdca0);   // warm lit house windows at night
 }
 // ---- tagged template: buildHouse geometry with {t:...} tag stand-ins for
 // materials (never rendered; the extractor bakes tags into atlas UVs)
@@ -3260,11 +3289,14 @@ var raining = false, rainLeft = 0, nextRainCheck = 25;
 var fogTmp = new THREE.Color(), skyTmp = new THREE.Color();
 var C_DAY_FOG = new THREE.Color(0xcfe4ee), C_NIGHT_FOG = new THREE.Color(0x0b1018);
 var C_RAIN_FOG = new THREE.Color(0x6a7580), C_RAINNIGHT_FOG = new THREE.Color(0x05070a);
-var C_DAY_SKY = new THREE.Color(0xffffff), C_NIGHT_SKY = new THREE.Color(0x141c2c);
-var C_RAIN_SKY = new THREE.Color(0x6a7078), C_RAINNIGHT_SKY = new THREE.Color(0x030407);
+var C_DAY_SKY = new THREE.Color(0xffffff), C_NIGHT_SKY = new THREE.Color(0x1a2540);
+var C_RAIN_SKY = new THREE.Color(0x6a7078), C_RAINNIGHT_SKY = new THREE.Color(0x060a14);
+// warm daylight sun vs cool moonlight key at night — tinting the one directional
+// light gives the night a moonlit blue cast instead of just a dimmer noon
+var C_SUN = new THREE.Color(0xfff0d0), C_MOON = new THREE.Color(0x9fb6e0), sunColTmp = new THREE.Color();
 function dayFactor() {
   var a = (envT / DAY_LEN) * Math.PI * 2;
-  return Math.max(0, Math.min(1, Math.sin(a) * 1.6 + 0.25));
+  return Math.max(0, Math.min(1, Math.sin(a) * 1.35 + 0.3));   // gentler dusk/dawn ramp
 }
 function groundHeightAt(x, z) {
   for (var i = 0; i < mapBuildings.length; i++) {
@@ -3372,12 +3404,17 @@ function updateEnv(dt) {
   var f = dayFactor();
   var night = f < 0.3;
   setLamps(night);
-  // targets
-  var sunT = raining ? (0.05 + 0.3 * f) : (0.06 + 0.68 * f);
-  var hemiT = raining ? (0.12 + 0.34 * f) : (0.14 + 0.56 * f);
+  // targets — raised the NIGHT floor (was sun 0.06 / hemi 0.14 ≈ pitch black)
+  // to a moody-but-visible moonlit level; day peaks unchanged
+  var sunT = raining ? (0.12 + 0.26 * f) : (0.17 + 0.57 * f);
+  var hemiT = raining ? (0.22 + 0.3 * f) : (0.32 + 0.42 * f);
   var k = Math.min(1, dt * 1.2);
   sun.intensity += (sunT - sun.intensity) * k;
   hemi.intensity += (hemiT - hemi.intensity) * k;
+  sunColTmp.copy(C_MOON).lerp(C_SUN, f); sun.color.lerp(sunColTmp, k);   // cool moonlight at night → warm by day
+  // lit windows: fade the building/house emissive glow in as it gets dark
+  var nightGlow = Math.max(0, Math.min(1, 1 - f * 1.6));
+  for (var ne = 0; ne < nightEmis.length; ne++) nightEmis[ne].emissiveIntensity = nightGlow * (nightEmis[ne].userData.emisBase || 0.24);
   if (raining) skyTmp.copy(C_RAINNIGHT_SKY).lerp(C_RAIN_SKY, f);
   else skyTmp.copy(C_NIGHT_SKY).lerp(C_DAY_SKY, f);
   if (skyDome) skyDome.material.color.lerp(skyTmp, k);
