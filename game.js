@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.46.0';
+var GAME_VERSION = 'v1.47.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -5063,6 +5063,212 @@ if (WC_REMAP) (function densityLayer() {
   flush();
 })();
 
+// ============================================================
+// REUSABLE FENCE SYSTEM  (WC_REMAP)
+// ------------------------------------------------------------
+// buildFenceRun(pts, type, opts) builds a fence that hugs the ground along a
+// polyline of [x,z] game-coord waypoints. Each polyline edge is segmented into
+// post-spaced panels; geometry of one type merges into a few draw calls.
+//
+//   'picket'    - flat white pointed-picket ALPHA CARDS (2D billboards, ~0
+//                 thickness) + slightly-raised square posts. Procedural alpha
+//                 texture (vertical slats, pointed tops, keyed-transparent gaps).
+//   'chainlink' - see-through diamond-mesh ALPHA CARD (reuses the densityprops
+//                 chainlink texture if present, else procedural diamond mesh) +
+//                 real vertical POLE posts every ~2.5u + a top rail.
+//   'wood'      - solid privacy PLANKS with a SMALL thickness (~0.06u extruded
+//                 box panels, reuses the densityprops privacy texture) + posts.
+//
+// Colliders: one thin oriented-box (OBB) per polyline edge so the player is
+// BLOCKED by every fence type (picket + chainlink block too). Segments whose
+// midpoint sits within `roadGuard` u of any true road's asphalt are skipped, so
+// a run never walls off a road or driveway (pass opts.noClip to override).
+//
+// >>> HOW TO ADD A FENCE (the reusable workflow) <<<
+//   Append ONE row to the FENCE_RUNS table below:
+//       { type:'picket'|'chainlink'|'wood', h:<height u>, pts:[[x,z],[x,z],...] }
+//   Optional per-row keys: color (0xRRGGBB post/pole tint, e.g. black pond
+//   chainlink), roadGuard (u, default 1.2), noClip:true (skip road rejection).
+//   Waypoints are game coords — Street-View anchored to REMAP_VENUES /
+//   REMAP_ROADS (see remapdata.js). Keep them clear of roads/sidewalks/props.
+//   That's it: the loader below segments, tiles, posts, colliders + merges it.
+// ============================================================
+var FENCE_RUNS = [
+  // --- STEP 1 smoke-test runs (one of each type) in the open field W of the
+  //     townhouses; replaced by the authored placement in STEP 2 ---
+  { type: 'picket',    h: 1.1, pts: [[-208, -30], [-192, -30]] },
+  { type: 'chainlink', h: 2.0, pts: [[-208, -34], [-192, -34]] },
+  { type: 'wood',      h: 1.8, pts: [[-208, -38], [-192, -38]] }
+];
+var FENCE_H = { picket: 1.1, chainlink: 2.0, wood: 1.8 };
+function buildFenceRun() { return null; }   // replaced by the closure export below
+if (WC_REMAP) (function fenceSystem() {
+  // ---- shared unit geometry (baked through a matrix into merged batches) ----
+  function mtx(px, py, pz, ry) {
+    return new THREE.Matrix4().compose(new THREE.Vector3(px, py, pz),
+      new THREE.Quaternion().setFromAxisAngle(Y_UP, ry || 0), new THREE.Vector3(1, 1, 1));
+  }
+  // ---- densityprops texture lookup (chainlink + privacy reuse) ----
+  var dRec = {};
+  if (typeof DENSITY_PROPS !== 'undefined') for (var di = 0; di < DENSITY_PROPS.length; di++) dRec[DENSITY_PROPS[di].n] = DENSITY_PROPS[di];
+  // async data-URL -> CanvasTexture, optional luminance keying (dark -> clear)
+  function loadTex(dataurl, thr) {
+    var cnv = document.createElement('canvas'); cnv.width = cnv.height = 256;
+    var tx = new THREE.CanvasTexture(cnv);
+    tx.wrapS = tx.wrapT = THREE.RepeatWrapping; tx.magFilter = THREE.LinearFilter;
+    // keyed (alpha) textures must NOT mipmap — averaging fills the transparent gaps
+    if (thr) { tx.minFilter = THREE.LinearFilter; tx.generateMipmaps = false; } else tx.minFilter = THREE.LinearMipmapLinearFilter;
+    var im = new Image();
+    im.onload = (function (tx, cnv, thr, im) { return function () {
+      var g = cnv.getContext('2d'); g.drawImage(im, 0, 0, 256, 256);
+      if (thr) { var d = g.getImageData(0, 0, 256, 256), p = d.data; for (var k = 0; k < p.length; k += 4) { if (p[k] * 0.299 + p[k + 1] * 0.587 + p[k + 2] * 0.114 < thr) p[k + 3] = 0; } g.putImageData(d, 0, 0); }
+      tx.needsUpdate = true;
+    }; })(tx, cnv, thr, im);
+    im.src = dataurl;
+    return tx;
+  }
+  // procedural white pointed-picket alpha card (transparent gaps)
+  function picketTex() {
+    var s = 128, c = document.createElement('canvas'); c.width = c.height = s;
+    var g = c.getContext('2d'); g.clearRect(0, 0, s, s);
+    var n = 4, cw = s / n, gap = 0.36;
+    for (var i = 0; i < n; i++) {
+      var x0 = i * cw + cw * gap * 0.5, w = cw * (1 - gap);
+      var shoulder = s * 0.26, peak = s * 0.06;   // canvas top = fence top (flipY)
+      g.fillStyle = '#eef0ea';
+      g.beginPath(); g.moveTo(x0, s); g.lineTo(x0, shoulder); g.lineTo(x0 + w / 2, peak); g.lineTo(x0 + w, shoulder); g.lineTo(x0 + w, s); g.closePath(); g.fill();
+      g.fillStyle = 'rgba(0,0,0,0.10)'; g.fillRect(x0 + w - 2, shoulder, 2, s - shoulder);   // slat edge shade
+    }
+    // two horizontal rails
+    g.fillStyle = '#e2e4de'; g.fillRect(0, s * 0.44, s, s * 0.05); g.fillRect(0, s * 0.74, s, s * 0.05);
+    var tx = new THREE.CanvasTexture(c); tx.wrapS = tx.wrapT = THREE.RepeatWrapping;
+    tx.magFilter = THREE.NearestFilter; tx.minFilter = THREE.LinearFilter; tx.generateMipmaps = false;   // mipmaps average alpha -> gaps fill in; keep crisp
+    return tx;
+  }
+  // procedural chainlink diamond-mesh alpha card
+  function chainProcTex() {
+    var s = 128, c = document.createElement('canvas'); c.width = c.height = s;
+    var g = c.getContext('2d'); g.clearRect(0, 0, s, s);
+    g.strokeStyle = 'rgba(190,196,200,1)'; g.lineWidth = 2; var step = 16;
+    for (var d = -s; d < s * 2; d += step) { g.beginPath(); g.moveTo(d, 0); g.lineTo(d + s, s); g.stroke(); g.beginPath(); g.moveTo(d, 0); g.lineTo(d - s, s); g.stroke(); }
+    var tx = new THREE.CanvasTexture(c); tx.wrapS = tx.wrapT = THREE.RepeatWrapping;
+    tx.magFilter = THREE.LinearFilter; tx.minFilter = THREE.LinearFilter; tx.generateMipmaps = false;   // keep the see-through diamonds crisp
+    return tx;
+  }
+  // procedural vertical-plank privacy texture (wood fallback)
+  function woodProcTex() {
+    var s = 128, c = document.createElement('canvas'); c.width = c.height = s;
+    var g = c.getContext('2d'); g.fillStyle = '#8a7150'; g.fillRect(0, 0, s, s);
+    for (var i = 0; i < 8; i++) { var x = i * s / 8; g.fillStyle = i % 2 ? '#7d6547' : '#93794f'; g.fillRect(x, 0, s / 8 - 1, s); g.fillStyle = 'rgba(60,45,25,0.5)'; g.fillRect(x + s / 8 - 1, 0, 1, s); }
+    var tx = new THREE.CanvasTexture(c); tx.wrapS = tx.wrapT = THREE.RepeatWrapping;
+    return tx;
+  }
+  var _picketTex, _chainTex, _woodTex;
+  function picketMap() { return _picketTex || (_picketTex = picketTex()); }
+  function chainMap() { return _chainTex || (_chainTex = dRec.chainlink_fence ? loadTex(dRec.chainlink_fence.tex, 46) : chainProcTex()); }
+  function woodMap() { return _woodTex || (_woodTex = dRec.privacy_fence ? loadTex(dRec.privacy_fence.tex, 0) : woodProcTex()); }
+
+  // ---- merged batches: one draw call per material key ----
+  var FB = {}, _NM = new THREE.Matrix3(), _V = new THREE.Vector3(), _N = new THREE.Vector3();
+  function fbatch(key, meta) { var e = FB[key]; if (!e) e = FB[key] = { pos: [], norm: [], uv: [], meta: meta }; return e; }
+  function fbake(key, meta, geo, m) {
+    var e = fbatch(key, meta); _NM.getNormalMatrix(m);
+    var p = geo.attributes.position, u = geo.attributes.uv, nm = geo.attributes.normal, idx = geo.index;
+    var count = idx ? idx.count : p.count;
+    for (var i = 0; i < count; i++) {
+      var vi = idx ? idx.getX(i) : i;
+      _V.set(p.getX(vi), p.getY(vi), p.getZ(vi)).applyMatrix4(m); e.pos.push(_V.x, _V.y, _V.z);
+      if (nm) { _N.set(nm.getX(vi), nm.getY(vi), nm.getZ(vi)).applyMatrix3(_NM).normalize(); e.norm.push(_N.x, _N.y, _N.z); } else e.norm.push(0, 1, 0);
+      e.uv.push(u ? u.getX(vi) : 0, u ? u.getY(vi) : 0);
+    }
+  }
+  function fflush() {
+    for (var key in FB) {
+      var e = FB[key]; if (!e.pos.length) continue;
+      var g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(e.pos), 3));
+      g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(e.norm), 3));
+      g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(e.uv), 2));
+      var o = e.meta, mo = {};
+      if (o.map) { mo.map = o.map; }
+      if (o.alpha) { mo.transparent = true; mo.alphaTest = o.alpha; mo.side = THREE.DoubleSide; }
+      if (o.color !== undefined) mo.color = o.color;
+      var mesh = new THREE.Mesh(g, lamb(mo));
+      scene.add(mesh);
+    }
+  }
+
+  // ---- panel + post builders (bake into the right batch) ----
+  function cardPanel(key, meta, cx, cz, ry, len, h, rep) {
+    var pg = new THREE.PlaneGeometry(len, h), uv = pg.attributes.uv;
+    for (var i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * rep);
+    fbake(key, meta, pg, mtx(cx, h / 2 + 0.02, cz, ry));
+  }
+  function boxPanel(key, meta, cx, cz, ry, len, h, thick) {
+    var bg = new THREE.BoxGeometry(len, h, thick);
+    fbake(key, meta, bg, mtx(cx, h / 2 + 0.02, cz, ry));
+  }
+  function postBox(key, meta, x, z, h, r) {
+    fbake(key, meta, new THREE.BoxGeometry(r * 2, h, r * 2), mtx(x, h / 2, z, 0));
+  }
+  function postCyl(key, meta, x, z, h, r) {
+    fbake(key, meta, new THREE.CylinderGeometry(r, r, h, 8), mtx(x, h / 2, z, 0));
+  }
+  function railBox(key, meta, cx, cz, ry, len, y, r) {
+    fbake(key, meta, new THREE.BoxGeometry(len, r * 2, r * 2), mtx(cx, y, cz, ry));
+  }
+
+  // ---- the public builder ----
+  function buildRun(pts, type, opts) {
+    opts = opts || {};
+    if (!pts || pts.length < 2) return;
+    var h = opts.h || FENCE_H[type] || 1.5;
+    var guard = opts.roadGuard === undefined ? 1.2 : opts.roadGuard;
+    var postClr = opts.color !== undefined ? opts.color : (type === 'wood' ? 0x8a7150 : type === 'chainlink' ? 0x8a8f94 : 0xf0f0ea);
+    var spacing = type === 'chainlink' ? 2.5 : 2.4;
+    for (var s = 0; s < pts.length - 1; s++) {
+      var ax = pts[s][0], az = pts[s][1], bx = pts[s + 1][0], bz = pts[s + 1][1];
+      var dx = bx - ax, dz = bz - az, L = Math.sqrt(dx * dx + dz * dz);
+      if (L < 0.4) continue;
+      var mx = (ax + bx) / 2, mz = (az + bz) / 2;
+      // never wall off a road/driveway
+      if (!opts.noClip && !remapPointClear(mx, mz, guard)) continue;
+      var ry = Math.atan2(-dz, dx);
+      var ux = dx / L, uz = dz / L;
+      var panels = Math.max(1, Math.round(L / spacing)), pl = L / panels;
+      for (var q = 0; q < panels; q++) {
+        var t = (q + 0.5) * pl, pcx = ax + ux * t, pcz = az + uz * t;
+        if (type === 'picket') {
+          cardPanel('fence_picket', { map: picketMap(), alpha: 0.45 }, pcx, pcz, ry, pl, h, pl / (h * 1.0));
+        } else if (type === 'chainlink') {
+          cardPanel('fence_chain', { map: chainMap(), alpha: 0.25 }, pcx, pcz, ry, pl, h, pl / h);
+          railBox('fence_chainpost', { color: postClr }, pcx, pcz, ry, pl, h - 0.06, 0.035);   // top rail
+        } else {   // wood
+          boxPanel('fence_wood', { map: woodMap() }, pcx, pcz, ry, pl, h, 0.06);
+        }
+      }
+      // posts at every panel boundary (incl. both ends)
+      for (var b = 0; b <= panels; b++) {
+        var pt2 = b * pl, px2 = ax + ux * pt2, pz2 = az + uz * pt2;
+        if (type === 'chainlink') postCyl('fence_chainpost', { color: postClr }, px2, pz2, h + 0.12, 0.05);
+        else if (type === 'wood') postBox('fence_woodpost', { color: postClr }, px2, pz2, h + 0.15, 0.06);
+        else postBox('fence_picketpost', { color: postClr }, px2, pz2, h + 0.14, 0.05);
+      }
+      // one thin OBB collider spanning the whole edge (fences are solid to the player)
+      addColliderOBB(mx, mz, L / 2, 0.14, ry);
+    }
+  }
+  // expose for tests / future callers
+  buildFenceRun = function (pts, type, opts) { return buildRun(pts, type, opts); };
+
+  // ---- build every authored run ----
+  for (var fr = 0; fr < FENCE_RUNS.length; fr++) {
+    var R = FENCE_RUNS[fr];
+    buildRun(R.pts, R.type, { h: R.h, color: R.color, roadGuard: R.roadGuard, noClip: R.noClip });
+  }
+  fflush();
+})();
+
 // ---- interactions (E key + prompt; local-only) ----
 function streetPropNear() {
   if (!state.running || state.dead || driving || inside) return null;
@@ -9662,6 +9868,8 @@ window.__wc = {
   expWalkInfo: function () { return { res: expWalkRes.length, col: expWalkCol.length, resLen: Math.round(expWalkRes.total || 0), colLen: Math.round(expWalkCol.total || 0) }; },
   landCollidersRef: function () { return landColliders; }, pushOut: pushOut,
   solidMeshesReg: solidMeshes,
+  buildFenceRun: function (pts, type, opts) { return buildFenceRun(pts, type, opts); }, fenceRuns: FENCE_RUNS,
+  remapPointClear: function (x, z, pad) { return remapPointClear(x, z, pad); },
   oakInfo: function () { return { count: oakCount, cap: OAK_CAP }; },
   densityInfo: function () { return densityStats; },
   forestFillPts: expFillPts,
