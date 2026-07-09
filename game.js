@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.31.0';
+var GAME_VERSION = 'v1.32.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -7830,7 +7830,9 @@ function drawMinimap() {
   mg.fillStyle = '#3f8fe8'; for (var cop = 0; cop < cops.length; cop++) { if (cops[cop].state === 'down') continue; mg.fillRect(w2m(cops[cop].x) - 1.5, w2m(cops[cop].z) - 1.5, 3, 3); }
   for (var cop2 = 0; cop2 < copsM.length; cop2++) { mg.fillRect(w2m(copsM[cop2].x) - 1.5, w2m(copsM[cop2].z) - 1.5, 3, 3); }
   // other players (cyan)
-  mg.fillStyle = '#4ae8d8'; for (var rp in net.remotes) { var rpp = net.remotes[rp]; mg.fillRect(w2m(rpp.x) - 2, w2m(rpp.z) - 2, 4, 4); }
+  // real players as bright-green blips (match their name-tag color); dim the
+  // dead, draw drivers as a slightly bigger square
+  for (var rp in net.remotes) { var rpp = net.remotes[rp]; mg.fillStyle = rpp.dead ? '#2f7a3a' : '#6dff8b'; var sz = rpp.drv ? 6 : 4; mg.fillRect(w2m(rpp.x) - sz / 2, w2m(rpp.z) - sz / 2, sz, sz); }
   // cash
   mg.fillStyle = '#59e04a'; for (var k = 0; k < cashes.length; k++) { var cp = cashes[k].mesh.position; mg.fillRect(w2m(cp.x) - 1, w2m(cp.z) - 1, 2, 2); }
   // dropped weapons
@@ -7970,18 +7972,23 @@ function updateLobbyStatus() {
   var el = document.getElementById('lobbyStatus');
   if (el) el.textContent = net.conns.length + (net.conns.length === 1 ? ' friend connected' : ' friends connected');
 }
-function makeTag(text) {
-  // name on top, health bar underneath; redraw via sp.userData.draw(name, hp)
+// name-tag colors distinguish real humans (bright green) from AI: NPCs (grey),
+// cops (steel blue). Passed to draw() so a pooled tag can be reassigned freely.
+function tagNameColor(kind) { return kind === 'npc' ? '#cfcfcf' : (kind === 'cop' ? '#9fb8ee' : '#6dff8b'); }
+function makeTag(text, kind) {
+  // name on top, health bar underneath; redraw via sp.userData.draw(name, hp, kind)
   var c = document.createElement('canvas'); c.width = 160; c.height = 44;
   var g = c.getContext('2d');
   var t = new THREE.CanvasTexture(c); t.magFilter = THREE.LinearFilter;
-  var sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthTest: false }));
+  var sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthTest: false, transparent: true }));
   sp.scale.set(2.9, 0.8, 1);
-  sp.userData.draw = function (name, hp) {
+  sp.userData.kind = kind || 'player';
+  sp.userData.draw = function (name, hp, k) {
+    k = k || sp.userData.kind;
     g.clearRect(0, 0, 160, 44);
     g.font = 'bold 19px Courier New'; g.textAlign = 'center'; g.textBaseline = 'middle';
     g.strokeStyle = '#000'; g.lineWidth = 5; g.strokeText(name, 80, 12);
-    g.fillStyle = '#8fd0e8'; g.fillText(name, 80, 12);
+    g.fillStyle = tagNameColor(k); g.fillText(name, 80, 12);
     var w = 100, h = 8, x = (160 - w) / 2, y = 28;
     g.fillStyle = 'rgba(0,0,0,0.7)'; g.fillRect(x - 2, y - 2, w + 4, h + 4);
     var f = Math.max(0, Math.min(1, hp / 100));
@@ -7989,8 +7996,41 @@ function makeTag(text) {
     g.fillRect(x, y, w * f, h);
     t.needsUpdate = true;
   };
-  sp.userData.draw(text, 100);
+  sp.userData.draw(text, 100, kind);
   return sp;
+}
+// pooled floating tags for the nearest AI (NPCs/cops) around the player, only
+// in multiplayer (so real players read as distinct green tags among grey/blue AI)
+var npcTagPool = [];
+var NPC_TAG_MAX = 10, NPC_TAG_RANGE = 26;
+function updateNpcTags() {
+  var pool = npcTagPool, i;
+  if (!netActive() || !state.running || inside || state.dead) { for (i = 0; i < pool.length; i++) pool[i].visible = false; return; }
+  var px = player.x, pz = player.z, R2 = NPC_TAG_RANGE * NPC_TAG_RANGE, cands = [];
+  for (i = 0; i < npcs.length; i++) { var n = npcs[i]; if (n.state === 'down' || n.state === 'ragdoll') continue; var d2 = (n.x - px) * (n.x - px) + (n.z - pz) * (n.z - pz); if (d2 < R2) cands.push({ e: n, d2: d2, kind: 'npc', by: 0 }); }
+  for (i = 0; i < cops.length; i++) { var cp = cops[i]; if (cp.state === 'down' || cp.interior) continue; var cd2 = (cp.x - px) * (cp.x - px) + (cp.z - pz) * (cp.z - pz); if (cd2 < R2) cands.push({ e: cp, d2: cd2, kind: 'cop', by: cp.baseY || 0 }); }
+  // clients mirror street cops in copsM (their `cops` array is empty) — no hp on
+  // the wire, so their bar reads full until they go down
+  for (i = 0; i < copsM.length; i++) { var cm = copsM[i]; if (cm.down) continue; var md2 = (cm.x - px) * (cm.x - px) + (cm.z - pz) * (cm.z - pz); if (md2 < R2) cands.push({ e: { x: cm.x, z: cm.z, hp: 100, vname: 'POLICE' }, d2: md2, kind: 'cop', by: 0 }); }
+  cands.sort(function (a, b) { return a.d2 - b.d2; });
+  var nShow = Math.min(cands.length, NPC_TAG_MAX);
+  for (i = 0; i < NPC_TAG_MAX; i++) {
+    var tag = pool[i];
+    if (!tag) { tag = pool[i] = makeTag('', 'npc'); tag.scale.set(2.2, 0.6, 1); scene.add(tag); }
+    if (i < nShow) {
+      var cc = cands[i], e = cc.e;
+      var label = cc.kind === 'cop' ? 'POLICE' : (e.vname || 'CIVILIAN');
+      var hp = Math.max(0, Math.round(e.hp || 0));
+      if (tag.userData._lbl !== label || tag.userData._hp !== hp || tag.userData._k !== cc.kind) {
+        tag.userData._lbl = label; tag.userData._hp = hp; tag.userData._k = cc.kind;
+        tag.userData.draw(label, hp, cc.kind);
+      }
+      var d = Math.sqrt(cc.d2);
+      tag.material.opacity = d > NPC_TAG_RANGE - 5 ? Math.max(0, (NPC_TAG_RANGE - d) / 5) : 1;
+      tag.position.set(e.x, cc.by + 2.35, e.z);
+      tag.visible = true;
+    } else tag.visible = false;
+  }
 }
 function hashStr(s) { var h = 0; for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h); }
 function ensureRemote(id) {
@@ -8036,6 +8076,11 @@ function handleNet(m, conn) {
         r.mesh = buildCharacter(ncfg);
         r.mesh.userData.remoteId = m.id;
         r.mesh.position.set(r.x, Math.max(-59.9, r.y - EYE), r.z);
+        // apply current pose immediately so the fresh avatar doesn't pop up
+        // standing/visible for one frame while driving or dead
+        r.mesh.visible = !r.drv;
+        r.mesh.rotation.y = r.yaw + Math.PI;
+        r.mesh.rotation.x = r.dead ? -1.5 : 0;
         scene.add(r.mesh);
         if (r.eq) attachHeldGun(r.mesh, GUN_LIST[r.eq - 1]);   // keep the gun through the avatar swap
       }
@@ -8397,6 +8442,12 @@ function updateNet(dt) {
       animPerson(r.mesh, r.dead || rspd <= 0.5 ? 0 : rspd, dt, r.phase);
       r.tag.position.set(r.x, r.y - EYE + 2.5, r.z);
     }
+    // fade the (through-wall, co-op friendly) player tag out at distance so far
+    // teammates don't clutter the screen
+    var tdx = r.tag.position.x - camera.position.x, tdz = r.tag.position.z - camera.position.z;
+    var td = Math.sqrt(tdx * tdx + tdz * tdz);
+    r.tag.visible = td < 145;
+    r.tag.material.opacity = td > 110 ? Math.max(0, (145 - td) / 35) : 1;
   }
 }
 
@@ -8883,7 +8934,7 @@ function loop(now) {
   var dt = Math.min(0.05, (now - last) / 1000); last = now;
   if (!state.running) { renderer.render(scene, camera); renderCreatorFrame(dt); return; }
   T += dt;
-  updatePlayer(dt); updateNPCs(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateUfo(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateStreetProps(dt); updateEnv(dt); updateVoiceAudio(dt); updateNet(dt); updateHUD(); drawMinimap();
+  updatePlayer(dt); updateNPCs(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateUfo(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateStreetProps(dt); updateEnv(dt); updateVoiceAudio(dt); updateNet(dt); updateNpcTags(); updateHUD(); drawMinimap();
   renderer.render(scene, camera);
 }
 setEquipped('fists');
@@ -8972,7 +9023,7 @@ window.__wc = {
   net: net, startGame: startGame, hostGame: hostGame, joinGame: joinGame, handleNet: handleNet,
   buildIceConfig: buildIceConfig, hmacSha1B64: hmacSha1B64,
   buildCharacter: buildCharacter, randomCharConfig: randomCharConfig, buildMeshySkinned: buildMeshySkinned,
-  sendChat: sendChat, attachHeldGun: attachHeldGun, addChatMsg: addChatMsg,
+  sendChat: sendChat, attachHeldGun: attachHeldGun, addChatMsg: addChatMsg, updateNpcTags: updateNpcTags, npcTagPool: function () { return npcTagPool; },
   encodeCC: encodeCC, decodeCC: decodeCC, seededRng: seededRng,
   openCreator: openCreator, closeCreator: closeCreator,
   creatorSpin: function (v) { if (cprev) cprev.spin = v; },
