@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.43.0';
+var GAME_VERSION = 'v1.44.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -7391,6 +7391,48 @@ function applySupportPose(w) {
     psxArms.bones[_supIdx[i]].quaternion.setFromEuler(_supEuler);
   }
 }
+// v1.44: support-arm 2-bone IK. The blind-euler SUPPORT_POSE left the left hand
+// floating off the gun; instead we now seed from it (elbow pole hint + hand
+// wrap) then run a few CCD passes on upper_arm.L(25) + forearm.L(26) so hand.L
+// (27, the wrist) lands on the weapon's grip target. GRIP_TGT is in the gun
+// group's local (camera) frame — measured on the foregrip/handguard (rifle/
+// auto), the tube foregrip (rocket), the barrel shroud (smg) and just below the
+// firing hand (two-hand pistol). ccdJoint reuses copAimArm's trick: build the
+// world-space swing with setFromUnitVectors, conjugate by the parent's world
+// quaternion into bone-local space, premultiply.
+var GRIP_TGT = {
+  pistol: [0.21, -0.40, -0.52],
+  smg:    [0.28, -0.30, -0.56],
+  rifle:  [0.18, -0.42, -0.84],
+  auto:   [0.19, -0.42, -0.76],
+  rocket: [0.22, -0.44, -0.68]
+};
+var _ikEnd = new THREE.Vector3(), _ikJ = new THREE.Vector3(), _ikTV = new THREE.Vector3(),
+    _ikA = new THREE.Vector3(), _ikB = new THREE.Vector3(),
+    _ikDQ = new THREE.Quaternion(), _ikPQ = new THREE.Quaternion(), _ikQL = new THREE.Quaternion();
+function ccdJoint(j, end, tgtW) {
+  j.updateMatrixWorld(true);
+  end.getWorldPosition(_ikEnd); j.getWorldPosition(_ikJ);
+  _ikA.copy(_ikEnd).sub(_ikJ); _ikB.copy(tgtW).sub(_ikJ);
+  if (_ikA.lengthSq() < 1e-9 || _ikB.lengthSq() < 1e-9) return;
+  _ikA.normalize(); _ikB.normalize();
+  _ikDQ.setFromUnitVectors(_ikA, _ikB);
+  j.parent.getWorldQuaternion(_ikPQ);
+  _ikQL.copy(_ikPQ).invert().multiply(_ikDQ).multiply(_ikPQ);   // world swing → bone-local
+  j.quaternion.premultiply(_ikQL);
+  j.updateMatrixWorld(true);
+}
+function solveSupportIK(w) {
+  if (!psxArms) return;
+  applySupportPose(w);                       // seed the arm (pole hint) + hand wrap
+  var tgt = GRIP_TGT[w];
+  if (!tgt || dbgArmOv) return;              // fists/no target, or manual euler override → keep seed
+  var g = vmMap[w]; if (!g) return;
+  var upper = psxArms.bones[25], fore = psxArms.bones[26], hand = psxArms.bones[27];
+  psxArms.root.updateMatrixWorld(true);
+  _ikTV.set(tgt[0], tgt[1], tgt[2]); g.localToWorld(_ikTV);
+  for (var it = 0; it < 6; it++) { ccdJoint(fore, hand, _ikTV); ccdJoint(upper, hand, _ikTV); }
+}
 function armsTintTex(skinHex) {
   var cv = document.createElement('canvas');
   cv.width = 1; cv.height = 1;   // valid upload before the image decodes
@@ -7529,7 +7571,7 @@ function initPSXArms() {
       [vmPistol, vmSmg, vmRifle, vmAuto, vmRocket].forEach(function (g) {
         g.children.forEach(function (c) { if (c.userData.gunArm) c.visible = false; });
       });
-      if (GUNHOLD_GROUPS[state.equipped]) { vmMap[state.equipped].add(psxArms.root); armsPose(psxArms, gunHold.clip, gunHold.t, true); applySupportPose(state.equipped); }
+      if (GUNHOLD_GROUPS[state.equipped]) { vmMap[state.equipped].add(psxArms.root); armsPose(psxArms, gunHold.clip, gunHold.t, true); solveSupportIK(state.equipped); }
     }
   } catch (e) { psxArms = null; }
 }
@@ -7792,7 +7834,7 @@ function setEquipped(w) {
   // draw/reload animations move the hands with the gun
   if (psxArms) {
     if (w === 'fists') { vmFists.add(psxArms.root); vmFists.rotation.set(0, 0, 0); armsPose(psxArms, 'idle', T); }
-    else if (GUNHOLD_GROUPS[w]) { vmMap[w].add(psxArms.root); armsPose(psxArms, gunHold.clip, gunHold.t, true); applySupportPose(w); }
+    else if (GUNHOLD_GROUPS[w]) { vmMap[w].add(psxArms.root); armsPose(psxArms, gunHold.clip, gunHold.t, true); solveSupportIK(w); }
   }
   vm.visible = !zoomed && !driving;
   Object.keys(vmMap).forEach(function (k) { vmMap[k].visible = (k === w); });
@@ -9451,7 +9493,7 @@ function updatePlayer(dt) {
       else { armsPose(psxArms, 'idle', T); vmFists.rotation.y = 0; vmFists.rotation.z = 0; }
     } else if (pt < 0.28) { var kk = Math.sin((pt / 0.28) * Math.PI); punchArm.position.z = punchArmBase.z - kk * 0.5; punchArm.position.x = punchArmBase.x - kk * 0.14; punchArm.rotation.x = -kk * 0.4; }
     else { punchArm.position.copy(punchArmBase); punchArm.rotation.x = 0; }
-  } else if (psxArms && GUNHOLD_GROUPS[state.equipped]) { armsPose(psxArms, gunHold.clip, gunHold.t, true); applySupportPose(state.equipped); }
+  } else if (psxArms && GUNHOLD_GROUPS[state.equipped]) { armsPose(psxArms, gunHold.clip, gunHold.t, true); solveSupportIK(state.equipped); }
   if (flashT > 0) {
     flashT -= dt;
     if (flashT <= 0) flash.visible = false;
@@ -9544,8 +9586,10 @@ window.__wc = {
   dbgArm: function (ov) { dbgArmOv = ov; },   // debug: override support-arm eulers [[x,y,z]x bones 24-27]
   setAnchor: function (w, arr) { ANCHOR_OFF[w] = arr; },   // debug: tune per-weapon forward anchor offset
   getAnchor: function (w) { return ANCHOR_OFF[w]; },
+  setGrip: function (w, arr) { GRIP_TGT[w] = arr; },   // debug: tune per-weapon support-hand IK grip target
+  getGrip: function (w) { return GRIP_TGT[w]; },
   getBoneQ: function (i) { return psxArms ? psxArms.bones[i].quaternion.toArray().map(function (v) { return Math.round(v * 1000) / 1000; }) : null; },
-  poseArmsNow: function () { if (psxArms && GUNHOLD_GROUPS[state.equipped]) { armsPose(psxArms, gunHold.clip, gunHold.t, true); applySupportPose(state.equipped); } },
+  poseArmsNow: function () { if (psxArms && GUNHOLD_GROUPS[state.equipped]) { armsPose(psxArms, gunHold.clip, gunHold.t, true); solveSupportIK(state.equipped); } },
   handPos: function () { if (!psxArms) return null; psxArms.mesh.updateMatrixWorld(true); var pl = new THREE.Vector3(), pr = new THREE.Vector3(); psxArms.bones[27].getWorldPosition(pl); psxArms.bones[4].getWorldPosition(pr); return { L: pl.toArray().map(function (v) { return Math.round(v * 100) / 100; }), R: pr.toArray().map(function (v) { return Math.round(v * 100) / 100; }) }; },
 
   spawnUfo: spawnUfo, damageUfo: damageUfo, damageAlien: damageAlien,
