@@ -14,11 +14,11 @@ with low-res procedural textures for a retro-but-realistic look.
 ## How to play
 
 Just double-click `index.html` — it runs in any modern browser, no install needed.
-(Everything is local: Three.js and PeerJS are bundled, all textures are generated in code.)
+(Everything is local: Three.js is bundled, all textures are generated in code.)
 
 ## Multiplayer
 
-The main menu offers **Singleplayer** (fully offline) or **Host Multiplayer**.
+The main menu offers **Singleplayer** (fully offline) or **PLAY ONLINE**.
 Type a **display name** at the top of the menu first — it floats over your
 head in-game as a **bright-green name + health bar**, so everyone can see who
 you are and how hurt you are (the name is remembered for next time). Real
@@ -34,14 +34,16 @@ reset when someone quits.) You'll see each other in-world (on foot
 or driving, with name tags and green minimap dots) and can shoot and punch
 each other — **downing another player pays a bounty and heats you up** — or
 steal each other's wheels: press **E** on a car a friend is driving to
-**hijack it** and dump them on the curb.
+**hijack it** and dump them on the curb. A freshly hijacked car can't be
+hijacked again for 15 seconds, so make your getaway count.
 
 **Talk to your crew.** Press **ENTER** to open text chat (a fading on-screen
 log shows who said what, with join/leave notices); press **ESC** to cancel.
 **Hold V to talk** over voice — push-to-talk mic streamed through the relay,
 with a "talking" pop on the speaker's tag. (Voice needs the game served over
-https/localhost, since browsers block microphone access on `file://`.) A freshly hijacked car can't be hijacked again for 15
-seconds, so make your getaway count. The **host runs the world**:
+https/localhost, since browsers block microphone access on `file://`.)
+
+The town is simulated in one place — the **world host runs it all**:
 traffic, pedestrians, street cops, dropped cash, stolen/parked/exploding
 cars, and the time of day and weather are all simulated on the host and
 streamed to everyone, so all players share one synced city. Combat against

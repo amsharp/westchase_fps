@@ -15,8 +15,9 @@ something seems off.
   external image/font/CDN URLs from the game.
 - Third-party libs are **vendored locally**: `three.min.js` (Three.js r149
   UMD — last UMD line, do not upgrade to module-only builds) and
-  `peerjs.min.js` (PeerJS 1.5.4). Singleplayer is fully offline; multiplayer
-  needs internet only for PeerJS cloud signaling.
+  `peerjs.min.js` (PeerJS 1.5.4 — legacy, netcode now uses the Railway
+  WebSocket relay; still loaded, safe to drop later). Singleplayer is fully
+  offline; multiplayer needs internet only to reach the relay server.
 - Plain ES5-flavored JS (`var`, function declarations). Match that style.
 
 ## Files
@@ -69,9 +70,11 @@ storeState, renderer, scene, camera, tick(dt)`.
   `camera.rotation.x` before aim-sensitive tests.
 - Don't place test coordinates inside forest-patch colliders (pushOut will
   teleport the player out).
-- Multiplayer is testable headlessly: host in the main window, join from a
-  hidden iframe at `/index.html`, drive both sides with their own
-  `__wc.tick`. PeerJS cloud handshake takes 1–3 s; poll with intervals.
+- Multiplayer is testable headlessly: run `server/server.js` on a local
+  port, point pages at it via `window.WC_SERVER_URL` (addInitScript), call
+  `__wc.playOnline()` in each, drive every page with its own `__wc.tick`.
+  Stub `requestAnimationFrame` in test pages or a loaded page's RAF loop
+  starves the next page's ~43MB script parse (see tools/_maintest.js).
 
 ## game.js architecture
 
