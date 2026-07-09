@@ -288,6 +288,10 @@ function wcTick(w, nextLabel) {
 <script src="muzzleflash.js" onload="wcTick(0.1,'loading street voices (the big one)…')"></script>
 <script src="npcvoices1.js" onload="wcTick(29.9,'loading characters…')"></script><!-- chunks 2+ are late-loaded by game.js (loadNpcVoiceChunks) -->
 <script src="meshychars.js" onload="wcTick(4.4,'loading dialogue…')"></script>
+<!-- child NPCs + kid/parent voice pack (task #72); game.js guards both with
+     typeof KID_CHARS / KID_VOICES so it still boots if these are absent -->
+<script src="kidchars.js" onload="wcTick(2.0,'rounding up the kids…')"></script>
+<script src="kidvoices1.js" onload="wcTick(0.8,'loading playground chatter…')"></script>
 <script src="voicelines.js" onload="wcTick(1.0,'loading decals…')"></script>
 <script src="blooddecals.js" onload="wcTick(0.2,'loading street furniture…')"></script>
 <script src="streetprops.js" onload="wcTick(0.5,'loading the map…')"></script>

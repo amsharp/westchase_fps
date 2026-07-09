@@ -124,6 +124,22 @@ off mid-word if a speaker gets punched, shot, run at by a car, or spooked
 by an explosion. (The voice pack ships as several `npcvoicesN.js` chunks;
 only the first loads up front, the rest stream in right after boot.)
 
+## Families in town
+
+The sidewalks now have **kids** — a couple dozen of them, each walking with
+a grown-up. Every child is paired to an adult whose look roughly matches
+their own (so families read as families), holding a hand-hold distance of a
+few steps; when a kid dawdles to gawk at something and the parent gets
+ahead, they break into a little **catch-up run** to close the gap. They have
+their own short child voices for chatter on the go.
+
+**Kids are off-limits.** Bullets, fists, explosions and cars all pass
+through them harmlessly — you cannot hurt, ragdoll, or kill a child, and
+they earn you nothing. Like everyone else, though, they're not fearless:
+gunfire and blasts send them fleeing, and they scramble out of the path of a
+speeding car. (They ride the same shared-world stream as the adults, so
+every player in town sees the same families.)
+
 ## The loop
 
 You spawn **with no gun**. Punch pedestrians (they drop cash), pick up the

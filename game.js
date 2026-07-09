@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.56.1';
+var GAME_VERSION = 'v1.56.2';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -8339,7 +8339,7 @@ function damageNPC(n, dmg, kx, kz, silent) {
   for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o === n || (o.state !== 'walk' && o.state !== 'chat')) continue; var dx = o.x - n.x, dz = o.z - n.z; if (dx * dx + dz * dz < 170) startFlee(o); }
 }
 function startFlee(n) { if (n.state === 'down') return; breakNpcChat(n); n.state = 'flee'; n.dodge = false; n.fleeT = 4 + Math.random() * 3; var dx = n.x - player.x, dz = n.z - player.z; var d = Math.sqrt(dx * dx + dz * dz) || 1; n.fleeDX = dx / d; n.fleeDZ = dz / d; }
-function panicNear(x, z, r2) { var fled = null; for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o.state !== 'walk' && o.state !== 'chat') continue; var dx = o.x - x, dz = o.z - z; if (dx * dx + dz * dz < r2) { startFlee(o); if (!fled || o.vname) fled = o; } } if (fled && !playNpcVoice(fled.vname, 'gunscared', 0.65, 10, { x: fled.x, z: fled.z, yell: true, net: 1, ref: fled })) playVoiceAny(fled.fem ? ['pedf_gun'] : ['pedm_gun'], 0.6, 'pedGun', 16, { x: fled.x, z: fled.z, yell: true, net: 1, ref: fled }); }
+function panicNear(x, z, r2) { var fled = null; for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o.state !== 'walk' && o.state !== 'chat') continue; var dx = o.x - x, dz = o.z - z; if (dx * dx + dz * dz < r2) { startFlee(o); if (!fled || o.vname) fled = o; } } if (fled && !playNpcVoice(fled.vname, 'gunscared', 0.65, 10, { x: fled.x, z: fled.z, yell: true, net: 1, ref: fled })) playVoiceAny(fled.fem ? ['pedf_gun'] : ['pedm_gun'], 0.6, 'pedGun', 16, { x: fled.x, z: fled.z, yell: true, net: 1, ref: fled }); fleeKidsNear(x, z, r2); }
 
 var npcSocialT = 0, npcBumpT = -99, meleeHit = false, npcAnimF = 0;
 // hard-stop a sidewalk conversation (participant hit/killed/fleeing/dodging a
@@ -8741,6 +8741,267 @@ function animPerson(m, spd, dt, phase) {
   var a = spd > 0.1 ? Math.sin(phase || 0) * 0.65 : 0;
   L.legL.rotation.x = a; L.legR.rotation.x = -a; L.armL.rotation.x = -a * 0.8; L.armR.rotation.x = a * 0.8;
 }
+
+// ============================ KIDS (child NPCs) ============================
+// Combat-EXEMPT child NPCs paired to racially-matched adult NPC parents. Kept
+// in a SEPARATE `kids` array (NEVER in `npcs`): bullets/melee (npcRootsAlive),
+// explosions (boomAt), berserk cars (goBerserk contact) and cops all iterate
+// `npcs`/`cops`/`cars`/remotes explicitly, so a kid can never be a damage
+// target, ragdoll, or kill — the HARD RULE holds by construction. Kids still
+// call pushOut so they don't clip walls, and flee chaos like civilians
+// (fleeKidsNear, hooked into panicNear). Host-authoritative like NPCs; clients
+// mirror from the world snapshot's `kd` block (look index rides the wire so the
+// smaller kid meshes rebuild correctly on peers).
+var kids = [];
+var KID_BASES = (typeof KID_CHARS !== 'undefined') ? KID_CHARS : [];
+var KID_LOOKS = [];           // flattened base + variant looks
+(function () {
+  if (!KID_BASES.length) return;
+  var byName = {};
+  for (var i = 0; i < KID_BASES.length; i++) { var b = KID_BASES[i]; byName[b.n] = i; KID_LOOKS.push({ n: b.n, baseIdx: i, race: b.race, sex: b.sex, h: b.h, tex: b.tex }); }
+  if (typeof KID_VARIANTS !== 'undefined') for (i = 0; i < KID_VARIANTS.length; i++) { var v = KID_VARIANTS[i], bi = byName[v.base]; if (bi === undefined) continue; KID_LOOKS.push({ n: v.n, baseIdx: bi, race: v.race, sex: KID_BASES[bi].sex, h: KID_BASES[bi].h, tex: v.tex }); }
+})();
+// look name -> voice persona (tools/chargen/KIDS.md lookMap)
+var KID_PERSONA = { LEO: 'KID_BOY_BRIGHT', LEO_SUN: 'KID_BOY_BRIGHT', JAYDEN_AZURE: 'KID_BOY_BRIGHT', KAI: 'KID_BOY_BRIGHT', KAI_OLIVE: 'KID_BOY_BRIGHT', KAI_ASH: 'KID_BOY_BRIGHT', LEO_COCO: 'KID_BOY_HYPER', JAYDEN: 'KID_BOY_HYPER', JAYDEN_CRIMSON: 'KID_BOY_HYPER', NOAH: 'KID_BOY_SOFT', NOAH_PINE: 'KID_BOY_SOFT', NOAH_CLAY: 'KID_BOY_SOFT', MAYA: 'KID_GIRL_BRIGHT', MAYA_INK: 'KID_GIRL_BRIGHT', EMMA: 'KID_GIRL_BRIGHT', EMMA_JADE: 'KID_GIRL_BRIGHT', SOFIA_SKY: 'KID_GIRL_SWEET', SOFIA_COCOA: 'KID_GIRL_SWEET', PRIYA_JADE: 'KID_GIRL_SWEET', PRIYA_LINEN: 'KID_GIRL_SWEET', SOFIA: 'KID_GIRL_LATINA', MAYA_HAZEL: 'KID_GIRL_LATINA', PRIYA: 'KID_GIRL_INDIAN', EMMA_UMBER: 'KID_GIRL_INDIAN' };
+var PARENT_VOICES = ['PARENT_DAD', 'PARENT_MOM', 'PARENT_GRAN', 'PARENT_MOM2', 'PARENT_POP'];
+// adult meshy-civ name -> race, hand-authored from the roster (nearest-match
+// parent pairing; documented in the STEP 1 report). Unlisted names -> white.
+var ADULT_RACE = { NIA: 'black', TYRELL: 'black', ANDRE: 'black', JAMAL: 'black', AISHA: 'black', KEISHA: 'black', DENISE: 'black', HECTOR: 'latino', ERNESTO: 'latino', DIEGO: 'latino', OMAR: 'latino', MARISOL: 'latino', YUKI: 'east_asian', RIKO: 'east_asian', PHUONG: 'east_asian' };
+function adultRace(vname) { return (vname && ADULT_RACE[vname]) || 'white'; }
+// exact race, or bridge east/south-asian as a nearest match
+function raceMatch(kidRace, parentRace) {
+  if (kidRace === parentRace) return true;
+  var asian = { east_asian: 1, south_asian: 1 };
+  return !!(asian[kidRace] && asian[parentRace]);
+}
+// ---- kid skinned-mesh builders (KID_CHARS carry their OWN walk/run clips; no
+// MESHY_SHARED_CLIPS retarget needed). Geometry/clips cached per BASE and shared
+// across that base's texture variants; only the material map differs per look.
+var kidSkinCache = [], kidTexCache = [];
+function getKidSkin(baseIdx) {
+  if (kidSkinCache[baseIdx]) return kidSkinCache[baseIdx];
+  var e = KID_BASES[baseIdx], d = {};
+  d.parents = e.skel.parents; d.names = e.skel.names;
+  d.bt = new Int16Array(b64Bytes(e.skel.t).buffer);
+  d.br = new Int16Array(b64Bytes(e.skel.r).buffer);
+  d.rootI = 0;
+  for (var i = 0; i < d.parents.length; i++) if (d.parents[i] < 0) d.rootI = i;
+  var qp = new Int16Array(b64Bytes(e.geo.p).buffer), qu = new Uint16Array(b64Bytes(e.geo.u).buffer);
+  var fp = new Float32Array(qp.length), fu = new Float32Array(qu.length);
+  for (i = 0; i < qp.length; i++) fp[i] = qp[i] / 2000;
+  for (i = 0; i < qu.length; i += 2) { fu[i] = qu[i] / 8192; fu[i + 1] = 1 - qu[i + 1] / 8192; }
+  var si = b64Bytes(e.geo.si), sw = b64Bytes(e.geo.sw);
+  var fsi = new Uint16Array(si.length), fsw = new Float32Array(sw.length);
+  for (i = 0; i < si.length; i++) { fsi[i] = si[i]; fsw[i] = sw[i] / 255; }
+  var g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(fp, 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(fu, 2));
+  g.setAttribute('skinIndex', new THREE.BufferAttribute(fsi, 4));
+  g.setAttribute('skinWeight', new THREE.BufferAttribute(fsw, 4));
+  g.setIndex(new THREE.BufferAttribute(new Uint16Array(b64Bytes(e.geo.i).buffer), 1));
+  g.computeVertexNormals();
+  d.geo = g; d.clips = {};
+  for (var k in e.clips) { var c = e.clips[k]; if (c.q) d.clips[k] = { d: c.d, f: c.f, q: new Int16Array(b64Bytes(c.q).buffer), y: new Int16Array(b64Bytes(c.y).buffer), gy: c.gy || 0, st: c.st }; }
+  kidSkinCache[baseIdx] = d;
+  return d;
+}
+function getKidTex(lookIdx) {
+  if (kidTexCache[lookIdx]) return kidTexCache[lookIdx];
+  var im = new Image(), tx = new THREE.Texture(im);
+  tx.magFilter = THREE.NearestFilter; tx.minFilter = THREE.NearestFilter; tx.generateMipmaps = false;
+  im.onload = function () { tx.needsUpdate = true; };
+  im.src = KID_LOOKS[lookIdx].tex;
+  kidTexCache[lookIdx] = tx;
+  return tx;
+}
+function buildKid(lookIdx) {
+  var look = KID_LOOKS[lookIdx], d = getKidSkin(look.baseIdx);
+  var g = new THREE.Group();
+  var nj = d.parents.length, bones = [], root = null;
+  for (var i = 0; i < nj; i++) {
+    var b = new THREE.Bone();
+    b.position.set(d.bt[i * 3] / 2000, d.bt[i * 3 + 1] / 2000, d.bt[i * 3 + 2] / 2000);
+    b.quaternion.set(d.br[i * 4] / 16383, d.br[i * 4 + 1] / 16383, d.br[i * 4 + 2] / 16383, d.br[i * 4 + 3] / 16383);
+    bones.push(b);
+  }
+  for (i = 0; i < nj; i++) { if (d.parents[i] >= 0) bones[d.parents[i]].add(bones[i]); else root = bones[i]; }
+  var mesh = new THREE.SkinnedMesh(d.geo, lamb({ map: getKidTex(lookIdx), side: THREE.DoubleSide }));
+  mesh.add(root); mesh.updateMatrixWorld(true); mesh.bind(new THREE.Skeleton(bones));
+  mesh.frustumCulled = false;
+  g.add(mesh);
+  var bi = {}; for (i = 0; i < nj; i++) bi[d.names[i]] = i;
+  var sk = { d: d, bones: bones, rootBindY: bones[d.rootI].position.y };
+  g.userData.skin = sk;
+  meshyPose(sk, 'walk', 0);
+  g.userData.limbs = { armL: bones[bi.LeftArm], armR: bones[bi.RightArm], legL: bones[bi.LeftUpLeg], legR: bones[bi.RightUpLeg] };
+  // kid geometry is already baked to look.h (genskin --height): scale stays 1.0.
+  var sr = 0.42 * (look.h / 1.78);           // tighter blob shadow for little legs
+  var shadow = blobShadow(sr, sr, 0.14); g.add(shadow); g.userData.shadow = shadow;
+  return g;
+}
+// ---- spawn + parent pairing (seeded so a given world is reproducible) ----
+var kidRng = seededRng(72015);
+function pickKidLookForRace(race) {
+  var pool = [], any = [];
+  for (var i = 0; i < KID_LOOKS.length; i++) { any.push(i); if (raceMatch(KID_LOOKS[i].race, race)) pool.push(i); }
+  var src = pool.length ? pool : any;
+  return src[(kidRng() * src.length) | 0];
+}
+function spawnKid(lookIdx, parent) {
+  var look = KID_LOOKS[lookIdx], mesh = buildKid(lookIdx);
+  var k = {
+    mesh: mesh, look: lookIdx, h: look.h, race: look.race, sex: look.sex,
+    persona: KID_PERSONA[look.n] || (look.sex === 'girl' ? 'KID_GIRL_BRIGHT' : 'KID_BOY_BRIGHT'),
+    parent: parent, x: 0, z: 0, phase: kidRng() * 9, state: 'follow', stateT: 0,
+    speed: 1.5 + kidRng() * 0.5, vx: 0, vz: 0, lagT: 4 + kidRng() * 8, voiceT: 6 + kidRng() * 12,
+    offA: kidRng() * 6.28, hold: 2.0 + kidRng() * 1.6, dodgeCD: 0
+  };
+  if (parent) {
+    k.x = parent.x + Math.cos(k.offA) * k.hold; k.z = parent.z + Math.sin(k.offA) * k.hold;
+    parent.kidCount = (parent.kidCount || 0) + 1; parent.isParent = true;
+    if (!parent.parentVoice) parent.parentVoice = PARENT_VOICES[(kidRng() * PARENT_VOICES.length) | 0];
+  }
+  mesh.position.set(k.x, 0, k.z); mesh.userData.kid = k;
+  scene.add(mesh); kids.push(k); return k;
+}
+function spawnKids() {
+  if (!KID_LOOKS.length || kids.length) return;
+  var target = 10 + ((kidRng() * 5) | 0);   // 10-14 kids
+  var cand = [];
+  for (var i = 0; i < npcs.length; i++) if (npcs[i].vname) cand.push(npcs[i]);
+  for (i = cand.length - 1; i > 0; i--) { var j = (kidRng() * (i + 1)) | 0, t = cand[i]; cand[i] = cand[j]; cand[j] = t; }
+  var ci = 0, made = 0;
+  while (made < target && ci < cand.length) {
+    var parent = cand[ci++], prace = adultRace(parent.vname);
+    spawnKid(pickKidLookForRace(prace), parent); made++;
+    if (made < target && (parent.kidCount || 0) < 2 && kidRng() < 0.28) { spawnKid(pickKidLookForRace(prace), parent); made++; }   // sibling
+  }
+}
+// re-pair an orphaned kid (parent killed/despawned) to the nearest live adult,
+// preferring a race match
+function repairKid(k) {
+  var best = null, bestD = 1e18, bestAny = null, bestAnyD = 1e18;
+  for (var i = 0; i < npcs.length; i++) {
+    var n = npcs[i];
+    if (!n.vname || n.state === 'down' || n.state === 'ragdoll' || n.state === 'hidden') continue;
+    var dx = n.x - k.x, dz = n.z - k.z, d = dx * dx + dz * dz;
+    if (d < bestAnyD) { bestAnyD = d; bestAny = n; }
+    if (d < bestD && raceMatch(k.race, adultRace(n.vname))) { bestD = d; best = n; }
+  }
+  k.parent = best || bestAny;
+  if (k.parent) { k.parent.isParent = true; if (!k.parent.parentVoice) k.parent.parentVoice = PARENT_VOICES[(Math.random() * PARENT_VOICES.length) | 0]; }
+}
+// ---- kid voices (persona-keyed KID_VOICES; net-broadcast like NPC voices with
+// a `kv` flag so peers replay the exact line positionally) ----
+var kidVoiceBufs = {}, kidVoiceCycle = {};
+function playKidVoice(persona, cat, gain, cd, at) {
+  var KV = (typeof KID_VOICES !== 'undefined') ? KID_VOICES : (window.KID_VOICES || null);
+  if (!persona || !KV || !KV[persona] || !KV[persona][cat] || !KV[persona][cat].length) return false;
+  if (at) voicePos(at);
+  var host = isHost() && at && at.net, heard = voiceEarshot(at);
+  if (!host && !heard) return true;
+  var key = 'kidv_' + (at && at.kkey || persona);
+  if (voiceGroupT[key] !== undefined && T - voiceGroupT[key] < (cd || 4)) return true;
+  voiceGroupT[key] = T;
+  var arr = KV[persona][cat], ck = persona + '_' + cat;
+  if (kidVoiceCycle[ck] === undefined) kidVoiceCycle[ck] = (Math.random() * arr.length) | 0;
+  else kidVoiceCycle[ck] = (kidVoiceCycle[ck] + 1) % arr.length;
+  var idx = kidVoiceCycle[ck];
+  if (host) netBroadcast({ t: 'voice', kv: 1, nm: persona, ct: cat, ix: idx, g: gain || 0.5, x: Math.round(at.x * 10), z: Math.round(at.z * 10), yl: at.yell ? 1 : 0 });
+  if (!ac || !heard) return true;
+  var id = 'kv_' + persona + '_' + cat + '_' + idx;
+  function playBuf(buf) { var src = ac.createBufferSource(); src.buffer = buf; src.connect(voiceOut(gain || 0.5, at)); src.start(); trackVoice(src, at); }
+  if (kidVoiceBufs[id]) { playBuf(kidVoiceBufs[id]); return true; }
+  var bytes = b64Bytes(arr[idx].split(',')[1]);
+  ac.decodeAudioData(bytes.buffer, function (buf) { kidVoiceBufs[id] = buf; playBuf(buf); }, function () { });
+  return true;
+}
+// civilians scatter -> so do kids (called from panicNear on every gunshot/blast)
+function fleeKidsNear(x, z, r2) {
+  for (var i = 0; i < kids.length; i++) {
+    var k = kids[i], dx = k.x - x, dz = k.z - z;
+    if (dx * dx + dz * dz < r2) {
+      var d = Math.sqrt(dx * dx + dz * dz) || 1;
+      k.state = 'flee'; k.stateT = 3 + Math.random() * 2.5; k.fleeDX = dx / d; k.fleeDZ = dz / d; k.fleeSpd = 5.6;
+    }
+  }
+}
+function updateKids(dt) {
+  if (isClient()) { mirrorKids(dt); return; }
+  for (var i = 0; i < kids.length; i++) {
+    var k = kids[i], m = k.mesh, p = k.parent;
+    if (!p || p.state === 'down' || p.state === 'ragdoll' || (p.hp !== undefined && p.hp <= 0)) { repairKid(k); p = k.parent; }
+    var spd = 0, vx = 0, vz = 0;
+    if (k.state === 'flee') {
+      k.stateT -= dt; spd = k.fleeSpd || 5.4; vx = k.fleeDX; vz = k.fleeDZ;
+      if (k.stateT <= 0) k.state = 'follow';
+    } else {
+      var px = p ? p.x : k.x, pz = p ? p.z : k.z;
+      var pdx = px - k.x, pdz = pz - k.z, pd = Math.sqrt(pdx * pdx + pdz * pdz);
+      // occasional gawk-and-lag, then a catch-up run
+      k.lagT -= dt;
+      if (k.state === 'follow' && k.lagT <= 0 && pd < 6) { k.state = 'lag'; k.stateT = 1.2 + Math.random() * 1.8; k.lagT = 7 + Math.random() * 10; }
+      if (k.state === 'lag') {
+        k.stateT -= dt; m.rotation.y += Math.sin(T * 2 + k.phase) * 0.02;
+        if (k.stateT <= 0 || pd > 7) k.state = pd > 6 ? 'catchup' : 'follow';
+      } else if (k.state === 'catchup' || (k.state === 'follow' && pd > 8)) {
+        k.state = 'catchup';
+        if (pd < 3.2) { k.state = 'follow'; if (Math.random() < 0.4) playKidVoice(k.persona, 'play', 0.5, 8, { x: k.x, z: k.z, ref: k, net: 1 }); }
+        else { spd = 4.7; vx = pdx / (pd || 1); vz = pdz / (pd || 1); }
+      } else {  // follow: hand-hold at the offset point beside the parent
+        var tx = px + Math.cos(k.offA) * k.hold, tz = pz + Math.sin(k.offA) * k.hold;
+        var dx = tx - k.x, dz = tz - k.z, d = Math.sqrt(dx * dx + dz * dz);
+        if (d > 1.1) { spd = Math.min(k.speed, p ? Math.max(1.2, p.speed) : k.speed); vx = dx / (d || 1); vz = dz / (d || 1); }
+        else if (p) m.rotation.y = Math.atan2((p.x - k.x) || 0.001, (p.z - k.z) || 0.001);
+      }
+    }
+    if (spd > 0.05) {
+      k.x += vx * spd * dt; k.z += vz * spd * dt;
+      k.x = Math.max(-HALF + 3, Math.min(HALF - 3, k.x)); k.z = Math.max(-HALF + 3, Math.min(HALF - 3, k.z));
+      var pos = pushOut(k.x, k.z, 0.32); k.x = pos.x; k.z = pos.z;
+      m.rotation.y = Math.atan2(vx, vz); k.phase += spd * dt * 3.4;
+    }
+    // dodge cars (unhittable, but they still scramble out of the way)
+    if (T > (k.dodgeCD || 0)) { var thr = npcCarThreat(k); if (thr) { k.state = 'flee'; k.stateT = 0.9; k.fleeDX = thr.x; k.fleeDZ = thr.z; k.fleeSpd = 6.6; k.dodgeCD = T + 2; } }
+    m.position.set(k.x, 0, k.z);
+    // kids ship no idle clip — hold the builder's natural stance when planted
+    // instead of letting animPerson's idle-fallback slow-walk in place
+    if (spd > 0.05) animPerson(m, spd, dt, k.phase); else meshyPose(k.mesh.userData.skin, 'walk', 0);
+    // ambient chatter/play near the player
+    k.voiceT -= dt;
+    if (k.voiceT <= 0) {
+      k.voiceT = 10 + Math.random() * 12;
+      var vdx = k.x - player.x, vdz = k.z - player.z;
+      if (vdx * vdx + vdz * vdz < 900) playKidVoice(k.persona, Math.random() < 0.5 ? 'chatter' : 'play', 0.42, 9, { x: k.x, z: k.z, kkey: 'k' + i, ref: k, net: 1 });
+    }
+  }
+}
+// client: mirror the host's kid block (look index rides the wire so the correct
+// short mesh rebuilds; state byte reserved for later steps)
+function spawnKidMirror(lookIdx) {
+  var mesh = buildKid(lookIdx);
+  var k = { mesh: mesh, look: lookIdx, x: 0, z: 0, phase: Math.random() * 9, persona: KID_PERSONA[KID_LOOKS[lookIdx].n] || 'KID_BOY_BRIGHT' };
+  mesh.userData.kid = k; scene.add(mesh); kids.push(k); return k;
+}
+function mirrorKids(dt) {
+  var s = net.worldSnap; if (!s || !s.kd) return;
+  var k2 = Math.min(1, dt * 10);
+  while (kids.length < s.kd.length) { var e0 = s.kd[kids.length]; spawnKidMirror(e0 ? e0[3] : 0); }
+  while (kids.length > s.kd.length) { var ex = kids.pop(); if (ex) scene.remove(ex.mesh); }
+  for (var i = 0; i < s.kd.length && i < kids.length; i++) {
+    var k = kids[i], e = s.kd[i], m = k.mesh;
+    if (k.look !== e[3]) {   // host reused a slot for a different look — rebuild
+      scene.remove(m); m = buildKid(e[3]); m.userData.kid = k;
+      k.mesh = m; k.look = e[3]; k.persona = KID_PERSONA[KID_LOOKS[e[3]].n] || 'KID_BOY_BRIGHT'; scene.add(m);
+    }
+    var ox = k.x, oz = k.z;
+    k.x += (e[0] / 10 - k.x) * k2; k.z += (e[1] / 10 - k.z) * k2;
+    m.position.set(k.x, 0, k.z); m.rotation.y = e[2] / 100;
+    var mv = Math.hypot(k.x - ox, k.z - oz), sp = (dt > 0 && mv / dt > 0.4) ? mv / dt : 0; k.phase += mv * 3.4;
+    if (sp > 0.05) animPerson(m, sp, dt, k.phase); else meshyPose(m.userData.skin, 'walk', 0);
+  }
+}
+spawnKids();
 
 // ---------------- collision ----------------
 // cheap boolean "is this point clear of colliders" — used by the NPC steer-ahead
@@ -9961,7 +10222,11 @@ function playNetVoice(m) {
   if (m.py !== undefined) at.y = m.py / 10;
   if (!voiceEarshot(at)) return;
   var url, cache, cacheId;
-  if (m.nm) {
+  if (m.kv) {   // kid / parent-to-kid voice (persona-keyed KID_VOICES)
+    var KV = (typeof KID_VOICES !== 'undefined') ? KID_VOICES : (window.KID_VOICES || null);
+    if (!KV || !KV[m.nm] || !KV[m.nm][m.ct] || !KV[m.nm][m.ct][m.ix]) return;
+    url = KV[m.nm][m.ct][m.ix]; cacheId = 'kv_' + m.nm + '_' + m.ct + '_' + m.ix; cache = kidVoiceBufs;
+  } else if (m.nm) {
     if (typeof NPC_VOICES === 'undefined' || !NPC_VOICES[m.nm] || !NPC_VOICES[m.nm][m.ct] || !NPC_VOICES[m.nm][m.ct][m.ix]) return;
     url = NPC_VOICES[m.nm][m.ct][m.ix]; cacheId = m.nm + '_' + m.ct + '_' + m.ix; cache = npcVoiceBufs;
   } else {
@@ -10960,7 +11225,9 @@ function updateNet(dt) {
       var alienArr = null;
       if (alien) alienArr = [Math.round(alien.x * 10), Math.round(alien.z * 10), Math.round(alien.mesh.rotation.y * 100), alien.state === 'dead' ? 1 : 0];
       var cfxArr = net.copFxBuf.length ? net.copFxBuf : null; net.copFxBuf = [];
-      netBroadcast({ t: 'world', q: ++net.worldQ, cars: carsArr, npcs: npcArr, cops: copArr, cash: cashArr, drps: dropArr, ufo: ufoArr, al: alienArr, ufoT: ufoTriggered ? 1 : 0, cfx: cfxArr });
+      var kidArr = [];
+      for (i = 0; i < kids.length; i++) { var kk = kids[i]; kidArr.push([Math.round(kk.x * 10), Math.round(kk.z * 10), Math.round(kk.mesh.rotation.y * 100), kk.look, 0]); }
+      netBroadcast({ t: 'world', q: ++net.worldQ, cars: carsArr, npcs: npcArr, cops: copArr, cash: cashArr, drps: dropArr, ufo: ufoArr, al: alienArr, ufoT: ufoTriggered ? 1 : 0, cfx: cfxArr, kd: kidArr });
     }
   }
   if (isClient()) applyWorldSnap(dt);
@@ -11674,7 +11941,7 @@ function loop(now) {
   var dt = Math.min(0.05, (now - last) / 1000); last = now;
   if (!state.running) { renderer.render(scene, camera); renderCreatorFrame(dt); return; }
   T += dt;
-  updatePlayer(dt); updateNPCs(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateUfo(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateVoiceAudio(dt); updateNet(dt); updateNpcTags(); updateHUD(); drawMinimap();
+  updatePlayer(dt); updateNPCs(dt); updateKids(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateUfo(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateVoiceAudio(dt); updateNet(dt); updateNpcTags(); updateHUD(); drawMinimap();
   renderer.render(scene, camera);
 }
 setEquipped('fists');
@@ -11706,6 +11973,7 @@ setTimeout(loadNpcVoiceChunks, 800);
 // debug hook
 window.__wc = {
   state: state, player: player, npcs: npcs, cashes: cashes, cops: cops,
+  kids: kids, adultRace: adultRace, spawnKids: spawnKids, updateKids: updateKids, playKidVoice: playKidVoice,
   setWanted: setWanted, damageCop: damageCop,
   start: function () { startScreen.classList.add('hidden'); state.running = true; },
   setYaw: function (y) { yaw = y; camera.position.set(player.x, player.y, player.z); camera.rotation.y = yaw; camera.rotation.x = pitch; },
@@ -11807,7 +12075,7 @@ window.__wc = {
   creatorSpin: function (v) { if (cprev) cprev.spin = v; },
   getPlayerChar: function () { return playerChar; },
   setPlayerChar: function (c) { playerChar = c; },
-  tick: function (dt) { T += dt; updatePlayer(dt); updateNPCs(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateUfo(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateVoiceAudio(dt); updateNet(dt); renderer.render(scene, camera); }
+  tick: function (dt) { T += dt; updatePlayer(dt); updateNPCs(dt); updateKids(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateUfo(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateVoiceAudio(dt); updateNet(dt); renderer.render(scene, camera); }
 };
 
 // ---------------- boot screen handoff + menu cover art ----------------
