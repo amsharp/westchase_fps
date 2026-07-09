@@ -1,0 +1,117 @@
+// items.js — the item catalog for Westchase FPS pickup icons.
+// 36 items across 4 grids of 9 (3x3 tiling). Each entry drives both the
+// gpt-image-1 cell prompt (`p`) and the ITEM_DEFS row.
+// cat: food|drink|med|junk|valuable|tool|quirky
+// use: eat|drink|med|sell|junk|tool|fun
+'use strict';
+
+// GRIDS: 4 grids x 9 = 36 icons. Order within a grid is left->right, top->bottom.
+const GRIDS = [
+  // ---- Grid A: food -----------------------------------------------------
+  [
+    { id:'pizza',    name:'Pizza Slice',   cat:'food', use:'eat',  hp:25, value:6,  rarity:2, stackMax:8,
+      p:'a single triangular slice of pepperoni pizza, cheesy, red pepperoni dots, seen from the side' },
+    { id:'burger',   name:'Cheeseburger',  cat:'food', use:'eat',  hp:30, value:8,  rarity:2, stackMax:8,
+      p:'a stacked cheeseburger with a sesame bun, lettuce and a beef patty' },
+    { id:'hotdog',   name:'Hot Dog',       cat:'food', use:'eat',  hp:20, value:5,  rarity:2, stackMax:8,
+      p:'a hot dog in a bun with a wavy yellow mustard stripe' },
+    { id:'donut',    name:'Donut',         cat:'food', use:'eat',  hp:15, value:4,  rarity:1, stackMax:8,
+      p:'a ring donut with pink frosting and rainbow sprinkles' },
+    { id:'banana',   name:'Banana',        cat:'food', use:'eat',  hp:12, value:3,  rarity:1, stackMax:8,
+      p:'a single ripe yellow banana, slightly curved' },
+    { id:'apple',    name:'Apple',         cat:'food', use:'eat',  hp:12, value:3,  rarity:1, stackMax:8,
+      p:'a shiny red apple with a small green leaf on the stem' },
+    { id:'chips',    name:'Bag of Chips',  cat:'food', use:'eat',  hp:10, value:3,  rarity:1, stackMax:8,
+      p:'a puffy foil bag of potato chips, yellow and red packaging' },
+    { id:'sandwich', name:'Sandwich',      cat:'food', use:'eat',  hp:22, value:5,  rarity:2, stackMax:8,
+      p:'a triangular deli sandwich half with lettuce and meat between white bread' },
+    { id:'soda',     name:'Soda Can',      cat:'drink',use:'drink',hp:10, value:3,  rarity:1, stackMax:8,
+      p:'a red aluminum soda can, cylindrical, with a pull tab' },
+  ],
+  // ---- Grid B: drinks + meds -------------------------------------------
+  [
+    { id:'energy',   name:'Energy Drink',  cat:'drink',use:'drink',hp:18, value:5,  rarity:2, stackMax:8,
+      p:'a tall slim energy drink can, electric blue and silver with a lightning bolt' },
+    { id:'coffee',   name:'Coffee Cup',    cat:'drink',use:'drink',hp:12, value:3,  rarity:1, stackMax:8,
+      p:'a paper coffee cup with a white lid and a cardboard sleeve, steam curl on top' },
+    { id:'water',    name:'Water Bottle',  cat:'drink',use:'drink',hp:8,  value:2,  rarity:1, stackMax:8,
+      p:'a clear plastic water bottle with a blue cap and a blue label' },
+    { id:'milk',     name:'Milk Carton',   cat:'drink',use:'drink',hp:14, value:3,  rarity:1, stackMax:8,
+      p:'a small white and blue gable-top milk carton' },
+    { id:'fortyoz',  name:'40oz',          cat:'drink',use:'drink',hp:20, value:4,  rarity:2, stackMax:8,
+      p:'a large brown glass 40 ounce malt liquor bottle in a crumpled brown paper bag' },
+    { id:'medkit',   name:'Medkit',        cat:'med',  use:'med',  hp:75, value:40, rarity:3, stackMax:4,
+      p:'a white first-aid kit box with a bold red cross on the lid' },
+    { id:'bandage',  name:'Bandage',       cat:'med',  use:'med',  hp:25, value:8,  rarity:2, stackMax:4,
+      p:'a rolled white gauze bandage with a bit unrolled' },
+    { id:'pills',    name:'Painkillers',   cat:'med',  use:'med',  hp:35, value:12, rarity:2, stackMax:4,
+      p:'an orange prescription pill bottle with a white cap and a couple of white pills beside it' },
+    { id:'adrenaline',name:'Adrenaline Shot',cat:'med',use:'med',  hp:60, value:30, rarity:3, stackMax:4,
+      p:'a large syringe filled with glowing green liquid, plunger and needle' },
+  ],
+  // ---- Grid C: junk + valuables ----------------------------------------
+  [
+    { id:'tincan',   name:'Tin Can',       cat:'junk', use:'junk', hp:0,  value:1,  rarity:1, stackMax:16,
+      p:'a dented empty tin food can, silver metal, label torn off' },
+    { id:'glassbottle',name:'Glass Bottle',cat:'junk', use:'junk', hp:0,  value:1,  rarity:1, stackMax:16,
+      p:'an empty green glass bottle, like a soda or beer bottle, no label' },
+    { id:'newspaper',name:'Newspaper',     cat:'junk', use:'junk', hp:0,  value:1,  rarity:1, stackMax:16,
+      p:'a rolled up gray newspaper with faint text lines' },
+    { id:'boot',     name:'Old Boot',      cat:'junk', use:'junk', hp:0,  value:1,  rarity:1, stackMax:16,
+      p:'a single worn brown leather work boot, muddy and scuffed' },
+    { id:'bananapeel',name:'Banana Peel',  cat:'junk', use:'junk', hp:0,  value:1,  rarity:1, stackMax:16,
+      p:'a splayed-open yellow banana peel lying flat, three drooping strips' },
+    { id:'cardboard',name:'Cardboard',     cat:'junk', use:'junk', hp:0,  value:1,  rarity:1, stackMax:16,
+      p:'a flattened brown cardboard box scrap, corrugated edge visible' },
+    { id:'goldwatch',name:'Gold Watch',    cat:'valuable',use:'sell',hp:0, value:220,rarity:4, stackMax:2,
+      p:'a luxury gold wristwatch with a round face and gold link band' },
+    { id:'diamondring',name:'Diamond Ring',cat:'valuable',use:'sell',hp:0,value:400,rarity:5, stackMax:2,
+      p:'a gold ring with a large sparkling white diamond gem on top' },
+    { id:'cashwad',  name:'Cash Wad',      cat:'valuable',use:'sell',hp:0, value:150,rarity:3, stackMax:2,
+      p:'a rolled up wad of green cash banknotes wrapped with a rubber band' },
+  ],
+  // ---- Grid D: tools + quirky ------------------------------------------
+  [
+    { id:'goldchain',name:'Gold Chain',    cat:'valuable',use:'sell',hp:0,value:180,rarity:4, stackMax:2,
+      p:'a thick gold chain necklace curled into a loop, chunky links' },
+    { id:'smartphone',name:'Smartphone',   cat:'valuable',use:'sell',hp:0,value:120,rarity:3, stackMax:2,
+      p:'a black rectangular smartphone, glass screen with a small camera dot' },
+    { id:'wallet',   name:'Wallet',        cat:'valuable',use:'sell',hp:0, value:60, rarity:3, stackMax:2,
+      p:'a brown leather bifold wallet with a bit of cash sticking out the top' },
+    { id:'wrench',   name:'Wrench',        cat:'tool', use:'tool', hp:0,  value:15, rarity:2, stackMax:4,
+      p:'a chrome adjustable wrench tool, straight-on side view' },
+    { id:'crowbar',  name:'Crowbar',       cat:'tool', use:'tool', hp:0,  value:20, rarity:2, stackMax:4,
+      p:'a red steel crowbar pry bar, curved hooked end' },
+    { id:'flashlight',name:'Flashlight',   cat:'tool', use:'tool', hp:0,  value:18, rarity:2, stackMax:4,
+      p:'a black cylindrical flashlight, glowing yellow lens end' },
+    { id:'lighter',  name:'Lighter',       cat:'tool', use:'tool', hp:0,  value:8,  rarity:1, stackMax:4,
+      p:'a plastic cigarette lighter, red body with a small orange flame on top' },
+    { id:'spraycan', name:'Spray Can',     cat:'tool', use:'tool', hp:0,  value:10, rarity:2, stackMax:4,
+      p:'an aerosol spray paint can, blue body with a red spray cap' },
+    { id:'rubberduck',name:'Rubber Duck',  cat:'quirky',use:'fun',  hp:0, value:5,  rarity:2, stackMax:4,
+      p:'a classic yellow rubber duck bath toy with an orange beak' },
+  ],
+  // ---- Grid E: quirky / collectibles -----------------------------------
+  [
+    { id:'cassette', name:'Cassette Tape', cat:'quirky',use:'fun',  hp:0, value:6,  rarity:2, stackMax:4,
+      p:'a retro audio cassette tape, black plastic with two spools and a white label' },
+    { id:'vhs',      name:'VHS Tape',      cat:'quirky',use:'fun',  hp:0, value:8,  rarity:2, stackMax:4,
+      p:'a black VHS video tape cassette with a white paper label on the front' },
+    { id:'actionfig',name:'Action Figure', cat:'quirky',use:'fun',  hp:0, value:14, rarity:3, stackMax:4,
+      p:'a small plastic superhero action figure toy, blue and red, arms out' },
+    { id:'gnome',    name:'Garden Gnome',  cat:'quirky',use:'fun',  hp:0, value:18, rarity:3, stackMax:4,
+      p:'a little garden gnome statue with a red pointy hat and a white beard' },
+    { id:'magic8',   name:'Magic 8-Ball',  cat:'quirky',use:'fun',  hp:0, value:10, rarity:2, stackMax:4,
+      p:'a black magic 8-ball fortune toy with a white number 8 circle' },
+    { id:'lottery',  name:'Lottery Ticket',cat:'quirky',use:'fun',  hp:0, value:12, rarity:2, stackMax:4,
+      p:'a colorful scratch-off lottery ticket, gold and red with a dollar sign' },
+    { id:'fish',     name:'Fish',          cat:'quirky',use:'fun',  hp:8, value:7,  rarity:2, stackMax:4,
+      p:'a single whole silver fish, side view, fins and tail, cartoonish' },
+    { id:'brick',    name:'Brick',         cat:'quirky',use:'fun',  hp:0, value:2,  rarity:1, stackMax:8,
+      p:'a solid red clay building brick, straight-on angled view' },
+    { id:'firework', name:'Firework',      cat:'quirky',use:'fun',  hp:0, value:16, rarity:2, stackMax:4,
+      p:'a red cylindrical firework rocket with a wooden stick and a fuse' },
+  ],
+];
+
+module.exports = { GRIDS };

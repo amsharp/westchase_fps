@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.40.0';
+var GAME_VERSION = 'v1.41.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -6860,7 +6860,7 @@ function damageNPC(n, dmg, kx, kz, silent) {
   for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o === n || (o.state !== 'walk' && o.state !== 'chat')) continue; var dx = o.x - n.x, dz = o.z - n.z; if (dx * dx + dz * dz < 170) startFlee(o); }
 }
 function startFlee(n) { if (n.state === 'down') return; breakNpcChat(n); n.state = 'flee'; n.dodge = false; n.fleeT = 4 + Math.random() * 3; var dx = n.x - player.x, dz = n.z - player.z; var d = Math.sqrt(dx * dx + dz * dz) || 1; n.fleeDX = dx / d; n.fleeDZ = dz / d; }
-function panicNear(x, z, r2) { var fled = null; for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o.state !== 'walk' && o.state !== 'chat') continue; var dx = o.x - x, dz = o.z - z; if (dx * dx + dz * dz < r2) { startFlee(o); if (!fled || o.vname) fled = o; } } if (fled && !playNpcVoice(fled.vname, 'gunscared', 0.65, 10, { x: fled.x, z: fled.z, yell: true, ref: fled })) playVoiceAny(fled.fem ? ['pedf_gun'] : ['pedm_gun'], 0.6, 'pedGun', 16, { x: fled.x, z: fled.z, yell: true, ref: fled }); }
+function panicNear(x, z, r2) { var fled = null; for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o.state !== 'walk' && o.state !== 'chat') continue; var dx = o.x - x, dz = o.z - z; if (dx * dx + dz * dz < r2) { startFlee(o); if (!fled || o.vname) fled = o; } } if (fled && !playNpcVoice(fled.vname, 'gunscared', 0.65, 10, { x: fled.x, z: fled.z, yell: true, net: 1, ref: fled })) playVoiceAny(fled.fem ? ['pedf_gun'] : ['pedm_gun'], 0.6, 'pedGun', 16, { x: fled.x, z: fled.z, yell: true, net: 1, ref: fled }); }
 
 var npcSocialT = 0, npcBumpT = -99, meleeHit = false, npcAnimF = 0;
 // hard-stop a sidewalk conversation (participant hit/killed/fleeing/dodging a
@@ -8241,6 +8241,10 @@ function startAmbient() {
 }
 // ---- PS1-crunched TTS dialogue (optional voicelines.js) ----
 var voiceBufs = {}, voiceLastT = {}, dealerMet = false, shopBought = false, clerkScaredT = -99;
+// per-peer voice-play instrumentation (dbg): local = voices this peer played
+// itself, net = voices replayed from a host broadcast, bcast = world voices
+// this (host) peer broadcast to clients.
+var dbgVoiceLocal = 0, dbgVoiceNet = 0, dbgVoiceBcast = 0;
 function playVoice(id, gain, cd, at) {
   if (typeof VOICE_LINES === 'undefined' || !VOICE_LINES[id]) return;
   if (at) voicePos(at);
@@ -8252,12 +8256,12 @@ function playVoice(id, gain, cd, at) {
   if (!host && !heard) return;
   if (voiceLastT[id] !== undefined && T - voiceLastT[id] < (cd || 5)) return;
   voiceLastT[id] = T;
-  if (host) netBroadcast({ t: 'voice', id: id, g: gain || 0.5, x: Math.round(at.x * 10), z: Math.round(at.z * 10), yl: at.yell ? 1 : 0, py: at.y === undefined ? undefined : Math.round(at.y * 10) });
+  if (host) { netBroadcast({ t: 'voice', id: id, g: gain || 0.5, x: Math.round(at.x * 10), z: Math.round(at.z * 10), yl: at.yell ? 1 : 0, py: at.y === undefined ? undefined : Math.round(at.y * 10) }); dbgVoiceBcast++; }
   if (!ac || !heard) return;
   function playBuf(buf) {
     var src = ac.createBufferSource(); src.buffer = buf;
     src.connect(voiceOut(gain || 0.5, at)); src.start();
-    trackVoice(src, at);
+    trackVoice(src, at); dbgVoiceLocal++;
   }
   if (voiceBufs[id]) { playBuf(voiceBufs[id]); return; }
   var bytes = b64Bytes(VOICE_LINES[id].split(',')[1]);
@@ -8298,7 +8302,7 @@ function playNpcVoice(name, cat, gain, cd, at) {
   else npcVoiceCycle[ck] = (npcVoiceCycle[ck] + 1) % arr.length;
   var idx = npcVoiceCycle[ck];
   // broadcast the exact character+line so a joined client plays the same one
-  if (host) netBroadcast({ t: 'voice', nm: name, ct: cat, ix: idx, g: gain || 0.45, x: Math.round(at.x * 10), z: Math.round(at.z * 10), yl: at.yell ? 1 : 0, py: at.y === undefined ? undefined : Math.round(at.y * 10) });
+  if (host) { netBroadcast({ t: 'voice', nm: name, ct: cat, ix: idx, g: gain || 0.45, x: Math.round(at.x * 10), z: Math.round(at.z * 10), yl: at.yell ? 1 : 0, py: at.y === undefined ? undefined : Math.round(at.y * 10) }); dbgVoiceBcast++; }
   if (!ac || !heard) return true;
   var id = name + '_' + cat + '_' + idx;
   var token = {};
@@ -8309,7 +8313,7 @@ function playNpcVoice(name, cat, gain, cd, at) {
     if (prev) { try { prev.stop(); } catch (e) { } }
     var src = ac.createBufferSource(); src.buffer = buf;
     src.connect(voiceOut(gain || 0.45, at)); src.start();
-    trackVoice(src, at);
+    trackVoice(src, at); dbgVoiceLocal++;
     npcVoiceSrc[name] = src;
     src.onended = function () { if (npcVoiceSrc[name] === src) npcVoiceSrc[name] = null; };
   }
@@ -8338,7 +8342,7 @@ function playNetVoice(m) {
   function playBuf(buf) {
     var src = ac.createBufferSource(); src.buffer = buf;
     src.connect(voiceOut(gain, at)); src.start();
-    trackVoice(src, at);
+    trackVoice(src, at); dbgVoiceNet++;
   }
   if (cache[cacheId]) { playBuf(cache[cacheId]); return; }
   var bytes = b64Bytes(url.split(',')[1]);
@@ -9523,6 +9527,8 @@ window.__wc = {
   enterStore: enterStore, exitStore: exitStore, refreshClerk: refreshClerk, animPerson: animPerson, animPersonClip: animPersonClip, playVoice: playVoice, oak: oak, bush: bush, getPackProp: getPackProp,
   initAudio: initAudio, playNpcVoice: playNpcVoice, playVoiceAny: playVoiceAny,
   audioVoices: function () { return activeVoices; }, getAC: function () { return ac; },
+  voiceDbg: function () { return { local: dbgVoiceLocal, net: dbgVoiceNet, bcast: dbgVoiceBcast }; },
+  playNetVoice: playNetVoice, panicNear: panicNear,
   engineRPM: engineRPM, ensureEngineRich: ensureEngineRich,
   armsInfo: function () { return psxArms ? { clips: Object.keys(psxArms.clips), np: psxArms.np, anchor: psxArms.root.position.toArray().map(function (v) { return Math.round(v * 100) / 100; }) } : null; },
   isInside: function () { return inside; },

@@ -42,7 +42,11 @@ everything they were carrying — and **robbery lockouts are server-wide**, so
 if someone knocks over the gas station, it's closed for all of you. Rare
 events (see Rumors) are shared too: everyone sees them, anyone can profit
 from them, and they only happen once per session no matter who triggers
-them. (Gas-station interiors themselves stay personal.)
+them. You also **hear the same town everyone else does**: when the host's
+pedestrians scream, flee a gunshot, or a cop barks a warning, that voice is
+streamed to every player and played at the right spot on their side — a
+joined player is no longer stuck in a silent world. (Gas-station interiors,
+and the voices inside them, stay personal.)
 
 ## Your character
 
