@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.44.0';
+var GAME_VERSION = 'v1.44.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -4811,7 +4811,9 @@ function buildCop() {
 // and fixes cops mobbing a clean host while a remote player rampages.
 function hottestPlayerPos() {
   var hx = player.x, hz = player.z, hw = (state.dead || inside || WC_BOT) ? -1 : (state.wanted || 0);
-  for (var id in net.remotes) { var r = net.remotes[id]; if (r && !r.dead && (r.w || 0) > hw) { hw = r.w; hx = r.x; hz = r.z; } }
+  // LOAD-ORDER: boot-time spawnCop calls run before `var net` is assigned —
+  // guard or the whole IIFE dies at load (broke boot once; caught by test)
+  if (net && net.remotes) for (var id in net.remotes) { var r = net.remotes[id]; if (r && !r.dead && (r.w || 0) > hw) { hw = r.w; hx = r.x; hz = r.z; } }
   return { x: hx, z: hz };
 }
 function spawnCop(nearPlayer) {
