@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.56.3';
+var GAME_VERSION = 'v1.56.4';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -8883,7 +8883,8 @@ function spawnKid(lookIdx, parent) {
     persona: KID_PERSONA[look.n] || (look.sex === 'girl' ? 'KID_GIRL_BRIGHT' : 'KID_BOY_BRIGHT'),
     parent: parent, x: 0, z: 0, phase: kidRng() * 9, state: 'follow', stateT: 0,
     speed: 1.5 + kidRng() * 0.5, vx: 0, vz: 0, lagT: 4 + kidRng() * 8, voiceT: 6 + kidRng() * 12,
-    offA: kidRng() * 6.28, hold: 2.0 + kidRng() * 1.6, dodgeCD: 0
+    offA: kidRng() * 6.28, hold: 2.0 + kidRng() * 1.6, dodgeCD: 0,
+    dialogT: 10 + kidRng() * 22, replyT: 0
   };
   if (parent) {
     k.x = parent.x + Math.cos(k.offA) * k.hold; k.z = parent.z + Math.sin(k.offA) * k.hold;
@@ -8922,7 +8923,7 @@ function repairKid(k) {
 }
 // ---- kid voices (persona-keyed KID_VOICES; net-broadcast like NPC voices with
 // a `kv` flag so peers replay the exact line positionally) ----
-var kidVoiceBufs = {}, kidVoiceCycle = {};
+var kidVoiceBufs = {}, kidVoiceCycle = {}, kidVoiceDbg = {};
 function playKidVoice(persona, cat, gain, cd, at) {
   var KV = (typeof KID_VOICES !== 'undefined') ? KID_VOICES : (window.KID_VOICES || null);
   if (!persona || !KV || !KV[persona] || !KV[persona][cat] || !KV[persona][cat].length) return false;
@@ -8932,6 +8933,7 @@ function playKidVoice(persona, cat, gain, cd, at) {
   var key = 'kidv_' + (at && at.kkey || persona);
   if (voiceGroupT[key] !== undefined && T - voiceGroupT[key] < (cd || 4)) return true;
   voiceGroupT[key] = T;
+  kidVoiceDbg[cat] = (kidVoiceDbg[cat] || 0) + 1;   // headless dialogue instrumentation
   var arr = KV[persona][cat], ck = persona + '_' + cat;
   if (kidVoiceCycle[ck] === undefined) kidVoiceCycle[ck] = (Math.random() * arr.length) | 0;
   else kidVoiceCycle[ck] = (kidVoiceCycle[ck] + 1) % arr.length;
@@ -8996,12 +8998,37 @@ function updateKids(dt) {
     // kids ship no idle clip — hold the builder's natural stance when planted
     // instead of letting animPerson's idle-fallback slow-walk in place
     if (spd > 0.05) animPerson(m, spd, dt, k.phase); else meshyPose(k.mesh.userData.skin, 'walk', 0);
-    // ambient chatter/play near the player
+    // ambient chatter/play near the player (loose per-kid timer)
     k.voiceT -= dt;
     if (k.voiceT <= 0) {
-      k.voiceT = 10 + Math.random() * 12;
+      k.voiceT = 12 + Math.random() * 13;
       var vdx = k.x - player.x, vdz = k.z - player.z;
       if (vdx * vdx + vdz * vdz < 900) playKidVoice(k.persona, Math.random() < 0.5 ? 'chatter' : 'play', 0.42, 9, { x: k.x, z: k.z, kkey: 'k' + i, ref: k, net: 1 });
+    }
+    // ---- STEP 2: parent<->kid turn-taking dialogue ----
+    // a kid near its parent whines ("can we get ice cream PLEASE"), the parent
+    // answers ~2s later from its PARENT_* 'tokid' lines; chaos (flee) aborts a
+    // pending reply. Positional + net:1 so MP clients hear the exchange too.
+    if (k.state === 'flee') { k.replyT = 0; }
+    else {
+      var pnear = p && ((k.x - p.x) * (k.x - p.x) + (k.z - p.z) * (k.z - p.z) < 64);
+      if (k.replyT > 0) {
+        k.replyT -= dt;
+        if (k.replyT <= 0 && pnear) {
+          playKidVoice(p.parentVoice || 'PARENT_MOM', 'tokid', 0.5, 6, { x: p.x, z: p.z, kkey: 'p' + i, ref: p, net: 1 });
+          if (p.mesh) p.mesh.rotation.y = Math.atan2((k.x - p.x) || 0.001, (k.z - p.z) || 0.001);
+        }
+      }
+      k.dialogT -= dt;
+      if (k.dialogT <= 0) {
+        var ddx = k.x - player.x, ddz = k.z - player.z;
+        var canTalk = pnear && ddx * ddx + ddz * ddz < 2500 && k.replyT <= 0;
+        if (canTalk && Math.random() < 0.7 && playKidVoice(k.persona, 'parent', 0.5, 6, { x: k.x, z: k.z, kkey: 'k' + i, ref: k, net: 1 })) {
+          k.replyT = 1.6 + Math.random() * 1.2;                 // parent answers in ~2s
+          k.dialogT = 22 + Math.random() * 20;                  // then a long lull
+          if (spd < 0.05) m.rotation.y = Math.atan2((p.x - k.x) || 0.001, (p.z - k.z) || 0.001);
+        } else k.dialogT = 4 + Math.random() * 5;               // not now — retry soon
+      }
     }
   }
 }
@@ -12003,7 +12030,7 @@ setTimeout(loadNpcVoiceChunks, 800);
 // debug hook
 window.__wc = {
   state: state, player: player, npcs: npcs, cashes: cashes, cops: cops,
-  kids: kids, adultRace: adultRace, spawnKids: spawnKids, updateKids: updateKids, playKidVoice: playKidVoice,
+  kids: kids, adultRace: adultRace, spawnKids: spawnKids, updateKids: updateKids, playKidVoice: playKidVoice, kidVoiceDbg: function () { return kidVoiceDbg; },
   setWanted: setWanted, damageCop: damageCop,
   start: function () { startScreen.classList.add('hidden'); state.running = true; },
   setYaw: function (y) { yaw = y; camera.position.set(player.x, player.y, player.z); camera.rotation.y = yaw; camera.rotation.x = pitch; },

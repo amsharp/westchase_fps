@@ -131,7 +131,11 @@ a grown-up. Every child is paired to an adult whose look roughly matches
 their own (so families read as families), holding a hand-hold distance of a
 few steps; when a kid dawdles to gawk at something and the parent gets
 ahead, they break into a little **catch-up run** to close the gap. They have
-their own short child voices for chatter on the go.
+their own short child voices, and you'll catch real **family back-and-forth**:
+a kid whines up at their grown-up ("can we get ice cream, PLEASE?") and a
+beat later the parent answers in their own voice — plus loose, silly chatter
+as they wander. Like the sidewalk conversations, an exchange cuts off the
+moment chaos scares them.
 
 **Kids are off-limits.** Bullets, fists, explosions and cars all pass
 through them harmlessly — you cannot hurt, ragdoll, or kill a child, and
