@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.34.2';
+var GAME_VERSION = 'v1.35.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -5498,7 +5498,7 @@ function updateDriving(dt) {
           else {
             shoveCar(oc, rkx, rkz, rsp);
             oc.dmgT += imp;
-            if (oc.dmgT >= 1.5) { goBerserk(oc); popup('WRECKED!'); creditCivKill(); }
+            if (oc.dmgT >= 1.5 && goBerserk(oc)) { popup('WRECKED!'); creditCivKill(); }
           }
         }
         c.pspeed *= 0.5;
@@ -5693,16 +5693,17 @@ function updateBooms(dt) {
     if (b.life <= 0) { scene.remove(b.mesh); booms.splice(i, 1); }
   }
 }
+// returns TRUE only when this call actually starts the wreck (goes berserk or
+// first ignites a parked car) — callers gate kill-credit on it so a car already
+// berserk/burning/exploded can't be re-credited on every follow-up shot/ram
 function goBerserk(c) {
-  if (c.berserk || c.exploded) return;
+  if (c.berserk || c.burning || c.exploded) return false;
   if (c.parked) {
     // no driver to lose control — a shot-up parked car just catches fire and blows
-    if (!c.burning) {
-      c.burning = true; c.burnT = 2.2; c.flameT = 0;
-      var pp = c.car.group.position;
-      sfx('crash', { x: pp.x, z: pp.z, range: 90 });
-    }
-    return;
+    c.burning = true; c.burnT = 2.2; c.flameT = 0;
+    var pp = c.car.group.position;
+    sfx('crash', { x: pp.x, z: pp.z, range: 90 });
+    return true;
   }
   c.berserk = true;
   var m = c.car.group;
@@ -5718,6 +5719,7 @@ function goBerserk(c) {
   c.curve = side * (0.08 + Math.random() * 0.18);          // gentle arc — stays headed off the road
   c.boomTimer = 6;
   sfx('crash', { x: m.position.x, z: m.position.z, range: 120 });
+  return true;
 }
 function shoveCar(c, dx, dz, sp) {
   var m2 = c.car.group;
@@ -7234,7 +7236,13 @@ function tryAttack() {
     else if (copHit) { damageCop(copHit, w.dmg, dir.x, dir.z); puff(h.point, 0xd93a2a); }
     else if (carHit) {
       puff(h.point, 0xd8c860);
-      if (carHit.stolen) {
+      if (carHit.playerDriven && carHit !== driving) {
+        // ANOTHER player is driving this car — route the shot so the host
+        // forwards the damage to the real driver (their client applies carHP,
+        // same path cop fire uses). without this, PvP car combat did nothing.
+        if (isClient()) netToHost({ t: 'shootCar', i: cars.indexOf(carHit), rate: w.rate, dmg: w.dmg });
+        else if (carHit.drivenBy) netSendHit(carHit.drivenBy, w.dmg);
+      } else if (carHit.stolen) {
         // your (or a parked stolen) ride takes real damage
         carHit.carHP = (carHit.carHP === undefined ? 100 : carHit.carHP) - w.dmg;
         if (carHit.carHP <= 0) igniteCar(carHit);
@@ -7242,7 +7250,7 @@ function tryAttack() {
         netToHost({ t: 'shootCar', i: cars.indexOf(carHit), rate: w.rate });
       } else {
         carHit.dmgT += w.rate;
-        if (carHit.dmgT >= 1.5 && !carHit.berserk) { goBerserk(carHit); popup('WRECKED!'); creditCivKill(); }   // trashing a ride weighs like a body
+        if (carHit.dmgT >= 1.5 && goBerserk(carHit)) { popup('WRECKED!'); creditCivKill(); }   // trashing a ride weighs like a body (credit once, on the wreck)
       }
     }
     else if (atmHit) shootAtm(atmHit, h.point);   // streetprops: burst the ATM open
@@ -8171,9 +8179,11 @@ function handleNet(m, conn) {
       }
     } else if (m.t === 'shootCar') {
       var scc = cars[m.i];
-      if (scc && !scc.stolen && !scc.exploded) {
+      if (scc && scc.drivenBy && !scc.exploded) {
+        netSendHit(scc.drivenBy, clampf(m.dmg, 0, 100));   // occupied car: damage the driver (they apply it to their carHP)
+      } else if (scc && !scc.stolen && !scc.exploded) {
         scc.dmgT += clampf(m.rate, 0, 1);   // covers the rifle's 0.8 rate; still bounds garbage
-        if (scc.dmgT >= 1.5 && !scc.berserk) { goBerserk(scc); try { conn.send({ t: 'kill', kind: 'car' }); } catch (e) { } }
+        if (scc.dmgT >= 1.5 && goBerserk(scc)) { try { conn.send({ t: 'kill', kind: 'car' }); } catch (e) { } }
       }
     } else if (m.t === 'ragNpc') {
       var rn = npcs[m.i];
@@ -8202,13 +8212,13 @@ function handleNet(m, conn) {
       if (pk && pk.drivenBy === conn.peer) { pk.drivenBy = null; pk.stolen = true; pk.car.group.position.set(clampf(m.x, -HALF, HALF), 0, clampf(m.z, -HALF, HALF)); pk.car.group.rotation.y = clampf(m.ry, -1e4, 1e4); }   // heading accumulates unwrapped; only reject NaN/garbage
     } else if (m.t === 'ram') {
       var rc = cars[m.i];
-      if (rc && !rc.stolen && !rc.exploded && !rc.berserk) { goBerserk(rc); try { conn.send({ t: 'kill', kind: 'car' }); } catch (e) { } }
+      if (rc && !rc.stolen && !rc.exploded && goBerserk(rc)) { try { conn.send({ t: 'kill', kind: 'car' }); } catch (e) { } }
     } else if (m.t === 'ramHit') {
       var rhc = cars[m.i];
       if (rhc && !rhc.stolen && !rhc.exploded && !rhc.berserk) {
         shoveCar(rhc, clampf(m.kx / 10, -3, 3), clampf(m.kz / 10, -3, 3), clampf(m.sp / 10, 0, 30));
         rhc.dmgT += clampf(m.dmg, 0, 2);   // real ram impulse peaks ~1.42; bound garbage, don't nerf
-        if (rhc.dmgT >= 1.5) { goBerserk(rhc); try { conn.send({ t: 'kill', kind: 'car' }); } catch (e) { } }
+        if (rhc.dmgT >= 1.5 && goBerserk(rhc)) { try { conn.send({ t: 'kill', kind: 'car' }); } catch (e) { } }
       }
     } else if (m.t === 'carBoom') {
       // only the car's driver can self-detonate it (was: any client, any car)
@@ -8248,9 +8258,9 @@ function handleNet(m, conn) {
         try { conn.send({ t: 'gotDrop', k: dk2 }); } catch (e) { }
       }
     } else if (m.t === 'dmgUfo') {
-      damageUfo(m.dmg, null);
+      damageUfo(clampf(m.dmg, 0, 250), null);   // clamp: a negative dmg would HEAL the shared boss
     } else if (m.t === 'dmgAlien') {
-      damageAlien(m.dmg, m.kx, m.kz);
+      damageAlien(clampf(m.dmg, 0, 250), clampf(m.kx, -2, 2), clampf(m.kz, -2, 2));   // + bound knockback so it can't be flung off-map
     } else if (m.t === 'ufoTrig') {
       if (!ufoTriggered) { ufoTriggered = true; spawnUfo(); }
     }
