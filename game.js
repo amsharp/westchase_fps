@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.38.0';
+var GAME_VERSION = 'v1.39.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -7356,6 +7356,20 @@ var SUPPORT_POSE = {
   auto:   [null, [0.12, -0.95, -0.85], [-0.7, -1.2, 0.2], [0.15, 0.1, -0.2]],
   rocket: [null, [0.05, -0.8, -0.75], [-0.6, -1.05, 0.25], [0.2, 0.1, -0.2]]
 };
+// per-weapon forward anchor offset in the gun-group (camera) frame:
+// x=right, y=up, z toward-camera(+)/forward(-). The shared idle/relax/grab
+// clips park both hands at rig-z~0, so with a zero anchor the whole arm rig
+// collapses onto the camera and the forward-most vertex sits ~0.02m ahead —
+// INSIDE the 0.1m near plane → invisible. Pushing the rig forward per weapon
+// un-clips the hands and lands the trigger hand near the grip.
+var ANCHOR_OFF = {
+  fists:  [0.00, -0.04, -0.30],
+  pistol: [0.06, -0.06, -0.42],
+  smg:    [0.09, -0.05, -0.50],
+  rifle:  [0.10, -0.05, -0.55],
+  auto:   [0.11, -0.05, -0.55],
+  rocket: [0.10, -0.05, -0.50]
+};
 var dbgArmOv = null;                 // debug override for SUPPORT_POSE (via __wc.dbgArm)
 var _supEuler = new THREE.Euler();
 var _supIdx = [24, 25, 26, 27];
@@ -7470,6 +7484,8 @@ function anchorArms(pa) {
   armsTmpV.copy(pa.camBone.position).applyQuaternion(pa.rootBone.quaternion).add(pa.rootBone.position);
   pa.root.quaternion.set(0, 1, 0, 0);
   pa.root.position.set(armsTmpV.x, -armsTmpV.y, armsTmpV.z);
+  var off = ANCHOR_OFF[state.equipped];
+  if (off) { pa.root.position.x += off[0]; pa.root.position.y += off[1]; pa.root.position.z += off[2]; }
 }
 function armsPose(pa, key, t, oneshot) {
   var c = pa.clips[key];
@@ -9512,6 +9528,8 @@ window.__wc = {
   gunBloom: function () { return gunBloom; },
   setGunHold: function (c, t) { gunHold.clip = c; gunHold.t = t; },   // debug: tune the arms hold pose
   dbgArm: function (ov) { dbgArmOv = ov; },   // debug: override support-arm eulers [[x,y,z]x bones 24-27]
+  setAnchor: function (w, arr) { ANCHOR_OFF[w] = arr; },   // debug: tune per-weapon forward anchor offset
+  getAnchor: function (w) { return ANCHOR_OFF[w]; },
   getBoneQ: function (i) { return psxArms ? psxArms.bones[i].quaternion.toArray().map(function (v) { return Math.round(v * 1000) / 1000; }) : null; },
   poseArmsNow: function () { if (psxArms && GUNHOLD_GROUPS[state.equipped]) { armsPose(psxArms, gunHold.clip, gunHold.t, true); applySupportPose(state.equipped); } },
   handPos: function () { if (!psxArms) return null; psxArms.mesh.updateMatrixWorld(true); var pl = new THREE.Vector3(), pr = new THREE.Vector3(); psxArms.bones[27].getWorldPosition(pl); psxArms.bones[4].getWorldPosition(pr); return { L: pl.toArray().map(function (v) { return Math.round(v * 100) / 100; }), R: pr.toArray().map(function (v) { return Math.round(v * 100) / 100; }) }; },
