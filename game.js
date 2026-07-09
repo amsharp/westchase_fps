@@ -6876,8 +6876,10 @@ function breakNpcChat(n) {
 // character's pack lacks the category; true only when `cat` itself played
 function npcChatLine(n, cat) {
   if (!n || !n.vname) return false;
-  if (playNpcVoice(n.vname, cat, 0.55, 2, { x: n.x, z: n.z, ref: n })) return true;
-  playNpcVoice(n.vname, 'chat', 0.55, 2, { x: n.x, z: n.z, ref: n });
+  // net:1 — sidewalk conversations are shared-world ambient chatter: the host
+  // broadcasts them so joined clients hear the same back-and-forth positionally
+  if (playNpcVoice(n.vname, cat, 0.55, 2, { x: n.x, z: n.z, net: 1, ref: n })) return true;
+  playNpcVoice(n.vname, 'chat', 0.55, 2, { x: n.x, z: n.z, net: 1, ref: n });
   return false;
 }
 function updateNPCs(dt) {
@@ -6963,7 +6965,7 @@ function updateNPCs(dt) {
         breakNpcChat(n);   // a car bearing down trumps the conversation
         n.state = 'flee'; n.dodge = true; n.fleeT = 0.9 + Math.random() * 0.3;
         n.fleeDX = thr.x; n.fleeDZ = thr.z; n.dodgeCD = T + 2;
-        if (!playNpcVoice(n.vname, 'bump', 0.6, 3, { x: n.x, z: n.z, yell: true, ref: n })) playVoiceAny(n.fem ? ['pedf_hit', 'pedf_hit_2'] : ['pedm_hit_1', 'pedm_hit_2'], 0.55, 'pedDodge', 4, { x: n.x, z: n.z, yell: true, ref: n });
+        if (!playNpcVoice(n.vname, 'bump', 0.6, 3, { x: n.x, z: n.z, yell: true, net: 1, ref: n })) playVoiceAny(n.fem ? ['pedf_hit', 'pedf_hit_2'] : ['pedm_hit_1', 'pedm_hit_2'], 0.55, 'pedDodge', 4, { x: n.x, z: n.z, yell: true, net: 1, ref: n });
       }
     }
     if (n.state === 'ragdoll') {
@@ -9528,7 +9530,7 @@ window.__wc = {
   initAudio: initAudio, playNpcVoice: playNpcVoice, playVoiceAny: playVoiceAny,
   audioVoices: function () { return activeVoices; }, getAC: function () { return ac; },
   voiceDbg: function () { return { local: dbgVoiceLocal, net: dbgVoiceNet, bcast: dbgVoiceBcast }; },
-  playNetVoice: playNetVoice, panicNear: panicNear,
+  playNetVoice: playNetVoice, panicNear: panicNear, npcChatLine: npcChatLine,
   engineRPM: engineRPM, ensureEngineRich: ensureEngineRich,
   armsInfo: function () { return psxArms ? { clips: Object.keys(psxArms.clips), np: psxArms.np, anchor: psxArms.root.position.toArray().map(function (v) { return Math.round(v * 100) / 100; }) } : null; },
   isInside: function () { return inside; },
