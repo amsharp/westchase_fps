@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.56.0';
+var GAME_VERSION = 'v1.56.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -7855,6 +7855,13 @@ function updateDrops(dt) {
         if (!d.pend) { d.pend = true; d.pendT = T; netToHost({ t: 'takeDrop', x: d.mesh.position.x, z: d.mesh.position.z }); }
         continue;
       }
+      if (d.kind === 'item') {
+        var leftIt = bagAdd(d.itemId, 1);
+        if (leftIt > 0) { d.bagFull = true; continue; }   // bag full — leave it lying
+        itemToast(d.itemId); sfx('buy');
+        scene.remove(d.mesh); drops.splice(i, 1);
+        continue;
+      }
       applyDropPickup(d.kind);
       scene.remove(d.mesh); drops.splice(i, 1);
       continue;
@@ -7864,6 +7871,139 @@ function updateDrops(dt) {
     if (d.life <= 0) { scene.remove(d.mesh); drops.splice(i, 1); }
   }
 }
+
+// ---------------- grid item inventory (task #57; client-local like interiors) ----
+// itemicons.js supplies ITEM_ICONS (alpha PNG data-URLs) + ITEM_DEFS (rows:
+// id,name,cat,stackMax,use,hp,value,rarity). The bag is N slots of {id,n}
+// stacks. Guarded so the game still boots if the icon bank is missing.
+var BAG_SLOTS = 24;                 // 6x4 grid
+var ITEM_BANK_OK = (typeof ITEM_DEFS !== 'undefined' && typeof ITEM_ICONS !== 'undefined');
+var ITEM_BY_ID = {};
+if (ITEM_BANK_OK) for (var _idi = 0; _idi < ITEM_DEFS.length; _idi++) ITEM_BY_ID[ITEM_DEFS[_idi].id] = ITEM_DEFS[_idi];
+function itemDef(id) { return ITEM_BY_ID[id] || null; }
+state.bag = [];
+for (var _bsi = 0; _bsi < BAG_SLOTS; _bsi++) state.bag.push(null);
+var bagSel = -1;                    // last-hovered grid slot (for the Q-drop key)
+
+// icon THREE.Texture cache (for the world-pickup sprites)
+var itemTexCache = {};
+function itemTex(id) {
+  if (itemTexCache[id]) return itemTexCache[id];
+  var url = ITEM_ICONS && ITEM_ICONS[id];
+  var im = new Image();
+  var tx = new THREE.Texture(im);
+  tx.magFilter = THREE.NearestFilter; tx.minFilter = THREE.NearestFilter; tx.generateMipmaps = false;
+  im.onload = function () { tx.needsUpdate = true; };
+  if (url) im.src = url;
+  itemTexCache[id] = tx;
+  return tx;
+}
+function itemIconHtml(id) { var u = ITEM_ICONS && ITEM_ICONS[id]; return u ? '<img src="' + u + '" style="width:26px;height:26px;vertical-align:middle;margin-right:6px;">' : ''; }
+function itemToast(id, n) { var def = itemDef(id); if (!def) return; toast(itemIconHtml(id) + ' Picked up <b>' + def.name + '</b>' + (n > 1 ? ' &times;' + n : ''), 2600); }
+
+function bagCount(id) { var t = 0; for (var i = 0; i < state.bag.length; i++) { var s = state.bag[i]; if (s && s.id === id) t += s.n; } return t; }
+// fill matching stacks first, then empty slots; returns the leftover that didn't fit
+function bagAdd(id, count) {
+  var def = itemDef(id); if (!def) return count || 0;
+  var left = (count == null) ? 1 : count, max = def.stackMax || 1, i;
+  for (i = 0; i < state.bag.length && left > 0; i++) {
+    var s = state.bag[i];
+    if (s && s.id === id && s.n < max) { var add = Math.min(max - s.n, left); s.n += add; left -= add; }
+  }
+  for (i = 0; i < state.bag.length && left > 0; i++) {
+    if (!state.bag[i]) { var add2 = Math.min(max, left); state.bag[i] = { id: id, n: add2 }; left -= add2; }
+  }
+  if (state.menu === 'inv') refreshInvGrid();
+  return left;
+}
+function bagRemove(slot, count) {
+  var s = state.bag[slot]; if (!s) return 0;
+  var take = (count == null) ? s.n : Math.min(count, s.n);
+  s.n -= take; if (s.n <= 0) state.bag[slot] = null;
+  if (state.menu === 'inv') refreshInvGrid();
+  return take;
+}
+function bagUse(slot) {
+  var s = state.bag[slot]; if (!s) return;
+  var def = itemDef(s.id); if (!def) return;
+  var u = def.use;
+  if (u === 'eat' || u === 'drink' || u === 'med') {
+    if (state.hp >= 100) { popup2('Already full HP'); return; }
+    state.hp = Math.min(100, state.hp + (def.hp || 0));
+    sfx('eat'); popup('+' + (def.hp || 0) + ' HP');
+    bagRemove(slot, 1);
+  } else if (u === 'sell') {
+    toast(itemIconHtml(s.id) + ' Sell your <b>' + def.name + '</b> to the gun dealer for <span style="color:#8ee87f">$' + def.value + '</span>', 3200);
+  } else if (u === 'tool') {
+    sfx('hit'); toast(itemIconHtml(s.id) + ' The <b>' + def.name + '</b> feels useful…', 2400);
+  } else if (u === 'fun') {
+    funItem(slot, s, def);
+  }
+}
+var MAGIC8 = ['It is certain', 'Ask again later', 'Doubtful', 'Without a doubt', 'My reply is no', 'Signs point to yes', 'Cannot predict now', 'Outlook good'];
+function funItem(slot, s, def) {
+  if (def.hp && def.hp > 0) {   // e.g. Fish — edible novelty
+    if (state.hp < 100) { state.hp = Math.min(100, state.hp + def.hp); sfx('eat'); popup('+' + def.hp + ' HP'); bagRemove(slot, 1); return; }
+  }
+  if (s.id === 'magic8') { toast('🎱 The Magic 8-Ball says: <b>' + MAGIC8[(Math.random() * MAGIC8.length) | 0] + '</b>', 3000); return; }
+  if (s.id === 'lottery') {
+    bagRemove(slot, 1);
+    if (Math.random() < 0.15) { var win = 50 + ((Math.random() * 200) | 0); state.money += win; sfx('cash'); toast('🎉 WINNER! The lottery ticket pays <span style="color:#8ee87f">$' + win + '</span>!', 3500); }
+    else { sfx('deny'); toast('🎫 Not a winner. Better luck next time.', 2600); }
+    return;
+  }
+  if (s.id === 'firework') {   // pop a cosmetic burst over your head
+    bagRemove(slot, 1);
+    for (var i = 0; i < 10; i++) puff(new THREE.Vector3(player.x + (Math.random() - 0.5) * 3, EYE + 1.5 + Math.random() * 2, player.z + (Math.random() - 0.5) * 3), i % 2 ? 0xffd23a : 0xff4d6d);
+    sfx('boom', { x: player.x, z: player.z, range: 60 });
+    toast('🎆 You set off the firework!', 2200);
+    return;
+  }
+  var lines = { rubberduck: 'Squeak! The rubber duck judges you.', cassette: 'You reminisce over the mixtape.', vhs: 'Be kind, rewind.', actionfig: 'The action figure strikes a heroic pose.', gnome: 'The garden gnome watches, unblinking.', brick: 'It is a brick. It is very brick.' };
+  sfx('hit'); toast('🧸 ' + (lines[s.id] || def.name), 2200);
+}
+// spawn a world pickup of an item (billboard sprite; walk over to re-collect)
+function itemDropGroup(id) {
+  var m = new THREE.SpriteMaterial({ map: itemTex(id), alphaTest: 0.35, transparent: true });
+  var sp = new THREE.Sprite(m); sp.scale.set(1.0, 1.0, 1.0);
+  var g = new THREE.Group(); g.add(sp);
+  return g;
+}
+function spawnItemDrop(id, x, z, life) {
+  if (!itemDef(id)) return null;
+  var g = itemDropGroup(id);
+  g.position.set(x, 0.8, z);
+  scene.add(g);
+  var d = { mesh: g, kind: 'item', itemId: id, life: life == null ? 120 : life, item: true };
+  drops.push(d);
+  return d;
+}
+function bagDrop(slot) {
+  var s = state.bag[slot]; if (!s) return;
+  var id = s.id;
+  bagRemove(slot, 1);
+  var fx = -Math.sin(yaw), fz = -Math.cos(yaw);   // 2.2u in front so it isn't re-grabbed instantly
+  var d = spawnItemDrop(id, player.x + fx * 2.2, player.z + fz * 2.2, 120);
+  if (d) d.bagFull = false;
+  popup('Dropped ' + (itemDef(id) ? itemDef(id).name : id));
+  sfx('whoosh');
+}
+// weighted random common item for NPC-knockout / litter drops (junk & food common,
+// valuables rare). Returns an item id or null if the bank is missing.
+var NPC_DROP_TABLE = null;
+function npcDropTable() {
+  if (NPC_DROP_TABLE) return NPC_DROP_TABLE;
+  NPC_DROP_TABLE = [];
+  if (ITEM_BANK_OK) for (var i = 0; i < ITEM_DEFS.length; i++) {
+    var d = ITEM_DEFS[i], w = 0;
+    if (d.cat === 'junk') w = 6; else if (d.cat === 'food' || d.cat === 'drink') w = 4;
+    else if (d.cat === 'quirky') w = 2; else if (d.cat === 'med' || d.cat === 'tool') w = 1;
+    else if (d.cat === 'valuable') w = (d.rarity >= 5 ? 0 : 1);   // gold/phones rare; no diamond ring off a pedestrian
+    for (var j = 0; j < w; j++) NPC_DROP_TABLE.push(d.id);
+  }
+  return NPC_DROP_TABLE;
+}
+function randomCommonItem() { var t = npcDropTable(); return t.length ? t[(Math.random() * t.length) | 0] : null; }
 
 // ---------------- UFO easter egg (local-only, like drops/interiors) ----------
 // Someone hits $100k -> a saucer drifts low over town. Shoot it down, wait by
@@ -10004,7 +10144,38 @@ function refreshShop() {
     else { var btn = document.createElement('button'); btn.textContent = 'BUY'; btn.disabled = state.money < w.price; btn.onclick = function () { if (state.dead) return; if (state.money < w.price) { playVoiceAny(['dealer_nocash_1', 'dealer_nocash_2'], 0.5, 'dealerNo', 5, { ref: dealer }); sfx('deny'); return; } state.money -= w.price; state.owned[k] = true; shopBought = true; playVoiceAny(['dealer_buy_1', 'dealer_buy_2'], 0.5, 'dealerBuy', 4, { ref: dealer }); sfx('buy'); popup(w.name + ' purchased!'); refreshShop(); }; row.appendChild(btn); }
     rows.appendChild(row);
   });
+  refreshSellRows(rows);
   document.getElementById('shopCash').textContent = '$' + state.money;
+}
+// dealer buys junk & valuables out of your bag for the def's value
+function sellableSlots() {
+  var out = [];
+  for (var i = 0; i < state.bag.length; i++) {
+    var s = state.bag[i]; if (!s) continue;
+    var def = itemDef(s.id); if (!def) continue;
+    if (def.cat === 'junk' || def.cat === 'valuable' || def.use === 'sell') out.push(i);
+  }
+  return out;
+}
+function refreshSellRows(rows) {
+  var slots = sellableSlots(); if (!slots.length) return;
+  // aggregate by id so a split stack shows one row
+  var agg = {}, order = [];
+  for (var k = 0; k < slots.length; k++) { var s = state.bag[slots[k]]; if (!agg[s.id]) { agg[s.id] = 0; order.push(s.id); } agg[s.id] += s.n; }
+  var hdr = document.createElement('div'); hdr.className = 'row'; hdr.innerHTML = '<b style="color:#ffd98a; letter-spacing:2px;">— SELL JUNK &amp; VALUABLES —</b>'; rows.appendChild(hdr);
+  order.forEach(function (id) {
+    var def = itemDef(id), n = agg[id], total = def.value * n;
+    var row = document.createElement('div'); row.className = 'row';
+    var left = document.createElement('div'); left.innerHTML = itemIconHtml(id) + '<b>' + def.name + '</b> &times;' + n + ' — <span class="cash">$' + def.value + '</span> ea<small>sells for $' + total + '</small>'; row.appendChild(left);
+    var btn = document.createElement('button'); btn.textContent = 'SELL';
+    btn.onclick = function () {
+      var got = 0, rem = n;
+      for (var i = 0; i < state.bag.length && rem > 0; i++) { var s = state.bag[i]; if (s && s.id === id) { var take = s.n; got += bagRemove(i, take); rem -= take; } }
+      state.money += got * def.value; sfx('cash'); popup('+$' + (got * def.value));
+      refreshShop();
+    };
+    row.appendChild(btn); rows.appendChild(row);
+  });
 }
 function refreshInv() {
   var rows = document.getElementById('invRows'); rows.innerHTML = '';
@@ -10031,6 +10202,35 @@ function refreshInv() {
   sodaInvRow(rows);   // streetprops vending sodas
   var any = GUN_LIST.some(function (k) { return state.owned[k]; });
   if (!any) { var hint = document.createElement('div'); hint.className = 'row'; hint.innerHTML = '<small>No guns yet — earn cash and visit the dealer ($ on the minimap).</small>'; rows.appendChild(hint); }
+  refreshInvGrid();
+}
+// the 6x4 stackable item grid (below the weapons rows in the TAB panel)
+function refreshInvGrid() {
+  var grid = document.getElementById('invGrid'); if (!grid) return;
+  grid.innerHTML = '';
+  for (var i = 0; i < state.bag.length; i++) {
+    (function (i) {
+      var s = state.bag[i];
+      var cell = document.createElement('div');
+      cell.className = 'invCell' + (s ? '' : ' empty');
+      if (s) {
+        var def = itemDef(s.id);
+        var img = document.createElement('img');
+        img.src = (ITEM_ICONS && ITEM_ICONS[s.id]) || '';
+        var tip = def ? def.name : s.id;
+        if (def && def.hp) tip += '  (+' + def.hp + ' hp)';
+        else if (def && def.use === 'sell') tip += '  ($' + def.value + ' at dealer)';
+        else if (def && def.use === 'tool') tip += '  (tool)';
+        img.alt = tip; img.title = tip;
+        cell.appendChild(img);
+        if (s.n > 1) { var c = document.createElement('span'); c.className = 'cnt'; c.textContent = s.n; cell.appendChild(c); }
+        cell.onclick = function () { bagSel = i; bagUse(i); };
+        cell.oncontextmenu = function (e) { e.preventDefault(); bagSel = i; bagDrop(i); return false; };
+        cell.onmouseover = function () { bagSel = i; };
+      }
+      grid.appendChild(cell);
+    })(i);
+  }
 }
 function openMenu(which) { setZoom(false); state.menu = which; document.exitPointerLock && document.exitPointerLock(); if (which === 'shop') { shopBought = false; if (!dealerMet) { dealerMet = true; playVoice('dealer_hello_first', 0.5, 1, { ref: dealer }); } else playVoiceAny(['dealer_hello_1', 'dealer_hello_2'], 0.5, 'dealerHi', 18, { ref: dealer }); refreshShop(); document.getElementById('shopPanel').classList.remove('hidden'); } if (which === 'inv') { refreshInv(); document.getElementById('invPanel').classList.remove('hidden'); } if (which === 'clerk') { refreshClerk(); document.getElementById('clerkPanel').classList.remove('hidden'); } }
 function closeMenus(relock) { if (state.menu === 'shop' && !shopBought) playVoice('dealer_bye', 0.45, 40, { ref: dealer }); state.menu = null; document.getElementById('shopPanel').classList.add('hidden'); document.getElementById('invPanel').classList.add('hidden'); document.getElementById('clerkPanel').classList.add('hidden'); if (relock !== false && state.running) lockPointer(); }
@@ -11267,6 +11467,7 @@ document.addEventListener('keydown', function (e) {
   keys[e.code] = true;
   if ((e.code === 'Enter' || e.code === 'NumpadEnter') && state.running && !state.menu && netActive()) { e.preventDefault(); openChat(); return; }
   if (e.code === 'Tab') { e.preventDefault(); if (!state.running || state.dead) return; if (state.menu === 'inv') closeMenus(); else { closeMenus(false); openMenu('inv'); } }
+  if (e.code === 'KeyQ' && state.menu === 'inv') { e.preventDefault(); if (bagSel >= 0 && state.bag[bagSel]) bagDrop(bagSel); return; }
   if (e.code === 'KeyE') {
     // dead-guard matters: E during the 2.6s death window could enterStore
     // (respawn then never cleared `inside` → wrong floor/colliders forever),
@@ -11544,6 +11745,9 @@ window.__wc = {
   renderer: renderer, scene: scene, camera: camera,
   cars: cars, boomAt: boomAt, killNpcRagdoll: killNpcRagdoll,
   drops: drops, rockets: rockets, setZoom: setZoom, hurtPlayer: hurtPlayer,
+  bag: function () { return state.bag; }, bagAdd: bagAdd, bagRemove: bagRemove, bagUse: bagUse,
+  bagDrop: bagDrop, bagCount: bagCount, spawnItemDrop: spawnItemDrop, itemDef: itemDef,
+  refreshInvGrid: refreshInvGrid, randomCommonItem: randomCommonItem,
   enterCar: enterCar, exitCar: exitCar, nearestStealableCar: nearestStealableCar,
   isDriving: function () { return !!driving; }, drivingCar: function () { return driving; },
   pressKey: function (code, down) { keys[code] = down; },

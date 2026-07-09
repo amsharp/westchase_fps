@@ -144,6 +144,25 @@ its price. In multiplayer the pavement is shared: anyone can scoop up your
 dropped arsenal before you get back, so dying near your killer is a
 donation.
 
+## Items & your bag
+
+Beyond guns, the world is full of **loose items** — food, drinks, medkits,
+junk, jewelry, tools and oddball novelties. Open your bag with **Tab** and
+you'll find a **6×4 grid** below your weapons. Items **stack** (but only
+reasonably: junk piles deep, food and drinks eight to a slot, medkits four,
+valuables just two, tools one).
+
+- **Click an item** to use it. Food, drinks and medkits restore health;
+  novelties do their own quirky thing (shake the Magic 8-Ball, scratch a
+  lottery ticket, set off a firework).
+- **Right-click** an item — or hover it and press **Q** — to **drop one** on
+  the ground. Walk back over it to pick it up again (it despawns after two
+  minutes).
+- **Junk and valuables sell** at the gun dealer — his shop grows a
+  *Sell junk & valuables* section listing everything he'll buy.
+
+Your bag is yours alone — in multiplayer, items aren't shared.
+
 ## The gas station
 
 Press **E** at the RaceTrac door to walk inside (a real interior with
@@ -312,7 +331,8 @@ bed runs under everything.
 - **Left click** — punch / shoot
 - **Scroll wheel** — quick-swap to your next / previous weapon
 - **E** — talk to the dealer (when close)
-- **Tab** — inventory: equip or unequip weapons (you must unequip to punch)
+- **Tab** — inventory: equip/unequip weapons + your 6×4 item grid (click an
+  item to use it, right-click or **Q** to drop one)
 - **Enter** — open text chat (multiplayer), **Esc** to cancel
 - **Hold V** — push-to-talk voice chat (multiplayer)
 - **F8** — report a bug (grabs a screenshot + your note, sent for triage)
