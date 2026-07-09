@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.54.0';
+var GAME_VERSION = 'v1.55.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -830,15 +830,24 @@ function gasStation(x, z) {
   signPlane(x - 17, 6.4, z + 5, 0, 3.2, 2, ['GAS', '$3.29'], '#12508f', '#ffd94a');
 }
 
+// self-storage: rows of roll-up doors under low gray standing-seam metal gable
+// roofs, with a glass front-office bay + sign.
 function storage(x, z) {
   for (var r = 0; r < 3; r++) {
     var rz = z - 14 + r * 14;
     var b = box(46, 4, 8, storageDoorM, x, 2.1, rz);
     scene.add(b); solidMeshes.push(b); addCollider(x, rz, 46, 8);
-    scene.add(box(47, 1.6, 9, lamb({ color: 0x8a8478 }), x, 4.6, rz));
+    var peak = 1.0, sl = Math.sqrt(16 + peak * peak), ang = Math.atan2(peak, 4);
+    var p1 = box(47, 0.2, sl, grayHipM, x, 4.2 + peak / 2, rz - 2); p1.rotation.x = ang; scene.add(p1);
+    var p2 = box(47, 0.2, sl, grayHipM, x, 4.2 + peak / 2, rz + 2); p2.rotation.x = -ang; scene.add(p2);
+    scene.add(box(47, 0.25, 0.3, grayHipM, x, 4.2 + peak, rz));
     if (r === 0) mapBuildings.push({ x: x, z: z, w: 46, d: 40, h: 4.5, c: '#c9662a', pad: true });
   }
-  signPlane(x, 3, z - 18.4, 0, 12, 1.6, ['SELF STORAGE'], '#243b5a', '#ffe9a0');
+  // glass front-office bay on the road-facing end of the first row
+  vBay(x - 17, 0.2, z - 18.1, -1, 6.5, 3.4, venCapM, bayGlassM);
+  vPier(x - 21.5, z - 18.1, -1, 0.9, 4, 0.4, brickBaseM, null);
+  vPier(x - 12.5, z - 18.1, -1, 0.9, 4, 0.4, brickBaseM, null);
+  signPlane(x, 5.4, z - 18.4, 0, 12, 1.6, ['SELF STORAGE'], '#243b5a', '#ffe9a0');
 }
 
 // Publix anchor (geo_ref sv_aldi_front): beige stucco, terracotta pilasters w/
@@ -871,9 +880,28 @@ function supermarket(x, z) {
   for (i = -1; i <= 1; i++) scene.add(cyl(0.2, 0.2, 7, 6, lamb({ color: 0x555 }), x + i * 26, 3.5, z + 44));
 }
 
+// Farnell Middle (geo_ref sv_farnell): long 2-story tan panel building, ribbon
+// windows on two floors, brown entry tower + canopy, rooftop AC, track/field.
 function school(x, z) {
-  bldg(x, z, 82, 32, 8, '#e4d8c0', { flat: true, door: false, mmColor: '#c8a24a' });
-  signPlane(x, 6.6, z + 16.1, 0, 26, 2.4, ['FARNELL', 'MIDDLE SCHOOL'], '#2c3e70', '#ffe9a0');
+  var w = 82, d = 32, h = 8, fz = z + d / 2;
+  var wallM = stuccoMat('#e4d8c0'), pierM = stuccoMat('#d8c9a8');
+  var b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [wallM, wallM, flatRoofM, flatRoofM, wallM, wallM]);
+  b.position.set(x, h / 2 + 0.1, z); scene.add(b); solidMeshes.push(b); addCollider(x, z, w, d);
+  mapBuildings.push({ x: x, z: z, w: w, d: d, h: h, c: '#c8a24a', pad: true });
+  vParapet(x, z, w, d, h + 0.1, venCapM);
+  var bays = 10, seg = w / bays;
+  for (var i = 0; i <= bays; i++) vPier(x - w / 2 + i * seg, fz, 1, 0.9, h - 0.2, 0.3, pierM, null);
+  for (i = 0; i < bays; i++) {
+    var bx = x - w / 2 + seg * (i + 0.5);
+    if (i === 4 || i === 5) continue;   // center entry
+    vWin(bx, 5.7, fz, 1, seg - 1.5, 1.7, venCapM, bayGlassM);
+    vWin(bx, 2.9, fz, 1, seg - 1.5, 1.7, venCapM, bayGlassM);
+  }
+  scene.add(box(2 * seg + 1, h + 2.4, 0.9, stuccoMat('#a9855a'), x, (h + 2.4) / 2 + 0.1, fz + 0.25));
+  vBay(x, 0.2, fz, 1, 2 * seg - 3, 4.8, venCapM, bayGlassM);
+  vCanopy(x, fz, 1, 2 * seg, 3.0, 4.4, venCapM, stuccoMat('#a9855a'));
+  vAC(x - 20, z - 5, h + 0.1, venAcM); vAC(x + 20, z - 5, h + 0.1, venAcM);
+  signPlane(x, 7.2, fz + 0.95, 0, 24, 2.2, ['FARNELL', 'MIDDLE SCHOOL'], '#2c3e70', '#ffe9a0');
   // running track + field to the north
   var track = new THREE.Mesh(new THREE.CircleGeometry(24, 28), lamb({ color: 0xb05a3a }));
   track.rotation.x = -Math.PI / 2; track.scale.set(1.4, 1, 1); track.position.set(x, 0.14, z - 34); scene.add(track);

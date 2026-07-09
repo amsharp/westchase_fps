@@ -319,7 +319,10 @@ gets to it first, not to whoever made it show up. Probably nothing.
   procedural materials: tan-stucco Publix + plaza strips, red-brick banks
   (Regions' cream arched parapet, BoA's gray standing-seam hip roof +
   flagpole), sage-clapboard Starbucks, gray-block Dunkin, tan Dollar
-  Tree/sushi — instead of the old flat painted walls. The whole layout — roads, buildings, and parking/pavement —
+  Tree/sushi, the offices/pharmacy/yoga storefronts, a two-floor
+  ribbon-windowed Farnell Middle with a brown entry tower, and self-storage
+  rows under gray standing-seam metal gable roofs — instead of the old flat
+  painted walls. The whole layout — roads, buildings, and parking/pavement —
   is authored in a built-in map editor (`editor.html`) and imported into
   the game by `tools/mapimport.js` (source of truth: `tools/westchase_map.json`).
 - The map is finite — a wall rings the city.
