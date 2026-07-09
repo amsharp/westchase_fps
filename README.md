@@ -20,17 +20,26 @@ Just double-click `index.html` — it runs in any modern browser, no install nee
 
 The main menu offers **Singleplayer** (fully offline) or **Host Multiplayer**.
 Type a **display name** at the top of the menu first — it floats over your
-head in-game with your **health bar** under it, so everyone can see who you
-are and how hurt you are (the name is remembered for next time). Hosting
-creates a lobby and gives you an **invite link / code** to send to friends
-(needs internet — everyone connects through a **dedicated relay server**
-hosted on Railway; no peer-to-peer / WebRTC / NAT hassles, so same-wifi
-joins just work. Host = create a room, Join = paste the room code).
-Friends open the game and paste the link or code into the JOIN box. You'll
-see each other in-world (on foot or driving, with name tags and cyan
-minimap dots) and can shoot and punch each other — or steal each other's
-wheels: press **E** on a car a friend is driving to **hijack it** and dump
-them on the curb. A freshly hijacked car can't be hijacked again for 15
+head in-game as a **bright-green name + health bar**, so everyone can see who
+you are and how hurt you are (the name is remembered for next time). Real
+players always read green; nearby **NPCs and cops get their own tags in a
+muted colour** (grey for civilians, steel-blue for police) so you can tell
+humans from AI at a glance. Hosting creates a lobby and gives you an
+**invite link / code** to send to friends (needs internet — everyone
+connects through a **dedicated relay server** hosted on Railway; no
+peer-to-peer / WebRTC / NAT hassles, so same-wifi joins just work. Host =
+create a room, Join = paste the room code). Friends open the game and paste
+the link or code into the JOIN box. You'll see each other in-world (on foot
+or driving, with name tags and green minimap dots) and can shoot and punch
+each other — **downing another player pays a bounty and heats you up** — or
+steal each other's wheels: press **E** on a car a friend is driving to
+**hijack it** and dump them on the curb.
+
+**Talk to your crew.** Press **ENTER** to open text chat (a fading on-screen
+log shows who said what, with join/leave notices); press **ESC** to cancel.
+**Hold V to talk** over voice — push-to-talk mic streamed through the relay,
+with a "talking" pop on the speaker's tag. (Voice needs the game served over
+https/localhost, since browsers block microphone access on `file://`.) A freshly hijacked car can't be hijacked again for 15
 seconds, so make your getaway count. The **host runs the world**:
 traffic, pedestrians, street cops, dropped cash, stolen/parked/exploding
 cars, and the time of day and weather are all simulated on the host and
@@ -258,6 +267,8 @@ bed runs under everything.
 - **Scroll wheel** — quick-swap to your next / previous weapon
 - **E** — talk to the dealer (when close)
 - **Tab** — inventory: equip or unequip weapons (you must unequip to punch)
+- **Enter** — open text chat (multiplayer), **Esc** to cancel
+- **Hold V** — push-to-talk voice chat (multiplayer)
 - **Esc** — release mouse / close menus
 
 ## Rumors
