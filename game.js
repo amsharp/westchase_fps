@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.56.2';
+var GAME_VERSION = 'v1.56.3';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -5003,11 +5003,11 @@ function refreshClerk() {
     var b = document.createElement('button'); b.textContent = label; b.disabled = !!disabled; b.onclick = fn;
     row.appendChild(b); rows.appendChild(row);
   }
-  addBtn('Buy a snack — $20  (+50 hp when eaten)', function () {
+  addBtn('Buy a hot burger — $20  (+30 hp; eat it from your TAB bag)', function () {
     if (state.money < 20) { sfx('deny'); popup2("You can't afford it"); return; }
-    state.money -= 20; state.snacks++; playVoice('clerk_snack', 0.5, 10, { ref: clerk });
-    sfx('buy'); popup('+1 SNACK (equip it in TAB)');
-    if (state.equipped === 'snack') setEquipped('snack');   // refresh the held-count HUD
+    if (bagAdd('burger', 1) > 0) { sfx('deny'); popup2('Your bag is full'); return; }   // nothing fit — don't charge
+    state.money -= 20; playVoice('clerk_snack', 0.5, 10, { ref: clerk });
+    sfx('buy'); itemToast('burger'); popup('+1 Cheeseburger');
     refreshClerk();
   });
   if (!robbedVisit && !copsCalledVisit) addBtn('Rob the register', function () {
@@ -5937,7 +5937,8 @@ function spawnSodaDrop(x, z) {
   var g = sodaDropMesh();
   g.position.set(x, 0.7, z);
   scene.add(g);
-  drops.push({ mesh: g, kind: 'soda', life: 180 });
+  // route vended sodas through the grid bag (item pickup path respects bag-full)
+  drops.push({ mesh: g, kind: 'item', itemId: 'soda', life: 180, item: true });
 }
 function consumeSoda() {
   if (state.sodas <= 0) return;
@@ -7604,6 +7605,7 @@ function killNpcRagdoll(n, dx, dz, power) {
   for (var i = 0; i < 5; i++) puff(new THREE.Vector3(n.x + (Math.random() - 0.5), 0.8 + Math.random() * 1.2, n.z + (Math.random() - 0.5)), 0xa01212);
   bloodDecal(n.x, n.z);
   spawnCash(n.x, n.z, 5 + ((Math.random() * 18) | 0));
+  maybeNpcItemDrop(n.x, n.z);
 }
 
 var booms = [];
@@ -7823,11 +7825,8 @@ function dropWeapon(kind, x, z) {
   drops.push({ mesh: g, kind: kind, life: kind === 'raygun' ? 9999 : 120 });
 }
 function applyDropPickup(kind) {
-  if (kind === 'soda') {   // streetprops vending soda — stacks like snacks
-    state.sodas++;
-    popup('+1 SODA (equip it in TAB)');
-    sfx('buy');
-    if (state.equipped === 'soda') setEquipped('soda');   // refresh held-count HUD
+  if (kind === 'soda') {   // legacy soda-kind drop — route to the grid bag
+    if (bagAdd('soda', 1) === 0) { itemToast('soda'); sfx('buy'); }
     return;
   }
   if (!WEAPONS[kind]) return;
@@ -8004,6 +8003,35 @@ function npcDropTable() {
   return NPC_DROP_TABLE;
 }
 function randomCommonItem() { var t = npcDropTable(); return t.length ? t[(Math.random() * t.length) | 0] : null; }
+// NPC knockout item drop (LOCAL-ONLY, alongside cash — not net-synced).
+// Only the peer whose sim ran the kill spawns it; the headless world-bot skips it.
+function maybeNpcItemDrop(x, z) {
+  if (typeof WC_BOT !== 'undefined' && WC_BOT) return;
+  if (Math.random() < 0.28) {
+    var id = randomCommonItem();
+    if (id) spawnItemDrop(id, x + (Math.random() - 0.5) * 1.4, z + (Math.random() - 0.5) * 1.4, 120);
+  }
+}
+// scatter a handful of scavengeable junk (+ the odd valuable) around the
+// dumpsters at startup; persistent (long life) until collected. Local-only.
+var littered = false;
+function seedLitter() {
+  if (littered || !ITEM_BANK_OK) return;
+  if (typeof WC_BOT !== 'undefined' && WC_BOT) return;
+  littered = true;
+  var junk = ['tincan', 'glassbottle', 'newspaper', 'boot', 'bananapeel', 'cardboard'];
+  var vals = ['wallet', 'smartphone', 'cashwad'];
+  var spots = [];
+  if (typeof SP_PLACES !== 'undefined') for (var i = 0; i < SP_PLACES.length; i++) if (SP_PLACES[i][0] === 'dumpster') spots.push({ x: SP_PLACES[i][1], z: SP_PLACES[i][2] });
+  spots.push({ x: -110, z: 66 }, { x: -178, z: 68 });   // a couple of alley clusters behind the malls
+  for (var s = 0; s < spots.length; s++) {
+    var cnt = 1 + ((Math.random() * 2) | 0);   // 1-2 pieces per dumpster
+    for (var k = 0; k < cnt; k++) {
+      var id = (Math.random() < 0.12) ? vals[(Math.random() * vals.length) | 0] : junk[(Math.random() * junk.length) | 0];
+      spawnItemDrop(id, spots[s].x + (Math.random() - 0.5) * 3.2, spots[s].z + (Math.random() - 0.5) * 3.2, 9999);
+    }
+  }
+}
 
 // ---------------- UFO easter egg (local-only, like drops/interiors) ----------
 // Someone hits $100k -> a saucer drifts low over town. Shoot it down, wait by
@@ -8323,6 +8351,7 @@ function damageNPC(n, dmg, kx, kz, silent) {
     n.state = 'down'; n.downT = 8; if (n.mesh.userData.shadow) n.mesh.userData.shadow.visible = false;
     stopNpcVoice(n.vname);
     spawnCash(n.x, n.z, 5 + ((Math.random() * 18) | 0)); sfx('ko', { x: n.x, z: n.z, range: 50 }); sfx('grunt', { x: n.x, z: n.z, range: 50 });
+    maybeNpcItemDrop(n.x, n.z);
     if (!silent) {
       popup('KO!');
       creditCivKill();
@@ -10568,6 +10597,7 @@ function startGame() {
   retintPSXArms();
   startScreen.classList.add('hidden');
   state.running = true;
+  seedLitter();   // scatter scavengeable junk around the dumpsters
   lockPointer();
   toast('Welcome to <b>Westchase</b>. Punch people for cash, rob the gas station (the <b style="color:#e05a3a">G</b> on your minimap), and buy guns from the dealer (the gold <b style="color:#ffd94a">$</b>). <b>TAB</b> = inventory.', 11000);
 }

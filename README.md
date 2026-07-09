@@ -177,7 +177,12 @@ valuables just two, tools one).
 - **Junk and valuables sell** at the gun dealer — his shop grows a
   *Sell junk & valuables* section listing everything he'll buy.
 
-Your bag is yours alone — in multiplayer, items aren't shared.
+Where do items come from? **Snacks and sodas** you buy now go straight into
+your bag (the gas-station burger heals, the vending sodas quench). **Knocked-out
+pedestrians** sometimes drop an item along with their cash, and there's
+**litter to scavenge around the dumpsters** out back of the strip malls and
+Publix — mostly junk, but keep an eye out for a dropped wallet or phone. Your
+bag is yours alone — in multiplayer, items you knock loose aren't shared yet.
 
 ## The gas station
 
@@ -185,8 +190,8 @@ Press **E** at the RaceTrac door to walk inside (a real interior with
 snack aisles, drink fridges, a coffee maker, and a clerk at the register).
 Talk to the clerk with **E**:
 
-- **Buy a snack — $20.** Equip it from your TAB inventory and left-click
-  to eat it for +50 hp. One bite, one bag.
+- **Buy a hot burger — $20.** It goes into your TAB bag — click it there to
+  eat it for +30 hp.
 - **Rob the register** — only works with a gun in your hands ($100–$300,
   instant 2 stars). Try it bare-knuckled and the clerk hits the panic
   button: police storm the store to kill you.
@@ -288,7 +293,7 @@ signs, cones, cans, and carts snap and scatter if you drive through them.
 Some of it does more than sit there:
 
 - **Vending machines** ($2, press E) drop a soda out the front — pick it
-  up, equip it from TAB, and drink it for +25 hp.
+  up and it lands in your TAB bag; click it there to drink it.
 - **Payphones** (E) actually dial — usually a busy signal, sometimes a
   voice on the line.
 - **ATMs** are out of service… to your E key. A few rounds will open one
