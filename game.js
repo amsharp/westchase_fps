@@ -2763,6 +2763,7 @@ function houseOnRoad(x, z, w, d, rot, sc) {
   return hit >= 2;
 }
 var houseStats = { instances: 0, meshes: 0, tris: 0, colliders: 0, skipped: 0 };
+var houseMeshesRef = [];   // merged house meshes (perf A/B toggle hook)
 (function buildSurveyHouses() {
   if (!STAMP_SURVEY_HOUSES || typeof HOUSE_CLUSTERS === 'undefined') return;   // editor map has no survey-house fill
   var chunks = {};   // 'ci|vi' -> {pos:[],norm:[],uv:[]}
