@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.32.0';
+var GAME_VERSION = 'v1.33.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -8112,6 +8112,11 @@ function handleNet(m, conn) {
       envT = m.envT; raining = m.raining; rainLeft = m.rainLeft;
       if (m.gasCD) gasClosedUntil = Math.max(gasClosedUntil, T + m.gasCD);   // late joiners inherit the lockout
     }
+  } else if (m.t === 'voice') {
+    var vid = m.id || (conn && conn.peer) || 'x';
+    if (m.d) playVoiceFrame(vid, m.r || 16000, m.d);
+    var vr = net.remotes[vid]; if (vr) vr.talkT = T;   // drive the "talking" tag pop
+    if (net.mode === 'host') netRelay(m, conn);
   } else if (m.t === 'chat') {
     var cn = ('' + (m.name || 'PLAYER')).replace(/[^\x20-\x7E]/g, '').slice(0, 12) || 'PLAYER';
     var ct = ('' + (m.text || '')).replace(/[\x00-\x1F]/g, '').slice(0, 140);
@@ -8448,6 +8453,10 @@ function updateNet(dt) {
     var td = Math.sqrt(tdx * tdx + tdz * tdz);
     r.tag.visible = td < 145;
     r.tag.material.opacity = td > 110 ? Math.max(0, (145 - td) / 35) : 1;
+    // voice: pop + green-tint the tag while this peer is transmitting
+    var talking = r.talkT !== undefined && T - r.talkT < 0.35;
+    r.tag.scale.set(talking ? 3.35 : 2.9, talking ? 0.92 : 0.8, 1);
+    r.tag.material.color.setHex(talking ? 0x8effa0 : 0xffffff);
   }
 }
 
@@ -8745,8 +8754,71 @@ function chatNotice(text) { addChatMsg(null, text, 'sys'); }
   });
   inp.addEventListener('blur', function () { if (chatOpen) closeChat(false); });
 })();
+// ---------------- multiplayer push-to-talk voice chat ----------------
+// mic PCM is downsampled to 16 kHz Int16, base64'd, and sent as a normal relay
+// message (client->host->fanout, same path as chat) — no server changes. Each
+// speaker's frames are scheduled back-to-back per-peer for gap-free playback.
+var voice = { on: false, stream: null, src: null, proc: null, sink: null, rate: 16000, warned: false };
+var voicePlay = {};   // speakerId -> { cursor }
+function int16ToB64(i16) {
+  var u8 = new Uint8Array(i16.buffer, i16.byteOffset, i16.byteLength), s = '', CH = 0x8000;
+  for (var i = 0; i < u8.length; i += CH) s += String.fromCharCode.apply(null, u8.subarray(i, i + CH));
+  return btoa(s);
+}
+function voiceStart() {
+  if (voice.on || !netActive()) return;
+  if (!(window.isSecureContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) {
+    if (!voice.warned) { voice.warned = true; popup2('Voice needs the game served over https (not file://)'); }
+    return;
+  }
+  initAudio(); if (ac && ac.state === 'suspended') ac.resume();
+  voice.on = true;   // set immediately so a fast tap doesn't double-start
+  navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }).then(function (stream) {
+    if (!voice.on) { stream.getTracks().forEach(function (t) { t.stop(); }); return; }   // released before grant
+    voice.stream = stream;
+    voice.src = ac.createMediaStreamSource(stream);
+    voice.proc = ac.createScriptProcessor(2048, 1, 1);
+    voice.sink = ac.createGain(); voice.sink.gain.value = 0;   // silent sink keeps onaudioprocess firing without echoing your own mic
+    voice.src.connect(voice.proc); voice.proc.connect(voice.sink); voice.sink.connect(ac.destination);
+    voice.proc.onaudioprocess = function (e) {
+      if (!voice.on) return;
+      var input = e.inputBuffer.getChannelData(0), ratio = ac.sampleRate / voice.rate;
+      var outLen = Math.floor(input.length / ratio), pcm = new Int16Array(outLen);
+      for (var i = 0; i < outLen; i++) { var s = input[(i * ratio) | 0]; pcm[i] = s < -1 ? -32768 : (s > 1 ? 32767 : (s * 32767) | 0); }
+      var msg = { t: 'voice', id: net.id, r: voice.rate, d: int16ToB64(pcm) };
+      if (isHost()) netBroadcast(msg); else netToHost(msg);
+    };
+    document.getElementById('voiceInd').classList.remove('hidden');
+  }).catch(function () { voice.on = false; if (!voice.warned) { voice.warned = true; popup2('Mic permission denied'); } });
+}
+function voiceStop() {
+  if (!voice.on) return;
+  voice.on = false;
+  if (voice.proc) { try { voice.proc.disconnect(); } catch (e) { } voice.proc.onaudioprocess = null; }
+  if (voice.src) { try { voice.src.disconnect(); } catch (e) { } }
+  if (voice.sink) { try { voice.sink.disconnect(); } catch (e) { } }
+  if (voice.stream) { voice.stream.getTracks().forEach(function (t) { t.stop(); }); }
+  voice.stream = voice.src = voice.proc = voice.sink = null;
+  document.getElementById('voiceInd').classList.add('hidden');
+}
+function playVoiceFrame(id, rate, b64) {
+  if (!ac) return;
+  var raw = atob(b64), u8 = new Uint8Array(raw.length);
+  for (var i = 0; i < raw.length; i++) u8[i] = raw.charCodeAt(i);
+  var i16 = new Int16Array(u8.buffer, 0, u8.length >> 1), f = new Float32Array(i16.length);
+  for (i = 0; i < i16.length; i++) f[i] = i16[i] / 32768;
+  if (!f.length) return;
+  var buf = ac.createBuffer(1, f.length, rate || 16000);
+  if (buf.copyToChannel) buf.copyToChannel(f, 0); else buf.getChannelData(0).set(f);
+  var srcN = ac.createBufferSource(); srcN.buffer = buf; srcN.connect(ac.destination);
+  var st = voicePlay[id] || (voicePlay[id] = { cursor: 0 });
+  var now = ac.currentTime, start = Math.max(now + 0.03, st.cursor);
+  if (start - now > 0.6) start = now + 0.03;   // fell way behind (tab stutter) — resync
+  srcN.start(start); st.cursor = start + buf.duration;
+}
 document.addEventListener('keydown', function (e) {
   if (chatOpen) return;   // the chat input owns the keyboard while open
+  if (e.code === 'KeyV' && !e.repeat && state.running && !state.menu && netActive()) { voiceStart(); return; }
   keys[e.code] = true;
   if ((e.code === 'Enter' || e.code === 'NumpadEnter') && state.running && !state.menu && netActive()) { e.preventDefault(); openChat(); return; }
   if (e.code === 'Tab') { e.preventDefault(); if (!state.running) return; if (state.menu === 'inv') closeMenus(); else { closeMenus(false); openMenu('inv'); } }
@@ -8776,7 +8848,10 @@ document.addEventListener('keydown', function (e) {
   if (e.code === 'Escape' && state.menu) closeMenus(false);
   if (e.code === 'Escape' && !state.running && creatorOpen) closeCreator();
 });
-document.addEventListener('keyup', function (e) { keys[e.code] = false; });
+document.addEventListener('keyup', function (e) { keys[e.code] = false; if (e.code === 'KeyV') voiceStop(); });
+// safety: never leave the mic hot if focus/lock is lost mid-transmit
+window.addEventListener('blur', function () { voiceStop(); });
+document.addEventListener('pointerlockchange', function () { if (document.pointerLockElement !== canvas) voiceStop(); });
 
 // ---------------- player update ----------------
 function updatePlayer(dt) {
@@ -9024,6 +9099,7 @@ window.__wc = {
   buildIceConfig: buildIceConfig, hmacSha1B64: hmacSha1B64,
   buildCharacter: buildCharacter, randomCharConfig: randomCharConfig, buildMeshySkinned: buildMeshySkinned,
   sendChat: sendChat, attachHeldGun: attachHeldGun, addChatMsg: addChatMsg, updateNpcTags: updateNpcTags, npcTagPool: function () { return npcTagPool; },
+  voiceStart: voiceStart, voiceStop: voiceStop, voiceState: function () { return { on: voice.on, play: voicePlay }; },
   encodeCC: encodeCC, decodeCC: decodeCC, seededRng: seededRng,
   openCreator: openCreator, closeCreator: closeCreator,
   creatorSpin: function (v) { if (cprev) cprev.spin = v; },
