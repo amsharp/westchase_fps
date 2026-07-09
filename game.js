@@ -8954,7 +8954,7 @@ function submitBug() {
   if (!base) { st.className = 'err'; st.textContent = 'No server configured.'; return; }
   document.getElementById('bugSend').disabled = true;
   st.className = ''; st.textContent = 'Sending…';
-  var meta = { ver: GAME_VERSION, mode: net.mode, room: net.room || null, pos: [Math.round(player.x), Math.round(player.z)], inside: !!inside, driving: !!driving, wanted: state.wanted, ua: navigator.userAgent.slice(0, 140) };
+  var meta = { ver: GAME_VERSION, name: getPlayerName(), mode: net.mode, room: net.room || null, pos: [Math.round(player.x), Math.round(player.z)], inside: !!inside, driving: !!driving, wanted: state.wanted, ua: navigator.userAgent.slice(0, 140) };
   fetch(base + '/bug', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: text, img: shot, meta: meta }) })
     .then(function (r) { return r.json(); })
     .then(function (j) {
