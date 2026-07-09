@@ -27,5 +27,9 @@
  "COP_GENERIC_F": {
   "ref": "26e845cdffb84aa0a7dedfe46f216905",
   "note": "Calm Female Officer - generic female cop barks (cop_*_f lines)"
+ },
+ "xander": {
+  "ref": "8c67d2ba6cb74355b37583ae65212335",
+  "desc": "XANDER - laid-back young male gamer (I paused my game to be here)"
  }
 }

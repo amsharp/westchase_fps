@@ -130,5 +130,37 @@
  "cop_fire_f_2": {
   "text": "(shouting) Take him down! Take him down!",
   "voice": "26e845cdffb84aa0a7dedfe46f216905"
+ },
+ "xander_1": {
+  "text": "(happy) Oh hey, what's up? I paused my game for this.",
+  "voice": "8c67d2ba6cb74355b37583ae65212335"
+ },
+ "xander_2": {
+  "text": "Man, I could totally be gaming right now.",
+  "voice": "8c67d2ba6cb74355b37583ae65212335"
+ },
+ "xander_3": {
+  "text": "Sup. You tryna co-op or what?",
+  "voice": "8c67d2ba6cb74355b37583ae65212335"
+ },
+ "xander_4": {
+  "text": "(laughing) Bro, that was straight up a headshot.",
+  "voice": "8c67d2ba6cb74355b37583ae65212335"
+ },
+ "xander_5": {
+  "text": "(sighing) Aw, come on, I was so close.",
+  "voice": "8c67d2ba6cb74355b37583ae65212335"
+ },
+ "xander_6": {
+  "text": "GG, man. I gotta get back to my save.",
+  "voice": "8c67d2ba6cb74355b37583ae65212335"
+ },
+ "xander_7": {
+  "text": "(scared) Whoa whoa, this ain't a game anymore!",
+  "voice": "8c67d2ba6cb74355b37583ae65212335"
+ },
+ "xander_8": {
+  "text": "Alright, catch you later. Add me online.",
+  "voice": "8c67d2ba6cb74355b37583ae65212335"
  }
 }
