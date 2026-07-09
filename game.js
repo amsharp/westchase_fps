@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.35.0';
+var GAME_VERSION = 'v1.35.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -8137,7 +8137,7 @@ function handleNet(m, conn) {
   } else if (m.t === 'chat') {
     var cn = ('' + (m.name || 'PLAYER')).replace(/[^\x20-\x7E]/g, '').slice(0, 12) || 'PLAYER';
     var ct = ('' + (m.text || '')).replace(/[\x00-\x1F]/g, '').slice(0, 140);
-    if (ct) { addChatMsg(cn, ct, null); if (net.mode === 'host') netRelay(m, conn); }
+    if (ct) { addChatMsg(cn, ct, m.sys ? 'sys' : null); if (net.mode === 'host') netRelay(m, conn); }
   } else if (m.t === 'bye') {
     removeRemote(m.id);
     netRelay(m, conn);
@@ -8684,6 +8684,10 @@ function netSendTo(toId, m) {
 function creditPvpKill() {
   state.money += 100; popup('PLAYER DOWN! +$100'); sfx('cash');
   if (state.wanted < 3) setWanted(3); else lastCrimeT = T;
+  // kill feed: everyone sees who got the takedown (reuses the chat channel)
+  var km = { t: 'chat', text: getPlayerName() + ' got a takedown', sys: 1 };
+  addChatMsg(null, km.text, 'sys');
+  if (isHost()) netBroadcast(km); else if (isClient()) netToHost(km);
 }
 
 // menu wiring
