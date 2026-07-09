@@ -1,0 +1,440 @@
+{
+ "_comment": "Shop-interior dialogue catalog for the shop-life integration (#65). PER-ROLE packs (not per-character) so one voice covers every staffer of that role. Categories per pack are role-specific; see SHOPDIALOG.md for trigger mapping. Voice assignment lives in _voices (resolved by shopvoicegen.js). Emotion markers must START the sentence: (scared)(angry)(shouting)(laughing)(sighing)(happy)(whispering)(effort)(whining) — psxify.speakable() strips a single leading (marker) before TTS. Draft 2026-07-09, keep lines under ~3s.",
+ "_voices": {
+  "CASHIER": {"ref": "ef92ae1f0735429693345308e5c8b2b6", "desc": "NEW 'Walmart cashier' — friendly middle-aged female, conversational", "new": true},
+  "STOCKER": {"ref": "95ba5325b3e04dc5ab75592f7d4710d5", "desc": "REUSE ped_m — relaxed young man"},
+  "DELI": {"ref": "3e5c125ee7464f3187fa0105e7404284", "desc": "REUSE DENISE — sassy middle-aged female"},
+  "BUTCHER": {"ref": "8699e4b61b4845ef9bdca60004d6e4a7", "desc": "NEW 'Butcher Wally' — deep middle-aged male", "new": true},
+  "BARISTA": {"ref": "ac97b3ce24dc4d5d878e477e907ceff3", "desc": "NEW 'Friendly Coffee Enthusiast' — young female, upbeat", "new": true},
+  "DUNKIN": {"ref": "c65cb6e5de954e3eabf038cf19aaba00", "desc": "REUSE TINA — bright warm Filipina"},
+  "SUSHI": {"ref": "34aef7e5fa444b55b787087112930d7d", "desc": "REUSE RIKO — Japanese man"},
+  "TELLER": {"ref": "02677bd840f249a2a2621ae45675f0e2", "desc": "NEW 'professional woman' — deadpan bank teller", "new": true},
+  "DOLLAR": {"ref": "ff975879e00d4cb891ac5f4e7f9acf15", "desc": "REUSE ped_f — casual young woman"},
+  "MANAGER": {"ref": "ba24f05b17644498adb77243afd11dd9", "desc": "NEW 'Manager' — authoritative middle-aged male", "new": true},
+  "STAFF": {"byCat": {
+    "chatQ": {"refs": ["ef92ae1f0735429693345308e5c8b2b6", "95ba5325b3e04dc5ab75592f7d4710d5", "ff975879e00d4cb891ac5f4e7f9acf15", "3e5c125ee7464f3187fa0105e7404284"], "note": "round-robin staff role voices (opener speaker)"},
+    "chatA": {"refs": ["ba24f05b17644498adb77243afd11dd9", "8699e4b61b4845ef9bdca60004d6e4a7", "ac97b3ce24dc4d5d878e477e907ceff3", "c65cb6e5de954e3eabf038cf19aaba00"], "note": "round-robin DIFFERENT staff role voices (responder), so a Q/A pair is two people"}
+  }},
+  "CUSTOMER": {"refs": ["ff975879e00d4cb891ac5f4e7f9acf15", "afd158c7502846f7954b71ade6e7b4b2", "0b6770770baf4db5b13c78c3091584a0", "c9eca4b3949347828b362f856df487bb", "fee420f4813d4318bfea84f8f6cac53f", "41e720a2116c4ace8f9d1da1630f4d27"], "note": "REUSE existing NPC voices, round-robin (ped_f, ped_old, GLORIA, SKYLER-teen, BRAD, KEISHA). SKYLER lands the kids/whiny lines by index. No new refs."},
+  "PLAYER": {"byCat": {
+    "publix_greet": {"ref": "ef92ae1f0735429693345308e5c8b2b6"},
+    "starbucks_greet": {"ref": "ac97b3ce24dc4d5d878e477e907ceff3"},
+    "dunkin_greet": {"ref": "c65cb6e5de954e3eabf038cf19aaba00"},
+    "sushi_greet": {"ref": "34aef7e5fa444b55b787087112930d7d"},
+    "bank_greet": {"ref": "02677bd840f249a2a2621ae45675f0e2"},
+    "dollar_greet": {"ref": "ff975879e00d4cb891ac5f4e7f9acf15"},
+    "help": {"ref": "ef92ae1f0735429693345308e5c8b2b6"},
+    "found": {"ref": "ef92ae1f0735429693345308e5c8b2b6"},
+    "loiter": {"ref": "ba24f05b17644498adb77243afd11dd9"},
+    "noloiter": {"ref": "ba24f05b17644498adb77243afd11dd9"}
+  }}
+ },
+
+ "CASHIER": {
+  "greet": [
+   "Hi there! Did you find everything okay today?",
+   "Welcome in! Find everything you were looking for?",
+   "(happy) Hey there, how you doing today?",
+   "Afternoon! You got your Publix card with you?",
+   "Hi! Paper or plastic today, hon?",
+   "Come on down, register's open right here."
+  ],
+  "total": [
+   "Alright, that comes to twenty three fifty.",
+   "Your total today is eleven dollars even.",
+   "That'll be forty seven and sixty two cents.",
+   "Okay, eighty nine dollars and change, whenever you're ready.",
+   "Comes to six dollars flat, easy one.",
+   "Grand total, one hundred and two dollars, hon."
+  ],
+  "smalltalk": [
+   "Ooh, these are on buy one get one this week, good grab.",
+   "This weather, right? Can't decide if it wants to rain.",
+   "Love this brand, my whole family eats it.",
+   "You must be having a cookout, look at all this.",
+   "Careful, that watermelon's heavier than it looks."
+  ],
+  "bag": [
+   "You want these bagged together or separate, hon?",
+   "I'll double-bag the cold stuff for you.",
+   "Want me to leave the milk out of the bag?"
+  ],
+  "receipt": [
+   "Here's your receipt, your savings are right at the bottom.",
+   "You saved twelve dollars today, look at that.",
+   "Don't forget your receipt, hon."
+  ],
+  "nextinline": [
+   "I can help whoever's next over here!",
+   "Next guest, come on down!",
+   "Register four's open, I got you."
+  ],
+  "answer": [
+   "Milk? That's the back wall, aisle one, all the way down.",
+   "Bread's on aisle six, hon, near the bakery.",
+   "Oh, that one's gluten free, yeah, says so right on the label.",
+   "Let me do a price check on that real quick.",
+   "Eggs are in the cold case by the deli.",
+   "We're all out of those, more comes in Thursday."
+  ]
+ },
+
+ "STOCKER": {
+  "grumble": [
+   "(sighing) Who put the soup with the cereal again?",
+   "Man, this pallet's been sitting here since we opened.",
+   "Third time I've faced this shelf today, third time.",
+   "Whoever ordered forty cases of ranch, we gotta talk.",
+   "(sighing) My back is done. Done, I tell you."
+  ],
+  "effort": [
+   "(effort) Okay, up we go, big one.",
+   "Ugh, these water cases weigh a ton.",
+   "(effort) Lift with the legs, lift with the legs.",
+   "Heavy box coming through, watch your feet."
+  ],
+  "aisle": [
+   "That's on aisle five, halfway down on your left.",
+   "Peanut butter? Aisle seven, next to the jelly, obviously.",
+   "Cleaning stuff's all the way in the back, aisle twelve.",
+   "You want the chips, that's aisle three, my friend.",
+   "Frozen's on the far wall, can't miss it."
+  ],
+  "restock": [
+   "Fresh stock going up on aisle nine, folks.",
+   "Just filled the soda, help yourselves.",
+   "Careful, wet floor sign's up, I just mopped.",
+   "Restocking the cereal, scuse the boxes."
+  ],
+  "quip": [
+   "I just work here, man, I don't make the prices.",
+   "You seen how much cereal people buy? It's wild."
+  ]
+ },
+
+ "DELI": {
+  "call": [
+   "Now serving number forty two! Forty two!",
+   "Who's got ticket fifty one? Fifty one, right here.",
+   "Number sixty, your order's up, hon.",
+   "Take a ticket, I'll be right with you."
+  ],
+  "suggest": [
+   "The turkey is real good today, want it sliced thin?",
+   "You want that half pound or a full pound, sweetie?",
+   "Try the rotisserie, it just came out the oven.",
+   "Potato salad's fresh made this morning, want a scoop?"
+  ]
+ },
+
+ "BUTCHER": {
+  "call": [
+   "Number's up! Who ordered the ribeye?",
+   "Got a fresh cut ready back here!",
+   "Come on over, I'll cut it to order for ya."
+  ],
+  "suggest": [
+   "These pork chops are beautiful today, real thick.",
+   "You want that ground fresh? Two minutes, I'll do it.",
+   "The brisket's on special, whole thing for the smoker.",
+   "Bone in or bone out on that chicken, chief?"
+  ]
+ },
+
+ "BARISTA": {
+  "order": [
+   "Grande caramel macchiato for... Alex?",
+   "I've got a venti pink drink for the counter!",
+   "Order up for... is it Aidan? A-A-Ron? I'm so sorry.",
+   "Tall blonde roast, room for cream, right here!",
+   "Iced brown sugar oat shaken espresso, whew, for Sam!",
+   "Double shot on the bar for Jessica!",
+   "Whoever ordered the eight pump vanilla, no judgment, it's ready.",
+   "Mobile order for Taylor, it's up!"
+  ],
+  "chatter": [
+   "Welcome in! What can I get started for you?",
+   "You want that hot or iced today?",
+   "Ooh, the fall drinks just dropped, they're so good.",
+   "Name for the cup? Don't worry, I'll still spell it wrong.",
+   "Whipped cream on that? I always say yes.",
+   "For here or to go, hon?",
+   "One sec, gotta grab more oat milk."
+  ],
+  "hiss": [
+   "(effort) Steaming the milk, one moment!",
+   "That hissing? Totally normal, it's the espresso.",
+   "Sorry, the grinder's loud, what was that?",
+   "Pulling your shots now, thirty seconds.",
+   "Hold on, blender's going, I can't hear a thing!"
+  ]
+ },
+
+ "DUNKIN": {
+  "order": [
+   "Medium iced coffee, extra extra, order's ready!",
+   "Order up! Half dozen donuts, still warm.",
+   "Got a large hot, cream and three sugars!",
+   "Sausage egg and cheese on a bagel, coming out!",
+   "Two boston kremes and a coolatta, whose is it?",
+   "Number's up for the drive-thru, pull around!"
+  ],
+  "chatter": [
+   "Welcome to Dunkin, what can I get ya?",
+   "America runs on this stuff, am I right?",
+   "Fresh donuts just came out the fryer.",
+   "You want that iced? Everybody wants it iced.",
+   "Munchkins are ten for three bucks today."
+  ],
+  "quip": [
+   "The frozen machine is down again, of course it is.",
+   "I've made forty coffees and it's not even nine.",
+   "Yeah, we got pumpkin. We always got pumpkin.",
+   "Whole box of Joe? Somebody's got a meeting."
+  ]
+ },
+
+ "SUSHI": {
+  "call": [
+   "Irasshaimase! Welcome, welcome!",
+   "Omakase for the gentleman? I take good care of you.",
+   "Order up! One dragon roll, hai!",
+   "Fresh tuna today, very good, very fresh.",
+   "Sit at the bar, I make it right in front of you.",
+   "Arigato! Come again soon!"
+  ],
+  "phrase": [
+   "This one, hamachi, yellowtail, melt in your mouth.",
+   "Little wasabi, not too much, I put it for you already.",
+   "You like it spicy? I make the spicy tuna, extra kick.",
+   "The eel, unagi, my specialty, you must try.",
+   "Hai, hai, coming right up, one moment please.",
+   "Handmade, every piece, no machine here."
+  ]
+ },
+
+ "TELLER": {
+  "greet": [
+   "Next in line, please. The window's open.",
+   "Welcome to Regions. How can I help you today.",
+   "Do you have your account number or your ID.",
+   "Step right up, I don't bite. Usually."
+  ],
+  "transaction": [
+   "Deposit or withdrawal today.",
+   "How would you like that, are twenties okay.",
+   "That's going to need a manager's signature, one moment.",
+   "I'll need to see two forms of ID for that.",
+   "Your available balance is on the receipt.",
+   "Sign right here, and here, and initial there."
+  ],
+  "deadpan": [
+   "(sighing) The pens are chained down for a reason, sir.",
+   "No, we can't waive that fee. I've tried. Believe me.",
+   "The lollipops are for the kids. Fine, take one.",
+   "The vault? That's above my pay grade, funny guy.",
+   "Have a nice day. Truly. I mean it. Mostly."
+  ]
+ },
+
+ "DOLLAR": {
+  "joke": [
+   "Everything's a dollar twenty five now, don't shoot the messenger.",
+   "Yes, that's a dollar. That too. All of it. A dollar.",
+   "You'd be amazed what a dollar still buys in here.",
+   "We got everything, long as everything costs a dollar.",
+   "That name brand? A dollar. How? Don't ask questions.",
+   "Party supplies, aisle two, and yes, still a dollar.",
+   "Best deal in Westchase, and I'm not even lying."
+  ],
+  "line": [
+   "Register's open, come on over.",
+   "Need a bag? That's a dime now, sorry hon.",
+   "We just got the seasonal stuff in, real cute.",
+   "Careful, aisle three's a little cluttered.",
+   "Balloons? I can blow up balloons, gimme a minute."
+  ]
+ },
+
+ "MANAGER": {
+  "pa": [
+   "Attention shoppers, we need a cleanup on aisle three.",
+   "Price check for register two, price check register two.",
+   "Would the owner of a blue sedan please move your vehicle.",
+   "Attention guests, our deli special ends at six today.",
+   "Cashiers to the front, we've got a line building up.",
+   "Lost and found, we have a set of keys at guest services.",
+   "The store will be closing in fifteen minutes, please bring your items forward."
+  ],
+  "pep": [
+   "Great hustle today, team, let's keep it up.",
+   "Somebody cover aisle nine, Carl's on break.",
+   "Smile, folks, the customers can hear it in your voice.",
+   "Who's on carts? We need carts up front."
+  ],
+  "escalate": [
+   "Sir, I'm the manager. What seems to be the problem.",
+   "Let's take this to my office, shall we.",
+   "I'm going to have to ask you to leave the store.",
+   "Everybody stay calm, I've got this handled."
+  ]
+ },
+
+ "STAFF": {
+  "chatQ": [
+   "You catch what time you're on the schedule tomorrow?",
+   "Did you hear what that lady said to me at register two?",
+   "You take your break yet, or you covering me first?",
+   "How short did your drawer come up last night?",
+   "You seen the new guy? He put the milk on the wrong shelf again.",
+   "Manager say anything about the holiday hours yet?",
+   "You smell that? Somebody left something in the break room fridge.",
+   "Whose turn is it to do carts in this heat?",
+   "You believe they cut our hours again this week?",
+   "Did the truck come in yet, or are we still waiting?",
+   "You want anything? I'm running to Dunkin on my break.",
+   "Guess who called out sick again today.",
+   "You closing tonight, or is that me?",
+   "They fix the AC back here yet, or nah?",
+   "You hear corporate's sending somebody to inspect Friday?",
+   "How many returns you get today? I got, like, six.",
+   "You seen my box cutter? I swear I just had it.",
+   "Break room coffee's empty again, who does that?",
+   "Third register just went down, you got a screwdriver?",
+   "You clock out yet, or are you stuck here like me?"
+  ],
+  "chatA": [
+   "(laughing) Don't even get me started, I got two hours of stories.",
+   "Girl, no. Tell me she did not say that.",
+   "Take yours, I'm good, I ate a big lunch.",
+   "Ugh, mine was off by four bucks, I stayed late counting.",
+   "New guy? Bless his heart, he's trying at least.",
+   "Nothing yet. You know they tell us last, like always.",
+   "(sighing) That fridge is a crime scene, I'm not touching it.",
+   "Not it. I did carts yesterday, my shirt's still sweaty.",
+   "Every week, man. I'm about done with this place.",
+   "Just pulled in, we're gonna be unloading for hours.",
+   "Yeah, grab me a large iced, I'll pay you back, promise.",
+   "(sighing) Third time this month. Must be nice.",
+   "That's you tonight, buddy, I closed all weekend.",
+   "Nope, still busted. I've been sweating since noon.",
+   "Friday? Great. Now I gotta actually face the shelves.",
+   "Returns all day. One guy brought back a half eaten cake.",
+   "Check the returns cart, that's where mine always ends up.",
+   "That was me, sorry, I'll make a fresh pot.",
+   "It's always the third register. Always. I'll grab the tools.",
+   "Two more hours. Somebody save me."
+  ]
+ },
+
+ "CUSTOMER": {
+  "ask": [
+   "Excuse me, where do you keep the milk?",
+   "Hi, is this one gluten free?",
+   "How much is this? There's no price on it.",
+   "Do you guys carry oat milk?",
+   "Which aisle has the pasta sauce?",
+   "Is this on sale, or did I read the sign wrong?",
+   "Where's your bathroom, if you don't mind?",
+   "You got any more of these in the back?",
+   "Excuse me, is the deli still open?",
+   "Do you take coupons here?",
+   "Where would I find the batteries?",
+   "Is this the express lane? It says twelve items.",
+   "Can you check if you have this in a large?",
+   "What aisle is the cereal on again?",
+   "Do y'all sell stamps here?",
+   "Hey, is the coffee fresh, or is that from this morning?",
+   "Where's the bread at? I've walked this whole store.",
+   "Is there a restroom near the front?",
+   "Excuse me, can somebody do a price check?",
+   "You got paper towels? I don't see them anywhere."
+  ],
+  "checkout": [
+   "Oh, I don't need a bag, thanks.",
+   "Debit, please. Is the chip reader working?",
+   "Sorry, I think I forgot the eggs, hold on.",
+   "Did the coupon go through? It's for two dollars off.",
+   "Can you break a hundred? Sorry, that's all I got.",
+   "Just these, thanks, quick trip today.",
+   "Ooh, throw a pack of gum on there too.",
+   "You didn't ring up the water, did you?",
+   "Keep the receipt, I don't need it.",
+   "Whew, that's more than I thought. Groceries, man.",
+   "Cash back, twenty, if that's alright.",
+   "Take your time, no rush, I'm in no hurry."
+  ],
+  "excuse": [
+   "Oops, excuse me, just reaching past you.",
+   "Sorry, scuse me, I need to grab that.",
+   "Pardon me, coming through with the cart.",
+   "Whoops, my bad, didn't see you there.",
+   "Can I just squeeze by real quick?",
+   "Sorry, I think that's my cart you got.",
+   "Excuse me, is this line moving?",
+   "Oh, go ahead, you were here first."
+  ],
+  "kids": [
+   "Mom, can we get these? Pleeease?",
+   "But you SAID I could pick a snack!",
+   "I want the cereal with the toy in it!",
+   "Can I get a slushie? Can I? Can I?",
+   "Daddy, they have the big candy bars!",
+   "(whining) I'm bored, are we done yet?"
+  ],
+  "pricecheck": [
+   "This rang up wrong, it's supposed to be two ninety nine.",
+   "The sign said buy one get one, did I get that deal?",
+   "Wait, that's not the sale price, can you check?",
+   "How much was that? I want to make sure it's right."
+  ]
+ },
+
+ "PLAYER": {
+  "publix_greet": [
+   "Welcome to Publix! Let me know if you need anything.",
+   "Hey there, welcome in. Shopping or just browsing?",
+   "Afternoon! Baskets are right by the door.",
+   "Welcome! The deli's got samples out today if you want one."
+  ],
+  "starbucks_greet": [
+   "Welcome in! What can I get started for you?",
+   "Hey! Grab a seat, I'll be right with you.",
+   "Morning! You know what you want, or need a sec?"
+  ],
+  "dunkin_greet": [
+   "Welcome to Dunkin, what'll it be?",
+   "Hey there, hot or iced today?",
+   "Come on up, the donuts are fresh."
+  ],
+  "sushi_greet": [
+   "Irasshaimase! Welcome! Bar seat for you?",
+   "Welcome, welcome! You hungry today?",
+   "Come in, come in, I make you something special."
+  ],
+  "bank_greet": [
+   "Welcome to Regions. Next available window.",
+   "Afternoon. You here for an account, or just cashing a check?",
+   "Step on up, sir, what can we do for you."
+  ],
+  "dollar_greet": [
+   "Welcome in! Everything's a dollar, well, mostly.",
+   "Hey hon, holler if you need help finding anything.",
+   "Come on in, we just restocked."
+  ],
+  "help": [
+   "You look a little lost, can I help you find something?",
+   "Need a hand finding anything, hon?"
+  ],
+  "found": [
+   "Did you find everything you were looking for today?",
+   "Get everything you need?"
+  ],
+  "loiter": [
+   "You've been standing there a while, everything alright?"
+  ],
+  "noloiter": [
+   "(angry) Hey! No loitering. Buy something or move along."
+  ]
+ }
+}
