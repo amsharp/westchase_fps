@@ -8164,7 +8164,7 @@ function onConn(c) {
 var WC_SERVER_URL = (function () {
   try { if (window.WC_SERVER_URL) return window.WC_SERVER_URL; } catch (e) { }   // test/dev override
   try { var ls = localStorage.getItem('wc_server'); if (ls) return ls; } catch (e) { }
-  return 'wss://REPLACE_AFTER_DEPLOY.up.railway.app';   // Railway relay (set on deploy)
+  return 'wss://relay-production-bd75.up.railway.app';   // Railway relay server
 })();
 function makeVConn(peerId) {
   var h = { data: [], open: [], close: [] };

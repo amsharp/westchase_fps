@@ -1,0 +1,4 @@
+# session-local temp scripts / harnesses
+tools/_*.js
+wctest.html
+capture.jpg
