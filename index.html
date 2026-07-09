@@ -64,14 +64,16 @@
   #chatWrap { position:absolute; left:14px; bottom:196px; width:400px; max-width:44vw; z-index:8;
     display:flex; flex-direction:column; gap:5px; pointer-events:none; }
   #chatLog { display:flex; flex-direction:column; gap:3px; align-items:flex-start; }
-  .chatMsg { color:#fff; font-size:13px; line-height:1.4; text-shadow:1px 1px 0 #000, 0 0 3px #000;
+  .chatMsg { color:#fff; opacity:1; font-size:13px; line-height:1.4; text-shadow:1px 1px 0 #000, 0 0 3px #000;
     background:rgba(8,12,20,.42); padding:2px 8px; border-radius:2px; max-width:100%;
     word-wrap:break-word; animation:chatIn .18s ease-out; }
   .chatMsg.fade { opacity:0; transition:opacity .8s; }
   .chatMsg .who { font-weight:bold; color:#5ad6ff; }
   .chatMsg.sys { color:#ffd94a; font-style:italic; }
   .chatMsg.sys .who { color:#ffd94a; }
-  @keyframes chatIn { from { opacity:0; transform:translateX(-8px);} to { opacity:1; transform:none;} }
+  /* only animate the slide-in, NEVER opacity — a throttled/frozen animation
+     (headless, backgrounded tab) must not leave a message stuck invisible */
+  @keyframes chatIn { from { transform:translateX(-8px);} to { transform:none;} }
   #chatInput { pointer-events:auto; width:100%; box-sizing:border-box; font:inherit; font-size:14px;
     color:#fff; background:rgba(8,12,20,.85); border:2px solid #5ad6ff; padding:6px 9px; outline:none; }
   #voiceInd { position:absolute; left:14px; bottom:172px; z-index:8; color:#8ee87f; font-size:12px;
