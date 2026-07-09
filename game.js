@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.39.0';
+var GAME_VERSION = 'v1.40.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -7344,17 +7344,20 @@ var psxArms = null;
 // posed each frame on a static frame of the 'grab' clip
 var GUNHOLD_GROUPS = { pistol: 1, smg: 1, rifle: 1, auto: 1, rocket: 1 };
 var gunHold = { clip: 'relax', t: 0.75 };   // relax mid-frame: right palm sits on the grips
-// The shared arm rig's clips leave the LEFT (support) arm hanging at the side,
+// The shared relax/grab clip leaves the LEFT (support) arm hanging at the side,
 // which reads as a detached floating hand for every gun. After posing, we swing
-// the left arm up onto each weapon's foregrip with fixed local eulers per bone
-// [shoulder.L, upper_arm.L, forearm.L, hand.L] (rig bone indices 24..27).
-// Pistol keeps a believable one-hand stance (support hand cupping under the grip).
+// the left arm forward onto each weapon's foregrip/handguard with fixed local
+// eulers per bone [shoulder.L, upper_arm.L, forearm.L, hand.L] (rig bone indices
+// 24..27). Values authored on-screen (screenshot rounds) now that the forward
+// ANCHOR_OFF un-clips the arms: support hand on the AK/SMG handguard, under the
+// Kar98k forestock, on the RPG tube, and meeting the firing hand for the pistol.
+// upper_arm.L z = right-swing, forearm.L x = forward reach (smaller = further).
 var SUPPORT_POSE = {
-  pistol: [null, [0.15, -0.55, -1.15], [-0.35, -0.9, 0.35], [0.2, 0.1, -0.35]],
-  smg:    [null, [0.15, -0.7, -1.0], [-0.55, -1.15, 0.2], [0.15, 0.1, -0.2]],
-  rifle:  [null, [0.1, -1.05, -0.8], [-0.75, -1.25, 0.15], [0.15, 0.15, -0.15]],
-  auto:   [null, [0.12, -0.95, -0.85], [-0.7, -1.2, 0.2], [0.15, 0.1, -0.2]],
-  rocket: [null, [0.05, -0.8, -0.75], [-0.6, -1.05, 0.25], [0.2, 0.1, -0.2]]
+  pistol: [[-1.59, 0.5, -1.5], [1.2, 0.4, -3.2], [2.5, -0.82, 0.3], [0.2, 0.3, -0.4]],
+  smg:    [[-1.59, -0.01, -1.16], [1.2, 0.4, -2.9], [2.1, -0.82, 0.3], [0.15, 0.3, -0.4]],
+  rifle:  [[-1.59, -0.01, -1.16], [0.98, 0.4, -2.6], [1.7, -0.82, 0.3], [0.1, 0.3, -0.4]],
+  auto:   [[-1.59, -0.01, -1.16], [0.98, 0.4, -2.7], [1.85, -0.82, 0.3], [0.1, 0.3, -0.4]],
+  rocket: [[-1.59, -0.01, -1.16], [1.1, 0.4, -2.6], [1.7, -0.82, 0.3], [0.1, 0.3, -0.4]]
 };
 // per-weapon forward anchor offset in the gun-group (camera) frame:
 // x=right, y=up, z toward-camera(+)/forward(-). The shared idle/relax/grab
