@@ -1,0 +1,31 @@
+{
+ "_comment": "Kid voice PERSONAS (Fish Audio refs) + look->persona map for task #72. Lines are generated PER PERSONA (kid_lines.json), not per look — many looks share a persona. RACIAL-CONSISTENCY AUDIT: the Fish catalog only carries race-distinct CHILD voices for South-Asian (Indian-accent girl) and Latina girl; there are NO African-American / East-Asian child voices, so Black/Asian looks use general American kid voices (same honest outcome as the adult audit, bounded by the catalog). Personas are chosen by sex + timbre; race matched where a fitting child voice exists.",
+ "personas": {
+  "KID_BOY_BRIGHT": { "ref": "829184c635314c9485e48690116ff8ad", "title": "Child voice boy", "sex": "boy", "why": "cheerful energetic innocent young boy - general/white/asian boys" },
+  "KID_BOY_HYPER":  { "ref": "5f6a6f0e14f74f41abbe15b670ef5cfa", "title": "child voice", "sex": "boy", "why": "high-pitched loud energetic young boy - older sporty boys" },
+  "KID_BOY_SOFT":   { "ref": "0c0f9d7d87e44e2dabb53ebb092f5f53", "title": "Child", "sex": "boy", "why": "soft reflective inquisitive little boy - youngest (age ~5)" },
+  "KID_GIRL_BRIGHT":{ "ref": "4e407b98cb034f74b3863ec33c567c83", "title": "Child", "sex": "girl", "why": "bright energetic cheerful playful young girl - general/white girls" },
+  "KID_GIRL_SWEET": { "ref": "60ae5c99efb0425bb50586aff16d3c58", "title": "Child", "sex": "girl", "why": "soft gentle sweet innocent young girl - younger girls" },
+  "KID_GIRL_LATINA":{ "ref": "67a7ffcb206740389918af3692a4ab93", "title": "latina girl voice", "sex": "girl", "why": "energetic expressive young Latina - Latina girl looks (race match)" },
+  "KID_GIRL_INDIAN":{ "ref": "30fb275388514f5192f17afbdd46ae74", "title": "little boy (Indian girl child)", "sex": "girl", "why": "young female child's voice with an Indian accent - South-Asian girl looks (race match)" }
+ },
+ "parents": {
+  "_comment": "Generic parent-to-kid lines reuse EXISTING adult NPC voices (npc_voices.json). Rendered into the pack under these keys so audio is self-contained; #72 may instead call playNpcVoice on the actual parent NPC.",
+  "PARENT_DAD":   { "ref": "25e19c17980d4bc9b32e43f4438a2580", "title": "DON/Dad", "why": "mature calm dad voice" },
+  "PARENT_MOM":   { "ref": "2df72d6d41d34476b15ae5a35619b54a", "title": "MARISOL/Latina", "why": "confident mom voice" },
+  "PARENT_GRAN":  { "ref": "0b6770770baf4db5b13c78c3091584a0", "title": "GLORIA/grandma", "why": "warm grandmother voice" },
+  "PARENT_MOM2":  { "ref": "3e5c125ee7464f3187fa0105e7404284", "title": "DENISE/sassy", "why": "playful middle-aged mom" },
+  "PARENT_POP":   { "ref": "1090fd9fa122405e94f8a82821ebaa2e", "title": "WENDELL/porch", "why": "raspy older dad/grandpa" }
+ },
+ "lookMap": {
+  "_comment": "kid look (KID_CHARS n + KID_VARIANTS n) -> persona. Sex-consistent; race-matched for Latina/South-Asian where a voice exists.",
+  "LEO": "KID_BOY_BRIGHT", "LEO_COCO": "KID_BOY_HYPER", "LEO_SUN": "KID_BOY_BRIGHT",
+  "JAYDEN": "KID_BOY_HYPER", "JAYDEN_AZURE": "KID_BOY_BRIGHT", "JAYDEN_CRIMSON": "KID_BOY_HYPER",
+  "KAI": "KID_BOY_BRIGHT", "KAI_OLIVE": "KID_BOY_BRIGHT", "KAI_ASH": "KID_BOY_BRIGHT",
+  "NOAH": "KID_BOY_SOFT", "NOAH_PINE": "KID_BOY_SOFT", "NOAH_CLAY": "KID_BOY_SOFT",
+  "MAYA": "KID_GIRL_BRIGHT", "MAYA_HAZEL": "KID_GIRL_LATINA", "MAYA_INK": "KID_GIRL_BRIGHT",
+  "SOFIA": "KID_GIRL_LATINA", "SOFIA_SKY": "KID_GIRL_SWEET", "SOFIA_COCOA": "KID_GIRL_SWEET",
+  "EMMA": "KID_GIRL_BRIGHT", "EMMA_JADE": "KID_GIRL_BRIGHT", "EMMA_UMBER": "KID_GIRL_INDIAN",
+  "PRIYA": "KID_GIRL_INDIAN", "PRIYA_JADE": "KID_GIRL_SWEET", "PRIYA_LINEN": "KID_GIRL_SWEET"
+ }
+}
