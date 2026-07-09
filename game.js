@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.26.0';
+var GAME_VERSION = 'v1.27.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -18,6 +18,9 @@ document.getElementById('gameVer').textContent = GAME_VERSION;
 var WC_REMAP = true;
 if (typeof window !== 'undefined' && window.WC_REMAP_OVERRIDE !== undefined) WC_REMAP = !!window.WC_REMAP_OVERRIDE;
 if (typeof REMAP_ROADS === 'undefined') WC_REMAP = false;   // data file missing -> legacy world
+// The editor-authored map (REMAP_VENUES) is the whole building set; the survey
+// house fill (houses.js) is disabled under WC_REMAP but its assets stay loaded.
+var STAMP_SURVEY_HOUSES = !WC_REMAP;
 
 // ---------------- world constants ----------------
 var HALF = 600, TOTAL = HALF * 2;   // expanded world (map expansion)
@@ -63,7 +66,7 @@ var driving = null;   // traffic-car entry the player is driving
 
 var dealerPos = { x: -72, z: -106 };   // in the Publix parking lot, facing the store
 var gasRob = { x: 60, z: 42 };   // entrance zone in front of the RaceTrac door
-var LAKE = { x: -255, z: -150, r: 62 };
+var LAKE = { x: -325, z: 55, r: 62 };   // open SW field, clear of buildings/roads
 var LAKE_DEPTH = 4;            // bowl depth at the center
 var WATER_Y = 0.2;             // water surface height
 function lakeBedY(x, z) {
@@ -72,6 +75,8 @@ function lakeBedY(x, z) {
   var q = dx * dx + dz * dz;
   return q >= 1 ? 0 : -LAKE_DEPTH * (1 - q);
 }
+// (x,z) within the lake footprint (+margin) — trees/forest keep out of it
+function inLake(x, z) { var dx = (x - LAKE.x) / (LAKE.r * 1.25), dz = (z - LAKE.z) / (LAKE.r * 0.85); return dx * dx + dz * dz < 1.25; }
 
 // minimap feature registers
 var mapBuildings = [];   // {x,z,w,d,c,pad}
@@ -888,6 +893,8 @@ function forestPatch(x0, x1, z0, z1, count) {
     }
     return;
   }
+  // keep forest (trees + its collider) off the lake
+  if (inLake((x0 + x1) / 2, (z0 + z1) / 2) && (x1 - x0) < 90 && (z1 - z0) < 90) return;
   mapForest.push({ x0: x0, x1: x1, z0: z0, z1: z1 });
   // Collider inset 2.5u per side: the edge tree line straddles the rect
   // boundary, so the player stops among visible trunks instead of on an
@@ -900,7 +907,7 @@ function forestPatch(x0, x1, z0, z1, count) {
   for (var i = 0; i < count; i++) {
     var fx = x0 + Math.random() * (x1 - x0), fz = z0 + Math.random() * (z1 - z0);
     // survey houses may nose into a forest-rect edge — keep trees out of them
-    if (houseBlocksSpot(fx, fz)) continue;
+    if (houseBlocksSpot(fx, fz) || inLake(fx, fz)) continue;
     oak(fx, fz);
   }
 }
@@ -1376,7 +1383,7 @@ var fountainDrops = [];
   // NPCs/cops/cars still treat the water as a wall; the player wades in
   // (updatePlayer filters .lake colliders out of its pushOut list)
   colliders.push({ x0: LAKE.x - LAKE.r * 1.15, x1: LAKE.x + LAKE.r * 1.15, z0: LAKE.z - LAKE.r * 0.75, z1: LAKE.z + LAKE.r * 0.75, lake: true });
-  for (var i = 0; i < 10; i++) { var a = i / 10 * Math.PI * 2; oak(LAKE.x + Math.cos(a) * (LAKE.r * 1.3), LAKE.z + Math.sin(a) * (LAKE.r * 0.95)); }
+  // (shore oak ring removed — the lake is kept clear of trees)
   // fountain: stone base + column, droplets animated in updateWorldFx
   var stoneM = lamb({ color: 0xc9c2b2 });
   scene.add(cyl(2.4, 2.8, 1.1, 14, stoneM, LAKE.x, -0.4, LAKE.z));
@@ -1503,11 +1510,7 @@ if (!WC_REMAP) {
 forestPatch(96, 200, -232, -120);
 forestPatch(120, 210, 74, 158);
 forestPatch(150, 300, -300, -230);
-// split around the main road: the old single rect (-330,-300,-120,120)
-// straddled z=0 and stood as an invisible wall ACROSS Race Track Rd (which now
-// continues west to the 600 perimeter)
-forestPatch(-330, -300, -120, -22);
-forestPatch(-330, -300, 22, 120);
+// (the two west patches around x-315 were removed — the lake now sits there)
 
 // ---------------- map expansion: outer ring (survey-derived) ----------------
 // Generated offline from the OSM/satellite survey (buildings_merged.json) by
@@ -1713,7 +1716,7 @@ var expFillPts = [];   // [x,z] of every fill tree (debug/audit)
     // remap: keep fill trees off the true road ribbons (visual-only trees
     // standing on the new diagonals would read as broken; the patch colliders
     // are already split around the roads by the forestPatch guard)
-    if (WC_REMAP) pts = pts.filter(function (fp) { return remapPointClear(fp[0], fp[1], 2.5); });
+    pts = pts.filter(function (fp) { return (!WC_REMAP || remapPointClear(fp[0], fp[1], 2.5)) && !inLake(fp[0], fp[1]); });
     // bucket by prop, one InstancedMesh per prop per patch
     var buckets = [[], [], []];
     for (j = 0; j < pts.length; j++) { buckets[(Math.random() * 3) | 0].push(pts[j]); expFillPts.push(pts[j]); }
@@ -2282,7 +2285,7 @@ function remapCoreSpot() {
 for (var oi = 0; oi < 40; oi++) {
   var ox = -CORE + 40 + Math.random() * (CORE * 2 - 80), oz = -CORE + 40 + Math.random() * (CORE * 2 - 80);
   // keep oaks off the roads/core (and off the expansion roads/ponds)
-  if (Math.abs(oz) > MAIN_HW + 6 && Math.abs(ox) > CROSS_HW + 6 && (Math.abs(ox) > 180 || Math.abs(oz) > 170) && expClear(ox, oz, 4) && !houseBlocksSpot(ox, oz)) oak(ox, oz);
+  if (Math.abs(oz) > MAIN_HW + 6 && Math.abs(ox) > CROSS_HW + 6 && (Math.abs(ox) > 180 || Math.abs(oz) > 170) && expClear(ox, oz, 4) && !houseBlocksSpot(ox, oz) && !inLake(ox, oz)) oak(ox, oz);
 }
 
 // ---------------- surveyed neighborhoods: AI house clusters (houses.js) ----------------
@@ -2701,7 +2704,7 @@ function houseTemplate(ci) {
 // hoisting + the houses.js data make that safe)
 var houseFootprints = null;
 function houseBlocksSpot(x, z) {
-  if (typeof HOUSE_INSTANCES === 'undefined') return false;
+  if (!STAMP_SURVEY_HOUSES || typeof HOUSE_INSTANCES === 'undefined') return false;
   if (!houseFootprints) {
     houseFootprints = [];
     for (var i = 0; i < HOUSE_INSTANCES.length; i++) {
@@ -2747,7 +2750,7 @@ function houseOnRoad(x, z, w, d, rot, sc) {
 }
 var houseStats = { instances: 0, meshes: 0, tris: 0, colliders: 0, skipped: 0 };
 (function buildSurveyHouses() {
-  if (typeof HOUSE_CLUSTERS === 'undefined') return;
+  if (!STAMP_SURVEY_HOUSES || typeof HOUSE_CLUSTERS === 'undefined') return;   // editor map has no survey-house fill
   var chunks = {};   // 'ci|vi' -> {pos:[],norm:[],uv:[]}
   var proxyGeo = new THREE.BoxGeometry(1, 1, 1);
   var proxyMat = lamb({ color: 0x808080 });
