@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.39.0';
+var GAME_VERSION = 'v1.39.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -9054,12 +9054,20 @@ function updatePlayer(dt) {
       wg.position.x += 0.11 * dip; wg.position.y += -0.19 * dip;
       wg.rotation.z += -0.45 * dip; wg.rotation.x += 0.18 * dip;
       var rf = rcd / WEAPONS.rocket.rate;
-      var sl = Math.max(0, 1 - (rf - 0.45) / 0.3);   // 1 = held out front, 0 = seated
-      // tube stays empty right after firing; the fresh head flies in at ~60%
-      rocketHead.visible = rf >= 0.45 && (sl > 0 || rocketHead.userData.seatVisible);
-      rocketHead.position.copy(rocketSeat).addScaledVector(rocketFwd, sl * 0.42);
-      rocketHead.position.y += sl * 0.05;
-      if (rpgWarhead) rpgWarhead.visible = rf >= 0.75;   // seated = loaded again
+      if (rocketHead.userData.seatVisible) {
+        // procedural launcher (no Meshy rpg7): a fresh cone rocket slides in from
+        // out-front into the empty tube
+        var sl = Math.max(0, 1 - (rf - 0.45) / 0.3);   // 1 = held out front, 0 = seated
+        rocketHead.visible = rf >= 0.45;
+        rocketHead.position.copy(rocketSeat).addScaledVector(rocketFwd, sl * 0.42);
+        rocketHead.position.y += sl * 0.05;
+      } else {
+        // Meshy launcher has its OWN warhead mesh — DON'T animate the mismatched
+        // procedural cone (it floated detached in front of the gun). Keep the tube
+        // empty, then the real warhead reappears seated as the reload completes.
+        rocketHead.visible = false;
+        if (rpgWarhead) rpgWarhead.visible = rf >= 0.7;
+      }
       rocketCdEl.classList.remove('hidden');
       rocketCdBar.style.width = (rf * 100).toFixed(1) + '%';
     } else {
