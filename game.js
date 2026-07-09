@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.37.0';
+var GAME_VERSION = 'v1.38.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -7245,12 +7245,16 @@ function getGunMesh(name, len) {
   var gunM = lamb({ map: tx });
   var s = len / (e.dims && e.dims[0] || 1);
   if (name === 'rpg7' && !e.i) {
-    // split the baked launcher into tube + warhead (the front ~0.3m of the
-    // -x muzzle end) so firing can leave the tube visibly empty during reload
+    // split the baked launcher into tube + warhead. The PG-7 warhead is the
+    // whole front assembly: pointed nose cone + the wider BULBOUS charge body
+    // behind it, necking down to the tube around authored x=-0.30. Cutting
+    // there (was -0.38, which sliced through the bulb) loads the full warhead,
+    // so firing empties the tube and reload flies the complete round back in.
+    var WH_CUT = -0.30;
     var tp = [], tu = [], wp = [], wu = [];
     for (i = 0; i < fp.length; i += 9) {
       var cx = (fp[i] + fp[i + 3] + fp[i + 6]) / 3;
-      var dp = cx < -0.38 ? wp : tp, du = cx < -0.38 ? wu : tu;
+      var dp = cx < WH_CUT ? wp : tp, du = cx < WH_CUT ? wu : tu;
       for (var j = 0; j < 9; j++) dp.push(fp[i + j]);
       var ub = (i / 9) * 6;
       for (j = 0; j < 6; j++) du.push(fu[ub + j]);
