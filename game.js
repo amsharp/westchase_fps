@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.44.0';
+var GAME_VERSION = 'v1.45.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -415,7 +415,10 @@ function blobShadow(sx, sz, y) { var m = new THREE.Mesh(shadowGeo, shadowMat); m
 
 var colliders = [], solidMeshes = [];
 var landColliders = null;   // colliders minus the lake block — the player may wade in
-function addCollider(cx, cz, w, d) { colliders.push({ x0: cx - w / 2, x1: cx + w / 2, z0: cz - d / 2, z1: cz + d / 2 }); }
+// returns the pushed collider object so callers (breakable props) can toggle
+// `.active` off/on when the prop topples/respawns — pushOut skips inactive
+// entries in place, so the reference stays valid inside landColliders too.
+function addCollider(cx, cz, w, d) { var o = { x0: cx - w / 2, x1: cx + w / 2, z0: cz - d / 2, z1: cz + d / 2 }; colliders.push(o); return o; }
 // oriented-bounding-box collider (remap roadside furniture, rotated venue
 // footprints in R3/R4). Carries its world-space AABB bounds too, so every
 // legacy reader that iterates colliders (berserk cars, parked-slot rejection,
@@ -821,11 +824,18 @@ function getPackPropPink(name) {   // blossom recolor of a pack prop (crepe myrt
   packPinkCache[name] = { geo: pp.geo, mat: lamb({ map: tx, alphaTest: 0.4, side: THREE.DoubleSide }), h: pp.h };
   return packPinkCache[name];
 }
-function registerBreakable(g, x, z, r, type, light) {
+// collR (optional): half-width of a small trunk/pole collider registered
+// alongside the breakable's (much larger) car-snap radius `r` — solid to the
+// player/NPCs/cops/cars, but toggled inactive while the prop is toppled
+// (breakProp) and reactivated on respawn (updateWorldFx), so a felled tree
+// doesn't leave a floating wall.
+function registerBreakable(g, x, z, r, type, light, collR) {
+  var col = collR ? addCollider(x, z, collR * 2, collR * 2) : null;
   breakables.push({
     g: g, x: x, z: z, r: r, type: type, light: light || null,
     broken: false, fallT: 0, respawnT: 0, fx: 1, fz: 0, thudded: false,
-    yq: new THREE.Quaternion().setFromAxisAngle(Y_UP, g.rotation.y)
+    yq: new THREE.Quaternion().setFromAxisAngle(Y_UP, g.rotation.y),
+    col: col
   });
 }
 
@@ -853,7 +863,7 @@ function oak(x, z, scale) {
     g2.add(blobShadow(2 * scale, 2 * scale, 0.05));
     g2.position.set(x, 0, z); g2.rotation.y = Math.random() * Math.PI * 2;
     scene.add(g2);
-    registerBreakable(g2, x, z, 1.0, 'tree');
+    registerBreakable(g2, x, z, 1.0, 'tree', null, 0.4 * scale);
     return;
   }
   var g = new THREE.Group();
@@ -874,7 +884,7 @@ function oak(x, z, scale) {
   g.add(blobShadow(2 * scale, 2 * scale, 0.05));
   g.position.set(x, 0, z); g.rotation.y = Math.random() * Math.PI;
   scene.add(g);
-  registerBreakable(g, x, z, 1.0, 'tree');
+  registerBreakable(g, x, z, 1.0, 'tree', null, 0.4 * scale);
 }
 
 // palm (kept, less common)
@@ -907,7 +917,7 @@ function palm(x, z) {
   for (var i = 0; i < 8; i++) { var f = new THREE.Mesh(frondGeo, frondMat); f.rotation.y = i / 8 * Math.PI * 2 + Math.random() * 0.4; f.rotation.z = (Math.random() - 0.5) * 0.2; crown.add(f); }
   g.add(crown); g.add(blobShadow(1.1, 1.1, 0.05));
   g.position.set(x, 0, z); g.rotation.y = Math.random() * Math.PI; scene.add(g);
-  registerBreakable(g, x, z, 0.8, 'tree');
+  registerBreakable(g, x, z, 0.8, 'tree', null, 0.3);
 }
 
 function forestPatch(x0, x1, z0, z1, count) {
@@ -3112,6 +3122,7 @@ function mastArm(px, pz, ax, az, len, nHeads, fx, fz, sign, signRy) {
   var g = new THREE.Group(); g.position.set(px, 0, pz);
   var poleH = 7.8, armY = poleH - 0.5;
   g.add(cyl(0.28, 0.34, poleH, 10, poleMetal, 0, poleH / 2, 0));
+  addCollider(px, pz, 0.68, 0.68);   // signal pole base — static, not breakable
   g.add(box(Math.abs(ax) * len + 0.25, 0.22, Math.abs(az) * len + 0.25, poleMetal, ax * len / 2, armY, az * len / 2));
   for (var i = 0; i < nHeads; i++) {
     var t = (i + 1) / (nHeads + 1) * len;
@@ -3145,7 +3156,7 @@ function utilityPole(x, z) {
   g.add(box(0.5, 0.75, 0.42, xfmrM, 0.34, h - 2.2, 0));
   g.position.set(x, 0, z);
   scene.add(g);
-  registerBreakable(g, x, z, 0.45, 'light');
+  registerBreakable(g, x, z, 0.45, 'light', null, 0.32);
   return { x: x, y: h - 0.3, z: z };
 }
 function wire(a, b) {
@@ -3382,7 +3393,7 @@ function streetlight(x, z, ax, az) {
   scene.add(g);
   var entry = { head: head, glow: glow, pool: pool, broken: false };
   streetLights.push(entry);
-  registerBreakable(g, x, z, 0.6, 'light', entry);
+  registerBreakable(g, x, z, 0.6, 'light', entry, 0.22);
 }
 (function placeStreetlights() {
   if (WC_REMAP) remapStreetlightRows();   // chainage rows along the true arterials/collectors
@@ -4797,6 +4808,7 @@ if (WC_REMAP) (function densityLayer() {
       g.rotation.y = Math.atan2(-armDirZ, armDirX);   // local +x -> (armDirX,armDirZ)
       var poleH = 7.8, armY = poleH - 0.5;
       g.add(cyl(0.28, 0.34, poleH, 10, poleMetal, 0, poleH / 2, 0));
+      addCollider(px, pz, 0.68, 0.68);   // signal pole base — static, not breakable
       g.add(box(len + 0.25, 0.22, 0.25, poleMetal, len / 2, armY, 0));
       for (var i = 0; i < nHeads; i++) {
         var t = (i + 1) / (nHeads + 1) * len;
@@ -5890,6 +5902,7 @@ function updateCars(dt) {
       var ex = m.position.x, ez = m.position.z;
       for (var b = 0; b < colliders.length; b++) {
         var bb = colliders[b];
+        if (bb.active === false) continue;
         var qx = Math.max(bb.x0, Math.min(ex, bb.x1)), qz = Math.max(bb.z0, Math.min(ez, bb.z1));
         var qdx = ex - qx, qdz = ez - qz;
         if (qdx * qdx + qdz * qdz < 4.5) { explodeCar(c); break; }
@@ -6432,7 +6445,7 @@ function updateRockets(dt) {
     r.life -= dt;
     var hit = r.life <= 0 || r.y <= 0.25 || Math.abs(r.x) > HALF || Math.abs(r.z) > HALF;
     if (!hit && r.y < 14) {
-      for (var b = 0; b < colliders.length; b++) { var bb = colliders[b]; if (r.x > bb.x0 && r.x < bb.x1 && r.z > bb.z0 && r.z < bb.z1) { hit = true; break; } }
+      for (var b = 0; b < colliders.length; b++) { var bb = colliders[b]; if (bb.active === false) continue; if (r.x > bb.x0 && r.x < bb.x1 && r.z > bb.z0 && r.z < bb.z1) { hit = true; break; } }
     }
     if (!hit && r.y < 2.4) {
       for (var n = 0; n < npcs.length && !hit; n++) { var nn = npcs[n]; if (nn.state === 'down' || nn.state === 'ragdoll') continue; var dx = nn.x - r.x, dz = nn.z - r.z; if (dx * dx + dz * dz < 1.7) hit = true; }
@@ -7191,6 +7204,7 @@ function pushOut(px, pz, r, list) {
   var L = list || colliders;
   for (var i = 0; i < L.length; i++) {
     var b = L[i];
+    if (b.active === false) continue;   // toppled prop's trunk collider — sits out until it respawns
     if (px < b.x0 - r || px > b.x1 + r || pz < b.z0 - r || pz > b.z1 + r) continue;
     if (b.obb) {
       // oriented box: solve in the box's local frame (u along its width axis),
@@ -8147,6 +8161,7 @@ function breakProp(b, dirX, dirZ) {
   b.broken = true; b.thudded = false; b.fallT = 0; b.respawnT = 60;
   var d = Math.sqrt(dirX * dirX + dirZ * dirZ) || 1;
   b.fx = dirX / d; b.fz = dirZ / d;
+  if (b.col) b.col.active = false;   // toppled trunk stops blocking until respawn
   if (b.light) { b.light.broken = true; b.light.glow.visible = false; b.light.pool.visible = false; }
   var cols = b.type === 'tree' ? [0x4c8038, 0x3f6f2e, 0x7a5a3a] : [0xffe9a8, 0x8a8f94, 0xd8d8d4];
   var n = b.type === 'tree' ? 14 : 9;
@@ -8233,6 +8248,7 @@ function updateWorldFx(dt) {
     if (bb.respawnT <= 0) {
       bb.broken = false; bb.fallT = 0;
       bb.g.quaternion.copy(bb.yq);
+      if (bb.col) bb.col.active = true;
       if (bb.light) { bb.light.broken = false; bb.light.glow.visible = lampsOn; bb.light.pool.visible = lampsOn; }
     }
   }
