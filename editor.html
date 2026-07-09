@@ -73,6 +73,7 @@
     <span class="title">WESTCHASE MAP EDITOR</span>
     <button class="tbtn" data-tool="select" title="Select / move / rotate (V)">▣ Select</button>
     <button class="tbtn" data-tool="road" title="Draw road (R)">╱ Road</button>
+    <button class="tbtn" data-tool="surface" title="Stamp parking lot / pavement (G)">◱ Surface</button>
     <button class="tbtn" data-tool="building" title="Stamp building (B)">▤ Building</button>
     <button class="tbtn" data-tool="prop" title="Stamp prop (P)">• Prop</button>
     <div class="sep"></div>
@@ -98,6 +99,10 @@
       <div style="font-size:11px;color:#6b7480;margin-top:5px;">click to drop points · Enter/dbl-click finish · Esc cancel</div>
     </div>
     <div class="sec">
+      <h3>Add Surface</h3>
+      <div class="assetgrid" id="surfPalette"></div>
+    </div>
+    <div class="sec">
       <h3>Add Building</h3>
       <div class="assetgrid" id="bldPalette"></div>
     </div>
@@ -118,13 +123,15 @@
       <div class="card">
         <h2>Map Editor — quick guide</h2>
         <div>
-          <b>Tools:</b> <kbd>V</kbd> select · <kbd>R</kbd> road · <kbd>B</kbd> building · <kbd>P</kbd> prop<br>
-          <b>Pan:</b> right-drag, middle-drag, or hold <kbd>Space</kbd> + drag &nbsp;·&nbsp; <b>Zoom:</b> mouse wheel<br>
-          <b>Select mode:</b> click an object, drag to move, drag the round handle to rotate.<br>
-          &nbsp;&nbsp;<kbd>[</kbd> <kbd>]</kbd> rotate 5° (Shift = 1°) · arrows nudge · <kbd>Del</kbd> remove.<br>
+          <b>Tools:</b> <kbd>V</kbd> select · <kbd>R</kbd> road · <kbd>G</kbd> surface · <kbd>B</kbd> building · <kbd>P</kbd> prop<br>
+          <b>Pan:</b> right-drag, middle-drag, or hold <kbd>Space</kbd> + drag &nbsp;·&nbsp; <b>Zoom:</b> mouse wheel · <kbd>F</kbd> recenter<br>
+          <b>Select mode:</b> click an object, drag to move, drag the blue round handle to rotate,
+          drag a white <b>corner square</b> to resize.<br>
+          &nbsp;&nbsp;<kbd>[</kbd> <kbd>]</kbd> rotate 5° (Shift = 1°) · arrows nudge · <kbd>Del</kbd> remove · type exact size in Properties.<br>
           <b>Road:</b> pick a class at left, click to drop vertices, <kbd>Enter</kbd> or double-click to finish. In
           select mode you can drag a road's vertices or the whole road.<br>
-          <b>Building / Prop:</b> pick a type at left, click to stamp. Front arrow shows facing.<br>
+          <b>Surface / Building / Prop:</b> pick a type at left, click to stamp. The yellow <b>▲ arrow</b> on a
+          building points out its front (storefront) side, so you can see facing as you rotate.<br>
           <b>Undo/Redo:</b> <kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Shift+Z</kbd> · <b>Fit:</b> <kbd>F</kbd><br>
           <b>Save Map</b> downloads <code>westchase_map.json</code> — hand that file to Claude to rebuild the game map.
           Your work also auto-saves to this browser; <b>Load</b> restores a saved file.
@@ -143,7 +150,7 @@
     <span id="zoomRead">100%</span>
     <span id="selRead"></span>
     <span class="spacer" style="flex:1"></span>
-    <span id="hint"><b style="color:#8fbfff">F</b> recenter · V select · R road · B building · P prop · right-drag pan · wheel zoom</span>
+    <span id="hint"><b style="color:#8fbfff">F</b> recenter · V select · R road · G surface · B building · P prop · drag corners to resize · right-drag pan · wheel zoom</span>
   </div>
 </div>
 
@@ -192,6 +199,11 @@ var PROPS = [
   { type:'bush',       name:'Bush',       color:'#3f7f34', r:1.0 },
   { type:'cone',       name:'Cone',       color:'#ff8c22', r:0.4 }
 ];
+var SURFACES = [
+  { kind:'parking',  name:'Parking Lot', w:44, d:24, color:'#585c63' },
+  { kind:'pavement', name:'Pavement',    w:20, d:16, color:'#8b8578' }
+];
+function surfByKind(k){ for(var i=0;i<SURFACES.length;i++) if(SURFACES[i].kind===k) return SURFACES[i]; return SURFACES[0]; }
 function bldByType(t){ for(var i=0;i<BUILDINGS.length;i++) if(BUILDINGS[i].type===t) return BUILDINGS[i]; return BUILDINGS[BUILDINGS.length-1]; }
 function propByType(t){ for(var i=0;i<PROPS.length;i++) if(PROPS[i].type===t) return PROPS[i]; return PROPS[0]; }
 // REMAP_CLEAR id -> editor building type
@@ -202,12 +214,12 @@ var IDMAP = { racetrac:'racetrac',publix:'publix',farnell:'farnell',regions:'ban
 
 // ============================ state ============================
 var HALF = 600;
-var S = { roads:[], buildings:[], props:[], zones:[] };   // zones = passthrough poly clears
+var S = { roads:[], surfaces:[], buildings:[], props:[], zones:[] };   // zones = passthrough poly clears
 var cam = { x:-40, y:-20, zoom:1.4 };
 var tool = 'select';
-var stamp = { road:0, building:'shop', prop:'oak' };   // active palette selection per tool
+var stamp = { road:0, surface:'parking', building:'shop', prop:'oak' };   // active palette selection per tool
 var sel = null;                    // selected object {kind:'road'|'building'|'prop', ref}
-var layersOn = { roads:true, sidewalks:true, buildings:true, props:true, grid:true, labels:true };
+var layersOn = { roads:true, surfaces:true, sidewalks:true, buildings:true, props:true, grid:true, labels:true };
 var pen = null;                    // road being drawn: {cls,hw,pts:[]}
 var drag = null;                   // active drag operation
 var undoStack = [], redoStack = [];
@@ -216,7 +228,7 @@ function nid(){ return 'e'+(uid++); }
 
 // ============================ load initial map ============================
 function loadFromGame() {
-  S = { roads:[], buildings:[], props:[], zones:[] };
+  S = { roads:[], surfaces:[], buildings:[], props:[], zones:[] };
   if (typeof REMAP_ROADS !== 'undefined') {
     REMAP_ROADS.forEach(function(r){
       S.roads.push({ _id:nid(), id:r.id, cls:r.cls, hw:r.hw, dirt:!!r.dirt,
@@ -234,9 +246,9 @@ function loadFromGame() {
 }
 
 // ============================ history ============================
-function snapshot(){ return JSON.stringify({roads:S.roads,buildings:S.buildings,props:S.props,zones:S.zones}); }
+function snapshot(){ return JSON.stringify({roads:S.roads,surfaces:S.surfaces,buildings:S.buildings,props:S.props,zones:S.zones}); }
 function pushHistory(){ undoStack.push(snapshot()); if(undoStack.length>120) undoStack.shift(); redoStack.length=0; autosave(); }
-function restore(str){ var o=JSON.parse(str); S.roads=o.roads; S.buildings=o.buildings; S.props=o.props; S.zones=o.zones||[]; sel=null; }
+function restore(str){ var o=JSON.parse(str); S.roads=o.roads; S.surfaces=o.surfaces||[]; S.buildings=o.buildings; S.props=o.props; S.zones=o.zones||[]; sel=null; }
 function undo(){ if(!undoStack.length) return; redoStack.push(snapshot()); restore(undoStack.pop()); buildProps(); }
 function redo(){ if(!redoStack.length) return; undoStack.push(snapshot()); restore(redoStack.pop()); buildProps(); }
 
@@ -246,6 +258,7 @@ function exportObj(){
   return {
     version:1, note:'Westchase map editor export',
     roads: S.roads.map(function(r){ return { id:r.id, cls:r.cls, hw:r.hw, dirt:r.dirt||false, pts:r.pts }; }),
+    surfaces: S.surfaces.map(function(s){ return { kind:s.kind, x:round(s.x), z:round(s.z), rot:round(s.rot), w:round(s.w), d:round(s.d) }; }),
     buildings: S.buildings.map(function(b){ return { id:b.id||b.type, type:b.type, x:round(b.x), z:round(b.z), rot:round(b.rot), w:round(b.w), d:round(b.d) }; }),
     props: S.props.map(function(p){ return { type:p.type, x:round(p.x), z:round(p.z), rot:round(p.rot) }; }),
     zones: S.zones.map(function(z){ return { id:z.id, poly:z.poly }; })
@@ -260,8 +273,9 @@ function saveMap(){
   toast('Saved westchase_map.json — hand it to Claude to rebuild the map');
 }
 function loadObj(o){
-  S = { roads:[], buildings:[], props:[], zones:[] };
+  S = { roads:[], surfaces:[], buildings:[], props:[], zones:[] };
   (o.roads||[]).forEach(function(r){ S.roads.push({_id:nid(),id:r.id,cls:r.cls,hw:r.hw,dirt:!!r.dirt,pts:r.pts.map(function(p){return[p[0],p[1]];})}); });
+  (o.surfaces||[]).forEach(function(s){ S.surfaces.push({_id:nid(),kind:s.kind,x:s.x,z:s.z,rot:s.rot||0,w:s.w,d:s.d}); });
   (o.buildings||[]).forEach(function(b){ S.buildings.push({_id:nid(),id:b.id,type:b.type,x:b.x,z:b.z,rot:b.rot||0,w:b.w,d:b.d}); });
   (o.props||[]).forEach(function(p){ S.props.push({_id:nid(),type:p.type,x:p.x,z:p.z,rot:p.rot||0}); });
   (o.zones||[]).forEach(function(z){ S.zones.push({_id:nid(),id:z.id,poly:z.poly}); });
@@ -314,6 +328,8 @@ function pick(wx,wz){
   // props
   for(i=S.props.length-1;i>=0;i--){ var p=S.props[i], pr=propByType(p.type).r+1.2;
     if((wx-p.x)*(wx-p.x)+(wz-p.z)*(wz-p.z)<pr*pr) return {kind:'prop',ref:p}; }
+  // surfaces (parking / pavement)
+  for(i=S.surfaces.length-1;i>=0;i--){ if(pointInPoly(wx,wz,bcorners(S.surfaces[i]))) return {kind:'surface',ref:S.surfaces[i]}; }
   // roads (near centerline)
   for(i=S.roads.length-1;i>=0;i--){ var r=S.roads[i];
     for(var j=0;j<r.pts.length-1;j++){ if(distSeg(wx,wz,r.pts[j][0],r.pts[j][1],r.pts[j+1][0],r.pts[j+1][1])<r.hw+1.5) return {kind:'road',ref:r}; } }
@@ -330,9 +346,13 @@ function rotHandleAt(sx,sz){ // building/prop rotate handle in screen space
 }
 function rotHandlePos(){ // screen pos of rotate handle above selection front
   if(!sel||sel.kind==='road') return null; var o=sel.ref; var fd=frontDir(o.rot);
-  var reach = (sel.kind==='building') ? o.d/2+7 : propByType(o.type).r+5;
+  var reach = (sel.kind==='prop') ? propByType(o.type).r+5 : o.d/2+7;
   var wp=[o.x+fd[0]*reach, o.z+fd[1]*reach]; return w2s(wp[0],wp[1]);
 }
+// resizable objects (buildings + surfaces) expose 4 corner handles
+function isResizable(){ return sel && (sel.kind==='building'||sel.kind==='surface'); }
+function cornerHandleAt(sx,sz){ if(!isResizable()) return -1; var c=bcorners(sel.ref);
+  for(var i=0;i<4;i++){ var s=w2s(c[i][0],c[i][1]); if((sx-s[0])*(sx-s[0])+(sz-s[1])*(sz-s[1])<90) return i; } return -1; }
 
 // ============================ snapping ============================
 function snap(v){ if(!document.getElementById('snapChk').checked) return v; var g=+document.getElementById('gridSize').value||1; return Math.round(v/g)*g; }
@@ -344,6 +364,7 @@ function render(){
   ctx.fillStyle='#7fb85f'; ctx.fillRect(0,0,VW,VH);              // grass
   drawWorldBounds();
   if(layersOn.grid) drawGrid();
+  if(layersOn.surfaces) S.surfaces.forEach(drawSurface);
   if(layersOn.roads){ S.roads.forEach(function(r){ if(layersOn.sidewalks) drawSidewalk(r); }); S.roads.forEach(drawRoad); }
   if(layersOn.buildings) S.buildings.forEach(drawBuilding);
   if(layersOn.props) S.props.forEach(drawProp);
@@ -376,14 +397,34 @@ function drawRoad(r){ var cl=ROAD_CLASSES[r.cls]||ROAD_CLASSES[3]; var sp=polySc
   if(r.cls<=1 && !r.dirt){ ctx.strokeStyle='#e8c23a'; ctx.lineWidth=Math.max(1,cam.zoom*0.5); ctx.setLineDash([6,7]);
     ctx.beginPath(); sp.forEach(function(p,i){ i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]); }); ctx.stroke(); ctx.setLineDash([]); }
 }
+function drawSurface(s){ var meta=surfByKind(s.kind); var c=bcorners(s).map(function(p){return w2s(p[0],p[1]);});
+  ctx.fillStyle=meta.color; ctx.strokeStyle='#0006'; ctx.lineWidth=1;
+  ctx.beginPath(); c.forEach(function(p,i){ i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]); }); ctx.closePath(); ctx.fill(); ctx.stroke();
+  if(s.kind==='parking'){ // stall stripes across the short axis
+    ctx.save(); ctx.beginPath(); c.forEach(function(p,i){ i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]); }); ctx.closePath(); ctx.clip();
+    var a=s.rot*Math.PI/180, ux=Math.cos(a), uz=-Math.sin(a); // local +x world dir
+    ctx.strokeStyle='#ffffff70'; ctx.lineWidth=1;
+    for(var t=-s.w/2+3;t<s.w/2;t+=4){ var mx=s.x+ux*t, mz=s.z+uz*t; var vx=Math.sin(a), vz=Math.cos(a);
+      var p0=w2s(mx-vx*s.d/2, mz-vz*s.d/2), p1=w2s(mx+vx*s.d/2, mz+vz*s.d/2);
+      ctx.beginPath(); ctx.moveTo(p0[0],p0[1]); ctx.lineTo(p1[0],p1[1]); ctx.stroke(); }
+    ctx.restore();
+  }
+  if(layersOn.labels && cam.zoom>1.1){ var fc=w2s(s.x,s.z); ctx.fillStyle='#dfe4ea'; ctx.font='10px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(meta.name, fc[0], fc[1]); }
+}
+function drawFrontArrow(o, depth){ // filled arrowhead at the front edge, pointing out
+  var a=o.rot*Math.PI/180, fx=Math.sin(a), fz=Math.cos(a);     // world front dir (local +z)
+  var px=-fz, pz=fx;                                            // perpendicular
+  var base=[o.x+fx*(depth/2), o.z+fz*(depth/2)];               // front edge midpoint
+  var tip=w2s(base[0]+fx*4.5, base[1]+fz*4.5);
+  var l=w2s(base[0]+px*3, base[1]+pz*3), r=w2s(base[0]-px*3, base[1]-pz*3);
+  ctx.fillStyle='#ffd94a'; ctx.strokeStyle='#7a3b0e'; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(tip[0],tip[1]); ctx.lineTo(l[0],l[1]); ctx.lineTo(r[0],r[1]); ctx.closePath(); ctx.fill(); ctx.stroke();
+}
 function drawBuilding(b){ var meta=bldByType(b.type); var c=bcorners(b).map(function(p){return w2s(p[0],p[1]);});
   ctx.fillStyle=meta.color; ctx.strokeStyle='#00000066'; ctx.lineWidth=1.5;
   ctx.beginPath(); c.forEach(function(p,i){ i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]); }); ctx.closePath(); ctx.fill(); ctx.stroke();
-  // front arrow
-  var fd=frontDir(b.rot), fc=w2s(b.x,b.z), fp=w2s(b.x+fd[0]*(b.d/2+3), b.z+fd[1]*(b.d/2+3));
-  ctx.strokeStyle='#fff'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(fc[0],fc[1]); ctx.lineTo(fp[0],fp[1]); ctx.stroke();
-  ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(fp[0],fp[1],2.5,0,7); ctx.fill();
-  if(layersOn.labels && cam.zoom>0.7){ ctx.fillStyle='#111'; ctx.font='bold 11px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  drawFrontArrow(b, b.d);
+  if(layersOn.labels && cam.zoom>0.7){ var fc=w2s(b.x,b.z); ctx.fillStyle='#111'; ctx.font='bold 11px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.fillText(meta.name, fc[0], fc[1]); }
 }
 function drawProp(p){ var meta=propByType(p.type); var sc=w2s(p.x,p.z); var r=Math.max(3,meta.r*cam.zoom);
@@ -407,8 +448,10 @@ function drawSelection(){
     return;
   }
   var o=sel.ref;
-  if(sel.kind==='building'){ var c=bcorners(o).map(function(p){return w2s(p[0],p[1]);});
-    ctx.strokeStyle='#5bd0ff'; ctx.lineWidth=2.5; ctx.beginPath(); c.forEach(function(p,i){ i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]); }); ctx.closePath(); ctx.stroke(); }
+  if(sel.kind==='building'||sel.kind==='surface'){ var c=bcorners(o).map(function(p){return w2s(p[0],p[1]);});
+    ctx.strokeStyle='#5bd0ff'; ctx.lineWidth=2.5; ctx.beginPath(); c.forEach(function(p,i){ i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]); }); ctx.closePath(); ctx.stroke();
+    c.forEach(function(p){ ctx.fillStyle='#fff'; ctx.strokeStyle='#3a6ea5'; ctx.lineWidth=2;    // corner resize handles
+      ctx.beginPath(); ctx.rect(p[0]-4,p[1]-4,8,8); ctx.fill(); ctx.stroke(); }); }
   else { var s=w2s(o.x,o.z); ctx.strokeStyle='#5bd0ff'; ctx.lineWidth=2.5; ctx.beginPath(); ctx.arc(s[0],s[1],Math.max(5,propByType(o.type).r*cam.zoom+3),0,7); ctx.stroke(); }
   var h=rotHandlePos(); if(h){ var s2=w2s(o.x,o.z);
     ctx.strokeStyle='#5bd0ff88'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(s2[0],s2[1]); ctx.lineTo(h[0],h[1]); ctx.stroke();
@@ -424,10 +467,13 @@ cvs.addEventListener('mousedown', function(e){
   if(e.button===2 || e.button===1 || (e.button===0 && spaceDown)){ panning=true; lastMouse=[e.clientX,e.clientY]; return; }
   if(e.button!==0) return;
   if(tool==='road'){ penClick(snapPt(w[0],w[1])); return; }
+  if(tool==='surface'){ addSurface(stamp.surface, snap(w[0]), snap(w[1])); return; }
   if(tool==='building'){ addBuilding(stamp.building, snap(w[0]), snap(w[1])); return; }
   if(tool==='prop'){ addProp(stamp.prop, snap(w[0]), snap(w[1])); return; }
   // select tool
   if(sel && rotHandleAt(sx,sz)){ drag={type:'rotate',o:sel.ref}; pushHistory(); return; }
+  var ch=cornerHandleAt(sx,sz);
+  if(ch>=0){ var o=sel.ref, fixed=bcorners(o)[(ch+2)%4]; drag={type:'scale',o:o,fx:fixed[0],fz:fixed[1]}; pushHistory(); return; }
   var rv=roadVertexAt(w[0],w[1]);
   if(rv){ drag={type:'vertex',r:rv.r,i:rv.i}; pushHistory(); return; }
   var hit=pick(w[0],w[1]);
@@ -449,6 +495,12 @@ window.addEventListener('mousemove', function(e){
     drag.r.pts.forEach(function(p){ p[0]+=ddx; p[1]+=ddz; }); drag.last=[w[0],w[1]]; }
   else if(drag.type==='rotate'){ var o=drag.o; var ang=Math.atan2(w[0]-o.x, w[1]-o.z)*180/Math.PI;
     o.rot=snapAngle(ang); syncProps(); }
+  else if(drag.type==='scale'){ var o=drag.o; var a=o.rot*Math.PI/180, c=Math.cos(a), s=Math.sin(a);
+    // local axes in world: u(local+x)=(c,-s), v(local+z)=(s,c). Opposite corner (fx,fz) stays fixed.
+    var cx=snap(w[0]), cz=snap(w[1]), dx=cx-drag.fx, dz=cz-drag.fz;
+    var au=dx*c - dz*s, av=dx*s + dz*c;                 // signed extents from fixed corner to cursor
+    o.w=Math.max(2,Math.abs(au)); o.d=Math.max(2,Math.abs(av));
+    o.x=drag.fx + (au/2)*c + (av/2)*s; o.z=drag.fz + (au/2)*(-s) + (av/2)*c; syncProps(); }
 });
 window.addEventListener('mouseup', function(){ panning=false; if(drag){ drag=null; autosave(); } });
 function snapAngle(a){ a=(a%360+360)%360; if(document.getElementById('snapChk').checked) a=Math.round(a/5)*5; return Math.round(a*10)/10; }
@@ -469,8 +521,12 @@ function addBuilding(type,x,z){ pushHistory(); var m=bldByType(type);
   setTool('select'); selectObj({kind:'building',ref:b}); }
 function addProp(type,x,z){ pushHistory(); var p={_id:nid(),type:type,x:x,z:z,rot:0}; S.props.push(p);
   selectObj({kind:'prop',ref:p}); }
+function addSurface(kind,x,z){ pushHistory(); var m=surfByKind(kind);
+  var s={_id:nid(),kind:kind,x:x,z:z,rot:0,w:m.w,d:m.d}; S.surfaces.push(s);
+  setTool('select'); selectObj({kind:'surface',ref:s}); }
 function deleteSel(){ if(!sel) return; pushHistory();
   if(sel.kind==='road') S.roads=S.roads.filter(function(r){return r!==sel.ref;});
+  if(sel.kind==='surface') S.surfaces=S.surfaces.filter(function(s){return s!==sel.ref;});
   if(sel.kind==='building') S.buildings=S.buildings.filter(function(b){return b!==sel.ref;});
   if(sel.kind==='prop') S.props=S.props.filter(function(p){return p!==sel.ref;});
   selectObj(null); }
@@ -481,7 +537,7 @@ window.addEventListener('keydown', function(e){
   if(e.code==='Space'){ spaceDown=true; e.preventDefault(); return; }
   if(e.ctrlKey||e.metaKey){ if(e.key==='z'){ e.preventDefault(); if(e.shiftKey) redo(); else undo(); } if(e.key==='y'){ e.preventDefault(); redo(); } return; }
   var k=e.key.toLowerCase();
-  if(k==='v') setTool('select'); else if(k==='r') setTool('road'); else if(k==='b') setTool('building'); else if(k==='p') setTool('prop');
+  if(k==='v') setTool('select'); else if(k==='r') setTool('road'); else if(k==='g') setTool('surface'); else if(k==='b') setTool('building'); else if(k==='p') setTool('prop');
   else if(k==='f') fitView();
   else if(e.key==='Enter'){ finishPen(); }
   else if(e.key==='Escape'){ pen=null; selectObj(null); }
@@ -503,6 +559,10 @@ function buildPalettes(){
     var sw=el('div','sw'); sw.style.background=cl.color; a.appendChild(sw); a.appendChild(el('span',null,cl.name+' ('+cl.hw+')'));
     a.onclick=function(){ stamp.road=i; setTool('road'); buildPalettes(); };
     if(i%2===0) rp.appendChild(row); row.appendChild(a); });
+  var sp2=document.getElementById('surfPalette'); sp2.innerHTML='';
+  SURFACES.forEach(function(m){ var a=el('div','asset'+(tool==='surface'&&stamp.surface===m.kind?' on':''));
+    var sw=el('div','sw'); sw.style.background=m.color; a.appendChild(sw); a.appendChild(el('span',null,m.name));
+    a.onclick=function(){ stamp.surface=m.kind; setTool('surface'); buildPalettes(); }; sp2.appendChild(a); });
   var bp=document.getElementById('bldPalette'); bp.innerHTML='';
   BUILDINGS.forEach(function(m){ var a=el('div','asset'+(tool==='building'&&stamp.building===m.type?' on':''));
     var sw=el('div','sw'); sw.style.background=m.color; a.appendChild(sw); a.appendChild(el('span',null,m.name));
@@ -513,7 +573,7 @@ function buildPalettes(){
     a.onclick=function(){ stamp.prop=m.type; setTool('prop'); buildPalettes(); }; pp.appendChild(a); });
 }
 function buildLayers(){ var L=document.getElementById('layers'); L.innerHTML='';
-  [['roads','Roads'],['sidewalks','Sidewalks'],['buildings','Buildings'],['props','Props'],['labels','Labels'],['grid','Grid']].forEach(function(p){
+  [['roads','Roads'],['sidewalks','Sidewalks'],['surfaces','Surfaces'],['buildings','Buildings'],['props','Props'],['labels','Labels'],['grid','Grid']].forEach(function(p){
     var lab=el('label','layer'); var cb=el('input'); cb.type='checkbox'; cb.checked=layersOn[p[0]];
     cb.onchange=function(){ layersOn[p[0]]=cb.checked; }; lab.appendChild(cb); lab.appendChild(el('span',null,p[1])); L.appendChild(lab); });
 }
@@ -538,6 +598,11 @@ function buildProps(){
     var row=el('div','prow'); row.appendChild(field('X',round(o.x),function(v){o.x=v;},0.5)); row.appendChild(field('Z',round(o.z),function(v){o.z=v;},0.5)); host.appendChild(row);
     host.appendChild(field('Rotation°',round(o.rot),function(v){o.rot=v;},1));
     var row2=el('div','prow'); row2.appendChild(field('Width',round(o.w),function(v){o.w=v;},0.5)); row2.appendChild(field('Depth',round(o.d),function(v){o.d=v;},0.5)); host.appendChild(row2);
+  } else if(sel.kind==='surface'){
+    host.appendChild(selectField('Kind', SURFACES.map(function(m){return {type:m.kind,name:m.name};}), o.kind, function(v){ o.kind=v; autosave(); }));
+    var sr=el('div','prow'); sr.appendChild(field('X',round(o.x),function(v){o.x=v;},0.5)); sr.appendChild(field('Z',round(o.z),function(v){o.z=v;},0.5)); host.appendChild(sr);
+    host.appendChild(field('Rotation°',round(o.rot),function(v){o.rot=v;},1));
+    var sr2=el('div','prow'); sr2.appendChild(field('Width',round(o.w),function(v){o.w=v;},0.5)); sr2.appendChild(field('Depth',round(o.d),function(v){o.d=v;},0.5)); host.appendChild(sr2);
   } else if(sel.kind==='prop'){
     host.appendChild(selectField('Type', PROPS, o.type, function(v){ o.type=v; autosave(); }));
     var r3=el('div','prow'); r3.appendChild(field('X',round(o.x),function(v){o.x=v;},0.5)); r3.appendChild(field('Z',round(o.z),function(v){o.z=v;},0.5)); host.appendChild(r3);
@@ -589,7 +654,7 @@ function boot(){
   render();
 }
 boot();
-window.__ed = { S:S, get state(){return S;}, exportObj:exportObj, loadFromGame:loadFromGame, addBuilding:addBuilding, addProp:addProp, selectObj:selectObj, setTool:setTool, cam:cam, get sel(){return sel;}, deleteSel:deleteSel };
+window.__ed = { get state(){return S;}, exportObj:exportObj, loadFromGame:loadFromGame, addBuilding:addBuilding, addSurface:addSurface, addProp:addProp, selectObj:selectObj, setTool:setTool, cam:cam, get sel(){return sel;}, deleteSel:deleteSel };
 </script>
 </body>
 </html>
