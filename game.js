@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.33.0';
+var GAME_VERSION = 'v1.34.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -4595,6 +4595,8 @@ function updateStreetProps(dt) {
 
 // ---------------- police / wanted system ----------------
 var cops = [];
+var copNid = 1;   // stable per-cop id: the cops array is spliced on despawn, so
+                  // clients must address dmgCop by id, not array index
 var copSpawnT = 0, lastCrimeT = -99;
 var badgeM = new THREE.MeshBasicMaterial({ color: 0xffd94a });
 var holsterM = lamb({ color: 0x16181c });
@@ -4652,7 +4654,7 @@ function spawnCop(nearPlayer) {
   } else { var t = randTarget(); x = t[0]; z = t[1]; }
   var p = pushOut(x, z, 0.6); x = p.x; z = p.z;
   var t2 = randTarget();
-  var c = { mesh: mesh, x: x, z: z, hp: 100, state: 'patrol', tx: t2[0], tz: t2[1], phase: Math.random() * 9, fireT: 0.5 + Math.random(), downT: 0, hurtFlash: 0, vname: mesh.userData.vname || null, fem: MESHY_FEM.indexOf(mesh.userData.vname || '') >= 0 };
+  var c = { mesh: mesh, nid: copNid++, x: x, z: z, hp: 100, state: 'patrol', tx: t2[0], tz: t2[1], phase: Math.random() * 9, fireT: 0.5 + Math.random(), downT: 0, hurtFlash: 0, vname: mesh.userData.vname || null, fem: MESHY_FEM.indexOf(mesh.userData.vname || '') >= 0 };
   // no gun at spawn: patrol cops keep it holstered, updateCops draws it on
   // 'engage'. (This also dodges a load-order trap: the boot-time spawnCop
   // calls ran before the var gun materials existed -> all-white pistols.)
@@ -5475,7 +5477,7 @@ function updateDriving(dt) {
       if (Math.abs(mlon) < 2.8 && Math.abs(mlat) < 1.5) {
         cpm.hit = true;   // one message per pass-through
         sfx('crash'); sfx('grunt');
-        netToHost({ t: 'dmgCop', i: i, dmg: 999, kx: fx * sgn, kz: fz * sgn });
+        netToHost({ t: 'dmgCop', id: cpm.nid, dmg: 999, kx: fx * sgn, kz: fz * sgn });
       }
     }
     // ram traffic: they lose control like being shot up
@@ -7139,13 +7141,13 @@ function tryAttack() {
     else if (bestCop) { damageCop(bestCop, w.dmg, fx, fz); puff(new THREE.Vector3(bestCop.x, 1.3, bestCop.z), 0xd96a4f); }
     else if (bestCopM >= 0) {
       puff(new THREE.Vector3(copsM[bestCopM].x, 1.3, copsM[bestCopM].z), 0xd96a4f);
-      netToHost({ t: 'dmgCop', i: bestCopM, dmg: w.dmg, kx: fx, kz: fz });
+      netToHost({ t: 'dmgCop', id: copsM[bestCopM].nid, dmg: w.dmg, kx: fx, kz: fz });
       if (!copsM[bestCopM].down) {
         if (state.wanted < 1) setWanted(1);   // hurting a cop is star #1 — fists included
         lastCrimeT = T;
       }
     }
-    else if (bestRemote) { netSendHit(bestRemote.id, w.dmg); puff(new THREE.Vector3(bestRemote.x, 1.3, bestRemote.z), 0xd96a4f); }
+    else if (bestRemote) { netSendHit(bestRemote.id, w.dmg, true); puff(new THREE.Vector3(bestRemote.x, 1.3, bestRemote.z), 0xd96a4f); }
     // connecting sounds different from swinging — and a slap CRACKS
     var meleeAt = best ? best : (bestCop ? bestCop : (bestCopM >= 0 ? copsM[bestCopM] : bestRemote));
     if (meleeAt) sfx(punchSlap ? 'slap' : 'punchhit', { x: meleeAt.x, z: meleeAt.z, range: 45 });
@@ -7220,10 +7222,10 @@ function tryAttack() {
       if (isClient()) netToHost({ t: 'dmgNpc', i: npcs.indexOf(npcHit), dmg: w.dmg, kx: dir.x, kz: dir.z });
       else damageNPC(npcHit, w.dmg, dir.x, dir.z);
     }
-    else if (remoteHit) { netSendHit(remoteHit, w.dmg); puff(h.point, 0xd93a2a); }
+    else if (remoteHit) { netSendHit(remoteHit, w.dmg, true); puff(h.point, 0xd93a2a); }
     else if (copMHit >= 0) {
       puff(h.point, 0xd93a2a);
-      netToHost({ t: 'dmgCop', i: copMHit, dmg: w.dmg, kx: dir.x, kz: dir.z });
+      netToHost({ t: 'dmgCop', id: copsM[copMHit] ? copsM[copMHit].nid : undefined, dmg: w.dmg, kx: dir.x, kz: dir.z });
       if (copsM[copMHit] && !copsM[copMHit].down) {
         if (state.wanted < 1) setWanted(1);   // hurting a cop is star #1, even a host-simmed one
         lastCrimeT = T;
@@ -8093,14 +8095,20 @@ function handleNet(m, conn) {
   } else if (m.t === 'hit') {
     if (m.to === net.id) {
       var hdmg = clampf(m.dmg, 0, 100);   // never trust a peer's damage number
+      var wasDead = state.dead;
       if (driving) {
         driving.carHP = (driving.carHP === undefined ? 100 : driving.carHP) - hdmg * 2;
         var cp3 = driving.car.group.position;
         puff(new THREE.Vector3(cp3.x + (Math.random() - 0.5) * 2, 1 + Math.random(), cp3.z + (Math.random() - 0.5) * 2), 0xd8c860);
         if (driving.carHP <= 0) igniteCar(driving);
       } else hurtPlayer(hdmg);
+      // this shot from another PLAYER just downed us → credit them the kill
+      if (!wasDead && state.dead && m.by) netSendTo(m.by, { t: 'pkill', to: m.by });
     }
     else if (net.mode === 'host') { for (var i = 0; i < net.conns.length; i++) if (net.conns[i].peer === m.to) { try { net.conns[i].send(m); } catch (e) { } } }
+  } else if (m.t === 'pkill') {
+    if (m.to === net.id) creditPvpKill();
+    else if (net.mode === 'host') netSendTo(m.to, m);   // forward the credit to the shooter
   } else if (m.t === 'boom') {
     boomAt(m.x, m.z, true, net.mode === 'host' ? conn : null);   // host credits the shooter's blast kills
     netRelay(m, conn);
@@ -8151,7 +8159,11 @@ function handleNet(m, conn) {
         if (n.state === 'down') { try { conn.send({ t: 'kill', kind: 'npc' }); } catch (e) { } }
       }
     } else if (m.t === 'dmgCop') {
-      var cpx = net.copList[m.i];
+      // resolve by stable id (falls back to index for older clients); the cops
+      // array is spliced on despawn so a bare index can mistarget mid-firefight
+      var cpx = null;
+      if (m.id !== undefined) { for (var qc = 0; qc < cops.length; qc++) if (cops[qc].nid === m.id && !cops[qc].interior) { cpx = cops[qc]; break; } }
+      else cpx = net.copList[m.i];
       if (cpx && cpx.state !== 'down') {
         damageCop(cpx, clampf(m.dmg, 0, 250), clampf(m.kx, -2, 2), clampf(m.kz, -2, 2), true);
         if (cpx.state === 'down') { try { conn.send({ t: 'kill', kind: 'cop' }); } catch (e) { } }
@@ -8404,7 +8416,7 @@ function updateNet(dt) {
         var cq = cops[i];
         if (cq.interior) continue;
         net.copList.push(cq);
-        copArr.push([Math.round(cq.x * 10), Math.round(cq.z * 10), Math.round(cq.mesh.rotation.y * 100), cq.state === 'down' ? 2 : 0]);
+        copArr.push([Math.round(cq.x * 10), Math.round(cq.z * 10), Math.round(cq.mesh.rotation.y * 100), cq.state === 'down' ? 2 : 0, cq.nid]);
       }
       var cashArr = [];
       for (i = 0; i < cashes.length; i++) { var kp = cashes[i].mesh.position; cashArr.push([Math.round(kp.x * 10), Math.round(kp.z * 10)]); }
@@ -8501,6 +8513,9 @@ function applyWorldSnap(dt) {
     }
   }
   while (npcs.length < s.npcs.length) spawnNPC();
+  // shrink guard: the host never removes NPCs today, but if it ever does, drop
+  // the extras here so clients don't keep frozen, index-misaligned ghosts
+  while (npcs.length > s.npcs.length) { var exn = npcs.pop(); if (exn) { scene.remove(exn.mesh); if (exn.mesh.userData.shadow) exn.mesh.userData.shadow.visible = false; } }
   for (i = 0; i < s.npcs.length && i < npcs.length; i++) {
     var n = npcs[i], b = s.npcs[i], nm = n.mesh;
     var nox = n.x, noz = n.z;
@@ -8533,6 +8548,7 @@ function applyWorldSnap(dt) {
     if (!cp.down && cp.mesh.userData.handR && (cp.mesh.userData.heldKind || null) !== wantGunM) attachHeldGun(cp.mesh, wantGunM);
     var cox = cp.x, coz = cp.z;
     cp.x += (cs[0] / 10 - cp.x) * k; cp.z += (cs[1] / 10 - cp.z) * k;
+    cp.nid = cs[4];   // stable host-side id, so dmgCop can't mistarget after a despawn
     if (cs[3] === 2) cp.hit = false;   // kill confirmed: free the run-over latch (slots get reused)
     cp.down = cs[3] === 2;
     cp.mesh.position.set(cp.x, 0, cp.z);
@@ -8639,10 +8655,21 @@ function applyWorldSnap(dt) {
     scene.remove(alien.mesh); alien = null;
   }
 }
-function netSendHit(toId, dmg) {
+function netSendHit(toId, dmg, byPlayer) {
   var m = { t: 'hit', to: toId, dmg: dmg };
+  if (byPlayer) m.by = net.id;   // a player shot them (not a cop/alien) → PvP kill credit
   if (net.mode === 'host') { for (var i = 0; i < net.conns.length; i++) if (net.conns[i].peer === toId) { try { net.conns[i].send(m); } catch (e) { } } }
   else net.conns[0] && net.conns[0].send(m);
+}
+// route a message with an explicit `to` peer id (host->peer directly, or
+// client->host->peer). used for PvP kill credit back to the shooter.
+function netSendTo(toId, m) {
+  if (net.mode === 'host') { for (var i = 0; i < net.conns.length; i++) if (net.conns[i].peer === toId) { try { net.conns[i].send(m); } catch (e) { } } }
+  else net.conns[0] && net.conns[0].send(m);
+}
+function creditPvpKill() {
+  state.money += 100; popup('PLAYER DOWN! +$100'); sfx('cash');
+  if (state.wanted < 3) setWanted(3); else lastCrimeT = T;
 }
 
 // menu wiring
