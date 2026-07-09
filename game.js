@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.55.2';
+var GAME_VERSION = 'v1.56.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -3794,6 +3794,77 @@ if (WC_REMAP) (function r3Junction() {
       if (remapPointClear(px, pz, 2.5)) palm(px, pz);
     }
   }
+})();
+
+// ---- R3.5 divided arterials (remap): curbed grass medians with palms down
+// Race Track Rd + Countryway Blvd, per the satellite (both are divided roads
+// in reality — the double-yellow the median buries was never there). Medians
+// follow the true polylines at half-width 2.2, safely inside the traffic
+// lanes at |4.5|/|9.5|; they break around side-road stitches (turning traffic
+// sweeps the centerline there), stop 38u short of the junction (left-turn
+// pockets + box), and end before the perimeter U-turn margins. Concrete
+// noses cap every run. Like the legacy axis median, the slab has no collider
+// (cars crossing in a chase bump over it visually; palms DO collide).
+if (WC_REMAP) (function r3Medians() {
+  var MW = 2.2, GH = 0.3;
+  function roadById(id) { for (var i = 0; i < REMAP_ROADS.length; i++) if (REMAP_ROADS[i].id === id) return REMAP_ROADS[i]; return null; }
+  function buildMedian(id) {
+    var rd = roadById(id); if (!rd) return;
+    var cum = rmCum(rd.pts), len = cum[cum.length - 1];
+    // keep-clear list: [start, end] chainages that must stay median-free
+    var clear = [];
+    // (a) the junction: 38u each way around the closest approach to the origin
+    var pj = rmProject(rd.pts, cum, 0, 0);
+    if (pj.d < rd.hw) clear.push([pj.s - 38, pj.s + 38]);
+    // (b) side-road stitches: other roads' endpoints touching this road
+    for (var i = 0; i < REMAP_ROADS.length; i++) {
+      var o = REMAP_ROADS[i]; if (o === rd) continue;
+      var ends = [o.pts[0], o.pts[o.pts.length - 1]];
+      for (var ei = 0; ei < 2; ei++) {
+        var pr = rmProject(rd.pts, cum, ends[ei][0], ends[ei][1]);
+        if (pr.d < rd.hw + o.hw) clear.push([pr.s - (o.hw + 8), pr.s + (o.hw + 8)]);
+      }
+    }
+    // (c) off-map + perimeter U-turn margins: clamp to where the road is playable
+    var sMin = 0, sMax = len, step;
+    for (step = 0; step < len; step += 4) { var q0 = rmAt(rd.pts, cum, step); if (Math.abs(q0.x) < HALF - 26 && Math.abs(q0.z) < HALF - 26) { sMin = step + 34; break; } }
+    for (step = len; step > 0; step -= 4) { var q1 = rmAt(rd.pts, cum, step); if (Math.abs(q1.x) < HALF - 26 && Math.abs(q1.z) < HALF - 26) { sMax = step - 34; break; } }
+    if (sMax - sMin < 20) return;
+    // subtract the keep-clears from [sMin,sMax]
+    clear.sort(function (a, b) { return a[0] - b[0]; });
+    var runs = [], cur = sMin;
+    for (i = 0; i < clear.length; i++) {
+      if (clear[i][1] < cur) continue;
+      if (clear[i][0] > cur) runs.push([cur, Math.min(clear[i][0], sMax)]);
+      cur = Math.max(cur, clear[i][1]);
+      if (cur >= sMax) break;
+    }
+    if (cur < sMax) runs.push([cur, sMax]);
+    // build each surviving run: grass slab + curbs + noses + planting
+    for (i = 0; i < runs.length; i++) {
+      var a = runs[i][0], b = runs[i][1];
+      if (b - a < 16) continue;
+      for (var s = a + 2; s < b - 2; s += 7) {
+        var segL = Math.min(7.8, b - 2 - s + 0.8);
+        var mid = rmAt(rd.pts, cum, Math.min(s + segL / 2, b - 2));
+        var yaw = Math.atan2(-mid.uz, mid.ux);
+        var gm = box(segL, GH, MW * 2, medGrassM, mid.x, GH / 2 + 0.05, mid.z); gm.rotation.y = yaw; scene.add(gm);
+        var c1 = box(segL, GH + 0.04, 0.28, curbM, mid.x - mid.uz * (MW + 0.14), GH / 2 + 0.07, mid.z + mid.ux * (MW + 0.14)); c1.rotation.y = yaw; scene.add(c1);
+        var c2 = box(segL, GH + 0.04, 0.28, curbM, mid.x + mid.uz * (MW + 0.14), GH / 2 + 0.07, mid.z - mid.ux * (MW + 0.14)); c2.rotation.y = yaw; scene.add(c2);
+      }
+      // rounded concrete noses at both ends
+      var n0 = rmAt(rd.pts, cum, a + 1.2), n1 = rmAt(rd.pts, cum, b - 1.2);
+      scene.add(cyl(MW + 0.15, MW + 0.15, GH + 0.02, 12, curbM, n0.x, GH / 2 + 0.05, n0.z));
+      scene.add(cyl(MW + 0.15, MW + 0.15, GH + 0.02, 12, curbM, n1.x, GH / 2 + 0.05, n1.z));
+      // palms/crepe myrtles down the center, like the satellite's median planting
+      for (var ps = a + 10; ps < b - 10; ps += 26 + Math.random() * 12) {
+        var pp = rmAt(rd.pts, cum, ps);
+        if (Math.random() < 0.6) palm(pp.x, pp.z); else crepeMyrtle(pp.x, pp.z);
+      }
+    }
+  }
+  buildMedian('race_track_rd');
+  buildMedian('countryway_blvd');
 })();
 
 // ---------------- street lights ----------------
