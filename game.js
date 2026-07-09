@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.34.0';
+var GAME_VERSION = 'v1.35.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -4049,7 +4049,7 @@ function buildPerson(shirtC, pantsC, skinC, opts) {
 }
 
 var npcs = [];
-var NPC_COUNT = 46;   // raised for the expanded map — the core keeps ~the old 28
+var NPC_COUNT = 138;  // 3x density pass (was 46) — busy-street population
 // home-zone weights: core intersection / residential neighborhoods / collectors+Lynmar
 var NPC_W_CORE = 0.60, NPC_W_RES = 0.32;   // remainder (~0.08) = collectors
 var WALK = WC_REMAP ? { x0: -240, x1: 120, z0: -180, z1: 170 }   // recentred on the true venue span
@@ -5510,14 +5510,15 @@ function addRemapCar(rng) {
   cars.push(c);
 }
 if (!WC_REMAP) {
-  [5, 10].forEach(function (l) { addCar('x', l, 1); addCar('x', l, 1); });
-  [-5, -10].forEach(function (l) { addCar('x', l, -1); addCar('x', l, -1); });
-  [4, 8].forEach(function (l) { addCar('z', l, 1); addCar('z', l, 1); });
-  [-4, -8].forEach(function (l) { addCar('z', l, -1); addCar('z', l, -1); });
+  // 3x density pass: three cars per lane-slot instead of one
+  [5, 10].forEach(function (l) { addCar('x', l, 1); addCar('x', l, 1); addCar('x', l, 1); addCar('x', l, 1); addCar('x', l, 1); addCar('x', l, 1); });
+  [-5, -10].forEach(function (l) { addCar('x', l, -1); addCar('x', l, -1); addCar('x', l, -1); addCar('x', l, -1); addCar('x', l, -1); addCar('x', l, -1); });
+  [4, 8].forEach(function (l) { addCar('z', l, 1); addCar('z', l, 1); addCar('z', l, 1); addCar('z', l, 1); addCar('z', l, 1); addCar('z', l, 1); });
+  [-4, -8].forEach(function (l) { addCar('z', l, -1); addCar('z', l, -1); addCar('z', l, -1); addCar('z', l, -1); addCar('z', l, -1); addCar('z', l, -1); });
 } else {
-  // same 16-car budget, spread length-weighted over arterial+collector edges
+  // 3x density pass: 48-car budget (was 16), spread length-weighted over arterial+collector edges
   var rmCarRng = seededRng(0x52454D01);
-  for (var rmci = 0; rmci < 16; rmci++) addRemapCar(rmCarRng);
+  for (var rmci = 0; rmci < 48; rmci++) addRemapCar(rmCarRng);
 }
 
 // ---- parked cars: the lots hold empty cars you can break into (E, 0.9s) ----
