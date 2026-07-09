@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.53.0';
+var GAME_VERSION = 'v1.53.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -9962,10 +9962,19 @@ function handleNet(m, conn) {
       if (m.gasCD) gasClosedUntil = Math.max(gasClosedUntil, T + m.gasCD);   // late joiners inherit the lockout
     }
   } else if (m.t === 'voice') {
-    var vid = m.id || (conn && conn.peer) || 'x';
-    if (m.d && !WC_BOT) playVoiceFrame(vid, m.r || 16000, m.d);   // the headless world bot just relays voice, never plays it
-    var vr = net.remotes[vid]; if (vr) vr.talkT = T;   // drive the "talking" tag pop
-    if (net.mode === 'host') netRelay(m, conn);
+    // TWO kinds of {t:'voice'} share this branch (they MUST be discriminated
+    // here — a second `else if (m.t==='voice')` later in this chain would be
+    // unreachable): push-to-talk mic frames carry m.d (base64 PCM) and are
+    // relayed by the host; host-broadcast world/NPC voices carry m.g/x/z (no
+    // m.d) and are replayed positionally via playNetVoice on clients.
+    if (m.d) {
+      var vid = m.id || (conn && conn.peer) || 'x';
+      if (!WC_BOT) playVoiceFrame(vid, m.r || 16000, m.d);   // the headless world bot just relays voice, never plays it
+      var vr = net.remotes[vid]; if (vr) vr.talkT = T;   // drive the "talking" tag pop
+      if (net.mode === 'host') netRelay(m, conn);
+    } else if (net.mode === 'client') {
+      playNetVoice(m);   // host-broadcast world/NPC voice (positional replay)
+    }
   } else if (m.t === 'chat') {
     var cn = ('' + (m.name || 'PLAYER')).replace(/[^\x20-\x7E]/g, '').slice(0, 12) || 'PLAYER';
     var ct = ('' + (m.text || '')).replace(/[\x00-\x1F]/g, '').slice(0, 140);
@@ -9991,8 +10000,6 @@ function handleNet(m, conn) {
     sfx('laser', { x: m.a[0], z: m.a[2], range: 130 });
   } else if (m.t === 'gotDrop') {
     applyDropPickup(m.k);
-  } else if (m.t === 'voice') {
-    if (net.mode === 'client') playNetVoice(m);   // host-broadcast world voice
   } else if (net.mode === 'host') {
     // ---- client → host world actions (host is authoritative) ----
     if (m.t === 'dmgNpc') {
