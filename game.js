@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.49.0';
+var GAME_VERSION = 'v1.50.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -5104,12 +5104,33 @@ if (WC_REMAP) (function densityLayer() {
 //   REMAP_ROADS (see remapdata.js). Keep them clear of roads/sidewalks/props.
 //   That's it: the loader below segments, tiles, posts, colliders + merges it.
 // ============================================================
+// STEP 2 — authored, Street-View-anchored placement (see tools/FENCES.md).
+// Real Westchase fences studied on Google Street View at the actual venues,
+// then mapped onto this stylized map's faithfully-arranged footprints:
+//   * schools (Farnell/Bryant) ring their fields with DARK metal-mesh fence
+//   * self-storage lots are chainlink-secured
+//   * townhome back/side yards use WOOD privacy fence
+//   * retention-pond banks get LOW dark chainlink
+//   * lakeside park lawns + single-family yards use white PICKET
+// Every segment was validated clear of roads / the lake / building footprints.
 var FENCE_RUNS = [
-  // --- STEP 1 smoke-test runs (one of each type) in the open field W of the
-  //     townhouses; replaced by the authored placement in STEP 2 ---
-  { type: 'picket',    h: 1.1, pts: [[-208, -30], [-192, -30]] },
-  { type: 'chainlink', h: 2.0, pts: [[-208, -34], [-192, -34]] },
-  { type: 'wood',      h: 1.8, pts: [[-208, -38], [-192, -38]] }
+  // --- chainlink ---
+  { type: 'chainlink', h: 2.0, color: 0x2b2f31, pts: [[-150, -92], [-150, -60], [-40, -60]] }, // Farnell school field, W+front (dark)
+  { type: 'chainlink', h: 2.2,                  pts: [[8, 84], [54, 84], [54, 130]] },          // self-storage lot, N+E
+  { type: 'chainlink', h: 1.0, color: 0x2b2f31, pts: [[-330, -12], [-244, -12]] },              // retention-pond N bank (low, dark)
+  // --- wood privacy (townhome back/side yards, SW cluster) ---
+  { type: 'wood', h: 1.8, pts: [[-206, -90], [-158, -90]] },   // behind e281 row
+  { type: 'wood', h: 1.8, pts: [[-182, -148], [-150, -148]] }, // NW of e285
+  { type: 'wood', h: 1.8, pts: [[-220, -135], [-220, -165]] }, // W of e283/e285
+  { type: 'wood', h: 1.8, pts: [[-215, -100], [-215, -140]] }, // W of e281
+  { type: 'wood', h: 1.8, pts: [[-130, -210], [-75, -212]] },  // S of e287/e289
+  { type: 'wood', h: 1.8, pts: [[-150, -178], [-115, -182]] }, // between e285/e287
+  { type: 'wood', h: 1.8, pts: [[-180, -200], [-120, -205]] }, // S-far cluster edge
+  // --- picket (lakeside park lawns + single-family yard) ---
+  { type: 'picket', h: 1.1, pts: [[-188, 0], [-188, 60]] },      // lake E promenade
+  { type: 'picket', h: 1.1, pts: [[-268, 118], [-300, 120]] },   // lake SW lawn
+  { type: 'picket', h: 1.1, pts: [[-290, 120], [-290, 158]] },   // red-house W yard
+  { type: 'picket', h: 1.1, pts: [[-330, 122], [-296, 122]] }    // SW pond-lawn park edge
 ];
 var FENCE_H = { picket: 1.1, chainlink: 2.0, wood: 1.8 };
 function buildFenceRun() { return null; }   // replaced by the closure export below
