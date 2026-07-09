@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.52.0';
+var GAME_VERSION = 'v1.52.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -5910,7 +5910,11 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
     g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(b.pos), 3));
     g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(b.norm), 3));
     g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(b.uv), 2));
-    scene.add(new THREE.Mesh(g, lamb({ map: envTex(ENV_BY_NAME[nm]) })));
+    var bmat = lamb({ map: envTex(ENV_BY_NAME[nm]) });
+    if (nm === 'park_lamp') nightLit(bmat);   // lamps glow with the rest of the streetlights after dark
+    var bm = new THREE.Mesh(g, bmat);
+    scene.add(bm);
+    if (ENV_BY_NAME[nm].solid) solidMeshes.push(bm);   // bullets/cop LOS stop on merged solids too
     envStats.batches++;
   }
 })();
@@ -7761,8 +7765,16 @@ function updateNPCs(dt) {
       if (n.downT <= 0) {
         if (npcDoors.length) {
           // replacement pedestrian WALKS OUT of a building entrance instead of
-          // popping into existence: brief hidden dwell, then the door emit below
-          n.doorI = (Math.random() * npcDoors.length) | 0;
+          // popping into existence: brief hidden dwell, then the door emit below.
+          // Prefer a door NEAR where they died — an all-doors random pick drains
+          // the town center toward the ~hundreds of residential doors over time.
+          var nearI = [], farI = null, farD = 1e9;
+          for (var di = 0; di < npcDoors.length; di++) {
+            var dd = (npcDoors[di].sx - n.x) * (npcDoors[di].sx - n.x) + (npcDoors[di].sz - n.z) * (npcDoors[di].sz - n.z);
+            if (dd < 130 * 130) nearI.push(di);
+            if (dd < farD) { farD = dd; farI = di; }
+          }
+          n.doorI = nearI.length ? nearI[(Math.random() * nearI.length) | 0] : farI;
           n.state = 'hidden'; n.dwellT = 0.6 + Math.random() * 2.5; n.hp = 100;
           m.visible = false; if (m.userData.shadow) m.userData.shadow.visible = false;
         } else { assignNpcHome(n); setNpcTarget(n); n.hp = 100; n.state = 'walk'; m.rotation.x = 0; if (m.userData.shadow) m.userData.shadow.visible = true; }
@@ -11004,6 +11016,7 @@ window.__wc = {
   forestFillPts: expFillPts,
   streetProps: streetPropInteractables, streetPropInteract: streetPropInteract, getStreetProp: getStreetProp, hydrantJets: hydrantJets,
   envProps: envProps, envPropInteractables: envPropInteractables, envStats: envStats, getEnvProp: getEnvProp, envPropInteract: envPropInteract,
+  solidMeshes: solidMeshes, nightEmis: nightEmis,
   houses: houseStats, houseBlocksSpot: houseBlocksSpot, houseMeshesRef: houseMeshesRef,
   isUnderwater: function () { return underwater; },
   net: net, startGame: startGame, hostGame: hostGame, joinGame: joinGame, handleNet: handleNet,
