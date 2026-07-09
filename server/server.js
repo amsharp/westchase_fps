@@ -107,7 +107,7 @@ function startWorldBot() {
   var pw;
   try { pw = require('playwright'); } catch (e) { console.error('[BOT] playwright not installed — world bot disabled'); return; }
   var exe = process.env.BOT_CHROMIUM || undefined;   // Docker image ships browsers; sandbox tests override
-  pw.chromium.launch({ executablePath: exe, args: ['--use-gl=angle', '--use-angle=swiftshader', '--no-sandbox', '--enable-unsafe-swiftshader', '--disable-dev-shm-usage'] }).then(function (browser) {
+  pw.chromium.launch({ executablePath: exe, args: ['--use-gl=angle', '--use-angle=swiftshader', '--no-sandbox', '--enable-unsafe-swiftshader', '--disable-dev-shm-usage', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows'] }).then(function (browser) {
     return browser.newContext({ viewport: { width: 128, height: 96 } }).then(function (ctx) {
       return ctx.addInitScript('window.WC_SERVER_URL = "ws://127.0.0.1:' + PORT + '";').then(function () { return ctx.newPage(); });
     }).then(function (page) {

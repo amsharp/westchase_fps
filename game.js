@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.44.1';
+var GAME_VERSION = 'v1.44.2';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -9496,6 +9496,7 @@ function updateHUD() { document.getElementById('money').textContent = '$' + stat
 var last = performance.now();
 var lastRafMs = performance.now();   // bot mode watches this to detect RAF starvation
 function loop(now) {
+  if (WC_BOT) return;   // bot sims on its own real-time interval, never renders
   requestAnimationFrame(loop);
   lastRafMs = performance.now();
   var dt = Math.min(0.05, (now - last) / 1000); last = now;
@@ -9605,17 +9606,28 @@ window.__wc = {
 
 // ---------------- world-bot boot (?bot=1: the dedicated server's headless host)
 if (WC_BOT) {
-  // shrink the offscreen render, park the bot's never-seen player at the map
-  // edge, and connect as the (invisible) MAIN host
-  try { renderer.setSize(128, 96); } catch (e) { }
+  // park the bot's never-seen player at the map edge and connect as the
+  // (invisible) MAIN host
+  try { renderer.setSize(64, 48); } catch (e) { }
   player.x = 320; player.z = 320;
   spawnX = 320; spawnZ = 320;   // if the world ever kills the parked bot it stays parked
   setTimeout(function () { playOnline(); }, 400);
-  // keep the world simming even if headless Chromium throttles RAF: run the
-  // full tick on a timer whenever RAF has been starved for >250ms
+  // the bot NEVER renders (software GL at server CPU = ~1fps = 20x slow-motion
+  // world for everyone, dt clamps at 0.05). Instead: real-time sim on a 50ms
+  // interval with <=50ms sub-steps and a capped catch-up backlog. The RAF loop
+  // is disabled in bot mode (see loop()).
+  var botLast = performance.now();
   setInterval(function () {
-    if (!state.running) return;
-    if (performance.now() - lastRafMs > 250) { try { window.__wc.tick(0.05); } catch (e) { } }
+    if (!state.running) { botLast = performance.now(); return; }
+    var nowMs = performance.now();
+    var e = Math.min(0.25, (nowMs - botLast) / 1000); botLast = nowMs;
+    while (e > 0.001) {
+      var st2 = Math.min(e, 0.05); e -= st2; T += st2;
+      try {
+        updatePlayer(st2); updateNPCs(st2); updateCops(st2); updateCars(st2); updateRockets(st2); updateDrops(st2); updateUfo(st2);
+        updateCash(st2); updatePuffs(st2); updateBooms(st2); updateDecals(st2); updateWorldFx(st2); updateStreetProps(st2); updateEnv(st2); updateNet(st2);
+      } catch (err) { }
+    }
   }, 50);
   // if the socket ever drops (server restart won't matter — we die with it —
   // but a transient close might), retry joining
