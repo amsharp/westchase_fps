@@ -2719,6 +2719,20 @@ function houseBlocksSpot(x, z) {
         r: Math.hypot(cl2.spec.dims[0], cl2.spec.dims[1]) * sc / 2 + 2
       });
     }
+    // also cover parking lots (+car half-extent margin) so random oaks/bushes
+    // never land in a house parking row — the parked-car spawner's
+    // parkedSlotFree() consults breakables, and per-peer-random trees inside a
+    // lot would make the seeded parked layout diverge across MP peers.
+    if (typeof HOUSE_LOTS !== 'undefined') {
+      for (var li = 0; li < HOUSE_LOTS.length; li++) {
+        var L = HOUSE_LOTS[li], la = L[4] * Math.PI / 180;
+        houseFootprints.push({
+          x: L[0], z: L[1], c: Math.cos(la), s: Math.sin(la),
+          hw: L[2] / 2 + 3, hd: L[3] / 2 + 3,
+          r: Math.hypot(L[2], L[3]) / 2 + 3.5
+        });
+      }
+    }
   }
   for (var j = 0; j < houseFootprints.length; j++) {
     var f = houseFootprints[j];
@@ -2822,7 +2836,9 @@ var houseStats = { instances: 0, meshes: 0, tris: 0, colliders: 0, skipped: 0 };
     geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(ch2.uv), 2));
     var parts = key2.split('|');
     var mesh = new THREE.Mesh(geo, houseAtlasMat(+parts[0], +parts[1]));
+    geo.computeBoundingSphere();
     scene.add(mesh);
+    houseMeshesRef.push(mesh);
     houseStats.meshes++;
     houseStats.tris += ch2.pos.length / 9;
   }
@@ -8749,7 +8765,7 @@ window.__wc = {
   oakInfo: function () { return { count: oakCount, cap: OAK_CAP }; },
   forestFillPts: expFillPts,
   streetProps: streetPropInteractables, streetPropInteract: streetPropInteract, getStreetProp: getStreetProp, hydrantJets: hydrantJets,
-  houses: houseStats, houseBlocksSpot: houseBlocksSpot,
+  houses: houseStats, houseBlocksSpot: houseBlocksSpot, houseMeshesRef: houseMeshesRef,
   isUnderwater: function () { return underwater; },
   net: net, startGame: startGame, hostGame: hostGame, joinGame: joinGame, handleNet: handleNet,
   buildIceConfig: buildIceConfig, hmacSha1B64: hmacSha1B64,
