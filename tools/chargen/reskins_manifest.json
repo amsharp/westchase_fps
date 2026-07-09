@@ -1,0 +1,16 @@
+[
+ {"n":"CASHIER_GWEN","base":"CASHIER_ROSA","file":"reskin_CASHIER_GWEN.jpg","src":"staff","role":"staff","venue":"Publix","job":"cashier","desc":"Black woman 50s, short grey natural hair, reading glasses — reskin of ROSA (skin/hair)"},
+ {"n":"STOCKER_LUPE","base":"CASHIER_ROSA","file":"reskin_STOCKER_LUPE.jpg","src":"staff","role":"staff","venue":"Publix","job":"stocker","desc":"Latina 30s, high ponytail — reskin of ROSA (hair)"},
+ {"n":"BAGGER_TYLER","base":"CASHIER_MIKE","file":"reskin_BAGGER_TYLER.jpg","src":"staff","role":"staff","venue":"Publix","job":"bagger","desc":"white teen boy, shaggy brown hair — reskin of MIKE (hair/age)"},
+ {"n":"STOCKER_DEE","base":"CASHIER_MIKE","file":"reskin_STOCKER_DEE.jpg","src":"staff","role":"staff","venue":"Publix","job":"stocker","desc":"Black man 20s, short twists — reskin of MIKE (skin/hair)"},
+ {"n":"PRODUCE_SAM","base":"CASHIER_MIKE","file":"reskin_PRODUCE_SAM.jpg","src":"staff","role":"staff","venue":"Publix","job":"produce","desc":"Asian man 20s — reskin of MIKE (skin/hair)"},
+
+ {"n":"OMAR_NAVY","base":"OMAR","file":"reskin_OMAR_NAVY.jpg","src":"meshy","role":"civ","desc":"navy polo variant of OMAR"},
+ {"n":"ALEX_MAROON","base":"ALEX","file":"reskin_ALEX_MAROON.jpg","src":"meshy","role":"civ","desc":"maroon hoodie variant of ALEX"},
+ {"n":"RIKO_TEAL","base":"RIKO","file":"reskin_RIKO_TEAL.jpg","src":"meshy","role":"civ","desc":"teal koi hoodie variant of RIKO"},
+ {"n":"VLAD_RED","base":"VLAD","file":"reskin_VLAD_RED.jpg","src":"meshy","role":"civ","desc":"crimson tracksuit variant of VLAD"},
+ {"n":"TYRELL_ORANGE","base":"TYRELL","file":"reskin_TYRELL_ORANGE.jpg","src":"meshy","role":"civ","desc":"orange windbreaker variant of TYRELL"},
+ {"n":"DIEGO_TAN","base":"DIEGO","file":"reskin_DIEGO_TAN.jpg","src":"meshy","role":"civ","desc":"tan coveralls variant of DIEGO"},
+ {"n":"PATTY_PINK","base":"PATTY","file":"reskin_PATTY_PINK.jpg","src":"meshy","role":"civ","desc":"pink diner dress variant of PATTY"},
+ {"n":"DON_GREEN","base":"DON","file":"reskin_DON_GREEN.jpg","src":"meshy","role":"civ","desc":"green tee variant of DON"}
+]

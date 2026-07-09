@@ -12,6 +12,11 @@ let chromium; try { ({ chromium } = require('playwright')); } catch (e) { ({ chr
 const NAME = process.argv[2], WALK = process.argv[3], RUN = process.argv[4];
 const OUTJS = process.argv[5] || path.join(__dirname, 'work', 'meshyskins_data.json');
 const FPS = 15;
+// Target in-game height (game units). Default 1.78 (adult). Kids bake shorter
+// via --height so the whole rig (geometry + clip root-Y + FK stride) rescales
+// consistently through the one SCALE below. Entry records it as `h`.
+const hIdx = process.argv.indexOf('--height');
+const TARGET_H = hIdx >= 0 ? +process.argv[hIdx + 1] : 1.78;
 
 function loadGLB(file) {
   const b = fs.readFileSync(file);
@@ -80,7 +85,7 @@ const JN = W.acc(prim.attributes.JOINTS_0), WT = W.acc(prim.attributes.WEIGHTS_0
 const IDX = W.acc(prim.indices);
 let minY = 1e9, maxY = -1e9;
 for (let v = 0; v < P.length / 3; v++) { if (P[v * 3 + 1] < minY) minY = P[v * 3 + 1]; if (P[v * 3 + 1] > maxY) maxY = P[v * 3 + 1]; }
-const SCALE = 1.78 / (maxY - minY), YOFF = -minY;
+const SCALE = TARGET_H / (maxY - minY), YOFF = -minY;
 console.log(NAME, 'height', (maxY - minY).toFixed(3), 'scale', SCALE.toFixed(4), 'verts', P.length / 3, 'tris', IDX.length / 3, 'joints', joints.length);
 
 // bind-pose local TRS per joint (scaled translations; the whole model is
@@ -367,7 +372,7 @@ const b64 = a => Buffer.from(a.buffer, a.byteOffset, a.byteLength).toString('bas
   await browser.close();
 
   const entry = {
-    n: NAME, tex: jpeg,
+    n: NAME, tex: jpeg, h: +TARGET_H.toFixed(3),
     skel: {
       names: jname, parents: parentOf,
       t: b64(new Int16Array(bindT.flat().map(v => Math.round(v * 2000)))),

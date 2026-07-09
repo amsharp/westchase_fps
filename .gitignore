@@ -2,3 +2,5 @@
 tools/_*.js
 wctest.html
 capture.jpg
+# Claude Code agent worktrees (transient isolated agent working copies)
+.claude/worktrees/

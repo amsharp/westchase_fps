@@ -31,5 +31,31 @@
  "xander": {
   "ref": "8c67d2ba6cb74355b37583ae65212335",
   "desc": "XANDER - laid-back young male gamer (I paused my game to be here)"
+ },
+ "_shop_comment": "Shop-interior PER-ROLE voices for the shop-life pack (shop_lines.json -> shopvoices*.js). Five NEW Fish refs below; the remaining roles REUSE existing voices — SUSHI=RIKO, STOCKER=ped_m, DELI=DENISE, DUNKIN=TINA, DOLLAR=ped_f; CUSTOMER round-robins ped_f/ped_old/GLORIA/SKYLER/BRAD/KEISHA; STAFF banter round-robins the role voices. Full mapping in shop_lines.json._voices and SHOPDIALOG.md.",
+ "SHOP_CASHIER": {
+  "ref": "ef92ae1f0735429693345308e5c8b2b6",
+  "title": "Walmart cashier",
+  "why": "NEW — friendly middle-aged female, conversational; Publix cashiers + PLAYER greet/help/found"
+ },
+ "SHOP_BUTCHER": {
+  "ref": "8699e4b61b4845ef9bdca60004d6e4a7",
+  "title": "Butcher Wally",
+  "why": "NEW — deep middle-aged male; Publix meat counter (BUTCHER_HANK)"
+ },
+ "SHOP_BARISTA": {
+  "ref": "ac97b3ce24dc4d5d878e477e907ceff3",
+  "title": "Friendly Coffee Enthusiast",
+  "why": "NEW — upbeat young female; Starbucks baristas (CHLOE/OMARI) + starbucks greet"
+ },
+ "SHOP_TELLER": {
+  "ref": "02677bd840f249a2a2621ae45675f0e2",
+  "title": "professional woman",
+  "why": "NEW — deadpan professional female; Regions tellers (BRENDA/MARCUS) + bank greet"
+ },
+ "SHOP_MANAGER": {
+  "ref": "ba24f05b17644498adb77243afd11dd9",
+  "title": "Manager",
+  "why": "NEW — authoritative middle-aged male; Publix PA/pep/escalate (GREG) + loiter/noloiter"
  }
 }

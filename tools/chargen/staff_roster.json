@@ -1,0 +1,36 @@
+{
+ "staff": {
+  "CASHIER_ROSA": "a Latina woman in her 40s with dark hair in a low bun, wearing a forest-green grocery polo shirt with a white oval name tag on the chest, a dark green half-apron tied at the waist, black slacks, black non-slip shoes",
+  "CASHIER_MIKE": "a young white man in his 20s with short sandy hair, wearing a forest-green grocery polo shirt with a white oval name tag, a dark green half-apron at the waist, khaki pants, grey sneakers",
+  "CASHIER_GWEN": "a Black woman in her 50s with short greying natural hair and reading glasses, wearing a forest-green grocery polo shirt with a white oval name tag, a dark green half-apron, black slacks, black flats",
+  "BAGGER_TYLER": "a lanky white teenage boy with a shaggy brown mop of hair, wearing a forest-green grocery polo shirt with a white name tag, a green half-apron, baggy khaki shorts, white sneakers",
+  "BAGGER_JADE": "a Black teenage girl with box braids in a ponytail, wearing a forest-green grocery polo shirt with a white name tag, a green half-apron, black jeans, white low-top sneakers",
+  "STOCKER_CARL": "a white man in his 30s with a short beard and a green ball cap worn backwards, wearing a forest-green grocery polo shirt with a name tag, a black utility apron with pockets, dark blue jeans, tan work boots",
+  "STOCKER_DEE": "a Black man in his 20s with short twists, wearing a forest-green grocery polo shirt with a name tag, a black box-cutter apron, grey cargo pants, black work sneakers",
+  "STOCKER_LUPE": "a Latina woman in her 30s with a high ponytail, wearing a forest-green grocery polo shirt with a name tag, a black stocking apron with pockets, black jeans, black sneakers",
+  "DELI_ANNA": "a white woman in her 40s with hair tucked under a white hairnet, wearing a forest-green grocery polo under a long white deli apron, clear plastic gloves, black slacks, white non-slip shoes",
+  "BUTCHER_HANK": "a heavyset white man in his 50s with a grey mustache, wearing a white butcher's coat over a green collar, a red-stained white apron, dark pants, white rubber boots, a white paper cap",
+  "PRODUCE_SAM": "an Asian man in his 20s with short black hair, wearing a forest-green grocery polo shirt with a name tag, a dark green produce apron, khaki pants, green sneakers, holding-hands-free",
+  "MANAGER_GREG": "a white man in his 40s with neat short brown hair, wearing a crisp white dress shirt with a maroon necktie and a green store manager badge clipped to the pocket, black slacks, black dress shoes",
+  "BARISTA_CHLOE": "a white woman in her 20s with a messy bun and a nose ring, wearing a black t-shirt under a dark green coffee-shop apron with a round white logo, a black beanie, blue jeans, black canvas shoes",
+  "BARISTA_OMARI": "a Black man in his 20s with a short fade, wearing a black polo under a dark green coffee-shop apron with a round white logo, dark jeans, black sneakers",
+  "DUNKIN_ASH": "a young white woman with a blonde ponytail, wearing an orange-and-brown coffee-shop polo with a white name tag, a brown visor cap, black pants, black non-slip shoes",
+  "DUNKIN_RAJ": "an Indian man in his 20s with short black hair, wearing an orange-and-brown coffee-shop polo with a name tag, a brown visor cap, khaki pants, brown shoes",
+  "SUSHI_KENJI": "a Japanese man in his 40s with a black-and-white bandana headband tied at the back, wearing a double-breasted white sushi-chef coat with a black collar, a navy waist apron, black pants, black kitchen shoes",
+  "TELLER_BRENDA": "a white woman in her 40s with a shoulder-length blonde bob, wearing a light-blue button-up blouse under a grey cardigan with a small bank name badge, a navy pencil skirt, low navy heels",
+  "TELLER_MARCUS": "a Black man in his 30s with short hair and glasses, wearing a crisp white dress shirt with a navy tie and a bank name badge, grey dress slacks, brown dress shoes",
+  "DOLLAR_PAM": "a white woman in her 30s with reddish hair in a ponytail, wearing a bright green discount-store vest over a black t-shirt with a white name tag, blue jeans, white sneakers"
+ },
+ "venue": {
+  "CASHIER_ROSA": ["Publix", "cashier"], "CASHIER_MIKE": ["Publix", "cashier"], "CASHIER_GWEN": ["Publix", "cashier"],
+  "BAGGER_TYLER": ["Publix", "bagger"], "BAGGER_JADE": ["Publix", "bagger"],
+  "STOCKER_CARL": ["Publix", "stocker"], "STOCKER_DEE": ["Publix", "stocker"], "STOCKER_LUPE": ["Publix", "stocker"],
+  "DELI_ANNA": ["Publix", "deli"], "BUTCHER_HANK": ["Publix", "butcher"], "PRODUCE_SAM": ["Publix", "produce"],
+  "MANAGER_GREG": ["Publix", "manager"],
+  "BARISTA_CHLOE": ["Starbucks", "barista"], "BARISTA_OMARI": ["Starbucks", "barista"],
+  "DUNKIN_ASH": ["Dunkin", "crew"], "DUNKIN_RAJ": ["Dunkin", "crew"],
+  "SUSHI_KENJI": ["Sakura Sushi", "chef"],
+  "TELLER_BRENDA": ["Regions Bank", "teller"], "TELLER_MARCUS": ["Regions Bank", "teller"],
+  "DOLLAR_PAM": ["Dollar Tree", "clerk"]
+ }
+}

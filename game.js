@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.45.0';
+var GAME_VERSION = 'v1.51.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -18,9 +18,13 @@ document.getElementById('gameVer').textContent = GAME_VERSION;
 var WC_REMAP = true;
 if (typeof window !== 'undefined' && window.WC_REMAP_OVERRIDE !== undefined) WC_REMAP = !!window.WC_REMAP_OVERRIDE;
 if (typeof REMAP_ROADS === 'undefined') WC_REMAP = false;   // data file missing -> legacy world
-// The editor-authored map (REMAP_VENUES) is the whole building set; the survey
-// house fill (houses.js) is disabled under WC_REMAP but its assets stay loaded.
-var STAMP_SURVEY_HOUSES = !WC_REMAP;
+// The editor-authored map (REMAP_VENUES) is the intersection landmark set; the
+// survey house fill (houses.js) populates the residential neighborhoods around
+// it. Its HOUSE_INSTANCES were re-vetted against the true roads/venues/surfaces
+// (tools/housegen/revet.js) so they no longer clip the remap geometry; the
+// runtime houseOnRoad() drop below is a deterministic safety net. Requires the
+// houses.js data file (guarded where consumed).
+var STAMP_SURVEY_HOUSES = (typeof HOUSE_CLUSTERS !== 'undefined');
 
 // ---------------- world constants ----------------
 var HALF = 600, TOTAL = HALF * 2;   // expanded world (map expansion)
@@ -145,22 +149,41 @@ function noise(g, s, n, dark, light) {
   }
 }
 
-var grassT = tex(128, function (g, s) {
-  g.fillStyle = '#5f9440'; g.fillRect(0, 0, s, s);
-  for (var i = 0; i < 5; i++) {
-    var gx = Math.random() * s, gy = Math.random() * s;
-    var gr = g.createRadialGradient(gx, gy, 2, gx, gy, 18 + Math.random() * 14);
-    gr.addColorStop(0, 'rgba(120,96,52,0.35)'); gr.addColorStop(1, 'rgba(120,96,52,0)');
-    g.fillStyle = gr; g.fillRect(0, 0, s, s);
+var grassT = tex(256, function (g, s) {
+  // richer, less-neon turf: deeper olive base + many SMALL tonal patches
+  // (kept well under half a tile so the ~10u world tiling doesn't read as
+  // repeating blobs) + dense blade detail + sparse dry/dirt flecks.
+  g.fillStyle = '#4f7d37'; g.fillRect(0, 0, s, s);
+  // broad soft mottle in muted greens/olives (small radii → fine grain)
+  var patch = ['rgba(64,102,44,0.5)', 'rgba(108,142,74,0.45)', 'rgba(88,120,58,0.4)',
+               'rgba(120,110,66,0.28)', 'rgba(70,96,48,0.5)'];
+  for (var i = 0; i < 70; i++) {
+    var gx = Math.random() * s, gy = Math.random() * s, gr2 = 5 + Math.random() * 20;
+    var gr = g.createRadialGradient(gx, gy, 1, gx, gy, gr2);
+    gr.addColorStop(0, patch[(Math.random() * patch.length) | 0]); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = gr; g.fillRect(gx - gr2, gy - gr2, gr2 * 2, gr2 * 2);
   }
-  var greens = ['#527f35', '#6ba14a', '#7cb058', '#48732e', '#86b465'];
-  for (i = 0; i < 900; i++) {
+  // dense blade speckle (varied greens, muted highs)
+  var greens = ['#4a7330', '#5d8a3e', '#6f9c4a', '#3f6a2a', '#77a352', '#547a36'];
+  for (i = 0; i < 2600; i++) {
     g.strokeStyle = greens[(Math.random() * greens.length) | 0];
     g.lineWidth = 1;
     var x = Math.random() * s, y = Math.random() * s;
-    g.beginPath(); g.moveTo(x, y); g.lineTo(x + (Math.random() - 0.5) * 2, y - 2 - Math.random() * 3); g.stroke();
+    g.beginPath(); g.moveTo(x, y); g.lineTo(x + (Math.random() - 0.5) * 2.5, y - 2 - Math.random() * 4); g.stroke();
   }
+  // a few dry/dirt flecks for tonal break-up
+  for (i = 0; i < 120; i++) { g.fillStyle = Math.random() < 0.5 ? 'rgba(120,104,64,0.4)' : 'rgba(150,158,120,0.3)'; g.fillRect((Math.random() * s) | 0, (Math.random() * s) | 0, 2, 2); }
 }, TOTAL / 10, TOTAL / 10);
+
+// forest-floor litter (dark leaf/needle/dirt cover under dense canopy)
+var forestFloorT = tex(128, function (g, s) {
+  g.fillStyle = '#33471f'; g.fillRect(0, 0, s, s);
+  var pt = ['rgba(46,58,26,0.6)', 'rgba(70,52,28,0.55)', 'rgba(58,44,22,0.5)', 'rgba(40,54,26,0.6)', 'rgba(88,74,40,0.35)'];
+  for (var i = 0; i < 60; i++) { var gx = Math.random() * s, gy = Math.random() * s, r = 4 + Math.random() * 16, gr = g.createRadialGradient(gx, gy, 1, gx, gy, r); gr.addColorStop(0, pt[(Math.random() * pt.length) | 0]); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(gx - r, gy - r, r * 2, r * 2); }
+  // scattered leaf/needle litter strokes + twigs
+  var lit = ['#5a4a24', '#6e5a2c', '#3c4a20', '#7a6636', '#485a26'];
+  for (i = 0; i < 1400; i++) { g.strokeStyle = lit[(Math.random() * lit.length) | 0]; g.lineWidth = 1; var x = Math.random() * s, y = Math.random() * s, a = Math.random() * 6.28; g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * 3, y + Math.sin(a) * 3); g.stroke(); }
+}, TOTAL / 12, TOTAL / 12);
 
 var walkT = tex(128, function (g, s) {
   g.fillStyle = '#b5b1a6'; g.fillRect(0, 0, s, s);
@@ -427,7 +450,10 @@ function blobShadow(sx, sz, y) { var m = new THREE.Mesh(shadowGeo, shadowMat); m
 
 var colliders = [], solidMeshes = [];
 var landColliders = null;   // colliders minus the lake block — the player may wade in
-function addCollider(cx, cz, w, d) { colliders.push({ x0: cx - w / 2, x1: cx + w / 2, z0: cz - d / 2, z1: cz + d / 2 }); }
+// returns the pushed collider object so callers (breakable props) can toggle
+// `.active` off/on when the prop topples/respawns — pushOut skips inactive
+// entries in place, so the reference stays valid inside landColliders too.
+function addCollider(cx, cz, w, d) { var o = { x0: cx - w / 2, x1: cx + w / 2, z0: cz - d / 2, z1: cz + d / 2 }; colliders.push(o); return o; }
 // oriented-bounding-box collider (remap roadside furniture, rotated venue
 // footprints in R3/R4). Carries its world-space AABB bounds too, so every
 // legacy reader that iterates colliders (berserk cars, parked-slot rejection,
@@ -485,7 +511,13 @@ var skyDome = null;
   var uv = geo.attributes.uv;
   for (var i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) / (E * 2) + 0.5, uv.getY(i) / (E * 2) + 0.5);
   geo.rotateX(-Math.PI / 2);
-  scene.add(new THREE.Mesh(geo, lamb2(grassT)));
+  // push the huge base plane very slightly back in depth so the many overlaid
+  // ground layers (road 0.05 / lots 0.10 / sidewalks 0.12 / pads 0.16) always
+  // win the depth test — kills any distance-dependent coplanar z-fighting on
+  // real GPUs regardless of the small (5cm) vertical separations above it.
+  var gmat = lamb2(grassT);
+  gmat.polygonOffset = true; gmat.polygonOffsetFactor = 1; gmat.polygonOffsetUnits = 1;
+  scene.add(new THREE.Mesh(geo, gmat));
 })();
 
 function roadStrip(cx, cz, w, d, vertical) {
@@ -827,11 +859,18 @@ function getPackPropPink(name) {   // blossom recolor of a pack prop (crepe myrt
   packPinkCache[name] = { geo: pp.geo, mat: lamb({ map: tx, alphaTest: 0.4, side: THREE.DoubleSide }), h: pp.h };
   return packPinkCache[name];
 }
-function registerBreakable(g, x, z, r, type, light) {
+// collR (optional): half-width of a small trunk/pole collider registered
+// alongside the breakable's (much larger) car-snap radius `r` — solid to the
+// player/NPCs/cops/cars, but toggled inactive while the prop is toppled
+// (breakProp) and reactivated on respawn (updateWorldFx), so a felled tree
+// doesn't leave a floating wall.
+function registerBreakable(g, x, z, r, type, light, collR) {
+  var col = collR ? addCollider(x, z, collR * 2, collR * 2) : null;
   breakables.push({
     g: g, x: x, z: z, r: r, type: type, light: light || null,
     broken: false, fallT: 0, respawnT: 0, fx: 1, fz: 0, thudded: false,
-    yq: new THREE.Quaternion().setFromAxisAngle(Y_UP, g.rotation.y)
+    yq: new THREE.Quaternion().setFromAxisAngle(Y_UP, g.rotation.y),
+    col: col
   });
 }
 
@@ -859,7 +898,7 @@ function oak(x, z, scale) {
     g2.add(blobShadow(2 * scale, 2 * scale, 0.05));
     g2.position.set(x, 0, z); g2.rotation.y = Math.random() * Math.PI * 2;
     scene.add(g2);
-    registerBreakable(g2, x, z, 1.0, 'tree');
+    registerBreakable(g2, x, z, 1.0, 'tree', null, 0.4 * scale);
     return;
   }
   var g = new THREE.Group();
@@ -880,7 +919,7 @@ function oak(x, z, scale) {
   g.add(blobShadow(2 * scale, 2 * scale, 0.05));
   g.position.set(x, 0, z); g.rotation.y = Math.random() * Math.PI;
   scene.add(g);
-  registerBreakable(g, x, z, 1.0, 'tree');
+  registerBreakable(g, x, z, 1.0, 'tree', null, 0.4 * scale);
 }
 
 // palm (kept, less common)
@@ -913,7 +952,7 @@ function palm(x, z) {
   for (var i = 0; i < 8; i++) { var f = new THREE.Mesh(frondGeo, frondMat); f.rotation.y = i / 8 * Math.PI * 2 + Math.random() * 0.4; f.rotation.z = (Math.random() - 0.5) * 0.2; crown.add(f); }
   g.add(crown); g.add(blobShadow(1.1, 1.1, 0.05));
   g.position.set(x, 0, z); g.rotation.y = Math.random() * Math.PI; scene.add(g);
-  registerBreakable(g, x, z, 0.8, 'tree');
+  registerBreakable(g, x, z, 0.8, 'tree', null, 0.3);
 }
 
 function forestPatch(x0, x1, z0, z1, count) {
@@ -1811,6 +1850,7 @@ var expFillPts = [];   // [x,z] of every fill tree (debug/audit)
 (function expForestFill() {
   var props = [getPackProp('oak1'), getPackProp('oak2'), getPackProp('oak3')];
   if (!props[0] || !props[1] || !props[2]) return;   // prop pack absent -> keep old sparse look
+  var bushP = [getPackProp('bush1'), getPackProp('bush2')].filter(Boolean);   // understory
   var m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), pv = new THREE.Vector3(), sv = new THREE.Vector3();
   // include the core patches too: their random count-based planting leaves
   // 15-25u bare gaps along their collider edges (same invisible-wall feel)
@@ -1831,13 +1871,23 @@ var expFillPts = [];   // [x,z] of every fill tree (debug/audit)
       pts.push([x0 + 1.5 + Math.random() * 5, ez]);
       pts.push([x1 - 1.5 - Math.random() * 5, ez]);
     }
-    // interior scatter
-    var ni = Math.round(w * d / 650);
-    for (j = 0; j < ni; j++) pts.push([x0 + 2 + Math.random() * (w - 4), z0 + 2 + Math.random() * (d - 4)]);
+    // interior scatter — dense Florida hammock: ~1 canopy tree per 300u^2,
+    // loosely clustered so the floor reads covered, not a regular grid
+    var ni = Math.round(w * d / 340);
+    for (j = 0; j < ni; j++) {
+      if (j % 4 === 0 || pts.length === 0) { pts.push([x0 + 2 + Math.random() * (w - 4), z0 + 2 + Math.random() * (d - 4)]); }
+      else { var an = pts[pts.length - 1]; pts.push([Math.max(x0 + 1, Math.min(x1 - 1, an[0] + (Math.random() - 0.5) * 16)), Math.max(z0 + 1, Math.min(z1 - 1, an[1] + (Math.random() - 0.5) * 16))]); }
+    }
+    // understory (low wide shrubs / palmetto clumps) — denser than the canopy
+    var upts = [];
+    var nu = bushP.length ? Math.round(w * d / 150) : 0;
+    for (j = 0; j < nu; j++) upts.push([x0 + 1 + Math.random() * (w - 2), z0 + 1 + Math.random() * (d - 2)]);
     // remap: keep fill trees off the true road ribbons (visual-only trees
     // standing on the new diagonals would read as broken; the patch colliders
     // are already split around the roads by the forestPatch guard)
-    pts = pts.filter(function (fp) { return (!WC_REMAP || remapPointClear(fp[0], fp[1], 2.5)) && !inLake(fp[0], fp[1]); });
+    var keep = function (fp) { return (!WC_REMAP || remapPointClear(fp[0], fp[1], 2.5)) && !inLake(fp[0], fp[1]); };
+    pts = pts.filter(keep);
+    upts = upts.filter(keep);
     // bucket by prop, one InstancedMesh per prop per patch
     var buckets = [[], [], []];
     for (j = 0; j < pts.length; j++) { buckets[(Math.random() * 3) | 0].push(pts[j]); expFillPts.push(pts[j]); }
@@ -1854,7 +1904,8 @@ var expFillPts = [];   // [x,z] of every fill tree (debug/audit)
       cg.boundingSphere = sphere;
       var im = new THREE.InstancedMesh(cg, pp.mat, list.length);
       for (j = 0; j < list.length; j++) {
-        var sc = 8.5 * (0.85 + Math.random() * 0.5) / pp.h;
+        // wide height spread (0.6-1.65) so canopy layers instead of a flat top
+        var sc = 8.5 * (0.6 + Math.random() * Math.random() * 1.65) / pp.h;
         q.setFromAxisAngle(Y_UP, Math.random() * Math.PI * 2);
         pv.set(list[j][0], 0, list[j][1]); sv.set(sc, sc, sc);
         m4.compose(pv, q, sv);
@@ -1862,6 +1913,30 @@ var expFillPts = [];   // [x,z] of every fill tree (debug/audit)
       }
       im.instanceMatrix.needsUpdate = true;
       scene.add(im);
+    }
+    // understory shrubs bucketed across the bush props (culled by patch sphere)
+    if (upts.length) {
+      var ubuckets = bushP.map(function () { return []; });
+      for (j = 0; j < upts.length; j++) ubuckets[(Math.random() * bushP.length) | 0].push(upts[j]);
+      for (var ub = 0; ub < bushP.length; ub++) {
+        var ul = ubuckets[ub]; if (!ul.length) continue;
+        var bp = bushP[ub];
+        var ubg = new THREE.BufferGeometry();
+        ubg.setAttribute('position', bp.geo.getAttribute('position'));
+        ubg.setAttribute('uv', bp.geo.getAttribute('uv'));
+        ubg.setAttribute('normal', bp.geo.getAttribute('normal'));
+        ubg.boundingSphere = sphere;
+        var uim = new THREE.InstancedMesh(ubg, bp.mat, ul.length);
+        for (j = 0; j < ul.length; j++) {
+          var uw = (1.0 + Math.random() * 1.6) / bp.h;   // low + wide (palmetto-ish)
+          q.setFromAxisAngle(Y_UP, Math.random() * Math.PI * 2);
+          pv.set(ul[j][0], 0, ul[j][1]); sv.set(uw, uw * (0.55 + Math.random() * 0.35), uw);
+          m4.compose(pv, q, sv);
+          uim.setMatrixAt(j, m4);
+        }
+        uim.instanceMatrix.needsUpdate = true;
+        scene.add(uim);
+      }
     }
     // one instanced shadow blob layer per patch
     var sg = new THREE.BufferGeometry();
@@ -1880,6 +1955,38 @@ var expFillPts = [];   // [x,z] of every fill tree (debug/audit)
     sm.instanceMatrix.needsUpdate = true;
     scene.add(sm);
   }
+})();
+
+// ---- merged forest-floor cover ----
+// One dark leaf-litter quad under every forest patch, all merged into a single
+// BufferGeometry (1 draw call). Covers the bright turf under the dense canopy
+// so the floor reads as shaded forest litter. Inset a few units so its edge
+// falls under the edge tree line (no hard dark rectangle on the open grass).
+(function forestFloorCover() {
+  if (!mapForest.length) return;
+  var TS = 9, pos = [], uv = [], nrm = [], inset = 3;
+  for (var i = 0; i < mapForest.length; i++) {
+    var r = mapForest[i];
+    var ax = r.x0 + inset, bx = r.x1 - inset, az = r.z0 + inset, bz = r.z1 - inset;
+    if (bx - ax < 4 || bz - az < 4) continue;
+    // two triangles, y just above the base grass plane
+    var y = 0.06;
+    var q = [[ax, az], [bx, az], [bx, bz], [ax, bz]];
+    var tri = [0, 1, 2, 0, 2, 3];
+    for (var t = 0; t < 6; t++) { var p = q[tri[t]]; pos.push(p[0], y, p[1]); uv.push(p[0] / TS, p[1] / TS); nrm.push(0, 1, 0); }
+  }
+  if (!pos.length) return;
+  var g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uv), 2));
+  g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(nrm), 3));
+  var ftex = forestFloorT.clone(); ftex.needsUpdate = true; ftex.repeat.set(1, 1);
+  // DoubleSide: the merged quads are wound front-down, so a single-sided
+  // material would backface-cull the whole cover when viewed from above.
+  var fmat = lamb({ map: ftex, side: THREE.DoubleSide });
+  fmat.polygonOffset = true; fmat.polygonOffsetFactor = -2; fmat.polygonOffsetUnits = -2;
+  var fm = new THREE.Mesh(g, fmat); fm.frustumCulled = false;
+  scene.add(fm);
 })();
 
 // keep random scatter off the new roads/ponds
@@ -2214,7 +2321,7 @@ function buildRemapLanes(stitches) {
         var dx = RM.nodes[j].x - ends[en][0], dz = RM.nodes[j].z - ends[en][1];
         if (dx * dx + dz * dz < 25) { nd = RM.nodes[j]; break; }
       }
-      if (!nd) { nd = { x: ends[en][0], z: ends[en][1], legs: [] }; RM.nodes.push(nd); }
+      if (!nd) { nd = { x: ends[en][0], z: ends[en][1], legs: [], id: RM.nodes.length }; RM.nodes.push(nd); }
       nd.legs.push({ e: i, end: en });
       e.node[en] = nd;
     }
@@ -2241,7 +2348,8 @@ function remapSeedCar(c, rng) {
   c.rLane = (rnd() * e.lanes.length) | 0;
   c.rOff = e.lanes[c.rLane];
   c.rS = e.m0 + rnd() * Math.max(1, e.len - e.m0 - e.m1);
-  c.speed = e.spdA + rnd() * e.spdB;
+  c.cruise = e.spdA + rnd() * e.spdB;
+  c.speed = c.cruise;
   var p = rmLanePos(c, c.rS);
   c.rTx = p.tx; c.rTz = p.tz;
   c.car.group.position.set(p.x, 0, p.z);
@@ -2265,7 +2373,7 @@ function remapAdvance(c, dt) {
     c.rLane = Math.min(c.rLane, ne.lanes.length - 1);
     c.rOff = ne.lanes[c.rLane];
     c.rS = pk.end === 0 ? ne.m0 : ne.len - ne.m1;
-    c.speed = ne.spdA + Math.random() * ne.spdB;
+    c.cruise = ne.spdA + Math.random() * ne.spdB;   // new free-flow target; keep current c.speed for a smooth turn
   } else {
     c.rDir = -c.rDir;   // dead end / ROAD CLOSED barrier: turn around
     c.rS = Math.max(lo, Math.min(hi, c.rS));
@@ -2592,6 +2700,16 @@ function houseBuildTagged(cl) {
   var rep = houseRepeats(spec);
   var g = new THREE.Group();
   var frontM = { t: 'front' }, sideM = { t: 'side' }, backM = { t: 'back' };
+  // double-window fix: the side/back facade tiles bake a painted window in,
+  // while feat.win extrudes 3D window boxes on those same walls — so a house
+  // with feat.win showed painted AND geometry windows (misaligned, jarring).
+  // Every cluster's FRONT tile is window-less siding/brick, so when a cluster
+  // owns 3D window boxes we skin all four walls with the front (plain) tile:
+  // the extruded boxes become the single, coherent window treatment. Clusters
+  // without feat.win keep their painted-window side/back tiles (no doubling).
+  var hasWinBoxes = feat.win && Object.keys(feat.win).length > 0;
+  var wallSideM = hasWinBoxes ? frontM : sideM;
+  var wallBackM = hasWinBoxes ? frontM : backM;
   var plainM = { t: 'plain' }, trimM = { t: 'trim' }, gableM = { t: 'gable', s: 1 / rep.gN, gRep: rep.gRep };
   var concM = { t: 'conc' }, glassM = { t: 'glass' }, doorM = { t: 'door' }, garM = { t: 'garage' };
   var roofM = { t: 'roofbig', sx: rep.rx / rep.cols, sy: rep.ry / rep.rows };
@@ -2604,7 +2722,7 @@ function houseBuildTagged(cl) {
     slab.position.y = h + 0.3; g.add(slab);
   } else {
     var topM = spec.roofType === 'flat' ? roofM : plainM;
-    var body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [sideM, sideM, topM, plainM, frontM, backM]);
+    var body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [wallSideM, wallSideM, topM, plainM, frontM, wallBackM]);
     body.position.y = h / 2 + 0.05;
     g.add(body);
   }
@@ -3099,7 +3217,7 @@ function crepeMyrtle(x, z) {
     for (var i = 0; i < 4; i++) { var c = new THREE.Mesh(bushGeo, lm); var r = 0.8 + Math.random() * 0.5; c.scale.set(r, r * 0.9, r); c.position.set((Math.random() - 0.5) * 1.2, h + (Math.random() - 0.3), (Math.random() - 0.5) * 1.2); g.add(c); }
   }
   g.add(blobShadow(1, 1, 0.05)); g.position.set(x, 0, z); scene.add(g);
-  registerBreakable(g, x, z, 0.7, 'tree');
+  registerBreakable(g, x, z, 0.7, 'tree', null, 0.18);
 }
 
 // mast-arm traffic signals — lamps register in signalLights and CYCLE
@@ -3131,6 +3249,7 @@ function mastArm(px, pz, ax, az, len, nHeads, fx, fz, sign, signRy) {
   var g = new THREE.Group(); g.position.set(px, 0, pz);
   var poleH = 7.8, armY = poleH - 0.5;
   g.add(cyl(0.28, 0.34, poleH, 10, poleMetal, 0, poleH / 2, 0));
+  addCollider(px, pz, 0.68, 0.68);   // signal pole base — static, not breakable
   g.add(box(Math.abs(ax) * len + 0.25, 0.22, Math.abs(az) * len + 0.25, poleMetal, ax * len / 2, armY, az * len / 2));
   for (var i = 0; i < nHeads; i++) {
     var t = (i + 1) / (nHeads + 1) * len;
@@ -3164,7 +3283,7 @@ function utilityPole(x, z) {
   g.add(box(0.5, 0.75, 0.42, xfmrM, 0.34, h - 2.2, 0));
   g.position.set(x, 0, z);
   scene.add(g);
-  registerBreakable(g, x, z, 0.45, 'light');
+  registerBreakable(g, x, z, 0.45, 'light', null, 0.32);
   return { x: x, y: h - 0.3, z: z };
 }
 function wire(a, b) {
@@ -3238,6 +3357,78 @@ function updateSignals(dt) {
     var L = signalLights[j], want = L.grp === 'main' ? m : x;
     L.mesh.material = L.col === want ? L.lit : L.dark;
   }
+}
+
+// ---- traffic control: car-following + red-light + stop-sign speed governor ----
+// carSignals holds the signalized Y-junction approaches (populated by the R3
+// junction furniture): {x,z, ux,uz (inbound unit dir toward junction), hw,
+// grp:'main'|'cross', barX,barZ (stop-bar center)}. Cars read the live lamp
+// color via sigMain/sigCross. Host-side only; clients mirror positions.
+var carSignals = [];
+var CAR_STOP_D = 5.6;     // center-to-center spacing when queued (car len 4.64 + gap)
+var CAR_HEADWAY = 0.85;   // time-headway (s) turning gap into a target speed
+// desired speed for a remap traffic car: the min of free-flow cruise, the gap
+// to the leader ahead, the distance to a red light, and any stop-sign hold.
+function carDesiredSpeed(c, idx, dt) {
+  var des = c.cruise !== undefined ? c.cruise : c.speed;
+  var m = c.car.group.position;
+  var hx = c.rTx, hz = c.rTz;
+  if (hx === undefined) { var hr = c.car.group.rotation.y; hx = Math.cos(hr); hz = -Math.sin(hr); }
+  // (a) car-following: nearest car ahead in the same-lane cone
+  var bestGap = Infinity;
+  for (var j = 0; j < cars.length; j++) {
+    if (j === idx) continue;
+    var o = cars[j];
+    if (o.exploded) continue;
+    var om = o.car.group.position;
+    var dx = om.x - m.x, dz = om.z - m.z;
+    var fwd = dx * hx + dz * hz;
+    if (fwd <= 0.05) continue;                        // behind or beside us
+    if (fwd > 26) continue;                           // out of headway range
+    var lat = -dx * hz + dz * hx; if (lat < 0) lat = -lat;
+    if (lat > 2.3) continue;                          // different lane / off our path
+    // ignore oncoming traffic (car forward = (cos ry, -sin ry) for every car)
+    var oh = o.car.group.rotation.y, ohx = Math.cos(oh), ohz = -Math.sin(oh);
+    if (!o.parked && (hx * ohx + hz * ohz) < 0.1) continue;
+    if (fwd < bestGap) bestGap = fwd;
+  }
+  if (bestGap < Infinity) des = Math.min(des, Math.max(0, bestGap - CAR_STOP_D) / CAR_HEADWAY);
+  // (b) red lights: stop at the bar of the approach we're driving toward
+  for (var s = 0; s < carSignals.length; s++) {
+    var lg = carSignals[s];
+    var col = lg.grp === 'main' ? sigMain : sigCross;
+    if (col !== 'r' && col !== 'y') continue;         // green -> go
+    if (hx * lg.ux + hz * lg.uz < 0.6) continue;      // not heading in on this leg
+    var bx = lg.barX - m.x, bz = lg.barZ - m.z;
+    var bf = bx * hx + bz * hz;
+    if (bf < -1.5) continue;                          // already through the bar
+    var bl = -bx * hz + bz * hx; if (bl < 0) bl = -bl;
+    if (bl > lg.hw + 2) continue;                     // not on this approach lane
+    // on yellow only start stopping if there's comfortable room; else clear it
+    if (col === 'y' && bf < 6) continue;
+    des = Math.min(des, Math.max(0, bf - 1.8) / 0.65);
+  }
+  // (c) stop signs: brief hold at uncontrolled 3+ leg nodes (never the central
+  // signal Y near the origin). Per-node one-shot with a hard timeout -> no deadlock.
+  if (RM) {
+    var e = RM.edges[c.rEdge], end = c.rDir > 0 ? 1 : 0, nd = e.node[end];
+    if (nd && nd.legs.length >= 3 && (nd.x * nd.x + nd.z * nd.z) > 1600) {
+      var distNode = c.rDir > 0 ? (e.len - c.rS) : c.rS;
+      if (distNode < 8) {
+        if (c._ssNode !== nd.id) { c._ssNode = nd.id; c._ssT = 1.2; }   // arrive: arm the stop
+        if (c._ssT > 0) { c._ssT -= dt; des = Math.min(des, Math.max(0, distNode - 2.5) / 0.55); }
+      }
+    }
+  }
+  return des;
+}
+// ease actual speed toward the governor's target (firmer decel than accel)
+function applyCarGovernor(c, idx, dt) {
+  var des = carDesiredSpeed(c, idx, dt);
+  var rate = des < c.speed ? 24 : 8;
+  var d = des - c.speed, step = rate * dt;
+  c.speed += d < -step ? -step : (d > step ? step : d);
+  if (c.speed < 0) c.speed = 0;
 }
 
 // corner sabal-palm clusters — 3 per junction corner island (staggered heights
@@ -3344,7 +3535,7 @@ function streetlight(x, z, ax, az) {
   scene.add(g);
   var entry = { head: head, glow: glow, pool: pool, broken: false };
   streetLights.push(entry);
-  registerBreakable(g, x, z, 0.6, 'light', entry);
+  registerBreakable(g, x, z, 0.6, 'light', entry, 0.22);
 }
 (function placeStreetlights() {
   if (WC_REMAP) remapStreetlightRows();   // chainage rows along the true arterials/collectors
@@ -4046,7 +4237,7 @@ function buildPerson(shirtC, pantsC, skinC, opts) {
 }
 
 var npcs = [];
-var NPC_COUNT = 46;   // raised for the expanded map — the core keeps ~the old 28
+var NPC_COUNT = 138;  // 3x density pass (was 46) — busy-street population
 // home-zone weights: core intersection / residential neighborhoods / collectors+Lynmar
 var NPC_W_CORE = 0.60, NPC_W_RES = 0.32;   // remainder (~0.08) = collectors
 var WALK = WC_REMAP ? { x0: -240, x1: 120, z0: -180, z1: 170 }   // recentred on the true venue span
@@ -4194,7 +4385,15 @@ function npcCarThreat(n) {
     var vx, vz;
     if (c.berserk) { vx = c.bvx; vz = c.bvz; }
     else if (c.shoveT > 0) { vx = c.svx; vz = c.svz; }
-    else if (c.stolen || carDrivenByPlayer(c) || c === driving) { vx = c._pvx || 0; vz = c._pvz || 0; }
+    else if (c.stolen || carDrivenByPlayer(c) || c === driving) {
+      // a car driven by a REMOTE player is a synced world car (host mirrors its
+      // pos via drivenBy) — use that remote's mirrored velocity so it registers
+      // as a threat between the 14Hz updates; local/host-driven cars fall back
+      // to the per-frame position-delta sample (c._pvx/_pvz).
+      var rd = (c.drivenBy && net.remotes) ? net.remotes[c.drivenBy] : null;
+      if (rd) { vx = rd.vx || c._pvx || 0; vz = rd.vz || c._pvz || 0; }
+      else { vx = c._pvx || 0; vz = c._pvz || 0; }
+    }
     else { vx = c.axis === 'x' ? c.dir * c.speed : 0; vz = c.axis === 'z' ? c.dir * c.speed : 0; }
     var sp = Math.sqrt(vx * vx + vz * vz);
     if (sp < 2.5) continue;                                 // parked / crawling
@@ -4469,9 +4668,13 @@ function getStreetProp(name) {
 }
 
 // props big enough to block movement (AABB collider)
-var SP_SOLID = { dumpster: 1, busshelter: 1, vendingmachine: 1, atm: 1, transformerbox: 1, icechest: 1, propanecage: 1, jerseybarrier: 1, picnictable: 1, planter: 1 };
+var SP_SOLID = { dumpster: 1, busshelter: 1, vendingmachine: 1, atm: 1, transformerbox: 1, icechest: 1, propanecage: 1, jerseybarrier: 1, picnictable: 1, planter: 1, bench: 1, mailbox: 1, homemailbox: 1, bikerack: 1, tirestack: 1, acunit: 1 };
 // props cars snap: 'light' = metal pole crunch, 'tree' = punted clutter
 var SP_SNAP = { stopsign: 'light', yieldsign: 'light', speedsign: 'light', onewaysign: 'light', parkingmeter: 'light', payphone: 'light', hydrant: 'light', cone: 'tree', barricade: 'tree', trashcan: 'tree', wheeliebin: 'tree', shoppingcart: 'tree', newsbox: 'tree' };
+// breakable street props that also block on foot: half-width of the small
+// base/pole collider handed to registerBreakable (deactivates while toppled).
+// Cones / barricades / shopping carts stay pass-through — steppable clutter.
+var SP_BLOCKR = { hydrant: 0.24, parkingmeter: 0.15, payphone: 0.3, stopsign: 0.14, yieldsign: 0.14, speedsign: 0.14, onewaysign: 0.14, newsbox: 0.24, trashcan: 0.36, wheeliebin: 0.35 };
 var SP_INTERACT = { vendingmachine: 'vend', payphone: 'phone', atm: 'atm', newsbox: 'news' };
 // authored front is -x; face = direction the front should point in the world
 var SP_FACE = { W: 0, E: Math.PI, N: -Math.PI / 2, S: Math.PI / 2 };
@@ -4575,7 +4778,7 @@ function spOverlapsBuilding(x, z, hx, hz) {
       solidMeshes.push(g);   // bullets stop on the big stuff
     }
     if (SP_SNAP[name]) {
-      registerBreakable(g, x, z, Math.max(hx, hz) + 0.15, SP_SNAP[name]);
+      registerBreakable(g, x, z, Math.max(hx, hz) + 0.15, SP_SNAP[name], null, SP_BLOCKR[name] || 0);
       var bb = breakables[breakables.length - 1];
       if (name === 'parkingmeter') bb.kind = 'meter';
       if (name === 'hydrant') bb.kind = 'hydrant';
@@ -4586,6 +4789,694 @@ function spOverlapsBuilding(x, z, hx, hz) {
       streetPropInteractables.push(it);
     }
   }
+})();
+
+// ============================================================
+// PHASE 3 — DENSITY LAYER (WC_REMAP only)
+// Re-adds the detail layer the true-geometry cutover left un-placed
+// (street/yard trees, contextual street props, Y-junction traffic
+// furniture, frontage landscaping) AND integrates the 54
+// densityprops.js assets (decals / signs / clutter / fences).
+// All static scenery: render-only, never simulated or net-synced.
+// Decals/signs/clutter/fences of one texture merge into a single
+// BufferGeometry (one draw call per distinct asset) to stay well
+// under the added-draw-call budget; only solid props/fences take
+// colliders.
+// ============================================================
+var densityStats = { trees: 0, props: 0, decals: 0, signs: 0, clutter: 0, fence: 0, batches: 0 };
+if (WC_REMAP) (function densityLayer() {
+  var deg = Math.PI / 180;
+  function rnd(a, b) { return a + Math.random() * (b - a); }
+  function pick(a) { return a[(Math.random() * a.length) | 0]; }
+  // ---- shared unit geometries, baked through a matrix into merged batches ----
+  var UDECAL = new THREE.PlaneGeometry(1, 1); UDECAL.rotateX(-Math.PI / 2);   // faces +y (XZ plane)
+  var USIGN = new THREE.PlaneGeometry(1, 1);                                    // faces +z (XY plane)
+  var UBOX = new THREE.BoxGeometry(1, 1, 1);
+  var UCYL = new THREE.CylinderGeometry(0.5, 0.5, 1, 10);
+  function mtx(px, py, pz, ry, sx, sy, sz) {
+    var m = new THREE.Matrix4();
+    return m.compose(new THREE.Vector3(px, py, pz), new THREE.Quaternion().setFromAxisAngle(Y_UP, ry || 0), new THREE.Vector3(sx, sy, sz));
+  }
+  // ---- DENSITY_PROPS registry + keyed textures ----
+  var dAsset = {};
+  if (typeof DENSITY_PROPS !== 'undefined') for (var di = 0; di < DENSITY_PROPS.length; di++) dAsset[DENSITY_PROPS[di].n] = DENSITY_PROPS[di];
+  // every sign is authored on a black field -> key the gutter transparent; a
+  // handful of decals/clutter/fences read best keyed too (luminance < thr -> clear)
+  var KEY = {};
+  ['billboard_ad', 'storefront_sign', 'grand_opening_banner', 'flyer_sheet', 'for_sale_sign', 'menu_board', 'bus_route_sign', 'graffiti_panel', 'wall_mural', 'roadwork_sign', 'stop_sign', 'gas_price_sign', 'yard_sign', 'lost_pet_flyer', 'neon_bar_sign', 'parking_sign', 'speed_limit_sign', 'garage_sale_sign'].forEach(function (n) { KEY[n] = 40; });
+  ['grass_tuft', 'leaves_scatter', 'litter_scatter', 'crosswalk', 'center_line', 'road_arrow', 'skid_marks', 'chainlink_fence', 'potted_plant'].forEach(function (n) { KEY[n] = 46; });
+  var dTexCache = {};
+  function dTex(name) {
+    if (dTexCache[name] !== undefined) return dTexCache[name];
+    var a = dAsset[name]; if (!a) return (dTexCache[name] = null);
+    var keyed = KEY[name], cnv = document.createElement('canvas'); cnv.width = cnv.height = 256;
+    var tx = new THREE.CanvasTexture(cnv);
+    tx.wrapS = tx.wrapT = THREE.RepeatWrapping;
+    tx.magFilter = THREE.LinearFilter; tx.minFilter = THREE.LinearMipmapLinearFilter;
+    var im = new Image();
+    im.onload = (function (tx, cnv, keyed, im) { return function () {
+      var g = cnv.getContext('2d'); g.drawImage(im, 0, 0, 256, 256);
+      if (keyed) {
+        var d = g.getImageData(0, 0, 256, 256), p = d.data;
+        for (var k = 0; k < p.length; k += 4) { if (p[k] * 0.299 + p[k + 1] * 0.587 + p[k + 2] * 0.114 < keyed) p[k + 3] = 0; }
+        g.putImageData(d, 0, 0);
+      }
+      tx.needsUpdate = true;
+    }; })(tx, cnv, keyed, im);
+    im.src = a.tex;
+    return (dTexCache[name] = { tex: tx, keyed: !!keyed });
+  }
+  // ---- merged batches: one draw call per key ----
+  var BATCH = {}, _NM = new THREE.Matrix3(), _V = new THREE.Vector3(), _N = new THREE.Vector3();
+  function batch(key, meta) { var e = BATCH[key]; if (!e) e = BATCH[key] = { pos: [], norm: [], uv: [], meta: meta || {} }; return e; }
+  function bake(key, meta, geo, m) {
+    var e = batch(key, meta);
+    _NM.getNormalMatrix(m);
+    var p = geo.attributes.position, u = geo.attributes.uv, nm = geo.attributes.normal, idx = geo.index;
+    var count = idx ? idx.count : p.count;
+    for (var i = 0; i < count; i++) {
+      var vi = idx ? idx.getX(i) : i;
+      _V.set(p.getX(vi), p.getY(vi), p.getZ(vi)).applyMatrix4(m); e.pos.push(_V.x, _V.y, _V.z);
+      if (nm) { _N.set(nm.getX(vi), nm.getY(vi), nm.getZ(vi)).applyMatrix3(_NM).normalize(); e.norm.push(_N.x, _N.y, _N.z); } else e.norm.push(0, 1, 0);
+      e.uv.push(u ? u.getX(vi) : 0, u ? u.getY(vi) : 0);
+    }
+  }
+  function flush() {
+    var n = 0;
+    for (var key in BATCH) {
+      var e = BATCH[key]; if (!e.pos.length) continue;
+      var g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(e.pos), 3));
+      g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(e.norm), 3));
+      g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(e.uv), 2));
+      var o = e.meta, mo = {};
+      if (o.texName) { var t = dTex(o.texName); if (t) { mo.map = t.tex; if (t.keyed) { mo.transparent = true; mo.alphaTest = 0.5; mo.side = THREE.DoubleSide; } } }
+      if (o.color !== undefined) mo.color = o.color;
+      if (o.double) mo.side = THREE.DoubleSide;
+      var mat = lamb(mo);
+      if (o.decal) { mat.polygonOffset = true; mat.polygonOffsetFactor = -2; mat.polygonOffsetUnits = -2; }
+      var mesh = new THREE.Mesh(g, mat); if (o.decal) mesh.frustumCulled = false;
+      scene.add(mesh); n++;
+    }
+    densityStats.batches = n;
+  }
+  // helpers to place one asset instance into the right batch
+  function dDecal(name, x, z, y, ry, scale) { if (!dAsset[name]) return; var a = dAsset[name]; var w = a.dims[0] * (scale || 1), d = a.dims[1] * (scale || 1); bake('d_' + name, { texName: name, decal: true }, UDECAL, mtx(x, y, z, ry || 0, w, 1, d)); densityStats.decals++; }
+  function dSign(name, x, y, z, ry, scale) { if (!dAsset[name]) return; var a = dAsset[name]; bake('d_' + name, { texName: name, double: true }, USIGN, mtx(x, y, z, ry, a.dims[0] * (scale || 1), a.dims[1] * (scale || 1), 1)); densityStats.signs++; }
+  function dBoxAsset(name, x, y, z, ry) { if (!dAsset[name]) return; var a = dAsset[name]; bake('d_' + name, { texName: name }, UBOX, mtx(x, y, z, ry || 0, a.dims[0], a.dims[1], a.dims[2])); densityStats.clutter++; }
+  function dCylAsset(name, x, y, z) { if (!dAsset[name]) return; var a = dAsset[name]; bake('d_' + name, { texName: name }, UCYL, mtx(x, y, z, 0, a.dims[0], a.dims[1], a.dims[0])); densityStats.clutter++; }
+  // waist-high+ poles (roadside sign posts, billboard legs) block the player;
+  // short yard-sign stakes (h < 1.5) stay pass-through
+  function pole(x, z, h, r) { r = r || 0.11; bake('_pole', { color: 0x8a8f94 }, UCYL, mtx(x, h / 2, z, 0, r * 2, h, r * 2)); if (h >= 1.5) addCollider(x, z, Math.max(0.26, r * 2), Math.max(0.26, r * 2)); }
+  // tileable fence/wall run A->B, height H, texture repeating along its length
+  function fenceRun(ax, az, bx, bz, name, solid) {
+    var a = dAsset[name]; if (!a) return;
+    var H = a.dims[0], dx = bx - ax, dz = bz - az, L = Math.sqrt(dx * dx + dz * dz);
+    if (L < 0.6) return;
+    var rep = Math.max(1, Math.round(L / (H * 1.4)));
+    var g = new THREE.PlaneGeometry(L, H), uv = g.attributes.uv;
+    for (var i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * rep);
+    var ry = Math.atan2(-dz, dx);
+    bake('d_' + name, { texName: name, double: true }, g, mtx((ax + bx) / 2, H / 2 + 0.02, (az + bz) / 2, ry, 1, 1, 1));
+    if (solid) addColliderOBB((ax + bx) / 2, (az + bz) / 2, L / 2, 0.25, ry);
+    densityStats.fence++;
+  }
+  function fenceRect(cx, cz, w, d, rot, name, solid) {
+    var r = rot * deg, c = Math.cos(r), s = Math.sin(r), hw = w / 2, hd = d / 2;
+    function cp(u, v) { return [cx + u * c + v * s, cz - u * s + v * c]; }
+    var p0 = cp(-hw, -hd), p1 = cp(hw, -hd), p2 = cp(hw, hd), p3 = cp(-hw, hd);
+    fenceRun(p0[0], p0[1], p1[0], p1[1], name, solid); fenceRun(p1[0], p1[1], p2[0], p2[1], name, solid);
+    fenceRun(p2[0], p2[1], p3[0], p3[1], name, solid); fenceRun(p3[0], p3[1], p0[0], p0[1], name, solid);
+  }
+  // a sign mounted on a fresh pole/stake
+  function poleSign(name, x, z, ry, mountY, poleH, poleR) {
+    pole(x, z, poleH, poleR);
+    var a = dAsset[name]; if (!a) return;
+    dSign(name, x + Math.sin(ry) * 0.06, mountY, z + Math.cos(ry) * 0.06, ry);
+  }
+
+  // ---- surface geometry references ----
+  var SURF = (typeof REMAP_SURFACES !== 'undefined') ? REMAP_SURFACES : [];
+  var VENUES = (typeof REMAP_VENUES !== 'undefined') ? REMAP_VENUES : [];
+  var EXITS = (typeof REMAP_EXITS !== 'undefined') ? REMAP_EXITS : [];
+  var COMM = { racetrac: 1, publix: 1, dollar_tree: 1, storage: 1, starbucks: 1, bank: 1, strip: 1, dunkin: 1, offices: 1, yoga: 1, pharmacy: 1, sushi: 1, farnell: 1 };
+  // The branded storefront always ends up facing (sin rot, cos rot): non-FRONT180
+  // venues author it at local +z (yaw=rot); FRONT180 venues author it at local -z
+  // and the group is spun +180 so that -z face lands on the same world heading.
+  // So frontage decor must key off rot alone — NOT the FRONT180 build spin, or the
+  // whole storefront (benches, signs, landscaping) lands on the back wall while the
+  // dumpster/junk pile ends up at the door.
+  function vFront(v) { var yaw = (v.rot || 0) * deg; return { yaw: yaw, fx: Math.sin(yaw), fz: Math.cos(yaw), rx: Math.cos(yaw), rz: -Math.sin(yaw) }; }
+  // scatter a local point in a rotated rect -> world [x,z]
+  function rectPt(s, u, v) { var r = (s.rot || 0) * deg, c = Math.cos(r), sn = Math.sin(r); return [s.x + u * c + v * sn, s.z - u * sn + v * c]; }
+
+  // ============ 1. STREET / YARD TREES + FRONTAGE LANDSCAPING ============
+  var TREE_CAP = 130, side = 1;
+  if (RM) {
+    for (var ri = 0; ri < RM.roads.length; ri++) {
+      var r = RM.roads[ri]; if (r.cls > 2 || r.dirt) continue;
+      var len = r.cum[r.cum.length - 1], step = r.cls <= 1 ? 30 : 42;
+      for (var sc = 18; sc < len - 14 && densityStats.trees < TREE_CAP; sc += step) {
+        var pt = rmAt(r.pts, r.cum, sc), off = r.hw + (r.cls <= 1 ? 4.5 : 3.2);
+        var tx = pt.x - pt.uz * off * side, tz = pt.z + pt.ux * off * side; side = -side;
+        if (!remapPointClear(tx, tz, 2) || inLake(tx, tz) || houseBlocksSpot(tx, tz) || remapInClear(tx, tz, 1) || !spotClear(tx, tz)) continue;
+        if (Math.random() < 0.34) palm(tx, tz); else oak(tx, tz, 0.78 + Math.random() * 0.42);
+        densityStats.trees++;
+      }
+    }
+  }
+  // parking-lot island trees (edge midpoints of the bigger lots)
+  for (var pj = 0; pj < SURF.length; pj++) {
+    var su = SURF[pj]; if (su.kind !== 'parking' || su.w * su.d < 900) continue;
+    var e1 = rectPt(su, 0, su.d / 2 - 1.5), e2 = rectPt(su, 0, -su.d / 2 + 1.5);
+    // The short-edge midpoint that abuts the storefront drops a palm straight
+    // through the entrance awning / gas canopy (their overhang reaches past the
+    // building footprint) — skip any island spot within reach of a venue front.
+    [e1, e2].forEach(function (p) { if (spotClear(p[0], p[1]) && !inLake(p[0], p[1]) && !remapInClear(p[0], p[1], 3)) { palm(p[0], p[1]); } });
+  }
+  // frontage bushes + crepe myrtles at each commercial venue
+  for (var vf = 0; vf < VENUES.length; vf++) {
+    var v = VENUES[vf]; if (!COMM[v.type]) continue;
+    var f = vFront(v), fpx = v.x + f.fx * (v.d / 2 + 2.2), fpz = v.z + f.fz * (v.d / 2 + 2.2);
+    var e = v.w / 2 - 1.5;
+    bush(fpx + f.rx * e, fpz + f.rz * e); bush(fpx - f.rx * e, fpz - f.rz * e);
+    if (Math.random() < 0.7) crepeMyrtle(fpx + f.rx * (e * 0.4), fpz + f.rz * (e * 0.4));
+  }
+
+  // ============ 2. Y-JUNCTION TRAFFIC FURNITURE ============
+  // mast-arm signals + stop bars + crosswalk paint on the true approaches to
+  // the main junction at the origin (a 3-leg Y). Legs identified from the roads
+  // that pass near (0,0); approach tangent points inward toward the junction.
+  if (RM) {
+    var legs = [];
+    for (var li = 0; li < RM.roads.length; li++) {
+      var rd = RM.roads[li]; if (rd.cls > 1 || rd.dirt) continue;
+      // sample this road's closest approach to the origin, gather inbound dirs
+      var lenR = rd.cum[rd.cum.length - 1];
+      for (var ss = 0; ss <= lenR; ss += 4) {
+        var q = rmAt(rd.pts, rd.cum, ss), dd = q.x * q.x + q.z * q.z;
+        if (dd < 34 * 34 && dd > 15 * 15) {
+          // inbound tangent = pointing toward origin
+          var towardX = -q.x, towardZ = -q.z, tl = Math.sqrt(dd) || 1;
+          var dot = (q.ux * towardX + q.uz * towardZ);
+          var dir = dot >= 0 ? 1 : -1;
+          legs.push({ x: q.x, z: q.z, ux: q.ux * dir, uz: q.uz * dir, hw: rd.hw, d: Math.sqrt(dd) });
+          break;
+        }
+      }
+    }
+    // de-dupe near-parallel legs, keep up to 4 approaches
+    var kept = [];
+    for (var ki = 0; ki < legs.length && kept.length < 4; ki++) {
+      var lg = legs[ki], dup = false;
+      for (var kk = 0; kk < kept.length; kk++) { if (Math.abs(kept[kk].ux * lg.ux + kept[kk].uz * lg.uz) > 0.9 && (kept[kk].x * lg.x + kept[kk].z * lg.z) > 0) dup = true; }
+      if (!dup) kept.push(lg);
+    }
+    // rotation-correct mast arm: arm along local +x, whole rig yawed (the legacy
+    // mastArm() only handles axis-aligned arms — it degenerates to a square
+    // plate on the diagonal Y approaches). Reuses signalHead() so the lamps
+    // register in signalLights and cycle via updateSignals.
+    function yMastArm(px, pz, armDirX, armDirZ, len, nHeads, grpMain) {
+      var g = new THREE.Group(); g.position.set(px, 0, pz);
+      g.rotation.y = Math.atan2(-armDirZ, armDirX);   // local +x -> (armDirX,armDirZ)
+      var poleH = 7.8, armY = poleH - 0.5;
+      g.add(cyl(0.28, 0.34, poleH, 10, poleMetal, 0, poleH / 2, 0));
+      addCollider(px, pz, 0.68, 0.68);   // signal pole base — static, not breakable
+      g.add(box(len + 0.25, 0.22, 0.25, poleMetal, len / 2, armY, 0));
+      for (var i = 0; i < nHeads; i++) {
+        var t = (i + 1) / (nHeads + 1) * len;
+        g.add(box(0.06, 0.5, 0.06, poleMetal, t, armY - 0.3, 0));
+        signalHead(g, t, armY - 0.78, 0, grpMain ? 1 : 0, grpMain ? 0 : 1);
+      }
+      scene.add(g);
+    }
+    for (var kj = 0; kj < kept.length; kj++) {
+      var L = kept[kj];
+      var perpX = -L.uz, perpZ = L.ux;             // across-road direction
+      var poleX = L.x + perpX * (L.hw + 3), poleZ = L.z + perpZ * (L.hw + 3);
+      // opposing/alternating approaches share a signal group so the cycle pairs up
+      yMastArm(poleX, poleZ, -perpX, -perpZ, 2 * L.hw + 6, 3, (kj % 2) === 0);
+      // rotated stop bar + crosswalk paint just inside the junction
+      var ry = Math.atan2(-perpZ, perpX);          // bar long axis spans the road
+      var barX = L.x + L.ux * 1.6, barZ = L.z + L.uz * 1.6;
+      // register this approach so traffic stops at the bar on red (same grp
+      // mapping as the lamps: alternating legs share the main/cross cycle)
+      carSignals.push({ x: L.x, z: L.z, ux: L.ux, uz: L.uz, hw: L.hw, grp: (kj % 2) === 0 ? 'main' : 'cross', barX: barX, barZ: barZ });
+      var sbar = box(L.hw * 2 - 1, 0.04, 0.9, stopBarM, barX, 0.165, barZ); sbar.rotation.y = ry; scene.add(sbar);
+      var cwX = L.x + L.ux * 4.2, cwZ = L.z + L.uz * 4.2, cwRy = Math.atan2(L.ux, L.uz);
+      for (var cb = -1; cb <= 1; cb++) {
+        dDecal('crosswalk', cwX - perpX * cb * 2.4, cwZ - perpZ * cb * 2.4, 0.175, cwRy, 1.0);
+      }
+      // left-turn arrow decal on the approach lane
+      dDecal('road_arrow', L.x + L.ux * 8 - perpX * (L.hw * 0.4), L.z + L.uz * 8 - perpZ * (L.hw * 0.4), 0.172, cwRy, 1.1);
+    }
+  }
+
+  // ============ 3. DECALS (roads / lots / sidewalks / verges) ============
+  var ROAD_DEC = ['oil_stain', 'asphalt_cracks', 'asphalt_patch', 'manhole', 'skid_marks', 'storm_drain', 'utility_plate'];
+  var LOT_DEC = ['oil_stain', 'asphalt_patch', 'asphalt_cracks', 'manhole', 'utility_plate'];
+  var WALK_DEC = ['sidewalk_gum', 'litter_scatter', 'leaves_scatter', 'cracked_slab'];
+  var VERGE_DEC = ['grass_tuft', 'leaves_scatter', 'puddle', 'mud_patch', 'litter_scatter'];
+  // road surface decals + dashed centreline
+  if (RM) {
+    for (var rd2 = 0; rd2 < RM.roads.length; rd2++) {
+      var rr = RM.roads[rd2]; if (rr.cls > 2 || rr.dirt) continue;
+      var lenA = rr.cum[rr.cum.length - 1];
+      for (var s2 = 8; s2 < lenA - 6; s2 += rr.cls <= 1 ? 7 : 11) {
+        var pa = rmAt(rr.pts, rr.cum, s2), ry2 = Math.atan2(pa.ux, pa.uz);
+        // dashed centre line on arterials/collectors
+        if (rr.cls <= 1 && (s2 % 14 < 7)) dDecal('center_line', pa.x, pa.z, 0.172, ry2, 1);
+        if (Math.random() < 0.5) {
+          var lane = rnd(-rr.hw * 0.6, rr.hw * 0.6);
+          var dx2 = pa.x - pa.uz * lane, dz2 = pa.z + pa.ux * lane;
+          dDecal(pick(ROAD_DEC), dx2, dz2, 0.17, rnd(0, 6.28), rnd(0.8, 1.3));
+        }
+      }
+    }
+  }
+  // parking-lot + pavement surface decals
+  for (var sp2 = 0; sp2 < SURF.length; sp2++) {
+    var sf = SURF[sp2], n2 = Math.min(28, Math.round(sf.w * sf.d / 60));
+    for (var q2 = 0; q2 < n2; q2++) {
+      var u2 = rnd(-sf.w / 2 + 1, sf.w / 2 - 1), vv = rnd(-sf.d / 2 + 1, sf.d / 2 - 1), wp = rectPt(sf, u2, vv);
+      if (inLake(wp[0], wp[1])) continue;
+      dDecal(pick(LOT_DEC), wp[0], wp[1], sf.kind === 'parking' ? 0.13 : 0.14, rnd(0, 6.28), rnd(0.8, 1.2));
+    }
+  }
+  // sidewalk + verge decals along the core-leg ribbons
+  if (RM && RM.coreWalk) {
+    for (var cw2 = 0; cw2 < RM.coreWalk.length; cw2++) {
+      var w2 = RM.coreWalk[cw2];
+      for (var t2 = 4; t2 < w2.L - 4; t2 += rnd(6, 12)) {
+        var sideS = Math.random() < 0.5 ? 1 : -1;
+        var offW = w2.hw + 0.8 + Math.random() * (w2.sw - 1);
+        var wx = w2.x + w2.ux * t2 - w2.uz * offW * sideS, wz = w2.z + w2.uz * t2 + w2.ux * offW * sideS;
+        if (spotClear(wx, wz)) dDecal(pick(WALK_DEC), wx, wz, 0.14, rnd(0, 6.28), rnd(0.8, 1.1));
+        // verge decal a little further out onto the grass
+        var offV = w2.hw + w2.sw + 1 + Math.random() * 4;
+        var vx = w2.x + w2.ux * t2 - w2.uz * offV * sideS, vz = w2.z + w2.uz * t2 + w2.ux * offV * sideS;
+        if (Math.random() < 0.5 && spotClear(vx, vz) && !inLake(vx, vz) && !remapInClear(vx, vz, 0)) dDecal(pick(VERGE_DEC), vx, vz, 0.06, rnd(0, 6.28), rnd(0.8, 1.2));
+      }
+    }
+  }
+
+  // ============ 4. SIGNS (facades / poles / yards / billboards / walls) ============
+  // NOTE: the generic 'storefront_sign' ("SHOP") prop was dropped — every venue's
+  // builder already paints its own branded storefront sign (DUNKIN / DOLLAR TREE /
+  // SAKURA SUSHI / …), so mounting a second "SHOP" placard on the same wall just
+  // read as a wrong/duplicate sign.
+  var FACADE = {
+    racetrac: [], publix: ['grand_opening_banner'], starbucks: ['menu_board'],
+    strip: ['neon_bar_sign'], dunkin: ['menu_board'],
+    yoga: ['neon_bar_sign'], sushi: ['neon_bar_sign'],
+    storage: ['graffiti_panel'], farnell: ['wall_mural']
+  };
+  for (var vg = 0; vg < VENUES.length; vg++) {
+    var vv2 = VENUES[vg], fl = FACADE[vv2.type]; if (!fl) continue;
+    var f2 = vFront(vv2), wallx = vv2.x + f2.fx * (vv2.d / 2 + 0.12), wallz = vv2.z + f2.fz * (vv2.d / 2 + 0.12);
+    for (var fi = 0; fi < fl.length; fi++) {
+      var nm = fl[fi], a2 = dAsset[nm]; if (!a2) continue;
+      var lateral = (fi - (fl.length - 1) / 2) * Math.min(vv2.w * 0.4, 6);
+      var mount = (nm === 'wall_mural' || nm === 'graffiti_panel') ? a2.dims[1] / 2 + 1.0 : 3.4;
+      dSign(nm, wallx + f2.rx * lateral, mount, wallz + f2.rz * lateral, f2.yaw, nm === 'grand_opening_banner' ? 1 : 1);
+    }
+    // gas pylon out at the RaceTrac frontage
+    if (vv2.type === 'racetrac') { var px = vv2.x + f2.fx * (vv2.d / 2 + 7), pz = vv2.z + f2.fz * (vv2.d / 2 + 7); pole(px, pz, 3.2, 0.14); dSign('gas_price_sign', px, 4.2, pz, f2.yaw); }
+    // freestanding entrance clutter markers
+  }
+  // billboards on 2-post frames at two road exits (facing inward)
+  for (var xi = 0; xi < EXITS.length && xi < 2; xi++) {
+    var ex = EXITS[xi], bx = ex.x + ex.dx * 24, bz = ex.z + ex.dz * 24, byaw = Math.atan2(ex.dx, ex.dz) + Math.PI;
+    pole(bx - ex.dz * 5, bz + ex.dx * 5, 6, 0.2); pole(bx + ex.dz * 5, bz - ex.dx * 5, 6, 0.2);
+    dSign('billboard_ad', bx, 6.6, bz, byaw);
+  }
+  // roadside sign poles along arterials/collectors: stop at junction approaches,
+  // speed/parking/bus elsewhere
+  if (RM) {
+    for (var rs = 0; rs < RM.roads.length; rs++) {
+      var rc = RM.roads[rs]; if (rc.cls > 1 || rc.dirt) continue;
+      var lenS = rc.cum[rc.cum.length - 1], sd = 1;
+      for (var sv = 40; sv < lenS - 30; sv += 78) {
+        var ps = rmAt(rc.pts, rc.cum, sv), of = rc.hw + 2.4;
+        var sx = ps.x - ps.uz * of * sd, sz = ps.z + ps.ux * of * sd; sd = -sd;
+        if (!spotClear(sx, sz) || remapInClear(sx, sz, 0)) continue;
+        var facing = Math.atan2(-ps.ux, -ps.uz);   // face oncoming traffic
+        var kind = pick(['speed_limit_sign', 'parking_sign', 'bus_route_sign', 'roadwork_sign']);
+        poleSign(kind, sx, sz, facing, kind === 'bus_route_sign' ? 2.2 : 1.7, kind === 'bus_route_sign' ? 2.6 : 2.1);
+      }
+    }
+  }
+  // yard signs near residential frontages
+  if (RM) {
+    for (var yr = 0; yr < RM.roads.length; yr++) {
+      var ry3 = RM.roads[yr]; if (ry3.cls < 2 || ry3.dirt) continue;
+      var lenY = ry3.cum[ry3.cum.length - 1], yd = 1;
+      for (var yv = 30; yv < lenY - 20; yv += 46) {
+        var py = rmAt(ry3.pts, ry3.cum, yv), oy = ry3.hw + rnd(3, 6);
+        var yx = py.x - py.uz * oy * yd, yz = py.z + py.ux * oy * yd; yd = -yd;
+        if (!spotClear(yx, yz) || inLake(yx, yz) || remapInClear(yx, yz, 0)) continue;
+        if (Math.random() < 0.55) { var yk = pick(['for_sale_sign', 'yard_sign', 'garage_sale_sign', 'lost_pet_flyer']); pole(yx, yz, 0.9, 0.05); dSign(yk, yx, 0.9, yz, rnd(0, 6.28)); }
+      }
+    }
+  }
+
+  // ============ 5. CLUTTER (behind commercial, wall units, entrances) ============
+  var BACK_CLUTTER = ['cardboard_box', 'wooden_crate', 'trash_bags', 'wood_pallet', 'blue_tarp', 'bucket'];
+  for (var vc = 0; vc < VENUES.length; vc++) {
+    var vv3 = VENUES[vc]; if (!COMM[vv3.type]) continue;
+    var f3 = vFront(vv3);
+    // dumpster + junk pile behind the store (opposite the front)
+    var backx = vv3.x - f3.fx * (vv3.d / 2 + 2.6), backz = vv3.z - f3.fz * (vv3.d / 2 + 2.6);
+    var byaw2 = Math.atan2(-f3.fx, -f3.fz);
+    if (typeof getStreetProp !== 'undefined') spFull('dumpster', backx, backz, byaw2 + Math.PI / 2);
+    for (var jc = 0; jc < 4; jc++) {
+      var jx = backx + f3.rx * rnd(-vv3.w * 0.3, vv3.w * 0.3) + f3.fx * rnd(-1, 1);
+      var jz = backz + f3.rz * rnd(-vv3.w * 0.3, vv3.w * 0.3) + f3.fz * rnd(-1, 1);
+      var cn = pick(BACK_CLUTTER), ca = dAsset[cn]; if (!ca) continue;
+      if (cn === 'bucket') dCylAsset(cn, jx, ca.dims[1] / 2 + 0.02, jz);
+      else dBoxAsset(cn, jx, ca.dims[1] / 2 + 0.02, jz, rnd(0, 6.28));
+    }
+    // AC condenser + utility box against a side wall
+    var sidex = vv3.x + f3.rx * (vv3.w / 2 + 0.6), sidez = vv3.z + f3.rz * (vv3.w / 2 + 0.6);
+    dBoxAsset('ac_condenser', sidex, 0.4, sidez, f3.yaw);
+    dBoxAsset('utility_box', sidex + f3.fx * 2, 0.5, sidez + f3.fz * 2, f3.yaw);
+    if (Math.random() < 0.6) dCylAsset('propane_tank', sidex - f3.fx * 2, 0.6, sidez - f3.fz * 2);
+    // potted plants + mulch bed flanking the entrance
+    var frx = vv3.x + f3.fx * (vv3.d / 2 + 1.3), frz = vv3.z + f3.fz * (vv3.d / 2 + 1.3), ee = Math.min(vv3.w / 2 - 1, 4);
+    dBoxAsset('potted_plant', frx + f3.rx * ee, 0.35, frz + f3.rz * ee, 0);
+    dBoxAsset('potted_plant', frx - f3.rx * ee, 0.35, frz - f3.rz * ee, 0);
+    dDecal('mulch_bed', frx, frz, 0.13, f3.yaw, 1);
+  }
+  // barrel delineators + sandbags at the road-closed barriers
+  for (var xb = 0; xb < EXITS.length; xb++) {
+    var eb = EXITS[xb], cbx = eb.x + eb.dx * 16, cbz = eb.z + eb.dz * 16, rrx = -eb.dz, rrz = eb.dx;
+    for (var bd = -2; bd <= 2; bd++) {
+      var dbx = cbx + rrx * bd * 2.2, dbz = cbz + rrz * bd * 2.2;
+      if (bd % 2) dCylAsset('barrel_delineator', dbx, 0.5, dbz); else dBoxAsset('sandbag', dbx, 0.13, dbz, Math.atan2(rrx, rrz));
+    }
+  }
+
+  // ============ 6. FENCES (property lines / lot edges / yards) ============
+  // chainlink around the self-storage + school footprints
+  for (var vh = 0; vh < VENUES.length; vh++) {
+    var vv4 = VENUES[vh];
+    if (vv4.type === 'storage') fenceRect(vv4.x, vv4.z, vv4.w + 6, vv4.d + 6, vv4.rot || 0, 'chainlink_fence', true);
+    if (vv4.type === 'farnell') fenceRect(vv4.x, vv4.z, vv4.w + 10, vv4.d + 14, vv4.rot || 0, 'chainlink_fence', true);
+    // hedge along the back of each townhouse row
+    if (vv4.type === 'townhouse') {
+      var f4 = vFront(vv4), hw2 = vv4.w / 2 - 1, bx2 = vv4.x - f4.fx * (vv4.d / 2 + 1.2), bz2 = vv4.z - f4.fz * (vv4.d / 2 + 1.2);
+      fenceRun(bx2 - f4.rx * hw2, bz2 - f4.rz * hw2, bx2 + f4.rx * hw2, bz2 + f4.rz * hw2, Math.random() < 0.5 ? 'hedge_row' : 'privacy_fence', true);
+    }
+    // low brick wall along the street edge of Publix / BofA lots
+    if (vv4.id === 'publix' || vv4.id === 'boa') {
+      var f5 = vFront(vv4), ew2 = vv4.w / 2 + 2, fx5 = vv4.x + f5.fx * (vv4.d / 2 + 6), fz5 = vv4.z + f5.fz * (vv4.d / 2 + 6);
+      fenceRun(fx5 - f5.rx * ew2, fz5 - f5.rz * ew2, fx5 + f5.rx * ew2, fz5 + f5.rz * ew2, 'brick_low_wall', false);
+    }
+  }
+
+  // ============ 7. CONTEXTUAL STREET PROPS (streetprops.js) ============
+  // Reuses getStreetProp; keeps colliders/interactions (vending/atm/hydrant)
+  // intact. Modest count to respect the draw-call budget.
+  function spFull(name, x, z, ry, y) {
+    if (typeof getStreetProp === 'undefined') return;
+    var g = getStreetProp(name); if (!g) return;
+    var dims = g.userData.spDims || [1, 1, 1];
+    var c = Math.abs(Math.cos(ry)), s = Math.abs(Math.sin(ry));
+    var hx = (dims[0] * c + dims[2] * s) / 2, hz = (dims[0] * s + dims[2] * c) / 2;
+    if (spOverlapsBuilding(x, z, hx, hz)) return;
+    g.position.set(x, y === undefined ? 0.13 : y, z); g.rotation.y = ry; scene.add(g);
+    if (SP_SOLID[name]) { addCollider(x, z, hx * 2, hz * 2); solidMeshes.push(g); }
+    if (SP_SNAP[name]) { registerBreakable(g, x, z, Math.max(hx, hz) + 0.15, SP_SNAP[name], null, SP_BLOCKR[name] || 0); var bb = breakables[breakables.length - 1]; if (name === 'parkingmeter') bb.kind = 'meter'; if (name === 'hydrant') bb.kind = 'hydrant'; }
+    if (SP_INTERACT[name]) { var it = { kind: SP_INTERACT[name], x: x, z: z, fx: -Math.cos(ry), fz: Math.sin(ry), g: g, cd: -99, robbed: false }; if (it.kind === 'atm') { g.userData.atm = it; if (!SP_SOLID[name]) solidMeshes.push(g); } streetPropInteractables.push(it); }
+    densityStats.props++;
+  }
+  if (typeof STREET_PROPS !== 'undefined') {
+    // storefront benches / trashcans / bike racks / a vending machine per commercial venue
+    for (var vp = 0; vp < VENUES.length; vp++) {
+      var vv5 = VENUES[vp]; if (!COMM[vv5.type]) continue;
+      var f6 = vFront(vv5), fpx2 = vv5.x + f6.fx * (vv5.d / 2 + 1.4), fpz2 = vv5.z + f6.fz * (vv5.d / 2 + 1.4);
+      var frontYaw = Math.atan2(f6.fx, f6.fz);   // prop front (-x authored) faces outward
+      var lat = Math.min(vv5.w / 2 - 2, 5);
+      spFull('bench', fpx2 + f6.rx * lat, fpz2 + f6.rz * lat, frontYaw);
+      spFull('trashcan', fpx2 - f6.rx * lat, fpz2 - f6.rz * lat, frontYaw);
+      if (vv5.type === 'publix' || vv5.type === 'dollar_tree') spFull('vendingmachine', fpx2 + f6.rx * (lat * 0.4), fpz2 + f6.rz * (lat * 0.4), frontYaw);
+      if (vv5.type === 'bank') spFull('atm', fpx2, fpz2, frontYaw);
+      if (vv5.type === 'farnell' || vv5.type === 'publix') spFull('bikerack', fpx2 + f6.rx * (lat * 0.7), fpz2 + f6.rz * (lat * 0.7), frontYaw);
+    }
+    // hydrants ~ every 90u + occasional bus shelter along arterials/collectors
+    if (RM) {
+      for (var hp = 0; hp < RM.roads.length; hp++) {
+        var hr = RM.roads[hp]; if (hr.cls > 1 || hr.dirt) continue;
+        var lenH = hr.cum[hr.cum.length - 1], hd2 = 1;
+        for (var hv = 50; hv < lenH - 30; hv += 90) {
+          var ph = rmAt(hr.pts, hr.cum, hv), ofh = hr.hw + 2.0;
+          var hx2 = ph.x - ph.uz * ofh * hd2, hz2 = ph.z + ph.ux * ofh * hd2; hd2 = -hd2;
+          if (spotClear(hx2, hz2) && !remapInClear(hx2, hz2, 0)) spFull('hydrant', hx2, hz2, 0);
+        }
+        // one bus shelter per long arterial
+        if (hr.cls === 0 && lenH > 120) {
+          var pbs = rmAt(hr.pts, hr.cum, lenH * 0.5), ofb = hr.hw + 3.4;
+          var bsx = pbs.x - pbs.uz * ofb, bsz = pbs.z + pbs.ux * ofb;
+          if (spotClear(bsx, bsz)) spFull('busshelter', bsx, bsz, Math.atan2(pbs.ux, pbs.uz));
+        }
+      }
+    }
+    // mailboxes at townhouse rows
+    for (var mp = 0; mp < VENUES.length; mp++) {
+      var vv6 = VENUES[mp]; if (vv6.type !== 'townhouse') continue;
+      var f7 = vFront(vv6), mfx = vv6.x + f7.fx * (vv6.d / 2 + 1.2), mfz = vv6.z + f7.fz * (vv6.d / 2 + 1.2);
+      for (var me = -1; me <= 1; me += 2) { var mx = mfx + f7.rx * (vv6.w / 2 - 4) * me, mz = mfz + f7.rz * (vv6.w / 2 - 4) * me; spFull('homemailbox', mx, mz, Math.atan2(f7.fx, f7.fz), 0.02); }
+    }
+  }
+
+  flush();
+})();
+
+// ============================================================
+// REUSABLE FENCE SYSTEM  (WC_REMAP)
+// ------------------------------------------------------------
+// buildFenceRun(pts, type, opts) builds a fence that hugs the ground along a
+// polyline of [x,z] game-coord waypoints. Each polyline edge is segmented into
+// post-spaced panels; geometry of one type merges into a few draw calls.
+//
+//   'picket'    - flat white pointed-picket ALPHA CARDS (2D billboards, ~0
+//                 thickness) + slightly-raised square posts. Procedural alpha
+//                 texture (vertical slats, pointed tops, keyed-transparent gaps).
+//   'chainlink' - see-through diamond-mesh ALPHA CARD (reuses the densityprops
+//                 chainlink texture if present, else procedural diamond mesh) +
+//                 real vertical POLE posts every ~2.5u + a top rail.
+//   'wood'      - solid privacy PLANKS with a SMALL thickness (~0.06u extruded
+//                 box panels, reuses the densityprops privacy texture) + posts.
+//
+// Colliders: one thin oriented-box (OBB) per polyline edge so the player is
+// BLOCKED by every fence type (picket + chainlink block too). Segments whose
+// midpoint sits within `roadGuard` u of any true road's asphalt are skipped, so
+// a run never walls off a road or driveway (pass opts.noClip to override).
+//
+// >>> HOW TO ADD A FENCE (the reusable workflow) <<<
+//   Append ONE row to the FENCE_RUNS table below:
+//       { type:'picket'|'chainlink'|'wood', h:<height u>, pts:[[x,z],[x,z],...] }
+//   Optional per-row keys: color (0xRRGGBB post/pole tint, e.g. black pond
+//   chainlink), roadGuard (u, default 1.2), noClip:true (skip road rejection).
+//   Waypoints are game coords — Street-View anchored to REMAP_VENUES /
+//   REMAP_ROADS (see remapdata.js). Keep them clear of roads/sidewalks/props.
+//   That's it: the loader below segments, tiles, posts, colliders + merges it.
+// ============================================================
+// STEP 2 — authored, Street-View-anchored placement (see tools/FENCES.md).
+// Real Westchase fences studied on Google Street View at the actual venues,
+// then mapped onto this stylized map's faithfully-arranged footprints:
+//   * schools (Farnell/Bryant) ring their fields with DARK metal-mesh fence
+//   * self-storage lots are chainlink-secured
+//   * townhome back/side yards use WOOD privacy fence
+//   * retention-pond banks get LOW dark chainlink
+//   * lakeside park lawns + single-family yards use white PICKET
+// Every segment was validated clear of roads / the lake / building footprints.
+var FENCE_RUNS = [
+  // --- chainlink ---
+  { type: 'chainlink', h: 2.0, color: 0x2b2f31, pts: [[-150, -92], [-150, -60], [-40, -60]] }, // Farnell school field, W+front (dark)
+  { type: 'chainlink', h: 2.2,                  pts: [[8, 84], [54, 84], [54, 130]] },          // self-storage lot, N+E
+  { type: 'chainlink', h: 1.0, color: 0x2b2f31, pts: [[-330, -12], [-244, -12]] },              // retention-pond N bank (low, dark)
+  // --- wood privacy (townhome back/side yards, SW cluster) ---
+  { type: 'wood', h: 1.8, pts: [[-206, -90], [-158, -90]] },   // behind e281 row
+  { type: 'wood', h: 1.8, pts: [[-182, -148], [-150, -148]] }, // NW of e285
+  { type: 'wood', h: 1.8, pts: [[-220, -135], [-220, -165]] }, // W of e283/e285
+  { type: 'wood', h: 1.8, pts: [[-215, -100], [-215, -140]] }, // W of e281
+  { type: 'wood', h: 1.8, pts: [[-130, -210], [-75, -212]] },  // S of e287/e289
+  { type: 'wood', h: 1.8, pts: [[-150, -178], [-115, -182]] }, // between e285/e287
+  { type: 'wood', h: 1.8, pts: [[-180, -200], [-120, -205]] }, // S-far cluster edge
+  // --- picket (lakeside park lawns + single-family yard) ---
+  { type: 'picket', h: 1.1, pts: [[-188, 0], [-188, 60]] },      // lake E promenade
+  { type: 'picket', h: 1.1, pts: [[-268, 118], [-300, 120]] },   // lake SW lawn
+  { type: 'picket', h: 1.1, pts: [[-290, 120], [-290, 158]] },   // red-house W yard
+  { type: 'picket', h: 1.1, pts: [[-330, 122], [-296, 122]] }    // SW pond-lawn park edge
+];
+var FENCE_H = { picket: 1.1, chainlink: 2.0, wood: 1.8 };
+function buildFenceRun() { return null; }   // replaced by the closure export below
+if (WC_REMAP) (function fenceSystem() {
+  // ---- shared unit geometry (baked through a matrix into merged batches) ----
+  function mtx(px, py, pz, ry) {
+    return new THREE.Matrix4().compose(new THREE.Vector3(px, py, pz),
+      new THREE.Quaternion().setFromAxisAngle(Y_UP, ry || 0), new THREE.Vector3(1, 1, 1));
+  }
+  // ---- densityprops texture lookup (chainlink + privacy reuse) ----
+  var dRec = {};
+  if (typeof DENSITY_PROPS !== 'undefined') for (var di = 0; di < DENSITY_PROPS.length; di++) dRec[DENSITY_PROPS[di].n] = DENSITY_PROPS[di];
+  // async data-URL -> CanvasTexture, optional luminance keying (dark -> clear)
+  function loadTex(dataurl, thr) {
+    var cnv = document.createElement('canvas'); cnv.width = cnv.height = 256;
+    var tx = new THREE.CanvasTexture(cnv);
+    tx.wrapS = tx.wrapT = THREE.RepeatWrapping; tx.magFilter = THREE.LinearFilter;
+    // keyed (alpha) textures must NOT mipmap — averaging fills the transparent gaps
+    if (thr) { tx.minFilter = THREE.LinearFilter; tx.generateMipmaps = false; } else tx.minFilter = THREE.LinearMipmapLinearFilter;
+    var im = new Image();
+    im.onload = (function (tx, cnv, thr, im) { return function () {
+      var g = cnv.getContext('2d'); g.drawImage(im, 0, 0, 256, 256);
+      if (thr) { var d = g.getImageData(0, 0, 256, 256), p = d.data; for (var k = 0; k < p.length; k += 4) { if (p[k] * 0.299 + p[k + 1] * 0.587 + p[k + 2] * 0.114 < thr) p[k + 3] = 0; } g.putImageData(d, 0, 0); }
+      tx.needsUpdate = true;
+    }; })(tx, cnv, thr, im);
+    im.src = dataurl;
+    return tx;
+  }
+  // procedural white pointed-picket alpha card (transparent gaps)
+  function picketTex() {
+    var s = 128, c = document.createElement('canvas'); c.width = c.height = s;
+    var g = c.getContext('2d'); g.clearRect(0, 0, s, s);
+    var n = 4, cw = s / n, gap = 0.36;
+    for (var i = 0; i < n; i++) {
+      var x0 = i * cw + cw * gap * 0.5, w = cw * (1 - gap);
+      var shoulder = s * 0.26, peak = s * 0.06;   // canvas top = fence top (flipY)
+      g.fillStyle = '#eef0ea';
+      g.beginPath(); g.moveTo(x0, s); g.lineTo(x0, shoulder); g.lineTo(x0 + w / 2, peak); g.lineTo(x0 + w, shoulder); g.lineTo(x0 + w, s); g.closePath(); g.fill();
+      g.fillStyle = 'rgba(0,0,0,0.10)'; g.fillRect(x0 + w - 2, shoulder, 2, s - shoulder);   // slat edge shade
+    }
+    // two horizontal rails
+    g.fillStyle = '#e2e4de'; g.fillRect(0, s * 0.44, s, s * 0.05); g.fillRect(0, s * 0.74, s, s * 0.05);
+    var tx = new THREE.CanvasTexture(c); tx.wrapS = tx.wrapT = THREE.RepeatWrapping;
+    tx.magFilter = THREE.NearestFilter; tx.minFilter = THREE.LinearFilter; tx.generateMipmaps = false;   // mipmaps average alpha -> gaps fill in; keep crisp
+    return tx;
+  }
+  // procedural chainlink diamond-mesh alpha card
+  function chainProcTex() {
+    var s = 128, c = document.createElement('canvas'); c.width = c.height = s;
+    var g = c.getContext('2d'); g.clearRect(0, 0, s, s);
+    g.strokeStyle = 'rgba(190,196,200,1)'; g.lineWidth = 2; var step = 16;
+    for (var d = -s; d < s * 2; d += step) { g.beginPath(); g.moveTo(d, 0); g.lineTo(d + s, s); g.stroke(); g.beginPath(); g.moveTo(d, 0); g.lineTo(d - s, s); g.stroke(); }
+    var tx = new THREE.CanvasTexture(c); tx.wrapS = tx.wrapT = THREE.RepeatWrapping;
+    tx.magFilter = THREE.LinearFilter; tx.minFilter = THREE.LinearFilter; tx.generateMipmaps = false;   // keep the see-through diamonds crisp
+    return tx;
+  }
+  // procedural vertical-plank privacy texture (wood fallback)
+  function woodProcTex() {
+    var s = 128, c = document.createElement('canvas'); c.width = c.height = s;
+    var g = c.getContext('2d'); g.fillStyle = '#8a7150'; g.fillRect(0, 0, s, s);
+    for (var i = 0; i < 8; i++) { var x = i * s / 8; g.fillStyle = i % 2 ? '#7d6547' : '#93794f'; g.fillRect(x, 0, s / 8 - 1, s); g.fillStyle = 'rgba(60,45,25,0.5)'; g.fillRect(x + s / 8 - 1, 0, 1, s); }
+    var tx = new THREE.CanvasTexture(c); tx.wrapS = tx.wrapT = THREE.RepeatWrapping;
+    return tx;
+  }
+  var _picketTex, _chainTex, _woodTex;
+  function picketMap() { return _picketTex || (_picketTex = picketTex()); }
+  function chainMap() { return _chainTex || (_chainTex = dRec.chainlink_fence ? loadTex(dRec.chainlink_fence.tex, 46) : chainProcTex()); }
+  function woodMap() { return _woodTex || (_woodTex = dRec.privacy_fence ? loadTex(dRec.privacy_fence.tex, 0) : woodProcTex()); }
+
+  // ---- merged batches: one draw call per material key ----
+  var FB = {}, _NM = new THREE.Matrix3(), _V = new THREE.Vector3(), _N = new THREE.Vector3();
+  function fbatch(key, meta) { var e = FB[key]; if (!e) e = FB[key] = { pos: [], norm: [], uv: [], meta: meta }; return e; }
+  function fbake(key, meta, geo, m) {
+    var e = fbatch(key, meta); _NM.getNormalMatrix(m);
+    var p = geo.attributes.position, u = geo.attributes.uv, nm = geo.attributes.normal, idx = geo.index;
+    var count = idx ? idx.count : p.count;
+    for (var i = 0; i < count; i++) {
+      var vi = idx ? idx.getX(i) : i;
+      _V.set(p.getX(vi), p.getY(vi), p.getZ(vi)).applyMatrix4(m); e.pos.push(_V.x, _V.y, _V.z);
+      if (nm) { _N.set(nm.getX(vi), nm.getY(vi), nm.getZ(vi)).applyMatrix3(_NM).normalize(); e.norm.push(_N.x, _N.y, _N.z); } else e.norm.push(0, 1, 0);
+      e.uv.push(u ? u.getX(vi) : 0, u ? u.getY(vi) : 0);
+    }
+  }
+  function fflush() {
+    for (var key in FB) {
+      var e = FB[key]; if (!e.pos.length) continue;
+      var g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(e.pos), 3));
+      g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(e.norm), 3));
+      g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(e.uv), 2));
+      var o = e.meta, mo = {};
+      if (o.map) { mo.map = o.map; }
+      if (o.alpha) { mo.transparent = true; mo.alphaTest = o.alpha; mo.side = THREE.DoubleSide; }
+      if (o.color !== undefined) mo.color = o.color;
+      var mesh = new THREE.Mesh(g, lamb(mo));
+      scene.add(mesh);
+    }
+  }
+
+  // ---- panel + post builders (bake into the right batch) ----
+  function cardPanel(key, meta, cx, cz, ry, len, h, rep) {
+    var pg = new THREE.PlaneGeometry(len, h), uv = pg.attributes.uv;
+    for (var i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * rep);
+    fbake(key, meta, pg, mtx(cx, h / 2 + 0.02, cz, ry));
+  }
+  function boxPanel(key, meta, cx, cz, ry, len, h, thick) {
+    var bg = new THREE.BoxGeometry(len, h, thick);
+    fbake(key, meta, bg, mtx(cx, h / 2 + 0.02, cz, ry));
+  }
+  function postBox(key, meta, x, z, h, r) {
+    fbake(key, meta, new THREE.BoxGeometry(r * 2, h, r * 2), mtx(x, h / 2, z, 0));
+  }
+  function postCyl(key, meta, x, z, h, r) {
+    fbake(key, meta, new THREE.CylinderGeometry(r, r, h, 8), mtx(x, h / 2, z, 0));
+  }
+  function railBox(key, meta, cx, cz, ry, len, y, r) {
+    fbake(key, meta, new THREE.BoxGeometry(len, r * 2, r * 2), mtx(cx, y, cz, ry));
+  }
+
+  // ---- the public builder ----
+  function buildRun(pts, type, opts) {
+    opts = opts || {};
+    if (!pts || pts.length < 2) return;
+    var h = opts.h || FENCE_H[type] || 1.5;
+    var guard = opts.roadGuard === undefined ? 1.2 : opts.roadGuard;
+    var postClr = opts.color !== undefined ? opts.color : (type === 'wood' ? 0x8a7150 : type === 'chainlink' ? 0x8a8f94 : 0xf0f0ea);
+    var spacing = type === 'chainlink' ? 2.5 : 2.4;
+    for (var s = 0; s < pts.length - 1; s++) {
+      var ax = pts[s][0], az = pts[s][1], bx = pts[s + 1][0], bz = pts[s + 1][1];
+      var dx = bx - ax, dz = bz - az, L = Math.sqrt(dx * dx + dz * dz);
+      if (L < 0.4) continue;
+      var mx = (ax + bx) / 2, mz = (az + bz) / 2;
+      // never wall off a road/driveway
+      if (!opts.noClip && !remapPointClear(mx, mz, guard)) continue;
+      var ry = Math.atan2(-dz, dx);
+      var ux = dx / L, uz = dz / L;
+      var panels = Math.max(1, Math.round(L / spacing)), pl = L / panels;
+      for (var q = 0; q < panels; q++) {
+        var t = (q + 0.5) * pl, pcx = ax + ux * t, pcz = az + uz * t;
+        if (type === 'picket') {
+          cardPanel('fence_picket', { map: picketMap(), alpha: 0.45 }, pcx, pcz, ry, pl, h, pl / (h * 1.0));
+        } else if (type === 'chainlink') {
+          cardPanel('fence_chain', { map: chainMap(), alpha: 0.25 }, pcx, pcz, ry, pl, h, pl / h);
+          railBox('fence_chainpost', { color: postClr }, pcx, pcz, ry, pl, h - 0.06, 0.035);   // top rail
+        } else {   // wood
+          boxPanel('fence_wood', { map: woodMap() }, pcx, pcz, ry, pl, h, 0.06);
+        }
+      }
+      // posts at every panel boundary (incl. both ends)
+      for (var b = 0; b <= panels; b++) {
+        var pt2 = b * pl, px2 = ax + ux * pt2, pz2 = az + uz * pt2;
+        if (type === 'chainlink') postCyl('fence_chainpost', { color: postClr }, px2, pz2, h + 0.12, 0.05);
+        else if (type === 'wood') postBox('fence_woodpost', { color: postClr }, px2, pz2, h + 0.15, 0.06);
+        else postBox('fence_picketpost', { color: postClr }, px2, pz2, h + 0.14, 0.05);
+      }
+      // one thin OBB collider spanning the whole edge (fences are solid to the player)
+      addColliderOBB(mx, mz, L / 2, 0.14, ry);
+    }
+  }
+  // expose for tests / future callers
+  buildFenceRun = function (pts, type, opts) { return buildRun(pts, type, opts); };
+
+  // ---- build every authored run ----
+  for (var fr = 0; fr < FENCE_RUNS.length; fr++) {
+    var R = FENCE_RUNS[fr];
+    buildRun(R.pts, R.type, { h: R.h, color: R.color, roadGuard: R.roadGuard, noClip: R.noClip });
+  }
+  fflush();
 })();
 
 // ---- interactions (E key + prompt; local-only) ----
@@ -4931,11 +5822,15 @@ function copAimArm(c, m, tgt) {
   }
 }
 // world-space muzzle tip of the cop's held gun (null while holstered)
+// front-of-barrel z for each held (dropMesh) gun = -halfDepth of its main body
+// box, so the world/cop muzzle flash sits ON the tip (not floating past it)
+var HELD_MUZZLE_Z = { pistol: -0.225, smg: -0.30, rifle: -0.475, auto: -0.425, rocket: -0.5, raygun: -0.30 };
 function copMuzzle(c) {
   var gun = c.mesh.userData.heldGun;
   if (!gun) return null;
   c.mesh.updateMatrixWorld(true);   // copAimArm may have just re-rotated the gun
-  return new THREE.Vector3(0, 0, c.mesh.userData.heldKind === 'smg' ? -0.45 : -0.35).applyMatrix4(gun.matrixWorld);
+  var mz = HELD_MUZZLE_Z[c.mesh.userData.heldKind];
+  return new THREE.Vector3(0, 0, mz === undefined ? -0.35 : mz).applyMatrix4(gun.matrixWorld);
 }
 function copShoot(c, wpn, dt, tgt) {
   c.fireT -= dt;
@@ -4943,7 +5838,7 @@ function copShoot(c, wpn, dt, tgt) {
   c.fireT = wpn.rate;
   if (!c.interior && !copHasLOS(c, tgt)) return;   // interior is one small room — they can always see you
   if (!tgt.id) {   // barks only for the local player
-    var copAt = { x: c.x, z: c.z, y: (c.baseY || 0) + 1.6, yell: true, ref: c };
+    var copAt = { x: c.x, z: c.z, y: (c.baseY || 0) + 1.6, yell: true, net: c.interior ? 0 : 1, ref: c };
     if (state.wanted >= 4) playVoiceAny(c.fem ? ['cop_fire_f_1', 'cop_fire_f_2'] : ['cop_fire_1', 'cop_fire_2'], 0.6, 'copBark', 12, copAt);
     else if (!playNpcVoice(c.vname, 'quirk', 0.6, 12, copAt)) playVoiceAny(c.fem ? ['cop_engage_f_1', 'cop_engage_f_2'] : ['cop_engage_1', 'cop_engage_2'], 0.6, 'copBark', 12, copAt);
   }
@@ -5020,7 +5915,7 @@ function updateCops(dt) {
       var wc2 = cops[wI];
       if (wc2.state === 'down' || wc2.interior) continue;
       var wdx = wc2.x - player.x, wdz = wc2.z - player.z;
-      if (wdx * wdx + wdz * wdz < 150) { playVoice(wc2.fem ? 'cop_warn_f' : 'cop_warn', 0.55, 30, { x: wc2.x, z: wc2.z, yell: true, ref: wc2 }); break; }
+      if (wdx * wdx + wdz * wdz < 150) { playVoice(wc2.fem ? 'cop_warn_f' : 'cop_warn', 0.55, 30, { x: wc2.x, z: wc2.z, yell: true, net: 1, ref: wc2 }); break; }
     }
   }
   if (!isClient()) {
@@ -5118,14 +6013,15 @@ function addRemapCar(rng) {
   cars.push(c);
 }
 if (!WC_REMAP) {
-  [5, 10].forEach(function (l) { addCar('x', l, 1); addCar('x', l, 1); });
-  [-5, -10].forEach(function (l) { addCar('x', l, -1); addCar('x', l, -1); });
-  [4, 8].forEach(function (l) { addCar('z', l, 1); addCar('z', l, 1); });
-  [-4, -8].forEach(function (l) { addCar('z', l, -1); addCar('z', l, -1); });
+  // 3x density pass: three cars per lane-slot instead of one
+  [5, 10].forEach(function (l) { addCar('x', l, 1); addCar('x', l, 1); addCar('x', l, 1); addCar('x', l, 1); addCar('x', l, 1); addCar('x', l, 1); });
+  [-5, -10].forEach(function (l) { addCar('x', l, -1); addCar('x', l, -1); addCar('x', l, -1); addCar('x', l, -1); addCar('x', l, -1); addCar('x', l, -1); });
+  [4, 8].forEach(function (l) { addCar('z', l, 1); addCar('z', l, 1); addCar('z', l, 1); addCar('z', l, 1); addCar('z', l, 1); addCar('z', l, 1); });
+  [-4, -8].forEach(function (l) { addCar('z', l, -1); addCar('z', l, -1); addCar('z', l, -1); addCar('z', l, -1); addCar('z', l, -1); addCar('z', l, -1); });
 } else {
-  // same 16-car budget, spread length-weighted over arterial+collector edges
+  // 3x density pass: 48-car budget (was 16), spread length-weighted over arterial+collector edges
   var rmCarRng = seededRng(0x52454D01);
-  for (var rmci = 0; rmci < 16; rmci++) addRemapCar(rmCarRng);
+  for (var rmci = 0; rmci < 48; rmci++) addRemapCar(rmCarRng);
 }
 
 // ---- parked cars: the lots hold empty cars you can break into (E, 0.9s) ----
@@ -5144,9 +6040,41 @@ function addParkedCar(x, z, ry) {
 // lot's long axis, cars nose-in toward the building, ~3.2u stall pitch.
 // n = how many of the row's slots get a car (random subset = natural gaps).
 // Venue lot rows are keyed to the OLD lot positions; WC_REMAP suppresses them
-// (the venues relocated, and their axis lots with them — per-venue remap lots
-// are R4). The survey neighborhoods still contribute HOUSE_PARKED_ROWS below.
-var PARKED_ROWS = WC_REMAP ? [] : [
+// (the venues relocated, and their axis lots with them). The survey
+// neighborhoods still contribute HOUSE_PARKED_ROWS below.
+// WC_REMAP: derive parked rows straight from the editor-authored parking
+// surfaces (REMAP_SURFACES) so the true-geometry lots fill with cars. Rows run
+// along each lot's long (local-x) axis with a central aisle; every candidate
+// slot is still vetted by parkedSlotFree (never on a road/collider/spawn), so
+// bad slots simply drop out. Deterministic order (REMAP_SURFACES order) keeps
+// host/client cars[] indices aligned for world snapshots.
+function buildRemapParkedRows() {
+  if (typeof REMAP_SURFACES === 'undefined') return [];
+  var rows = [], placed = 0, CAP = 40;
+  for (var i = 0; i < REMAP_SURFACES.length && placed < CAP; i++) {
+    var s = REMAP_SURFACES[i];
+    if (s.kind !== 'parking') continue;
+    var th = s.rot * Math.PI / 180;
+    var ux = Math.cos(th), uz = Math.sin(th);     // local +x (row runs this way)
+    var vx = -Math.sin(th), vz = Math.cos(th);    // local +z (rows stack across)
+    var pitch = 3.4, rowGap = 6.6;
+    var wUse = s.w - 5, dUse = s.d - 5;
+    if (wUse < 6 || dUse < 3) continue;
+    var nSlots = Math.floor(wUse / pitch);
+    var nRows = Math.max(1, Math.min(2, Math.floor(dUse / rowGap)));   // 1-2 rows/lot
+    for (var rIdx = 0; rIdx < nRows && placed < CAP; rIdx++) {
+      var zoff = nRows === 1 ? 0 : (-dUse / 2 + rowGap / 2 + rIdx * rowGap);
+      var startX = -wUse / 2 + pitch / 2;
+      var rx = s.x + ux * startX + vx * zoff, rz = s.z + uz * startX + vz * zoff;
+      var face = th + (zoff <= 0 ? Math.PI / 2 : -Math.PI / 2);   // nose toward the aisle
+      var want = Math.max(1, Math.min(5, Math.round(nSlots * 0.4)));
+      rows.push({ x: rx, z: rz, dx: ux * pitch, dz: uz * pitch, slots: nSlots, ry: face, n: want });
+      placed += want;
+    }
+  }
+  return rows;
+}
+var PARKED_ROWS = WC_REMAP ? buildRemapParkedRows() : [
   // Publix (78x40 lot; aisle at z~-96 stays clear: player spawn -72,-97 + dealer -72,-106)
   { x: -106, z: -104, dx: 3.2, dz: 0, slots: 20, ry: Math.PI / 2, n: 5 },
   { x: -106, z: -88, dx: 3.2, dz: 0, slots: 20, ry: -Math.PI / 2, n: 4 },
@@ -5161,7 +6089,7 @@ var PARKED_ROWS = WC_REMAP ? [] : [
   // Farnell school east lot (single row — the lot's east half hugs the cross road)
   { x: -24, z: -255, dx: 0, dz: 3.3, slots: 11, ry: Math.PI, n: 4 }
 ];
-var PARKED_CLEAR = WC_REMAP ? [[-24, -31], [-26, -34]] : [[-72, -97], [-72, -106]];   // player spawn + gun dealer
+var PARKED_CLEAR = WC_REMAP ? [[-63, 4], [-60, 0]] : [[-72, -97], [-72, -106]];   // player spawn + gun dealer
 // survey-neighborhood lots contribute extra deterministic rows (houses.js)
 if (typeof HOUSE_PARKED_ROWS !== 'undefined') PARKED_ROWS = PARKED_ROWS.concat(HOUSE_PARKED_ROWS);
 function parkedHalfExt(ry) {
@@ -5412,6 +6340,7 @@ function updateCars(dt) {
       c.sspin *= 1 - dt * 1.5;
       if (c.shoveT <= 0) { if (WC_REMAP) remapRejoinLane(c); else c.pos = c.axis === 'x' ? c.sx : c.sz; }   // rejoin the lane from here
     } else if (WC_REMAP) {
+      applyCarGovernor(c, i, dt);   // car-following + red-light + stop-sign speed control
       remapDriveCar(c, dt);   // follow the true-geometry lane graph (RM.edges)
     } else {
       c.pos += c.dir * c.speed * dt;
@@ -5452,6 +6381,7 @@ function updateCars(dt) {
       var ex = m.position.x, ez = m.position.z;
       for (var b = 0; b < colliders.length; b++) {
         var bb = colliders[b];
+        if (bb.active === false) continue;
         var qx = Math.max(bb.x0, Math.min(ex, bb.x1)), qz = Math.max(bb.z0, Math.min(ez, bb.z1));
         var qdx = ex - qx, qdz = ez - qz;
         if (qdx * qdx + qdz * qdz < 4.5) { explodeCar(c); break; }
@@ -5999,7 +6929,7 @@ function updateRockets(dt) {
     r.life -= dt;
     var hit = r.life <= 0 || r.y <= 0.25 || Math.abs(r.x) > HALF || Math.abs(r.z) > HALF;
     if (!hit && r.y < 14) {
-      for (var b = 0; b < colliders.length; b++) { var bb = colliders[b]; if (r.x > bb.x0 && r.x < bb.x1 && r.z > bb.z0 && r.z < bb.z1) { hit = true; break; } }
+      for (var b = 0; b < colliders.length; b++) { var bb = colliders[b]; if (bb.active === false) continue; if (r.x > bb.x0 && r.x < bb.x1 && r.z > bb.z0 && r.z < bb.z1) { hit = true; break; } }
     }
     if (!hit && r.y < 2.4) {
       for (var n = 0; n < npcs.length && !hit; n++) { var nn = npcs[n]; if (nn.state === 'down' || nn.state === 'ragdoll' || nn.state === 'hidden') continue; var dx = nn.x - r.x, dz = nn.z - r.z; if (dx * dx + dz * dz < 1.7) hit = true; }
@@ -6402,7 +7332,9 @@ function updateUfo(dt) {
 function damageNPC(n, dmg, kx, kz, silent) {
   if (n.state === 'down' || n.state === 'hidden') return;
   breakNpcChat(n);   // taking damage ends a conversation mid-line
-  if (!silent && !playNpcVoice(n.vname, 'hit', 0.65, 4, { x: n.x, z: n.z, yell: true, ref: n })) playVoiceAny(n.fem ? ['pedf_hit', 'pedf_hit_2'] : ['pedm_hit_1', 'pedm_hit_2', 'pedo_hit'], 0.6, 'pedHit', 5, { x: n.x, z: n.z, yell: true, ref: n });
+  // hit reaction plays even for client-caused (silent) damage so both peers hear
+  // it — silent only suppresses the host's popup/kill-credit, not the world's audio
+  if (!playNpcVoice(n.vname, 'hit', 0.65, 4, { x: n.x, z: n.z, yell: true, net: 1, ref: n })) playVoiceAny(n.fem ? ['pedf_hit', 'pedf_hit_2'] : ['pedm_hit_1', 'pedm_hit_2', 'pedo_hit'], 0.6, 'pedHit', 5, { x: n.x, z: n.z, yell: true, net: 1, ref: n });
   n.hp -= dmg; n.hurtFlash = 0.12; n.x += (kx || 0) * 0.5; n.z += (kz || 0) * 0.5;
   lastCrimeT = T;
   if (n.hp <= 0) {
@@ -6425,7 +7357,7 @@ function damageNPC(n, dmg, kx, kz, silent) {
   for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o === n || (o.state !== 'walk' && o.state !== 'chat')) continue; var dx = o.x - n.x, dz = o.z - n.z; if (dx * dx + dz * dz < 170) startFlee(o); }
 }
 function startFlee(n) { if (n.state === 'down') return; breakNpcChat(n); n.state = 'flee'; n.dodge = false; n.fleeT = 4 + Math.random() * 3; var dx = n.x - player.x, dz = n.z - player.z; var d = Math.sqrt(dx * dx + dz * dz) || 1; n.fleeDX = dx / d; n.fleeDZ = dz / d; }
-function panicNear(x, z, r2) { var fled = null; for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o.state !== 'walk' && o.state !== 'chat') continue; var dx = o.x - x, dz = o.z - z; if (dx * dx + dz * dz < r2) { startFlee(o); if (!fled || o.vname) fled = o; } } if (fled && !playNpcVoice(fled.vname, 'gunscared', 0.65, 10, { x: fled.x, z: fled.z, yell: true, ref: fled })) playVoiceAny(fled.fem ? ['pedf_gun'] : ['pedm_gun'], 0.6, 'pedGun', 16, { x: fled.x, z: fled.z, yell: true, ref: fled }); }
+function panicNear(x, z, r2) { var fled = null; for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o.state !== 'walk' && o.state !== 'chat') continue; var dx = o.x - x, dz = o.z - z; if (dx * dx + dz * dz < r2) { startFlee(o); if (!fled || o.vname) fled = o; } } if (fled && !playNpcVoice(fled.vname, 'gunscared', 0.65, 10, { x: fled.x, z: fled.z, yell: true, net: 1, ref: fled })) playVoiceAny(fled.fem ? ['pedf_gun'] : ['pedm_gun'], 0.6, 'pedGun', 16, { x: fled.x, z: fled.z, yell: true, net: 1, ref: fled }); }
 
 var npcSocialT = 0, npcBumpT = -99, meleeHit = false, npcAnimF = 0;
 // hard-stop a sidewalk conversation (participant hit/killed/fleeing/dodging a
@@ -6441,8 +7373,10 @@ function breakNpcChat(n) {
 // character's pack lacks the category; true only when `cat` itself played
 function npcChatLine(n, cat) {
   if (!n || !n.vname) return false;
-  if (playNpcVoice(n.vname, cat, 0.55, 2, { x: n.x, z: n.z, ref: n })) return true;
-  playNpcVoice(n.vname, 'chat', 0.55, 2, { x: n.x, z: n.z, ref: n });
+  // net:1 — sidewalk conversations are shared-world ambient chatter: the host
+  // broadcasts them so joined clients hear the same back-and-forth positionally
+  if (playNpcVoice(n.vname, cat, 0.55, 2, { x: n.x, z: n.z, net: 1, ref: n })) return true;
+  playNpcVoice(n.vname, 'chat', 0.55, 2, { x: n.x, z: n.z, net: 1, ref: n });
   return false;
 }
 function updateNPCs(dt) {
@@ -6528,7 +7462,7 @@ function updateNPCs(dt) {
         breakNpcChat(n);   // a car bearing down trumps the conversation
         n.state = 'flee'; n.dodge = true; n.fleeT = 0.9 + Math.random() * 0.3;
         n.fleeDX = thr.x; n.fleeDZ = thr.z; n.dodgeCD = T + 2;
-        if (!playNpcVoice(n.vname, 'bump', 0.6, 3, { x: n.x, z: n.z, yell: true, ref: n })) playVoiceAny(n.fem ? ['pedf_hit', 'pedf_hit_2'] : ['pedm_hit_1', 'pedm_hit_2'], 0.55, 'pedDodge', 4, { x: n.x, z: n.z, yell: true, ref: n });
+        if (!playNpcVoice(n.vname, 'bump', 0.6, 3, { x: n.x, z: n.z, yell: true, net: 1, ref: n })) playVoiceAny(n.fem ? ['pedf_hit', 'pedf_hit_2'] : ['pedm_hit_1', 'pedm_hit_2'], 0.55, 'pedDodge', 4, { x: n.x, z: n.z, yell: true, net: 1, ref: n });
       }
     }
     if (n.state === 'ragdoll') {
@@ -6840,6 +7774,7 @@ function pushOut(px, pz, r, list) {
   var L = list || colliders;
   for (var i = 0; i < L.length; i++) {
     var b = L[i];
+    if (b.active === false) continue;   // toppled prop's trunk collider — sits out until it respawns
     if (px < b.x0 - r || px > b.x1 + r || pz < b.z0 - r || pz > b.z1 + r) continue;
     if (b.obb) {
       // oriented box: solve in the box's local frame (u along its width axis),
@@ -6896,12 +7831,16 @@ function getGunMesh(name, len) {
   var gunM = lamb({ map: tx });
   var s = len / (e.dims && e.dims[0] || 1);
   if (name === 'rpg7' && !e.i) {
-    // split the baked launcher into tube + warhead (the front ~0.3m of the
-    // -x muzzle end) so firing can leave the tube visibly empty during reload
+    // split the baked launcher into tube + warhead. The PG-7 warhead is the
+    // whole front assembly: pointed nose cone + the wider BULBOUS charge body
+    // behind it, necking down to the tube around authored x=-0.30. Cutting
+    // there (was -0.38, which sliced through the bulb) loads the full warhead,
+    // so firing empties the tube and reload flies the complete round back in.
+    var WH_CUT = -0.30;
     var tp = [], tu = [], wp = [], wu = [];
     for (i = 0; i < fp.length; i += 9) {
       var cx = (fp[i] + fp[i + 3] + fp[i + 6]) / 3;
-      var dp = cx < -0.38 ? wp : tp, du = cx < -0.38 ? wu : tu;
+      var dp = cx < WH_CUT ? wp : tp, du = cx < WH_CUT ? wu : tu;
       for (var j = 0; j < 9; j++) dp.push(fp[i + j]);
       var ub = (i / 9) * 6;
       for (j = 0; j < 6; j++) du.push(fu[ub + j]);
@@ -6939,6 +7878,36 @@ function gunFlashAt(px, py, pz, len, dy) {
   var th = -Math.PI / 2 + 0.22;
   return [px - Math.cos(th) * len / 2, py + (dy || 0), pz + Math.sin(th) * len / 2];
 }
+// exact barrel-tip of a positioned Meshy gun group: the models author the
+// muzzle along local -x, so the forward-most vertex is min authored-x. We map
+// it through the (already-placed, un-parented) group so the flash lands ON the
+// tip instead of an approximated center+len/2 (which ignored barrel y/z offset
+// and the model's x-tilt). Returns [x,y,z] in the group's parent (= vm) space.
+var _mzV = new THREE.Vector3();
+function meshyMuzzleAt(mg) {
+  mg.updateMatrixWorld(true);
+  // pass 1: forward-most authored-x. pass 2: average the ring of vertices at
+  // the tip (within 2cm) so the flash centers on the BORE, not a rim vertex.
+  var minlx = 1e9, meshes = [];
+  mg.traverse(function (o) {
+    if (o.isMesh && !o.isSkinnedMesh && o.geometry && o.geometry.attributes.position) {
+      o.updateMatrixWorld(true); meshes.push(o);
+      var pos = o.geometry.attributes.position;
+      for (var i = 0; i < pos.count; i++) if (pos.getX(i) < minlx) minlx = pos.getX(i);
+    }
+  });
+  var bx = 0, by = 0, bz = 0, n = 0;
+  for (var m = 0; m < meshes.length; m++) {
+    var o = meshes[m], pos = o.geometry.attributes.position;
+    for (var i = 0; i < pos.count; i++) {
+      if (pos.getX(i) <= minlx + 0.02) {
+        _mzV.set(pos.getX(i), pos.getY(i), pos.getZ(i)).applyMatrix4(o.matrixWorld);
+        bx += _mzV.x; by += _mzV.y; bz += _mzV.z; n++;
+      }
+    }
+  }
+  return n ? [bx / n, by / n, bz / n] : [0, 0, 0];
+}
 function vmArm(x, y, z, yawR) {
   var g = new THREE.Group();
   var foreGeo = new THREE.CylinderGeometry(0.032, 0.04, 0.22, 8); foreGeo.rotateX(Math.PI / 2);
@@ -6961,6 +7930,93 @@ var psxArms = null;
 // posed each frame on a static frame of the 'grab' clip
 var GUNHOLD_GROUPS = { pistol: 1, smg: 1, rifle: 1, auto: 1, rocket: 1 };
 var gunHold = { clip: 'relax', t: 0.75 };   // relax mid-frame: right palm sits on the grips
+// The shared relax/grab clip leaves the LEFT (support) arm hanging at the side,
+// which reads as a detached floating hand for every gun. After posing, we swing
+// the left arm forward onto each weapon's foregrip/handguard with fixed local
+// eulers per bone [shoulder.L, upper_arm.L, forearm.L, hand.L] (rig bone indices
+// 24..27). Values authored on-screen (screenshot rounds) now that the forward
+// ANCHOR_OFF un-clips the arms: support hand on the AK/SMG handguard, under the
+// Kar98k forestock, on the RPG tube, and meeting the firing hand for the pistol.
+// upper_arm.L z = right-swing, forearm.L x = forward reach (smaller = further).
+var SUPPORT_POSE = {
+  pistol: [[-1.59, 0.5, -1.5], [1.2, 0.4, -3.2], [2.5, -0.82, 0.3], [0.2, 0.3, -0.4]],
+  smg:    [[-1.59, -0.01, -1.16], [1.2, 0.4, -2.9], [2.1, -0.82, 0.3], [0.15, 0.3, -0.4]],
+  rifle:  [[-1.59, -0.01, -1.16], [0.98, 0.4, -2.6], [1.7, -0.82, 0.3], [0.1, 0.3, -0.4]],
+  auto:   [[-1.59, -0.01, -1.16], [0.98, 0.4, -2.7], [1.85, -0.82, 0.3], [0.1, 0.3, -0.4]],
+  rocket: [[-1.59, -0.01, -1.16], [1.1, 0.4, -2.6], [1.7, -0.82, 0.3], [0.1, 0.3, -0.4]]
+};
+// per-weapon forward anchor offset in the gun-group (camera) frame:
+// x=right, y=up, z toward-camera(+)/forward(-). The shared idle/relax/grab
+// clips park both hands at rig-z~0, so with a zero anchor the whole arm rig
+// collapses onto the camera and the forward-most vertex sits ~0.02m ahead —
+// INSIDE the 0.1m near plane → invisible. Pushing the rig forward per weapon
+// un-clips the hands and lands the trigger hand near the grip.
+// z pulled toward the camera (v1.43) so the weapon reads at arm's length, not
+// shoved at the screen; each weapon's gun mesh is retracted by the SAME delta
+// below so the trigger hand stays on the grip.
+var ANCHOR_OFF = {
+  fists:  [0.00, -0.04, -0.30],
+  pistol: [0.06, -0.06, -0.32],
+  smg:    [0.09, -0.05, -0.36],
+  rifle:  [0.10, -0.05, -0.39],
+  auto:   [0.11, -0.05, -0.39],
+  rocket: [0.10, -0.05, -0.36]
+};
+var dbgArmOv = null;                 // debug override for SUPPORT_POSE (via __wc.dbgArm)
+var _supEuler = new THREE.Euler();
+var _supIdx = [24, 25, 26, 27];
+function applySupportPose(w) {
+  if (!psxArms) return;
+  var p = dbgArmOv || SUPPORT_POSE[w];
+  if (!p) return;
+  for (var i = 0; i < 4; i++) {
+    if (!p[i]) continue;
+    _supEuler.set(p[i][0], p[i][1], p[i][2]);
+    psxArms.bones[_supIdx[i]].quaternion.setFromEuler(_supEuler);
+  }
+}
+// v1.44: support-arm 2-bone IK. The blind-euler SUPPORT_POSE left the left hand
+// floating off the gun; instead we now seed from it (elbow pole hint + hand
+// wrap) then run a few CCD passes on upper_arm.L(25) + forearm.L(26) so hand.L
+// (27, the wrist) lands on the weapon's grip target. GRIP_TGT is in the gun
+// group's local (camera) frame — measured on the foregrip/handguard (rifle/
+// auto), the tube foregrip (rocket), the barrel shroud (smg) and just below the
+// firing hand (two-hand pistol). ccdJoint reuses copAimArm's trick: build the
+// world-space swing with setFromUnitVectors, conjugate by the parent's world
+// quaternion into bone-local space, premultiply.
+var GRIP_TGT = {
+  pistol: [0.21, -0.40, -0.52],
+  smg:    [0.28, -0.30, -0.56],
+  rifle:  [0.18, -0.42, -0.84],
+  auto:   [0.19, -0.42, -0.76],
+  rocket: [0.22, -0.44, -0.68]
+};
+var _ikEnd = new THREE.Vector3(), _ikJ = new THREE.Vector3(), _ikTV = new THREE.Vector3(),
+    _ikA = new THREE.Vector3(), _ikB = new THREE.Vector3(),
+    _ikDQ = new THREE.Quaternion(), _ikPQ = new THREE.Quaternion(), _ikQL = new THREE.Quaternion();
+function ccdJoint(j, end, tgtW) {
+  j.updateMatrixWorld(true);
+  end.getWorldPosition(_ikEnd); j.getWorldPosition(_ikJ);
+  _ikA.copy(_ikEnd).sub(_ikJ); _ikB.copy(tgtW).sub(_ikJ);
+  if (_ikA.lengthSq() < 1e-9 || _ikB.lengthSq() < 1e-9) return;
+  _ikA.normalize(); _ikB.normalize();
+  _ikDQ.setFromUnitVectors(_ikA, _ikB);
+  j.parent.getWorldQuaternion(_ikPQ);
+  _ikQL.copy(_ikPQ).invert().multiply(_ikDQ).multiply(_ikPQ);   // world swing → bone-local
+  j.quaternion.premultiply(_ikQL);
+  j.updateMatrixWorld(true);
+}
+function solveSupportIK(w) {
+  if (!psxArms) return;
+  applySupportPose(w);                       // seed the arm (pole hint) + hand wrap
+  var tgt = GRIP_TGT[w];
+  if (!tgt || dbgArmOv) return;              // fists/no target, or manual euler override → keep seed
+  var g = vmMap[w]; if (!g) return;
+  var upper = psxArms.bones[25], fore = psxArms.bones[26], hand = psxArms.bones[27];
+  psxArms.root.updateMatrixWorld(true);
+  _ikTV.set(tgt[0], tgt[1], tgt[2]); g.localToWorld(_ikTV);
+  for (var it = 0; it < 6; it++) { ccdJoint(fore, hand, _ikTV); ccdJoint(upper, hand, _ikTV); }
+}
 function armsTintTex(skinHex) {
   var cv = document.createElement('canvas');
   cv.width = 1; cv.height = 1;   // valid upload before the image decodes
@@ -7062,6 +8118,8 @@ function anchorArms(pa) {
   armsTmpV.copy(pa.camBone.position).applyQuaternion(pa.rootBone.quaternion).add(pa.rootBone.position);
   pa.root.quaternion.set(0, 1, 0, 0);
   pa.root.position.set(armsTmpV.x, -armsTmpV.y, armsTmpV.z);
+  var off = ANCHOR_OFF[state.equipped];
+  if (off) { pa.root.position.x += off[0]; pa.root.position.y += off[1]; pa.root.position.z += off[2]; }
 }
 function armsPose(pa, key, t, oneshot) {
   var c = pa.clips[key];
@@ -7097,7 +8155,7 @@ function initPSXArms() {
       [vmPistol, vmSmg, vmRifle, vmAuto, vmRocket].forEach(function (g) {
         g.children.forEach(function (c) { if (c.userData.gunArm) c.visible = false; });
       });
-      if (GUNHOLD_GROUPS[state.equipped]) { vmMap[state.equipped].add(psxArms.root); armsPose(psxArms, gunHold.clip, gunHold.t, true); }
+      if (GUNHOLD_GROUPS[state.equipped]) { vmMap[state.equipped].add(psxArms.root); armsPose(psxArms, gunHold.clip, gunHold.t, true); solveSupportIK(state.equipped); }
     }
   } catch (e) { psxArms = null; }
 }
@@ -7109,13 +8167,13 @@ var vmPistol = new THREE.Group();
   if (hasMeshyGun('glock19')) {
     // Meshy Glock 19 (real length 0.19m, drawn a touch big to read on 480p)
     var mg = getGunMesh('glock19', 0.30);
-    mg.position.set(0.27, -0.33, -0.5);
+    mg.position.set(0.27, -0.33, -0.40);   // v1.43: retracted 0.10 toward camera (matches ANCHOR_OFF)
     mg.rotation.order = 'YXZ';
     mg.rotation.y = -Math.PI / 2 + 0.22;   // nose forward (-z), classic inward cant
     mg.rotation.x = 0.05;
     vmPistol.add(mg);
     var pAr = vmArm(0.29, -0.47, -0.34, 0.18); pAr.userData.gunArm = 1; vmPistol.add(pAr);
-    WEAPONS.pistol.flashAt = gunFlashAt(0.27, -0.33, -0.5, 0.30, 0.06);
+    WEAPONS.pistol.flashAt = meshyMuzzleAt(mg);
     WEAPONS.pistol.flashScale = 0.55;   // muzzle sits closer to camera than the old model
     return;
   }
@@ -7132,13 +8190,13 @@ var vmSmg = new THREE.Group();
 (function () {
   if (hasMeshyGun('tec9')) {
     var mg = getGunMesh('tec9', 0.5);
-    mg.position.set(0.27, -0.29, -0.55);
+    mg.position.set(0.27, -0.29, -0.41);   // v1.43: retracted 0.14 toward camera
     mg.rotation.order = 'YXZ';
     mg.rotation.y = -Math.PI / 2 + 0.22;
     mg.rotation.x = 0.05;
     vmSmg.add(mg);
     var sAr = vmArm(0.29, -0.47, -0.24, 0.18); sAr.userData.gunArm = 1; vmSmg.add(sAr);
-    WEAPONS.smg.flashAt = gunFlashAt(0.27, -0.29, -0.55, 0.5, 0.08);
+    WEAPONS.smg.flashAt = meshyMuzzleAt(mg);
     WEAPONS.smg.flashScale = 0.65;
     return;
   }
@@ -7176,14 +8234,14 @@ var vmRifle = new THREE.Group();
 (function () {
   if (hasMeshyGun('kar98k')) {
     var mg = getGunMesh('kar98k', 0.95);
-    mg.position.set(0.25, -0.29, -0.72);
+    mg.position.set(0.25, -0.29, -0.56);   // v1.43: retracted 0.16 toward camera
     mg.rotation.order = 'YXZ';
     mg.rotation.y = -Math.PI / 2 + 0.22;
     mg.rotation.x = 0.05;
     vmRifle.add(mg);
     var rAr1 = vmArm(0.27, -0.47, -0.34, 0.18); rAr1.userData.gunArm = 1; vmRifle.add(rAr1);
     var rAr2 = vmArm(0.11, -0.44, -0.82, -0.32); rAr2.userData.gunArm = 1; vmRifle.add(rAr2);
-    WEAPONS.rifle.flashAt = gunFlashAt(0.25, -0.29, -0.72, 0.95, 0.04);
+    WEAPONS.rifle.flashAt = meshyMuzzleAt(mg);
     WEAPONS.rifle.flashScale = 0.8;
     return;
   }
@@ -7202,14 +8260,14 @@ var vmAuto = new THREE.Group();
 (function () {
   if (hasMeshyGun('ak47')) {
     var mg = getGunMesh('ak47', 0.8);
-    mg.position.set(0.26, -0.30, -0.62);
+    mg.position.set(0.26, -0.30, -0.46);   // v1.43: retracted 0.16 toward camera
     mg.rotation.order = 'YXZ';
     mg.rotation.y = -Math.PI / 2 + 0.22;
     mg.rotation.x = 0.05;
     vmAuto.add(mg);
     var aAr1 = vmArm(0.29, -0.47, -0.3, 0.18); aAr1.userData.gunArm = 1; vmAuto.add(aAr1);
     var aAr2 = vmArm(0.13, -0.44, -0.72, -0.3); aAr2.userData.gunArm = 1; vmAuto.add(aAr2);
-    WEAPONS.auto.flashAt = gunFlashAt(0.26, -0.30, -0.62, 0.8, 0.05);
+    WEAPONS.auto.flashAt = meshyMuzzleAt(mg);
     WEAPONS.auto.flashScale = 0.75;
     return;
   }
@@ -7238,13 +8296,13 @@ var rpgWarhead = null;   // the Meshy launcher's own warhead mesh (hidden while 
   if (hasMeshyGun('rpg7')) {
     var mg = getGunMesh('rpg7', 0.95);
     mg.traverse(function (o) { if (o.userData && o.userData.warhead) rpgWarhead = o; });
-    mg.position.set(0.3, -0.26, -0.6);
+    mg.position.set(0.3, -0.26, -0.46);   // v1.43: retracted 0.14 toward camera
     mg.rotation.order = 'YXZ';
     mg.rotation.y = -Math.PI / 2 + 0.22;
     vmRocket.add(mg);
     var kAr1 = vmArm(0.32, -0.48, -0.32, 0.18); kAr1.userData.gunArm = 1; vmRocket.add(kAr1);
     var kAr2 = vmArm(0.16, -0.46, -0.6, -0.3); kAr2.userData.gunArm = 1; vmRocket.add(kAr2);
-    var fa = gunFlashAt(0.3, -0.26, -0.6, 0.95, 0.02);
+    var fa = gunFlashAt(0.3, -0.26, -0.46, 0.95, 0.02);   // muzzle literal tracks the retracted mesh
     WEAPONS.rocket.flashAt = fa;
     headCant = 0.22;
     rocketFwd.set(-Math.cos(-Math.PI / 2 + 0.22), 0, Math.sin(-Math.PI / 2 + 0.22));
@@ -7360,7 +8418,7 @@ function setEquipped(w) {
   // draw/reload animations move the hands with the gun
   if (psxArms) {
     if (w === 'fists') { vmFists.add(psxArms.root); vmFists.rotation.set(0, 0, 0); armsPose(psxArms, 'idle', T); }
-    else if (GUNHOLD_GROUPS[w]) { vmMap[w].add(psxArms.root); armsPose(psxArms, gunHold.clip, gunHold.t, true); }
+    else if (GUNHOLD_GROUPS[w]) { vmMap[w].add(psxArms.root); armsPose(psxArms, gunHold.clip, gunHold.t, true); solveSupportIK(w); }
   }
   vm.visible = !zoomed && !driving;
   Object.keys(vmMap).forEach(function (k) { vmMap[k].visible = (k === w); });
@@ -7680,6 +8738,7 @@ function breakProp(b, dirX, dirZ) {
   b.broken = true; b.thudded = false; b.fallT = 0; b.respawnT = 60;
   var d = Math.sqrt(dirX * dirX + dirZ * dirZ) || 1;
   b.fx = dirX / d; b.fz = dirZ / d;
+  if (b.col) b.col.active = false;   // toppled trunk stops blocking until respawn
   if (b.light) { b.light.broken = true; b.light.glow.visible = false; b.light.pool.visible = false; }
   var cols = b.type === 'tree' ? [0x4c8038, 0x3f6f2e, 0x7a5a3a] : [0xffe9a8, 0x8a8f94, 0xd8d8d4];
   var n = b.type === 'tree' ? 14 : 9;
@@ -7766,6 +8825,7 @@ function updateWorldFx(dt) {
     if (bb.respawnT <= 0) {
       bb.broken = false; bb.fallT = 0;
       bb.g.quaternion.copy(bb.yq);
+      if (bb.col) bb.col.active = true;
       if (bb.light) { bb.light.broken = false; bb.light.glow.visible = lampsOn; bb.light.pool.visible = lampsOn; }
     }
   }
@@ -7821,15 +8881,27 @@ function startAmbient() {
 }
 // ---- PS1-crunched TTS dialogue (optional voicelines.js) ----
 var voiceBufs = {}, voiceLastT = {}, dealerMet = false, shopBought = false, clerkScaredT = -99;
+// per-peer voice-play instrumentation (dbg): local = voices this peer played
+// itself, net = voices replayed from a host broadcast, bcast = world voices
+// this (host) peer broadcast to clients.
+var dbgVoiceLocal = 0, dbgVoiceNet = 0, dbgVoiceBcast = 0;
 function playVoice(id, gain, cd, at) {
-  if (typeof VOICE_LINES === 'undefined' || !VOICE_LINES[id] || !ac) return;
-  if (!voiceEarshot(at)) return;
+  if (typeof VOICE_LINES === 'undefined' || !VOICE_LINES[id]) return;
+  if (at) voicePos(at);
+  // host broadcasts world voices (at.net) so joined clients hear the shared
+  // world's chatter/reactions positionally — regardless of the HOST's own
+  // earshot, since each client re-tests earshot at its own position
+  var host = isHost() && at && at.net;
+  var heard = voiceEarshot(at);
+  if (!host && !heard) return;
   if (voiceLastT[id] !== undefined && T - voiceLastT[id] < (cd || 5)) return;
   voiceLastT[id] = T;
+  if (host) { netBroadcast({ t: 'voice', id: id, g: gain || 0.5, x: Math.round(at.x * 10), z: Math.round(at.z * 10), yl: at.yell ? 1 : 0, py: at.y === undefined ? undefined : Math.round(at.y * 10) }); dbgVoiceBcast++; }
+  if (!ac || !heard) return;
   function playBuf(buf) {
     var src = ac.createBufferSource(); src.buffer = buf;
     src.connect(voiceOut(gain || 0.5, at)); src.start();
-    trackVoice(src, at);
+    trackVoice(src, at); dbgVoiceLocal++;
   }
   if (voiceBufs[id]) { playBuf(voiceBufs[id]); return; }
   var bytes = b64Bytes(VOICE_LINES[id].split(',')[1]);
@@ -7837,7 +8909,9 @@ function playVoice(id, gain, cd, at) {
 }
 var voiceGroupT = {};
 function playVoiceAny(ids, gain, cdKey, cd, at) {
-  if (!voiceEarshot(at)) return;
+  if (at) voicePos(at);
+  var host = isHost() && at && at.net;   // host must not gate on its own earshot — it still broadcasts
+  if (!host && !voiceEarshot(at)) return;
   if (voiceGroupT[cdKey] !== undefined && T - voiceGroupT[cdKey] < cd) return;
   voiceGroupT[cdKey] = T;
   playVoice(ids[(Math.random() * ids.length) | 0], gain, 0, at);
@@ -7854,17 +8928,22 @@ function stopNpcVoice(name) {   // cut a character's line short (death)
 }
 function playNpcVoice(name, cat, gain, cd, at) {
   if (!name || typeof NPC_VOICES === 'undefined' || !NPC_VOICES[name] || !NPC_VOICES[name][cat]) return false;
-  if (!voiceEarshot(at)) return true;   // too far to hear ANY voice — suppress fallback too
+  if (at) voicePos(at);
+  var host = isHost() && at && at.net;
+  var heard = voiceEarshot(at);
+  if (!host && !heard) return true;   // too far to hear ANY voice — suppress fallback too
   var key = 'npcv_' + name;
   if (voiceGroupT[key] !== undefined && T - voiceGroupT[key] < (cd || 4)) return true;
   voiceGroupT[key] = T;
-  if (!ac) return true;
   var arr = NPC_VOICES[name][cat];
   // cycle through the lines so you don't hear the same one twice in a row
   var ck = name + '_' + cat;
   if (npcVoiceCycle[ck] === undefined) npcVoiceCycle[ck] = (Math.random() * arr.length) | 0;
   else npcVoiceCycle[ck] = (npcVoiceCycle[ck] + 1) % arr.length;
   var idx = npcVoiceCycle[ck];
+  // broadcast the exact character+line so a joined client plays the same one
+  if (host) { netBroadcast({ t: 'voice', nm: name, ct: cat, ix: idx, g: gain || 0.45, x: Math.round(at.x * 10), z: Math.round(at.z * 10), yl: at.yell ? 1 : 0, py: at.y === undefined ? undefined : Math.round(at.y * 10) }); dbgVoiceBcast++; }
+  if (!ac || !heard) return true;
   var id = name + '_' + cat + '_' + idx;
   var token = {};
   npcVoiceLive[name] = token;
@@ -7874,7 +8953,7 @@ function playNpcVoice(name, cat, gain, cd, at) {
     if (prev) { try { prev.stop(); } catch (e) { } }
     var src = ac.createBufferSource(); src.buffer = buf;
     src.connect(voiceOut(gain || 0.45, at)); src.start();
-    trackVoice(src, at);
+    trackVoice(src, at); dbgVoiceLocal++;
     npcVoiceSrc[name] = src;
     src.onended = function () { if (npcVoiceSrc[name] === src) npcVoiceSrc[name] = null; };
   }
@@ -7882,6 +8961,32 @@ function playNpcVoice(name, cat, gain, cd, at) {
   var bytes = b64Bytes(arr[idx].split(',')[1]);
   ac.decodeAudioData(bytes.buffer, function (buf) { npcVoiceBufs[id] = buf; playBuf(buf); }, function () { });
   return true;
+}
+// client-side replay of a host-broadcast world voice ({t:'voice'}). Purely
+// render/audio: plays the exact line at the mirror's world position, re-testing
+// earshot locally. Never re-broadcasts (client), never touches simulation.
+function playNetVoice(m) {
+  if (!ac) return;
+  var at = { x: m.x / 10, z: m.z / 10, yell: m.yl ? 1 : 0 };
+  if (m.py !== undefined) at.y = m.py / 10;
+  if (!voiceEarshot(at)) return;
+  var url, cache, cacheId;
+  if (m.nm) {
+    if (typeof NPC_VOICES === 'undefined' || !NPC_VOICES[m.nm] || !NPC_VOICES[m.nm][m.ct] || !NPC_VOICES[m.nm][m.ct][m.ix]) return;
+    url = NPC_VOICES[m.nm][m.ct][m.ix]; cacheId = m.nm + '_' + m.ct + '_' + m.ix; cache = npcVoiceBufs;
+  } else {
+    if (typeof VOICE_LINES === 'undefined' || !VOICE_LINES[m.id]) return;
+    url = VOICE_LINES[m.id]; cacheId = m.id; cache = voiceBufs;
+  }
+  var gain = m.g || 0.5;
+  function playBuf(buf) {
+    var src = ac.createBufferSource(); src.buffer = buf;
+    src.connect(voiceOut(gain, at)); src.start();
+    trackVoice(src, at); dbgVoiceNet++;
+  }
+  if (cache[cacheId]) { playBuf(cache[cacheId]); return; }
+  var bytes = b64Bytes(url.split(',')[1]);
+  ac.decodeAudioData(bytes.buffer, function (buf) { cache[cacheId] = buf; playBuf(buf); }, function () { });
 }
 function meshyNameFromCfg(cfg) {
   if (!cfg || !cfg.preset || cfg.preset <= PSX_SKINS.length) return null;
@@ -8444,6 +9549,8 @@ function handleNet(m, conn) {
     sfx('laser', { x: m.a[0], z: m.a[2], range: 130 });
   } else if (m.t === 'gotDrop') {
     applyDropPickup(m.k);
+  } else if (m.t === 'voice') {
+    if (net.mode === 'client') playNetVoice(m);   // host-broadcast world voice
   } else if (net.mode === 'host') {
     // ---- client → host world actions (host is authoritative) ----
     if (m.t === 'dmgNpc') {
@@ -8813,6 +9920,10 @@ function updateNet(dt) {
     r.yaw += dy * k;
     var moved = Math.sqrt((r.x - r.lx) * (r.x - r.lx) + (r.z - r.lz) * (r.z - r.lz));
     r.phase += moved * 3.4;
+    // smoothed world velocity of this remote — the host's only handle on a
+    // remote-driven car's speed/heading (npcCarThreat reads it so pedestrians
+    // dodge cars piloted by other players, not just host-simmed traffic)
+    if (dt > 0) { r.vx = (r.vx || 0) * 0.6 + ((r.x - r.lx) / dt) * 0.4; r.vz = (r.vz || 0) * 0.6 + ((r.z - r.lz) / dt) * 0.4; }
     r.lx = r.x; r.lz = r.z;
     if (r.drv) {
       // their car is a synced world car — just hide the walking avatar
@@ -9459,7 +10570,7 @@ function updatePlayer(dt) {
       else { armsPose(psxArms, 'idle', T); vmFists.rotation.y = 0; vmFists.rotation.z = 0; }
     } else if (pt < 0.28) { var kk = Math.sin((pt / 0.28) * Math.PI); punchArm.position.z = punchArmBase.z - kk * 0.5; punchArm.position.x = punchArmBase.x - kk * 0.14; punchArm.rotation.x = -kk * 0.4; }
     else { punchArm.position.copy(punchArmBase); punchArm.rotation.x = 0; }
-  } else if (psxArms && GUNHOLD_GROUPS[state.equipped]) armsPose(psxArms, gunHold.clip, gunHold.t, true);
+  } else if (psxArms && GUNHOLD_GROUPS[state.equipped]) { armsPose(psxArms, gunHold.clip, gunHold.t, true); solveSupportIK(state.equipped); }
   if (flashT > 0) {
     flashT -= dt;
     if (flashT <= 0) flash.visible = false;
@@ -9543,6 +10654,8 @@ window.__wc = {
   enterStore: enterStore, exitStore: exitStore, refreshClerk: refreshClerk, animPerson: animPerson, animPersonClip: animPersonClip, playVoice: playVoice, oak: oak, bush: bush, getPackProp: getPackProp,
   initAudio: initAudio, playNpcVoice: playNpcVoice, playVoiceAny: playVoiceAny,
   audioVoices: function () { return activeVoices; }, getAC: function () { return ac; },
+  voiceDbg: function () { return { local: dbgVoiceLocal, net: dbgVoiceNet, bcast: dbgVoiceBcast }; },
+  playNetVoice: playNetVoice, panicNear: panicNear, npcChatLine: npcChatLine,
   engineRPM: engineRPM, ensureEngineRich: ensureEngineRich,
   armsInfo: function () { return psxArms ? { clips: Object.keys(psxArms.clips), np: psxArms.np, anchor: psxArms.root.position.toArray().map(function (v) { return Math.round(v * 100) / 100; }) } : null; },
   isInside: function () { return inside; },
@@ -9550,6 +10663,14 @@ window.__wc = {
   resetCooldowns: function () { punchT = -99; lastShot = -99; lastShotBy = {}; },
   gunBloom: function () { return gunBloom; },
   setGunHold: function (c, t) { gunHold.clip = c; gunHold.t = t; },   // debug: tune the arms hold pose
+  dbgArm: function (ov) { dbgArmOv = ov; },   // debug: override support-arm eulers [[x,y,z]x bones 24-27]
+  setAnchor: function (w, arr) { ANCHOR_OFF[w] = arr; },   // debug: tune per-weapon forward anchor offset
+  getAnchor: function (w) { return ANCHOR_OFF[w]; },
+  setGrip: function (w, arr) { GRIP_TGT[w] = arr; },   // debug: tune per-weapon support-hand IK grip target
+  getGrip: function (w) { return GRIP_TGT[w]; },
+  getBoneQ: function (i) { return psxArms ? psxArms.bones[i].quaternion.toArray().map(function (v) { return Math.round(v * 1000) / 1000; }) : null; },
+  poseArmsNow: function () { if (psxArms && GUNHOLD_GROUPS[state.equipped]) { armsPose(psxArms, gunHold.clip, gunHold.t, true); solveSupportIK(state.equipped); } },
+  handPos: function () { if (!psxArms) return null; psxArms.mesh.updateMatrixWorld(true); var pl = new THREE.Vector3(), pr = new THREE.Vector3(); psxArms.bones[27].getWorldPosition(pl); psxArms.bones[4].getWorldPosition(pr); return { L: pl.toArray().map(function (v) { return Math.round(v * 100) / 100; }), R: pr.toArray().map(function (v) { return Math.round(v * 100) / 100; }) }; },
 
   spawnUfo: spawnUfo, damageUfo: damageUfo, damageAlien: damageAlien,
   ufoRef: function () { return ufo; }, alienRef: function () { return alien; },
@@ -9570,6 +10691,22 @@ window.__wc = {
   setClock: function (t2) { envT = t2; },
   envState: function () { return { envT: envT, raining: raining, dayFactor: dayFactor(), lampsOn: lampsOn, sun: sun.intensity, fogFar: scene.fog.far }; },
   sigState: function () { return { t: sigClock, main: sigMain, cross: sigCross }; },
+  setSigClock: function (t2) { sigClock = t2; updateSignals(0); },   // force a phase for tests
+  carSignalsRef: function () { return carSignals; },
+  carGovState: function () { return cars.map(function (c, i) { return c.parked || c.stolen || c.exploded ? null : { i: i, spd: Math.round(c.speed * 100) / 100, cruise: Math.round((c.cruise || 0) * 100) / 100, x: Math.round(c.car.group.position.x * 10) / 10, z: Math.round(c.car.group.position.z * 10) / 10, ry: Math.round(c.car.group.rotation.y * 100) / 100 }; }).filter(function (e) { return e; }); },
+  placeCarOnLane: function (i, x, z, hx, hz) {   // test hook: seat car i on the nearest lane point facing (hx,hz)
+    var c = cars[i]; if (!c || !RM) return false;
+    var best = -1, bestD = 1e9, bs = 0;
+    for (var e = 0; e < RM.edges.length; e++) { var ed = RM.edges[e]; var pr = rmProject(ed.pts, ed.cum, x, z); if (pr.d * pr.d < bestD) { bestD = pr.d * pr.d; best = e; bs = pr.s; } }
+    if (best < 0) return false;
+    var ed = RM.edges[best]; c.rEdge = best; c.rS = Math.max(ed.m0, Math.min(ed.len - ed.m1, bs));
+    var p = rmAt(ed.pts, ed.cum, c.rS); c.rDir = (p.ux * hx + p.uz * hz) >= 0 ? 1 : -1;
+    c.rLane = 0; c.rOff = ed.lanes[0];
+    c.parked = false; c.stolen = false; c.exploded = false; c.berserk = false; c.shoveT = 0; c.dmgT = 0;
+    c.cruise = ed.spdA; c.speed = ed.spdA;
+    var lp = rmLanePos(c, c.rS); c.car.group.position.set(lp.x, 0, lp.z); c.rTx = lp.tx; c.rTz = lp.tz; c.car.group.rotation.y = Math.atan2(-lp.tz, lp.tx);
+    return { x: Math.round(lp.x * 10) / 10, z: Math.round(lp.z * 10) / 10 };
+  },
   goBerserk: goBerserk, igniteCar: igniteCar, explodeCar: explodeCar,
   makeCar: makeCar,   // roster/model-mix testing (remember to scene.remove(.group))
   startBreakIn: startBreakIn,
@@ -9584,7 +10721,10 @@ window.__wc = {
   expWalkInfo: function () { return { res: expWalkRes.length, col: expWalkCol.length, resLen: Math.round(expWalkRes.total || 0), colLen: Math.round(expWalkCol.total || 0) }; },
   landCollidersRef: function () { return landColliders; }, pushOut: pushOut,
   solidMeshesReg: solidMeshes,
+  buildFenceRun: function (pts, type, opts) { return buildFenceRun(pts, type, opts); }, fenceRuns: FENCE_RUNS,
+  remapPointClear: function (x, z, pad) { return remapPointClear(x, z, pad); },
   oakInfo: function () { return { count: oakCount, cap: OAK_CAP }; },
+  densityInfo: function () { return densityStats; },
   forestFillPts: expFillPts,
   streetProps: streetPropInteractables, streetPropInteract: streetPropInteract, getStreetProp: getStreetProp, hydrantJets: hydrantJets,
   houses: houseStats, houseBlocksSpot: houseBlocksSpot, houseMeshesRef: houseMeshesRef,

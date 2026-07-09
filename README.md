@@ -52,7 +52,11 @@ everything they were carrying — and **robbery lockouts are server-wide**, so
 if someone knocks over the gas station, it's closed for all of you. Rare
 events (see Rumors) are shared too: everyone sees them, anyone can profit
 from them, and they only happen once per session no matter who triggers
-them. (Gas-station interiors themselves stay personal.)
+them. You also **hear the same town everyone else does**: when the host's
+pedestrians chat on the sidewalk, scream, flee a gunshot, dodge a car, or a
+cop barks a warning, that voice is streamed to every player and played at the
+right spot on their side — a joined player is no longer stuck in a silent
+world. (Gas-station interiors, and the voices inside them, stay personal.)
 
 ## Your character
 
@@ -219,8 +223,14 @@ cards with alpha cutouts, from the free "retro nature pack" by
 leaves. They still snap like twigs if you drive through them.
 
 The main intersection is dressed like the real one: galvanized mast-arm
-**traffic signals that actually cycle** (green street-name blades and
-all — traffic doesn't obey them yet), cobra-head streetlights, wood
+**traffic signals that actually cycle** — and now **traffic obeys them**:
+cars slow and queue bumper-to-bumper at a red, wait out the cycle, and
+pull away on green. They also keep a safe following gap on the open road
+and tap the brakes for a beat at the smaller uncontrolled intersections.
+The streets are busy now — roughly triple the old traffic and pedestrian
+counts — and walkers who see a car bearing down on them bolt sideways out
+of the lane, whether it's an NPC car or one another player is driving.
+There are cobra-head streetlights, wood
 utility poles trailing sagging lines down the main road, sabal-palm
 clusters on every corner, and proper road paint — stop bars, ladder
 crosswalks, and left-turn arrows in the pockets.

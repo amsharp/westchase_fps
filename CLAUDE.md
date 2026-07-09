@@ -331,7 +331,11 @@ forest walls + "ROAD CLOSED" barriers at the four road exits.
 
 - Ragdolled NPC ragdolls & booms use 2D distance; rockets fired inside the
   gas station interact with surface coordinates (rare, accepted).
-- Palms/oaks have no collision (only forest patches block movement).
+- ~~Palms/oaks have no collision~~ fixed v1.45/46: trees, lamp/utility/sign
+  poles, hydrants, benches etc. carry small trunk/base colliders
+  (`registerBreakable` collR param / `SP_SOLID` / `SP_BLOCKR`); a breakable's
+  collider goes `.active=false` while car-toppled and back on at respawn.
+  Bushes, cones, barricades, carts and yard-sign stakes stay pass-through.
 - If the multiplayer host leaves, guests keep their local sim but the shared
   world freezes updating (listen-server tradeoff).
 - Berserk cars that find open ground blow up on a 6 s timer instead of
