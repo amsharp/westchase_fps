@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.45.0';
+var GAME_VERSION = 'v1.46.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -3090,7 +3090,7 @@ function crepeMyrtle(x, z) {
     for (var i = 0; i < 4; i++) { var c = new THREE.Mesh(bushGeo, lm); var r = 0.8 + Math.random() * 0.5; c.scale.set(r, r * 0.9, r); c.position.set((Math.random() - 0.5) * 1.2, h + (Math.random() - 0.3), (Math.random() - 0.5) * 1.2); g.add(c); }
   }
   g.add(blobShadow(1, 1, 0.05)); g.position.set(x, 0, z); scene.add(g);
-  registerBreakable(g, x, z, 0.7, 'tree');
+  registerBreakable(g, x, z, 0.7, 'tree', null, 0.18);
 }
 
 // mast-arm traffic signals — lamps register in signalLights and CYCLE
@@ -4490,9 +4490,13 @@ function getStreetProp(name) {
 }
 
 // props big enough to block movement (AABB collider)
-var SP_SOLID = { dumpster: 1, busshelter: 1, vendingmachine: 1, atm: 1, transformerbox: 1, icechest: 1, propanecage: 1, jerseybarrier: 1, picnictable: 1, planter: 1 };
+var SP_SOLID = { dumpster: 1, busshelter: 1, vendingmachine: 1, atm: 1, transformerbox: 1, icechest: 1, propanecage: 1, jerseybarrier: 1, picnictable: 1, planter: 1, bench: 1, mailbox: 1, homemailbox: 1, bikerack: 1, tirestack: 1, acunit: 1 };
 // props cars snap: 'light' = metal pole crunch, 'tree' = punted clutter
 var SP_SNAP = { stopsign: 'light', yieldsign: 'light', speedsign: 'light', onewaysign: 'light', parkingmeter: 'light', payphone: 'light', hydrant: 'light', cone: 'tree', barricade: 'tree', trashcan: 'tree', wheeliebin: 'tree', shoppingcart: 'tree', newsbox: 'tree' };
+// breakable street props that also block on foot: half-width of the small
+// base/pole collider handed to registerBreakable (deactivates while toppled).
+// Cones / barricades / shopping carts stay pass-through — steppable clutter.
+var SP_BLOCKR = { hydrant: 0.24, parkingmeter: 0.15, payphone: 0.3, stopsign: 0.14, yieldsign: 0.14, speedsign: 0.14, onewaysign: 0.14, newsbox: 0.24, trashcan: 0.36, wheeliebin: 0.35 };
 var SP_INTERACT = { vendingmachine: 'vend', payphone: 'phone', atm: 'atm', newsbox: 'news' };
 // authored front is -x; face = direction the front should point in the world
 var SP_FACE = { W: 0, E: Math.PI, N: -Math.PI / 2, S: Math.PI / 2 };
@@ -4596,7 +4600,7 @@ function spOverlapsBuilding(x, z, hx, hz) {
       solidMeshes.push(g);   // bullets stop on the big stuff
     }
     if (SP_SNAP[name]) {
-      registerBreakable(g, x, z, Math.max(hx, hz) + 0.15, SP_SNAP[name]);
+      registerBreakable(g, x, z, Math.max(hx, hz) + 0.15, SP_SNAP[name], null, SP_BLOCKR[name] || 0);
       var bb = breakables[breakables.length - 1];
       if (name === 'parkingmeter') bb.kind = 'meter';
       if (name === 'hydrant') bb.kind = 'hydrant';
@@ -4703,7 +4707,9 @@ if (WC_REMAP) (function densityLayer() {
   function dSign(name, x, y, z, ry, scale) { if (!dAsset[name]) return; var a = dAsset[name]; bake('d_' + name, { texName: name, double: true }, USIGN, mtx(x, y, z, ry, a.dims[0] * (scale || 1), a.dims[1] * (scale || 1), 1)); densityStats.signs++; }
   function dBoxAsset(name, x, y, z, ry) { if (!dAsset[name]) return; var a = dAsset[name]; bake('d_' + name, { texName: name }, UBOX, mtx(x, y, z, ry || 0, a.dims[0], a.dims[1], a.dims[2])); densityStats.clutter++; }
   function dCylAsset(name, x, y, z) { if (!dAsset[name]) return; var a = dAsset[name]; bake('d_' + name, { texName: name }, UCYL, mtx(x, y, z, 0, a.dims[0], a.dims[1], a.dims[0])); densityStats.clutter++; }
-  function pole(x, z, h, r) { r = r || 0.11; bake('_pole', { color: 0x8a8f94 }, UCYL, mtx(x, h / 2, z, 0, r * 2, h, r * 2)); }
+  // waist-high+ poles (roadside sign posts, billboard legs) block the player;
+  // short yard-sign stakes (h < 1.5) stay pass-through
+  function pole(x, z, h, r) { r = r || 0.11; bake('_pole', { color: 0x8a8f94 }, UCYL, mtx(x, h / 2, z, 0, r * 2, h, r * 2)); if (h >= 1.5) addCollider(x, z, Math.max(0.26, r * 2), Math.max(0.26, r * 2)); }
   // tileable fence/wall run A->B, height H, texture repeating along its length
   function fenceRun(ax, az, bx, bz, name, solid) {
     var a = dAsset[name]; if (!a) return;
@@ -5011,7 +5017,7 @@ if (WC_REMAP) (function densityLayer() {
     if (spOverlapsBuilding(x, z, hx, hz)) return;
     g.position.set(x, y === undefined ? 0.13 : y, z); g.rotation.y = ry; scene.add(g);
     if (SP_SOLID[name]) { addCollider(x, z, hx * 2, hz * 2); solidMeshes.push(g); }
-    if (SP_SNAP[name]) { registerBreakable(g, x, z, Math.max(hx, hz) + 0.15, SP_SNAP[name]); var bb = breakables[breakables.length - 1]; if (name === 'parkingmeter') bb.kind = 'meter'; if (name === 'hydrant') bb.kind = 'hydrant'; }
+    if (SP_SNAP[name]) { registerBreakable(g, x, z, Math.max(hx, hz) + 0.15, SP_SNAP[name], null, SP_BLOCKR[name] || 0); var bb = breakables[breakables.length - 1]; if (name === 'parkingmeter') bb.kind = 'meter'; if (name === 'hydrant') bb.kind = 'hydrant'; }
     if (SP_INTERACT[name]) { var it = { kind: SP_INTERACT[name], x: x, z: z, fx: -Math.cos(ry), fz: Math.sin(ry), g: g, cd: -99, robbed: false }; if (it.kind === 'atm') { g.userData.atm = it; if (!SP_SOLID[name]) solidMeshes.push(g); } streetPropInteractables.push(it); }
     densityStats.props++;
   }
