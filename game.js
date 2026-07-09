@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.29.0';
+var GAME_VERSION = 'v1.30.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -18,9 +18,13 @@ document.getElementById('gameVer').textContent = GAME_VERSION;
 var WC_REMAP = true;
 if (typeof window !== 'undefined' && window.WC_REMAP_OVERRIDE !== undefined) WC_REMAP = !!window.WC_REMAP_OVERRIDE;
 if (typeof REMAP_ROADS === 'undefined') WC_REMAP = false;   // data file missing -> legacy world
-// The editor-authored map (REMAP_VENUES) is the whole building set; the survey
-// house fill (houses.js) is disabled under WC_REMAP but its assets stay loaded.
-var STAMP_SURVEY_HOUSES = !WC_REMAP;
+// The editor-authored map (REMAP_VENUES) is the intersection landmark set; the
+// survey house fill (houses.js) populates the residential neighborhoods around
+// it. Its HOUSE_INSTANCES were re-vetted against the true roads/venues/surfaces
+// (tools/housegen/revet.js) so they no longer clip the remap geometry; the
+// runtime houseOnRoad() drop below is a deterministic safety net. Requires the
+// houses.js data file (guarded where consumed).
+var STAMP_SURVEY_HOUSES = (typeof HOUSE_CLUSTERS !== 'undefined');
 
 // ---------------- world constants ----------------
 var HALF = 600, TOTAL = HALF * 2;   // expanded world (map expansion)
@@ -2471,6 +2475,16 @@ function houseBuildTagged(cl) {
   var rep = houseRepeats(spec);
   var g = new THREE.Group();
   var frontM = { t: 'front' }, sideM = { t: 'side' }, backM = { t: 'back' };
+  // double-window fix: the side/back facade tiles bake a painted window in,
+  // while feat.win extrudes 3D window boxes on those same walls — so a house
+  // with feat.win showed painted AND geometry windows (misaligned, jarring).
+  // Every cluster's FRONT tile is window-less siding/brick, so when a cluster
+  // owns 3D window boxes we skin all four walls with the front (plain) tile:
+  // the extruded boxes become the single, coherent window treatment. Clusters
+  // without feat.win keep their painted-window side/back tiles (no doubling).
+  var hasWinBoxes = feat.win && Object.keys(feat.win).length > 0;
+  var wallSideM = hasWinBoxes ? frontM : sideM;
+  var wallBackM = hasWinBoxes ? frontM : backM;
   var plainM = { t: 'plain' }, trimM = { t: 'trim' }, gableM = { t: 'gable', s: 1 / rep.gN, gRep: rep.gRep };
   var concM = { t: 'conc' }, glassM = { t: 'glass' }, doorM = { t: 'door' }, garM = { t: 'garage' };
   var roofM = { t: 'roofbig', sx: rep.rx / rep.cols, sy: rep.ry / rep.rows };
@@ -2483,7 +2497,7 @@ function houseBuildTagged(cl) {
     slab.position.y = h + 0.3; g.add(slab);
   } else {
     var topM = spec.roofType === 'flat' ? roofM : plainM;
-    var body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [sideM, sideM, topM, plainM, frontM, backM]);
+    var body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [wallSideM, wallSideM, topM, plainM, frontM, wallBackM]);
     body.position.y = h / 2 + 0.05;
     g.add(body);
   }
