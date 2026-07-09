@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.44.2';
+var GAME_VERSION = 'v1.45.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -9603,6 +9603,19 @@ window.__wc = {
   setPlayerChar: function (c) { playerChar = c; },
   tick: function (dt) { T += dt; updatePlayer(dt); updateNPCs(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateUfo(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateStreetProps(dt); updateEnv(dt); updateVoiceAudio(dt); updateNet(dt); renderer.render(scene, camera); }
 };
+
+// ---------------- boot screen handoff + menu cover art ----------------
+(function () {
+  var bs = document.getElementById('bootScreen');
+  if (bs) { var bb = document.getElementById('bootBar'); if (bb) bb.style.width = '100%'; setTimeout(function () { bs.classList.add('hidden'); }, 250); }
+  // AI cover art behind the menu (menubg.js data-URL, vendored — no external URLs)
+  if (typeof MENU_BG !== 'undefined' && MENU_BG) {
+    var ss = document.getElementById('startScreen');
+    ss.style.backgroundImage = 'linear-gradient(rgba(6,9,15,0.55), rgba(6,9,15,0.78)), url(' + MENU_BG + ')';
+    ss.style.backgroundSize = 'cover';
+    ss.style.backgroundPosition = 'center';
+  }
+})();
 
 // ---------------- world-bot boot (?bot=1: the dedicated server's headless host)
 if (WC_BOT) {

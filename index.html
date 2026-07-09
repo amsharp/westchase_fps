@@ -22,6 +22,14 @@
   .menuBtn:disabled { opacity:.4; cursor:default; }
   #onlineCount { width:340px; margin:4px auto 0; text-align:center; font-size:13px; letter-spacing:1px;
     color:#6dff8b; text-shadow:1px 1px 0 #000; min-height:17px; }
+  #bootScreen { position:fixed; inset:0; z-index:80; background:#0b0e14; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:18px; }
+  #bootScreen.hidden { display:none; }
+  #bootScreen h1 { font-size:54px; letter-spacing:10px; color:#fff; text-shadow:4px 4px 0 #1c74a8, 8px 8px 0 #000; }
+  #bootBarOuter { width:420px; max-width:80vw; height:18px; background:#10141c; border:2px solid #cfc7b0;
+    outline:2px solid #000; }
+  #bootBar { height:100%; width:0%; background:linear-gradient(90deg,#1c74a8,#5ad6ff); transition:width .25s; }
+  #bootLabel { color:#8fa0b8; font-size:13px; letter-spacing:2px; min-height:16px; }
   .joinRow { display:flex; width:340px; margin:10px auto 0; gap:6px; }
   .joinRow input, #inviteLink { flex:1; font-family:inherit; font-size:13px; background:#10141c; color:#8ee87f;
     border:2px solid #4a4436; padding:10px 8px; }
@@ -236,25 +244,44 @@
   <div class="footer">[ESC] walk away</div>
 </div>
 
-<script src="three.min.js"></script>
-<script src="peerjs.min.js"></script>
-<script src="meshyprops.js"></script>
-<script src="meshyarms.js"></script>
-<script src="meshyvehs.js"></script>
-<script src="ggbotvehs.js"></script>
-<script src="meshyufo.js"></script>
-<script src="meshyguns.js"></script>
-<script src="muzzleflash.js"></script>
-<script src="npcvoices1.js"></script><!-- chunks 2+ are late-loaded by game.js (loadNpcVoiceChunks) -->
-<script src="meshychars.js"></script>
-<script src="voicelines.js"></script>
-<script src="blooddecals.js"></script>
-<script src="streetprops.js"></script>
+<!-- boot loading bar: scripts load sequentially, each onload advances the bar
+     by its file-size weight (MB). Label announces what loads NEXT (the fat
+     voice pack dominates). game.js hides #bootScreen when it finishes. -->
+<div id="bootScreen">
+  <h1>WESTCHASE</h1>
+  <div id="bootBarOuter"><div id="bootBar"></div></div>
+  <div id="bootLabel">warming up the engine…</div>
+</div>
+<script>
+var wcBootDone = 0, WC_BOOT_TOTAL = 42.5;   // ~sum of script MB below
+function wcTick(w, nextLabel) {
+  wcBootDone += w;
+  var b = document.getElementById('bootBar');
+  if (b) b.style.width = Math.min(100, wcBootDone / WC_BOOT_TOTAL * 100).toFixed(1) + '%';
+  var l = document.getElementById('bootLabel');
+  if (l && nextLabel) l.textContent = nextLabel;
+}
+</script>
+<script src="menubg.js" onload="wcTick(0.4,'loading engine…')"></script>
+<script src="three.min.js" onload="wcTick(0.6,'loading netcode…')"></script>
+<script src="peerjs.min.js" onload="wcTick(0.1,'loading props…')"></script>
+<script src="meshyprops.js" onload="wcTick(0.6,'loading arms…')"></script>
+<script src="meshyarms.js" onload="wcTick(0.4,'loading vehicles…')"></script>
+<script src="meshyvehs.js" onload="wcTick(0.6,'loading vehicles…')"></script>
+<script src="ggbotvehs.js" onload="wcTick(0.4,'loading the saucer…')"></script>
+<script src="meshyufo.js" onload="wcTick(0.2,'loading guns…')"></script>
+<script src="meshyguns.js" onload="wcTick(0.3,'loading fx…')"></script>
+<script src="muzzleflash.js" onload="wcTick(0.1,'loading street voices (the big one)…')"></script>
+<script src="npcvoices1.js" onload="wcTick(29.9,'loading characters…')"></script><!-- chunks 2+ are late-loaded by game.js (loadNpcVoiceChunks) -->
+<script src="meshychars.js" onload="wcTick(4.4,'loading dialogue…')"></script>
+<script src="voicelines.js" onload="wcTick(1.0,'loading decals…')"></script>
+<script src="blooddecals.js" onload="wcTick(0.2,'loading street furniture…')"></script>
+<script src="streetprops.js" onload="wcTick(0.5,'loading the map…')"></script>
 <!-- true-geometry remap (R2) + neighborhood buildout: remapdata.js supplies the
      real road polylines, houses.js the stamped house instances. Loaded before
      game.js so REMAP_ROADS/HOUSE_CLUSTERS exist when it enables WC_REMAP. -->
-<script src="remapdata.js"></script>
-<script src="houses.js"></script>
-<script src="game.js"></script>
+<script src="remapdata.js" onload="wcTick(0.1,'loading houses…')"></script>
+<script src="houses.js" onload="wcTick(2.6,'building the town…')"></script>
+<script src="game.js" onload="wcTick(0.6,'')"></script>
 </body>
 </html>
