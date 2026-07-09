@@ -8156,48 +8156,79 @@ function onConn(c) {
     updateLobbyStatus();
   });
 }
+// ---- dedicated relay-server transport (replaces PeerJS P2P) ----
+// One WebSocket to the Railway relay server; per-remote "virtual connections"
+// keep the old DataConnection interface (.send/.on('data'|'open'|'close')/.peer)
+// so the entire host-authoritative protocol (handleNet/netBroadcast/netToHost/
+// netRelay) is unchanged — the wire underneath is now server-relayed, not P2P.
+var WC_SERVER_URL = (function () {
+  try { if (window.WC_SERVER_URL) return window.WC_SERVER_URL; } catch (e) { }   // test/dev override
+  try { var ls = localStorage.getItem('wc_server'); if (ls) return ls; } catch (e) { }
+  return 'wss://REPLACE_AFTER_DEPLOY.up.railway.app';   // Railway relay (set on deploy)
+})();
+function makeVConn(peerId) {
+  var h = { data: [], open: [], close: [] };
+  return {
+    peer: peerId, open: true,
+    send: function (m) { if (net.sock && net.sock.readyState === 1) { try { net.sock.send(JSON.stringify({ t: 'msg', to: peerId, data: m })); } catch (e) { } } },
+    on: function (ev, fn) { if (h[ev]) h[ev].push(fn); },
+    _emit: function (ev, a) { var l = h[ev] || []; for (var i = 0; i < l.length; i++) l[i](a); }
+  };
+}
+function vconnFor(id) { for (var i = 0; i < net.conns.length; i++) if (net.conns[i].peer === id) return net.conns[i]; return null; }
+function connectServer(onReady) {
+  var url = WC_SERVER_URL;
+  if (!url || url.indexOf('REPLACE_AFTER_DEPLOY') >= 0) { netError('Multiplayer server not configured yet.'); return; }
+  var sock;
+  try { sock = new WebSocket(url); } catch (e) { netError('Could not reach the multiplayer server.'); return; }
+  net.sock = sock;
+  var watchdog = setTimeout(function () { if (sock.readyState !== 1) netError('Still connecting to the server…'); }, 12000);
+  sock.onopen = function () { clearTimeout(watchdog); onReady(); };
+  sock.onerror = function () { netError('Multiplayer server error (is it online?).'); };
+  sock.onclose = function () {
+    for (var i = net.conns.length - 1; i >= 0; i--) { if (net.conns[i]._emit) net.conns[i]._emit('close'); }
+    net.conns = []; net.sock = null;
+  };
+  sock.onmessage = function (ev) {
+    var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+    if (m.t === 'hosted') {
+      net.id = m.id; net.room = m.room;
+      document.getElementById('netErr').classList.add('hidden');
+      document.getElementById('inviteLink').value = location.href.split('#')[0] + '#join=' + m.room;
+      document.getElementById('menuMain').classList.add('hidden');
+      document.getElementById('lobby').classList.remove('hidden');
+    } else if (m.t === 'joined') {
+      net.id = m.id; net.room = m.room;
+      document.getElementById('netErr').classList.add('hidden');
+      onConn(makeVConn(m.host));
+      startGame();
+    } else if (m.t === 'peer-join') {
+      onConn(makeVConn(m.id));
+    } else if (m.t === 'peer-leave') {
+      var vc = vconnFor(m.id); if (vc) vc._emit('close');
+    } else if (m.t === 'host-left') {
+      netError('The host left — the game has ended.'); sock.close();
+    } else if (m.t === 'msg') {
+      var c = vconnFor(m.from); if (c) c._emit('data', m.data);
+    } else if (m.t === 'error') {
+      netError(m.msg || 'Server error');
+    }
+  };
+}
 function hostGame() {
-  if (typeof Peer === 'undefined') { netError('Multiplayer unavailable (peerjs.min.js missing)'); return; }
   net.mode = 'host';
-  netError('Setting up lobby…');
+  netError('Creating lobby…');
   saveName();
-  net.peer = new Peer(peerOptions());
-  net.peer.on('open', function (id) {
-    net.id = id;
-    document.getElementById('netErr').classList.add('hidden');
-    document.getElementById('inviteLink').value = location.href.split('#')[0] + '#join=' + id;
-    document.getElementById('menuMain').classList.add('hidden');
-    document.getElementById('lobby').classList.remove('hidden');
-  });
-  net.peer.on('connection', onConn);
-  net.peer.on('error', function (e) { netError('Network error: ' + e.type + ' (multiplayer needs internet)'); });
+  connectServer(function () { net.sock.send(JSON.stringify({ t: 'host', name: getPlayerName() })); });
 }
 function joinGame(code) {
-  if (typeof Peer === 'undefined') { netError('Multiplayer unavailable (peerjs.min.js missing)'); return; }
-  var hostId = code.indexOf('#join=') >= 0 ? code.split('#join=').pop() : code;
-  hostId = hostId.trim();
-  if (!hostId) { netError('Paste an invite link or code first'); return; }
+  var room = code.indexOf('#join=') >= 0 ? code.split('#join=').pop() : code;
+  room = (room || '').trim().toUpperCase();
+  if (!room) { netError('Paste an invite link or room code first'); return; }
   net.mode = 'client';
-  netError('Connecting…');
+  netError('Joining…');
   saveName();
-  net.peer = new Peer(peerOptions());
-  net.peer.on('open', function () {
-    net.id = net.peer.id;
-    var c = net.peer.connect(hostId, { reliable: false });
-    // watchdog: if the tunnel never opens (NAT/relay trouble), say so
-    var joined = false;
-    var watchdog = setTimeout(function () {
-      if (!joined) netError('Still connecting… if this hangs, host and joiner may both need to refresh and retry (relay servers can take a moment).');
-    }, 12000);
-    c.on('open', function () {
-      joined = true; clearTimeout(watchdog);
-      document.getElementById('netErr').classList.add('hidden');
-      onConn(c);
-      startGame();
-    });
-    c.on('error', function (e) { clearTimeout(watchdog); netError('Could not join: ' + e.type); });
-  });
-  net.peer.on('error', function (e) { netError('Could not join: ' + e.type + ' (check the code / internet)'); });
+  connectServer(function () { net.sock.send(JSON.stringify({ t: 'join', room: room, name: getPlayerName() })); });
 }
 // a backgrounded host tab has requestAnimationFrame throttled to zero, which
 // froze the whole shared world for every client — pump the net loop on a
@@ -8206,7 +8237,7 @@ setInterval(function () {
   if (document.hidden && net.mode === 'host' && state.running) updateNet(0.125);
 }, 125);
 function updateNet(dt) {
-  if (!net.peer) return;
+  if (!net.sock) return;
   // broadcast our state ~14x/s
   net.sendT -= dt;
   if (net.sendT <= 0 && netActive()) {
