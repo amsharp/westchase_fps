@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.52.0';
+var GAME_VERSION = 'v1.53.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -448,6 +448,118 @@ var shadowGeo = new THREE.CircleGeometry(1, 14); shadowGeo.rotateX(-Math.PI / 2)
 var shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.26, depthWrite: false });
 function blobShadow(sx, sz, y) { var m = new THREE.Mesh(shadowGeo, shadowMat); m.scale.set(sx, 1, sz); m.position.y = y || 0.03; return m; }
 
+// ---------------- venue depth: real-material textures (v1.51 venue upgrade) ----
+// geo_ref reality: banks = red brick; plaza + strips = tan stucco with terracotta
+// pilasters + green metal accents; Starbucks = sage clapboard; BoA/Starbucks hips
+// are gray standing-seam metal. Procedural, offline, low-res per user preference.
+function brickTex(base, mortar) {
+  return tex(128, function (g, s) {
+    g.fillStyle = mortar || '#cabfa8'; g.fillRect(0, 0, s, s);
+    var bh = 13, bw = 26;
+    for (var r = 0, y = 0; y < s; y += bh, r++) {
+      var off = (r % 2) * bw / 2;
+      for (var x = -bw; x < s; x += bw) {
+        var c = new THREE.Color(base).multiplyScalar(0.82 + Math.random() * 0.32);
+        g.fillStyle = '#' + c.getHexString();
+        g.fillRect(x + off + 1.5, y + 1.5, bw - 3, bh - 3);
+      }
+    }
+    noise(g, s, 220, 0.07, 0.05);
+  }, 3, 3);
+}
+function stuccoTex(base) {
+  return tex(128, function (g, s) {
+    g.fillStyle = base; g.fillRect(0, 0, s, s); noise(g, s, 900, 0.05, 0.05);
+    g.strokeStyle = 'rgba(0,0,0,0.035)'; g.lineWidth = 1;
+    for (var i = 0; i < 34; i++) { var y = Math.random() * s; g.beginPath(); g.moveTo(0, y); g.lineTo(s, y + (Math.random() - 0.5) * 7); g.stroke(); }
+  }, 2, 2);
+}
+function seamMetalTex(base) {
+  return tex(128, function (g, s) {
+    g.fillStyle = base; g.fillRect(0, 0, s, s);
+    for (var x = 0; x < s; x += 14) { g.fillStyle = 'rgba(255,255,255,0.11)'; g.fillRect(x, 0, 2, s); g.fillStyle = 'rgba(0,0,0,0.16)'; g.fillRect(x + 11, 0, 2, s); }
+    noise(g, s, 110, 0.05, 0.04);
+  }, 3, 3);
+}
+function clapboardTex(base) {
+  return tex(128, function (g, s) {
+    g.fillStyle = base; g.fillRect(0, 0, s, s);
+    var rows = 10, rh = s / rows;
+    for (var r = 0; r < rows; r++) {
+      var y = r * rh, gr = g.createLinearGradient(0, y, 0, y + rh);
+      gr.addColorStop(0, 'rgba(255,255,255,0.10)'); gr.addColorStop(0.85, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,0.22)');
+      g.fillStyle = gr; g.fillRect(0, y, s, rh);
+    }
+    noise(g, s, 180, 0.04, 0.04);
+  }, 2, 3);
+}
+// storefront glass with a dark mullion grid + reflection streaks
+var bayGlassT = tex(128, function (g, s) {
+  var gr = g.createLinearGradient(0, 0, 0, s);
+  gr.addColorStop(0, '#a4c3d6'); gr.addColorStop(0.45, '#5f7f97'); gr.addColorStop(1, '#2b3b49');
+  g.fillStyle = gr; g.fillRect(0, 0, s, s);
+  g.strokeStyle = 'rgba(255,255,255,0.13)'; g.lineWidth = 3;
+  for (var i = -s; i < s; i += 38) { g.beginPath(); g.moveTo(i, s); g.lineTo(i + s * 0.5, 0); g.stroke(); }
+  g.fillStyle = '#20262c';
+  for (var x = 0; x <= s; x += s / 3) g.fillRect(x - 2, 0, 4, s);
+  g.fillRect(0, s * 0.5 - 2, s, 4); g.fillRect(0, 0, s, 6); g.fillRect(0, s - 6, s, 6);
+});
+// shared venue materials (defined here so load-time builders can use them)
+var brickBankM = lamb2(brickTex('#9c5540', '#d7ccb4'));    // red brick banks
+var brickBaseM = lamb2(brickTex('#7d4632', '#b7a888'));    // darker pier/base brick
+var stuccoTanM = lamb2(stuccoTex('#e2d4b6'));              // plaza / strip tan stucco
+var stuccoBeigeM = lamb2(stuccoTex('#e9e2d0'));            // Publix beige
+var terracottaM = lamb2(stuccoTex('#b56a3d'));             // terracotta pilaster
+var greenMetalM = lamb2(seamMetalTex('#3c6b48'));          // green metal awning/accent
+var grayHipM = lamb2(seamMetalTex('#9a9ea1'));             // gray standing-seam metal roof
+var clapSageM = lamb2(clapboardTex('#a7ad92'));            // Starbucks sage clapboard
+var bayGlassM = lamb2(bayGlassT);                          // storefront glass
+var venCapM = lamb({ color: 0xcfc7b4 });                  // parapet capstone
+var venAcM = lamb({ color: 0x9a9a94 });                   // rooftop AC
+
+// ---- venue depth primitives (builder-local, all FLAT single-material meshes so
+// placeVenueData can merge them by material for perf; front faces +z, dir=+1/-1
+// selects which wall the feature sits on). No painted-window doubling: builders
+// that add vWin/vBay skin the wall plain and let these boxes carry the detail. ----
+// punched window: recessed dark glass + protruding trim ring
+function vWin(x, y, wallZ, dir, w, h, trimM, glassM) {
+  var fr = box(w + 0.34, h + 0.34, 0.12, trimM); fr.position.set(x, y, wallZ + dir * 0.06); scene.add(fr);
+  var gl = box(w, h, 0.16, glassM || bayGlassM); gl.position.set(x, y, wallZ - dir * 0.05); scene.add(gl);
+}
+// NOTE: Object3D.add() returns the PARENT — never chain .position onto scene.add().
+// storefront glass bay: solid bulkhead + recessed mullion glass + header + sill
+function vBay(x, y0, wallZ, dir, w, h, trimM, glassM) {
+  var bulk = 0.55, gh = h - bulk - 0.25;
+  scene.add(box(w, gh, 0.16, glassM || bayGlassM, x, y0 + bulk + gh / 2, wallZ - dir * 0.05));
+  scene.add(box(w + 0.2, bulk, 0.2, trimM, x, y0 + bulk / 2, wallZ + dir * 0.05));
+  scene.add(box(w + 0.3, 0.34, 0.24, trimM, x, y0 + h - 0.02, wallZ + dir * 0.07));
+  scene.add(box(w + 0.3, 0.12, 0.3, trimM, x, y0 + bulk, wallZ + dir * 0.13));
+}
+// pilaster/pier protruding from a wall, optional brick base block
+function vPier(x, wallZ, dir, w, h, out, mat, baseM) {
+  scene.add(box(w, h, out, mat, x, h / 2 + 0.05, wallZ + dir * out / 2));
+  if (baseM) scene.add(box(w + 0.22, 1.5, out + 0.14, baseM, x, 0.8, wallZ + dir * (out + 0.07) / 2));
+}
+// flat entrance canopy (slab + fascia) on two round posts
+function vCanopy(x, wallZ, dir, w, out, y, mat, postM) {
+  scene.add(box(w, 0.35, out, mat, x, y, wallZ + dir * out / 2));
+  scene.add(box(w, 0.55, 0.22, mat, x, y - 0.12, wallZ + dir * out));
+  for (var i = -1; i <= 1; i += 2) scene.add(cyl(0.13, 0.13, y, 6, postM || mat, x + i * (w / 2 - 0.45), y / 2, wallZ + dir * (out - 0.3)));
+}
+// parapet capstone band on a flat roof
+function vParapet(cx, cz, w, d, topY, mat) {
+  scene.add(box(w + 0.6, 0.7, d + 0.6, mat || venCapM, cx, topY + 0.35, cz));
+}
+// rooftop AC unit on a curb
+function vAC(x, cz, topY, mat) {
+  scene.add(box(2.4, 0.22, 1.8, venCapM, x, topY + 0.11, cz));
+  scene.add(box(2.1, 0.9, 1.5, mat || venAcM, x, topY + 0.57, cz));
+}
+// eave soffit + fascia band for a hip/pitched roof
+function vEave(cx, cz, w, d, y, mat) {
+  scene.add(box(w + 1.0, 0.18, d + 1.0, mat || venCapM, cx, y, cz));
+}
+
 var colliders = [], solidMeshes = [];
 var landColliders = null;   // colliders minus the lake block — the player may wade in
 // returns the pushed collider object so callers (breakable props) can toggle
@@ -660,23 +772,24 @@ function awningTex(c1, c2) {
 }
 
 // gable-roofed strip mall with blue metal roof
+// tan-stucco strip mall (geo_ref: no blue roofs — flat parapet, terracotta piers,
+// green awnings, real storefront glass bays). Storefront faces -z.
 function stripMall(x, z, w, names) {
-  bldg(x, z, w, 20, 5, '#d8d2c4', { flat: true, door: false, ac: false, mmColor: '#c9c3b4' });
-  // blue gable
-  var peak = 2.2, slantLen = Math.sqrt(10 * 10 + peak * peak), ang = Math.atan2(peak, 10);
-  var p1 = box(w, 0.25, slantLen, blueRoofM, x, 5.1 + peak / 2, z - 5); p1.rotation.x = ang; scene.add(p1);
-  var p2 = box(w, 0.25, slantLen, blueRoofM, x, 5.1 + peak / 2, z + 5); p2.rotation.x = -ang; scene.add(p2);
-  // ridge cap + gable ends
-  scene.add(box(w, 0.3, 0.4, blueRoofM, x, 5.1 + peak, z));
-  // storefront awnings + signs facing north (-z), toward the road
+  var d = 20, h = 5, dir = -1, fz = z + dir * d / 2;
+  var b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [stuccoTanM, stuccoTanM, flatRoofM, flatRoofM, stuccoTanM, stuccoTanM]);
+  b.position.set(x, h / 2 + 0.1, z); scene.add(b); solidMeshes.push(b); addCollider(x, z, w, d);
+  mapBuildings.push({ x: x, z: z, w: w, d: d, h: h, c: '#c9c3b4', pad: true });
+  vParapet(x, z, w, d, h + 0.1, venCapM);
   var n = names.length, seg = w / n;
-  for (var i = 0; i < n; i++) {
+  for (var i = 0; i <= n; i++) vPier(x - w / 2 + i * seg, fz, dir, 1.1, h - 0.1, 0.45, terracottaM, brickBaseM);
+  for (i = 0; i < n; i++) {
     var sx = x - w / 2 + seg * (i + 0.5);
-    var awn = new THREE.Mesh(new THREE.PlaneGeometry(seg - 1.5, 1.4), lamb({ map: awningTex('#2f6f9e', '#e8e2d0'), side: THREE.DoubleSide }));
-    awn.rotation.x = 0.6; awn.position.set(sx, 3.1, z - 10.7); scene.add(awn);
-    signPlane(sx, 4.3, z - 10.15, Math.PI, seg - 2, 1.1, [names[i]], '#22303a', '#ffe9a0');
-    scene.add(box(seg - 1.6, 2.4, 0.15, phong({ color: 0x35485a, shininess: 90, specular: 0xaaccdd }), sx, 1.4, z - 10.02));
+    vBay(sx, 0.2, fz, dir, seg - 2.6, h - 1.2, venCapM, bayGlassM);
+    var awn = new THREE.Mesh(new THREE.PlaneGeometry(seg - 1.8, 1.4), lamb({ map: awningTex('#3c6b48', '#e8e2d0'), side: THREE.DoubleSide }));
+    awn.rotation.x = dir === 1 ? -0.6 : 0.6; awn.position.set(sx, h - 0.85, fz + dir * 1.05); scene.add(awn);
+    signPlane(sx, h - 0.4, fz + dir * 0.16, dir === 1 ? 0 : Math.PI, seg - 2.2, 1.0, [names[i]], '#22303a', '#ffe9a0');
   }
+  for (i = 0; i < n; i++) vAC(x - w / 2 + seg * (i + 0.5), z + 3, h + 0.1, venAcM);
 }
 
 // ---------------- specific landmarks ----------------
@@ -712,18 +825,34 @@ function storage(x, z) {
   signPlane(x, 3, z - 18.4, 0, 12, 1.6, ['SELF STORAGE'], '#243b5a', '#ffe9a0');
 }
 
+// Publix anchor (geo_ref sv_aldi_front): beige stucco, terracotta pilasters w/
+// brick bases, GREEN metal awning band, arched entry portal, storefront glass.
 function supermarket(x, z) {
-  bldg(x, z, 74, 44, 9, '#e9e2d2', { flat: true, door: false, mmColor: '#3f8a4a' });
-  signPlane(x, 7.5, z + 22.1, 0, 30, 3, ['PUBLIX'], '#1c7e3a', '#ffffff');
-  // entrance canopy
-  scene.add(box(20, 0.5, 5, lamb({ color: 0xc0392b }), x, 4.4, z + 24.5));
-  parkingLot(x, z + 44, 78, 40);
-  // light poles + carts
-  for (var i = -1; i <= 1; i++) {
-    scene.add(cyl(0.2, 0.2, 7, 6, lamb({ color: 0x555 }), x + i * 26, 3.5, z + 44));
+  var w = 74, d = 44, h = 9, fz = z + d / 2;
+  var b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [stuccoBeigeM, stuccoBeigeM, flatRoofM, flatRoofM, stuccoBeigeM, stuccoBeigeM]);
+  b.position.set(x, h / 2 + 0.1, z); scene.add(b); solidMeshes.push(b); addCollider(x, z, w, d);
+  mapBuildings.push({ x: x, z: z, w: w, d: d, h: h, c: '#3f8a4a', pad: true });
+  vParapet(x, z, w, d, h + 0.1, venCapM);
+  // green metal awning band across the storefront (the ALDI/Publix green line)
+  scene.add(box(w + 0.2, 1.1, 0.5, greenMetalM, x, h - 0.4, fz + 0.25));
+  var bays = 6, seg = w / bays, EHW = 8;
+  for (var i = 0; i <= bays; i++) {
+    var px = x - w / 2 + i * seg;
+    if (Math.abs(px - x) < EHW - 1) continue;
+    vPier(px, fz, 1, 1.5, h - 0.2, 0.55, terracottaM, brickBaseM);
   }
-  // (decorative staticCars removed — the parked-car pass fills this lot with
-  // real enterable cars; see spawnParkedCars in the traffic section)
+  for (i = 0; i < bays; i++) {
+    var bx = x - w / 2 + seg * (i + 0.5);
+    if (Math.abs(bx - x) < EHW) continue;
+    vBay(bx, 0.2, fz, 1, seg - 2.6, 5.4, venCapM, bayGlassM);
+  }
+  // arched entry portal: green metal canopy over glass entry doors
+  vCanopy(x, fz, 1, 2 * EHW - 1, 4.2, 4.4, greenMetalM, terracottaM);
+  vBay(x, 0.2, fz, 1, 2 * EHW - 3, 4.9, venCapM, bayGlassM);
+  signPlane(x, h + 0.4, fz + 0.35, 0, 30, 2.4, ['PUBLIX'], '#1c7e3a', '#ffffff');
+  for (i = -1; i <= 1; i++) vAC(x + i * 22, z - 6, h + 0.1, venAcM);
+  parkingLot(x, z + 44, 78, 40);
+  for (i = -1; i <= 1; i++) scene.add(cyl(0.2, 0.2, 7, 6, lamb({ color: 0x555 }), x + i * 26, 3.5, z + 44));
 }
 
 function school(x, z) {
@@ -1572,6 +1701,43 @@ function venueBuilder(v) {
     default:            return { fn: function () { shop(0, 0, 20, 16, 6, '#cfc8b8', ['SHOP'], '#333333', '#ffe9a0', { face: 1, mmColor: '#b8b0a0' }); }, nw: 20, nd: 16 };
   }
 }
+// Merge a venue group's FLAT single-material meshes by material into one merged
+// BufferGeometry each (manual attribute concat, r149-safe). Multi-material bodies,
+// nested groups, transparent/unique-texture meshes (signs, awnings) are left alone.
+function mergeVenueGroup(vg) {
+  var groups = {}, order = [], keep = [];
+  for (var i = 0; i < vg.children.length; i++) {
+    var m = vg.children[i];
+    if (!m.isMesh || Array.isArray(m.material) || !m.geometry || !m.geometry.attributes.position || m.material.transparent) { keep.push(m); continue; }
+    var key = m.material.uuid;
+    if (!groups[key]) { groups[key] = { mat: m.material, meshes: [] }; order.push(key); }
+    groups[key].meshes.push(m);
+  }
+  var out = keep.slice();
+  for (var k = 0; k < order.length; k++) {
+    var grp = groups[order[k]];
+    if (grp.meshes.length < 2) { out.push(grp.meshes[0]); continue; }
+    var pos = [], nor = [], uvs = [], V = new THREE.Vector3(), NM = new THREE.Matrix3();
+    for (var j = 0; j < grp.meshes.length; j++) {
+      var me = grp.meshes[j]; me.updateMatrix();
+      var geo = me.geometry.index ? me.geometry.toNonIndexed() : me.geometry;
+      var p = geo.attributes.position, na = geo.attributes.normal, u = geo.attributes.uv;
+      NM.getNormalMatrix(me.matrix);
+      for (var vi = 0; vi < p.count; vi++) {
+        V.set(p.getX(vi), p.getY(vi), p.getZ(vi)).applyMatrix4(me.matrix); pos.push(V.x, V.y, V.z);
+        if (na) { V.set(na.getX(vi), na.getY(vi), na.getZ(vi)).applyMatrix3(NM).normalize(); nor.push(V.x, V.y, V.z); } else nor.push(0, 1, 0);
+        if (u) uvs.push(u.getX(vi), u.getY(vi)); else uvs.push(0, 0);
+      }
+    }
+    var mg = new THREE.BufferGeometry();
+    mg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+    mg.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(nor), 3));
+    mg.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uvs), 2));
+    out.push(new THREE.Mesh(mg, grp.mat));
+  }
+  while (vg.children.length) vg.remove(vg.children[0]);
+  for (var o = 0; o < out.length; o++) vg.add(out[o]);
+}
 function placeVenueData(v) {
   var spec = venueBuilder(v);
   var sx = v.w / spec.nw, sz = v.d / spec.nd;
@@ -1586,6 +1752,7 @@ function placeVenueData(v) {
   mapParking.push = function (e) { parks.push(e); return parks.length; };
   try { spec.fn(); }
   finally { delete scene.add; addCollider = savedCol; addColliderOBB = savedOBB; delete mapBuildings.push; delete mapParking.push; }
+  mergeVenueGroup(vg);   // collapse repeated single-material depth boxes -> 1 draw each
   vg.position.set(v.x, 0, v.z); vg.rotation.y = yaw; vg.scale.set(sx, 1, sz);
   realAdd(vg); vg.updateMatrixWorld(true);
   var cy = Math.cos(yaw), sy = Math.sin(yaw), k, w;
