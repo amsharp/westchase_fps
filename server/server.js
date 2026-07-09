@@ -73,8 +73,10 @@ wss.on('connection', function (ws) {
       room.peers[jid] = ws;
       ws.room = m.room; ws.id = jid; ws.name = (m.name || '').slice(0, 16);
       send(ws, { t: 'joined', room: m.room, id: jid, host: room.host });
-      // tell everyone already in the room (esp. the host) about the newcomer
-      for (var pid in room.peers) if (pid !== jid) send(room.peers[pid], { t: 'peer-join', id: jid, name: ws.name });
+      // only the HOST manages peer connections (host-authoritative); other
+      // clients learn about newcomers via the host's relayed state, so telling
+      // them here would create phantom connections.
+      send(room.peers[room.host], { t: 'peer-join', id: jid, name: ws.name });
       return;
     }
 
@@ -102,7 +104,8 @@ wss.on('connection', function (ws) {
       for (var pid in r.peers) send(r.peers[pid], { t: 'host-left' });
       delete rooms[code];
     } else {
-      for (var pid2 in r.peers) send(r.peers[pid2], { t: 'peer-leave', id: ws.id });
+      // host-only (host then broadcasts 'bye' to clients at the game level)
+      send(r.peers[r.host], { t: 'peer-leave', id: ws.id });
       if (Object.keys(r.peers).length === 0) delete rooms[code];
     }
   });

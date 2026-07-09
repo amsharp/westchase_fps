@@ -180,7 +180,11 @@ forest walls + "ROAD CLOSED" barriers at the four road exits.
   `hit` messages carry PvP/cop damage (client applies car redirect while
   driving). Env synced @3 Hz + on join. A remote driver's car is the synced
   world car (host mirrors `drivenBy`); remote avatars get name tags.
-  Weapon drops + interiors intentionally stay per-player.
+  Weapon drops are host-authoritative (broadcast in the `world` snapshot as
+  `drps`; clients request via `dropGun`/`takeDrop`). ATM/meter cash is routed
+  to the host (`spawnCashNet`→`atmCash`) so it snapshots to all peers. Host
+  cops scale to the HIGHEST-heat player (`maxWanted()` folds in remote `w`).
+  Interiors intentionally stay per-player.
 
 ## PSX characters (v1.5)
 

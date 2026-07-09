@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.30.0';
+var GAME_VERSION = 'v1.30.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -4253,9 +4253,10 @@ function refreshClerk() {
 
 // ---------------- street props (AI PSX props: streetprops.js) ----------------
 // 30 Meshy-generated quantized props placed contextually around the map.
-// All prop INTERACTIONS (vending machine, payphone, ATM, newspaper box,
-// meter cash, hydrant jets) are singleplayer-local, like interiors and
-// weapon drops — deliberately NOT net-synced.
+// Prop INTERACTION FX (vending machine, payphone, newspaper box, hydrant
+// jets) are singleplayer-local, like interiors — deliberately NOT net-synced.
+// ATM/meter CASH is routed to the host (spawnCashNet) so it snapshots to
+// everyone; weapon drops sync via the world snapshot + dropGun/takeDrop.
 var streetPropCache = {};
 var streetPropInteractables = [];   // {kind,x,z,fx,fz,g,cd,robbed}
 var hydrantJets = [];               // {x,z,t,parts:[mesh],sT}
@@ -4482,9 +4483,9 @@ function shootAtm(a, point) {
   if (a.robbed) return;
   a.robbed = true;
   var total = 50 + ((Math.random() * 101) | 0);
-  spawnCash(a.x + a.fx * 1.1, a.z + a.fz * 1.1, Math.ceil(total / 3));
-  spawnCash(a.x + a.fx * 1.5, a.z + a.fz * 1.5, Math.ceil(total / 3));
-  spawnCash(a.x + a.fx * 1.3 + 0.5, a.z + a.fz * 1.3 - 0.5, Math.floor(total / 3));
+  spawnCashNet(a.x + a.fx * 1.1, a.z + a.fz * 1.1, Math.ceil(total / 3));
+  spawnCashNet(a.x + a.fx * 1.5, a.z + a.fz * 1.5, Math.ceil(total / 3));
+  spawnCashNet(a.x + a.fx * 1.3 + 0.5, a.z + a.fz * 1.3 - 0.5, Math.floor(total / 3));
   sfx('alarm'); sfx('cash');
   popup('ATM CRACKED');
   if (state.wanted < 2) setWanted(2); else lastCrimeT = T;
@@ -4492,7 +4493,7 @@ function shootAtm(a, point) {
 // called from breakProp for props with a .kind tag
 function onStreetPropBreak(b) {
   if (b.kind === 'meter') {
-    spawnCash(b.x, b.z, 5 + ((Math.random() * 11) | 0));
+    spawnCashNet(b.x, b.z, 5 + ((Math.random() * 11) | 0));
     sfx('cash', { x: b.x, z: b.z, range: 50 });
   } else if (b.kind === 'hydrant') {
     var parts = [];
@@ -4652,9 +4653,16 @@ function spawnInteriorCops(n) {
     scene.add(mesh); cops.push(c);
   }
 }
-function desiredCops() { return state.wanted === 0 ? 2 : 2 + state.wanted * 2; }
+// cops (host-simmed) must scale to the HIGHEST-heat player, not just the host —
+// otherwise a high-wanted remote paired with a clean host gets under-policed
+function maxWanted() {
+  var w = (state.dead || inside) ? 0 : (state.wanted || 0);
+  for (var id in net.remotes) { var r = net.remotes[id]; if (r && !r.dead && (r.w || 0) > w) w = r.w; }
+  return w;
+}
+function desiredCops() { var w = maxWanted(); return w === 0 ? 2 : 2 + w * 2; }
 function copWeapon() {
-  return state.wanted >= 4
+  return maxWanted() >= 4
     ? { range: 46, dmg: 4, rate: 0.14, acc: 0.32, sfx: 'copsmg' }   // full-auto SMGs
     : { range: 21, dmg: 9, rate: 1.05, acc: 0.38, sfx: 'copshot' }; // sidearms, short range
 }
@@ -5496,6 +5504,9 @@ var cashTopT = (function () {
 var cashSideM = lamb({ color: 0x4a8a3e }), cashTopM = lamb2(cashTopT);
 var cashMats = [cashSideM, cashSideM, cashTopM, cashSideM, cashSideM, cashSideM];
 function spawnCash(x, z, val, baseY) { var m = new THREE.Mesh(cashGeo, cashMats); m.position.set(x + (Math.random() - 0.5), (baseY || 0) + 0.4, z + (Math.random() - 0.5)); scene.add(m); cashes.push({ mesh: m, val: val, life: 40, baseY: baseY || 0 }); }
+// cash from client-triggered events (ATM/meter) must be spawned on the HOST,
+// or the authoritative cash-snapshot rebuild wipes it before it can be looted.
+function spawnCashNet(x, z, val) { if (isClient()) netToHost({ t: 'atmCash', x: x, z: z, val: val }); else spawnCash(x, z, val); }
 function updateCash(dt) {
   for (var i = cashes.length - 1; i >= 0; i--) {
     var c = cashes[i]; c.life -= dt; c.mesh.rotation.y += dt * 3; c.mesh.position.y = c.baseY + 0.38 + Math.sin(T * 3 + i) * 0.12;
@@ -8097,6 +8108,10 @@ function handleNet(m, conn) {
     } else if (m.t === 'carBoom') {
       var bc = cars[m.i];
       if (bc) { bc.drivenBy = null; if (!bc.exploded) explodeCar(bc); }
+    } else if (m.t === 'atmCash') {
+      // a client cracked an ATM/meter — spawn the cash into the authoritative
+      // world so it snapshots to everyone (and the cracker can loot it)
+      spawnCash(m.x, m.z, m.val || 10);
     } else if (m.t === 'takeCash') {
       var bi = -1, bd2 = 6;
       for (var ci = 0; ci < cashes.length; ci++) {
@@ -8364,6 +8379,7 @@ function applyWorldSnap(dt) {
   while (npcs.length < s.npcs.length) spawnNPC();
   for (i = 0; i < s.npcs.length && i < npcs.length; i++) {
     var n = npcs[i], b = s.npcs[i], nm = n.mesh;
+    var nox = n.x, noz = n.z;
     n.x += (b[0] / 10 - n.x) * k; n.z += (b[1] / 10 - n.z) * k;
     var st = b[3];
     n.state = st === 2 ? 'down' : (st === 3 ? 'ragdoll' : 'walk');
@@ -8371,7 +8387,9 @@ function applyWorldSnap(dt) {
     nm.rotation.y = b[2] / 100;
     nm.rotation.x = st >= 2 ? -1.5 : 0;
     if (nm.userData.shadow) nm.userData.shadow.visible = st < 2;
-    if (st === 0) { n.phase += dt * 5; animPerson(nm, 2, dt, n.phase); }
+    // animate from the mirrored movement so idle/standing NPCs don't "march in
+    // place" — speed derived from the position delta, stride-matched phase
+    if (st === 0) { var nmv = Math.hypot(n.x - nox, n.z - noz); n.phase += nmv * 3.4; animPerson(nm, (dt > 0 && nmv / dt > 0.5) ? nmv / dt : 0, dt, n.phase); }
   }
   // snapshot cop entries are just [x,z,ry,down] — no engage state — so mirror
   // cops approximate "gun out" with the LOCAL player's wanted level instead
@@ -8381,6 +8399,7 @@ function applyWorldSnap(dt) {
   for (i = 0; i < copsM.length; i++) {
     var cp = copsM[i], cs = s.cops[i];
     if (!cp.down && cp.mesh.userData.handR && (cp.mesh.userData.heldKind || null) !== wantGunM) attachHeldGun(cp.mesh, wantGunM);
+    var cox = cp.x, coz = cp.z;
     cp.x += (cs[0] / 10 - cp.x) * k; cp.z += (cs[1] / 10 - cp.z) * k;
     if (cs[3] === 2) cp.hit = false;   // kill confirmed: free the run-over latch (slots get reused)
     cp.down = cs[3] === 2;
@@ -8388,8 +8407,10 @@ function applyWorldSnap(dt) {
     cp.mesh.rotation.y = cs[2] / 100;
     cp.mesh.rotation.x = cs[3] === 2 ? -1.5 : 0;
     cp.mesh.userData.copM = i;
-    cp.phase += dt * 5;
-    animPerson(cp.mesh, cs[3] === 2 ? 0 : 2, dt, cp.phase);
+    // speed-driven anim: a cop standing/shooting on the host stays put here
+    // (idle) instead of marching in place; walks only when actually moving
+    var cmv = Math.hypot(cp.x - cox, cp.z - coz); cp.phase += cmv * 3.4;
+    animPerson(cp.mesh, cs[3] === 2 ? 0 : ((dt > 0 && cmv / dt > 0.5) ? cmv / dt : 0), dt, cp.phase);
   }
   // cash mirror
   if (cashes.length !== s.cash.length) {
