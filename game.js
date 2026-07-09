@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.43.0';
+var GAME_VERSION = 'v1.43.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -3289,7 +3289,20 @@ if (!WC_REMAP) {
 
 // ---------------- street lights ----------------
 var streetLights = [];
-var lampOnM = new THREE.MeshBasicMaterial({ color: 0xffe9a8 });
+// lit lens shows an actual BULB: white-hot core falling off to warm amber at
+// the fixture rim (was a flat solid-color box) — the halo sprite now visually
+// originates from the bulb instead of floating under a uniform slab
+var lampBulbT = (function () {
+  var c = document.createElement('canvas'); c.width = 64; c.height = 32;
+  var g = c.getContext('2d');
+  g.fillStyle = '#8a7448'; g.fillRect(0, 0, 64, 32);   // fixture rim
+  var gr = g.createRadialGradient(32, 16, 2, 32, 16, 30);
+  gr.addColorStop(0, '#ffffff'); gr.addColorStop(0.3, '#fff3c4'); gr.addColorStop(0.7, '#eec97c'); gr.addColorStop(1, '#a8874e');
+  g.fillStyle = gr; g.fillRect(0, 0, 64, 32);
+  var t = new THREE.CanvasTexture(c); t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter; t.generateMipmaps = false;
+  return t;
+})();
+var lampOnM = new THREE.MeshBasicMaterial({ map: lampBulbT });
 var lampOffM = lamb({ color: 0x3a3d42 });
 var lampGlowT = (function () {
   var c = document.createElement('canvas'); c.width = c.height = 64;
