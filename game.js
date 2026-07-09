@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.53.1';
+var GAME_VERSION = 'v1.53.2';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -5829,6 +5829,9 @@ var ENV_BY_NAME = {};
 if (typeof ENV_PROPS !== 'undefined') for (var epi = 0; epi < ENV_PROPS.length; epi++) ENV_BY_NAME[ENV_PROPS[epi].n] = ENV_PROPS[epi];
 
 var envGeoCache = {}, envTexCache = {};
+// shared water-droplet particle (fountain / drinking-fountain flow anim)
+var envDropGeo = new THREE.SphereGeometry(0.085, 5, 4);
+var envDropMat = new THREE.MeshBasicMaterial({ color: 0xcfeaff, transparent: true, opacity: 0.85 });
 function envDecodeGeo(e) {
   if (envGeoCache[e.n]) return envGeoCache[e.n];
   var qp = new Int16Array(b64Bytes(e.p).buffer), qu = new Uint16Array(b64Bytes(e.u).buffer);
@@ -5896,6 +5899,58 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
   }
   function mtx(x, y, z, ry) { return new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromAxisAngle(Y_UP, ry || 0), new THREE.Vector3(1, 1, 1)); }
 
+  // ---- animation rig-up (STEP 2): carve the single decoded Mesh into a static
+  // base + moving sub-part(s) so cheap per-frame transforms read as motion.
+  // Non-indexed geometry -> every 3 consecutive verts is one triangle.
+  function buildSub(P, U, N, mat) { var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(P), 3)); g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(U), 2)); g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(N), 3)); return new THREE.Mesh(g, mat); }
+  // split `mesh` in place: triangles whose centroid passes pred() move into a
+  // returned child mesh (yShift subtracted so the child can pivot at yShift).
+  function splitMesh(mesh, pred, yShift) {
+    var geo = mesh.geometry, pos = geo.attributes.position, uv = geo.attributes.uv, nm = geo.attributes.normal;
+    var kP = [], kU = [], kN = [], mP = [], mU = [], mN = [];
+    for (var t = 0; t < pos.count; t += 3) {
+      var cx = (pos.getX(t) + pos.getX(t + 1) + pos.getX(t + 2)) / 3, cy = (pos.getY(t) + pos.getY(t + 1) + pos.getY(t + 2)) / 3, cz = (pos.getZ(t) + pos.getZ(t + 1) + pos.getZ(t + 2)) / 3;
+      var mv = pred(cx, cy, cz);
+      for (var k = 0; k < 3; k++) {
+        var i = t + k, P = mv ? mP : kP, U = mv ? mU : kU, N = mv ? mN : kN;
+        P.push(pos.getX(i), pos.getY(i) - (mv ? (yShift || 0) : 0), pos.getZ(i)); U.push(uv.getX(i), uv.getY(i)); N.push(nm.getX(i), nm.getY(i), nm.getZ(i));
+      }
+    }
+    mesh.geometry = buildSub(kP, kU, kN, mesh.material).geometry;
+    return buildSub(mP, mU, mN, mesh.material);
+  }
+  function envAnimInit(rec, e) {
+    var mesh = rec.g.children[0], d = e.dims, a = e.anim;
+    rec.phase = Math.random() * 6.28;
+    if (a === 'spin') {
+      if (rec.name === 'barber_pole') { rec.spinMesh = mesh; rec.spinSpd = 2.4; }
+      else if (rec.name === 'pizza_sign') { var top = splitMesh(mesh, function (x, y, z) { return y > d[1] * 0.74; }, 0); rec.g.add(top); rec.spinChild = top; rec.spinAxis = 'y'; rec.spinSpd = 1.6; }
+      else { var hy = d[1] * 0.6; var bl = splitMesh(mesh, function (x, y, z) { return y > hy; }, hy); var piv = new THREE.Group(); piv.position.y = hy; piv.add(bl); rec.g.add(piv); rec.spinChild = piv; rec.spinAxis = 'x'; rec.spinSpd = 1.9; }   // windmill blades
+    } else if (a === 'wave') {   // flagpole cloth
+      var fl = splitMesh(mesh, function (x, y, z) { return y > d[1] * 0.62 && (Math.abs(x) > 0.25 || Math.abs(z) > 0.25); }, 0);
+      rec.g.add(fl); rec.waveChild = fl;
+    } else if (a === 'flail') {  // tube-man: 3 stacked sine-chain bands
+      rec.bands = [];
+      var cuts = [[d[1] * 0.16, d[1] * 0.45], [d[1] * 0.45, d[1] * 0.72], [d[1] * 0.72, d[1] * 1.05]];
+      for (var bi = 0; bi < cuts.length; bi++) {
+        var lo = cuts[bi][0], hi = cuts[bi][1];
+        var seg = splitMesh(mesh, (function (lo, hi) { return function (x, y, z) { return y >= lo && y < hi; }; })(lo, hi), lo);
+        var pv = new THREE.Group(); pv.position.y = lo; pv.add(seg); rec.g.add(pv);
+        rec.bands.push({ pv: pv, amp: 0.14 + bi * 0.18, spd: 4.5 + bi * 1.1, ph: bi * 0.9 });
+      }
+    } else if (a === 'sway') {
+      if (rec.name === 'patio_umbrella') { var cy2 = d[1] * 0.62; var can = splitMesh(mesh, function (x, y, z) { return y > cy2; }, cy2); var up = new THREE.Group(); up.position.y = cy2; up.add(can); rec.g.add(up); rec.swayChild = up; rec.swayAxis = 'z'; rec.swayAmp = 0.05; rec.swaySpd = 1.1; }
+      else { var by = d[1] * 0.86; var seat = splitMesh(mesh, function (x, y, z) { return y < by * 0.82 && y > by * 0.14; }, by); var sw = new THREE.Group(); sw.position.y = by; sw.add(seat); rec.g.add(sw); rec.swayChild = sw; rec.swayAxis = 'x'; rec.swayAmp = 0.22; rec.swaySpd = 1.7; }   // swing_set seats
+    } else if (a === 'glow') {
+      var GC = { soda_machine: 0xff3b3b, arcade_cabinet: 0x3aa0ff, jukebox: 0xffb020, claw_machine: 0xff5bd0 };
+      mesh.material = mesh.material.clone(); mesh.material.emissive = new THREE.Color(GC[rec.name] || 0x66ccff); mesh.material.emissiveIntensity = 0.2; rec.glowMat = mesh.material;
+    } else if (a === 'flow') {
+      rec.flow = []; var top = d[1] * (rec.name === 'fountain' ? 0.55 : 0.72), spread = rec.name === 'fountain' ? 0.4 : 0.08, up = rec.name === 'fountain' ? 3.4 : 2.0, n = rec.name === 'fountain' ? 16 : 6;
+      for (var qi = 0; qi < n; qi++) { var dm = new THREE.Mesh(envDropGeo, envDropMat); rec.g.add(dm); rec.flow.push({ mesh: dm, vx: 0, vy: -1, vz: 0, delay: Math.random() * 0.4, topY: top, spread: spread, up: up }); }
+    }
+    // flames/smoke handled purely by the update emitter (no rig-up)
+  }
+
   // core placement: name at (x,z), authored-front yaw ry. opts:
   //   y (ground offset, def 0), noCol (skip collider), mapB (force rain/minimap),
   //   scale (uniform, instances only)
@@ -5910,6 +5965,7 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
       g.position.set(x, y, z); g.rotation.y = ry; scene.add(g);
       var rec = { name: name, g: g, x: x, z: z, ry: ry, dims: dims, anim: e.anim || '', cat: e.cat };
       g.userData.envRec = rec; envProps.push(rec);
+      if (e.anim) envAnimInit(rec, e);   // STEP 2: rig up spin/wave/flail/sway/glow/flow
       if (e.solid && !opts.noCol) solidMeshes.push(g);   // bullets stop on solid instances
     }
     if (e.solid && !opts.noCol) { addColliderOBB(x, z, dims[0] / 2, dims[2] / 2, ry); envStats.colliders++; }
@@ -6082,8 +6138,56 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
   }
 })();
 
-// ---- STEP 2 (animations) + STEP 3 (interactions) drivers: filled in below.
-function updateEnvProps(dt) { /* STEP 2 */ }
+// ---- STEP 2: env-prop idle animation driver. Cheap per-frame transforms on
+// the rigged sub-parts; anything past ENV_ANIM_FAR is skipped entirely.
+var _envAnimT = 0, ENV_ANIM_FAR = 90 * 90;
+function updateEnvProps(dt) {
+  _envAnimT += dt;
+  var t = _envAnimT;
+  for (var i = 0; i < envProps.length; i++) {
+    var r = envProps[i]; if (!r.anim) continue;
+    var dx = r.x - player.x, dz = r.z - player.z, d2 = dx * dx + dz * dz;
+    if (d2 > ENV_ANIM_FAR) continue;
+    var a = r.anim;
+    if (a === 'spin') {
+      if (r.spinChild) r.spinChild.rotation[r.spinAxis] += dt * r.spinSpd;
+      else if (r.spinMesh) r.spinMesh.rotation.y += dt * r.spinSpd;
+    } else if (a === 'wave') {
+      if (r.waveChild) { r.waveChild.rotation.y = Math.sin(t * 2.3 + r.phase) * 0.3 + Math.sin(t * 5.3) * 0.07; r.waveChild.rotation.x = Math.sin(t * 3.1) * 0.05; }
+    } else if (a === 'flail') {
+      for (var b = 0; b < r.bands.length; b++) { var bd = r.bands[b]; bd.pv.rotation.z = Math.sin(t * bd.spd + bd.ph + r.phase) * bd.amp; bd.pv.rotation.x = Math.cos(t * bd.spd * 0.7 + bd.ph) * bd.amp * 0.6; }
+    } else if (a === 'sway') {
+      if (r.swayChild) r.swayChild.rotation[r.swayAxis] = Math.sin(t * r.swaySpd + r.phase) * r.swayAmp;
+    } else if (a === 'glow') {
+      if (r.glowMat) r.glowMat.emissiveIntensity = 0.28 + 0.26 * Math.sin(t * 3.2 + r.phase);
+    } else if (a === 'flow') {
+      updateEnvFlow(r, dt);
+    } else if (a === 'flames' || a === 'smoke') {
+      if (d2 < 70 * 70) {
+        r.emitT = (r.emitT || 0) - dt;
+        if (r.emitT <= 0) {
+          r.emitT = a === 'flames' ? 0.08 : 0.14;
+          var top = r.dims[1];
+          if (a === 'flames') puff(new THREE.Vector3(r.x + (Math.random() - 0.5) * r.dims[0] * 0.5, top * 0.5 + Math.random() * 0.5, r.z + (Math.random() - 0.5) * r.dims[2] * 0.5), Math.random() < 0.6 ? 0xff7a1e : 0xffd23a);
+          else puff(new THREE.Vector3(r.x + (Math.random() - 0.5) * 0.4, top + 0.2 + Math.random() * 0.5, r.z + (Math.random() - 0.5) * 0.4), 0x9a9a9a);
+        }
+      }
+    }
+  }
+}
+// fountain / drinking-fountain water spray (mirrors the lake fountainDrops loop)
+function updateEnvFlow(r, dt) {
+  for (var i = 0; i < r.flow.length; i++) {
+    var f = r.flow[i], p = f.mesh.position;
+    if (f.delay > 0) { f.delay -= dt; f.mesh.visible = false; continue; }
+    if (!f.mesh.visible || p.y < f.topY - 0.1) {
+      f.mesh.visible = true; p.set(0, f.topY, 0);
+      var an = Math.random() * 6.28, sp = Math.random() * f.spread;
+      f.vx = Math.cos(an) * sp; f.vz = Math.sin(an) * sp; f.vy = f.up * (0.7 + Math.random() * 0.5);
+    }
+    f.vy -= 9.5 * dt; p.x += f.vx * dt; p.y += f.vy * dt; p.z += f.vz * dt;
+  }
+}
 function envPropPrompt() { return ''; }     /* STEP 3 */
 function envPropInteract() { return false; } /* STEP 3 */
 
