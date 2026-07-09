@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.36.0';
+var GAME_VERSION = 'v1.37.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -1470,7 +1470,10 @@ function remapSurfaces() {
     var m = lamb({ map: (park ? parkingT : concreteT).clone() });
     m.map.repeat.set(Math.max(1, s.w / (park ? 22 : 6)), Math.max(1, s.d / (park ? 22 : 6))); m.map.needsUpdate = true;
     var mesh = new THREE.Mesh(geo, m);
-    mesh.position.set(s.x, park ? 0.1 : 0.115, s.z); mesh.rotation.y = s.rot * Math.PI / 180;
+    // per-surface y ladder so overlapping same-kind lots don't sit coplanar and
+    // z-fight; kept in bands (parking ~0.100-0.107, pavement ~0.114-0.121) that
+    // stay under the flanking sidewalks (y 0.1225+) and above the road ribbons
+    mesh.position.set(s.x, (park ? 0.1 : 0.114) + i * 0.0004, s.z); mesh.rotation.y = s.rot * Math.PI / 180;
     scene.add(mesh);
     (park ? mapParking : mapPave).push({ x: s.x, z: s.z, w: s.w, d: s.d });
   }
@@ -3090,8 +3093,10 @@ if (!WC_REMAP) {   // median + corner islands are axis-junction furniture (R3 re
     bush(cx, cz); bush(cx + s[0] * 2.2, cz + s[1] * 1.6); crepeMyrtle(cx + s[0] * 4, cz + s[1] * 3.2);
   });
 }
-// bushes fronting a few landmarks
-[[52, -37], [-48, -37], [-72, -116], [-52, 37], [-116, -22]].forEach(function (p) { bush(p[0], p[1]); bush(p[0] + 3, p[1]); bush(p[0] - 3, p[1]); });
+// bushes fronting a few landmarks — these are axis-grid landmark fronts; under
+// the remap world the venues moved, leaving these ON the road / inside Publix &
+// townhouses, so only place them in the legacy world
+if (!WC_REMAP) [[52, -37], [-48, -37], [-72, -116], [-52, 37], [-116, -22]].forEach(function (p) { bush(p[0], p[1]); bush(p[0] + 3, p[1]); bush(p[0] - 3, p[1]); });
 
 // ---------------- corridor details (signal cycle, corner palms, paint) ----------------
 // signal cycle: main green 8 s → main yellow 3 s → cross green 6 s → cross
@@ -5633,7 +5638,7 @@ function killNpcRagdoll(n, dx, dz, power) {
   n.vx = dx * power + (Math.random() - 0.5) * 3;
   n.vz = dz * power + (Math.random() - 0.5) * 3;
   n.vy = 6.5 + Math.random() * 4.5;
-  n.airY = 0.9;
+  n.airY = 0.2;   // launch from near ground level; vy carries the arc (was 0.9 = a visible ~1m pop the instant they died)
   n.spinX = (Math.random() - 0.5) * 14;
   n.spinZ = (Math.random() - 0.5) * 14;
   sfx('grunt', { x: n.x, z: n.z, range: 60 });
@@ -6402,7 +6407,7 @@ function updateNPCs(dt) {
     }
     if (n.state === 'hitreact') {
       n.stateT -= dt; n.animT += dt;
-      animPersonClip(m, n.hitClip || 'hitpunch', n.animT, true);
+      animPersonClip(m, n.hitClip || 'hitpunch', n.animT, true, 0.6);   // fit the whole flinch into the 0.6s react window
       if (n.stateT <= 0) {
         if (n.afterFight && !state.dead && !inside) { n.state = 'fight'; n.fightT = 4 + Math.random() * 3; n.jabT = 0.7; n.animT = 0; }
         else startFlee(n);
@@ -6422,7 +6427,7 @@ function updateNPCs(dt) {
         animPerson(m, 3.2, dt, n.phase);
       } else {
         n.animT += dt; n.jabT -= dt;
-        animPersonClip(m, 'jab', (n.animT % 1.1), true);
+        animPersonClip(m, 'jab', (n.animT % 1.1), true, 1.1);   // full jab per 1.1s cycle so the strike lands with the damage
         if (n.jabT <= 0) { n.jabT = 1.1; n.animT = 0; if (fd < 1.9) { hurtPlayer(4 + ((Math.random() * 4) | 0)); sfx('hit', { x: n.x, z: n.z, range: 40 }); } }
       }
       m.position.set(n.x, 0, n.z);
@@ -6530,9 +6535,12 @@ function updateNPCExtras() {
     }
   }
 }
-function animPersonClip(m, clip, tSec, oneshot) {
+// warpDur (optional): real seconds to fit the WHOLE clip into, so short-lived
+// states (a 0.6s flinch, a 1.1s jab) play the full authored motion instead of
+// only its first ~20% at natural speed. defaults to the clip's own duration.
+function animPersonClip(m, clip, tSec, oneshot, warpDur) {
   var sk = m.userData.skin;
-  if (sk && sk.d.clips[clip]) { meshyPose(sk, clip, tSec / sk.d.clips[clip].d, oneshot); return true; }
+  if (sk && sk.d.clips[clip]) { meshyPose(sk, clip, tSec / (warpDur || sk.d.clips[clip].d), oneshot); return true; }
   var L = m.userData.limbs;
   if (L) { L.legL.rotation.x = 0; L.legR.rotation.x = 0; L.armL.rotation.x = clip === 'jab' ? -1.2 : 0; L.armR.rotation.x = 0; }
   return false;
@@ -8472,7 +8480,9 @@ function updateNet(dt) {
       r.mesh.rotation.y = r.yaw + Math.PI;
       r.mesh.rotation.x = r.dead ? -1.5 : 0;
       var rspd = moved / Math.max(dt, 0.001);   // real speed so sprinters pick the run clip
-      animPerson(r.mesh, r.dead || rspd <= 0.5 ? 0 : rspd, dt, r.phase);
+      // dead players lie flat (rotation.x=-1.5) — DON'T drive the idle clip or
+      // their limbs "swim" horizontally; just freeze the current pose
+      if (!r.dead) animPerson(r.mesh, rspd <= 0.5 ? 0 : rspd, dt, r.phase);
       r.tag.position.set(r.x, r.y - EYE + 2.5, r.z);
     }
     // fade the (through-wall, co-op friendly) player tag out at distance so far
@@ -8574,7 +8584,8 @@ function applyWorldSnap(dt) {
     // speed-driven anim: a cop standing/shooting on the host stays put here
     // (idle) instead of marching in place; walks only when actually moving
     var cmv = Math.hypot(cp.x - cox, cp.z - coz); cp.phase += cmv * 3.4;
-    animPerson(cp.mesh, cs[3] === 2 ? 0 : ((dt > 0 && cmv / dt > 0.5) ? cmv / dt : 0), dt, cp.phase);
+    // a downed cop (cs[3]===2) lies flat — freeze rather than play idle (swim)
+    if (cs[3] !== 2) animPerson(cp.mesh, (dt > 0 && cmv / dt > 0.5) ? cmv / dt : 0, dt, cp.phase);
   }
   // cop gunfire FX: the host runs copShoot and buffers each shot; render the
   // muzzle flash + gunshot (+ blood at whoever got hit) so bystanders and the
