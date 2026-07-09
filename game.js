@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.53.3';
+var GAME_VERSION = 'v1.54.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -516,6 +516,10 @@ var clapSageM = lamb2(clapboardTex('#a7ad92'));            // Starbucks sage cla
 var bayGlassM = lamb2(bayGlassT);                          // storefront glass
 var venCapM = lamb({ color: 0xcfc7b4 });                  // parapet capstone
 var venAcM = lamb({ color: 0x9a9a94 });                   // rooftop AC
+var orangeMetalM = lamb2(seamMetalTex('#e8862e'));        // Dunkin orange metal awning
+var grayBlockM = lamb2(stuccoTex('#bcbab4'));             // Dunkin gray split-face block
+var stuccoMatCache = {};
+function stuccoMat(color) { if (!stuccoMatCache[color]) stuccoMatCache[color] = lamb2(stuccoTex(color)); return stuccoMatCache[color]; }
 
 // ---- venue depth primitives (builder-local, all FLAT single-material meshes so
 // placeVenueData can merge them by material for perf; front faces +z, dir=+1/-1
@@ -525,6 +529,11 @@ var venAcM = lamb({ color: 0x9a9a94 });                   // rooftop AC
 function vWin(x, y, wallZ, dir, w, h, trimM, glassM) {
   var fr = box(w + 0.34, h + 0.34, 0.12, trimM); fr.position.set(x, y, wallZ + dir * 0.06); scene.add(fr);
   var gl = box(w, h, 0.16, glassM || bayGlassM); gl.position.set(x, y, wallZ - dir * 0.05); scene.add(gl);
+}
+// punched window on an x-facing wall (dir=+1 => +x face); w spans along z
+function vWinX(z, y, wallX, dir, w, h, trimM, glassM) {
+  var fr = box(0.12, h + 0.34, w + 0.34, trimM); fr.position.set(wallX + dir * 0.06, y, z); scene.add(fr);
+  var gl = box(0.16, h, w, glassM || bayGlassM); gl.position.set(wallX - dir * 0.05, y, z); scene.add(gl);
 }
 // NOTE: Object3D.add() returns the PARENT — never chain .position onto scene.add().
 // storefront glass bay: solid bulkhead + recessed mullion glass + header + sill
@@ -737,26 +746,33 @@ function bldg(x, z, w, d, h, color, o) {
   return b;
 }
 // storefront-fronted shop (front faces +z toward road unless o.face given)
+// storefront-fronted shop with real depth: stucco/brick body, parapet or hip roof,
+// terracotta piers, recessed storefront glass bays flanking a canopied entrance,
+// rooftop AC. o.wallMat/pierMat/canopyMat/roofMat + roofType('flat'|'hip') tune it.
 function shop(x, z, w, d, h, color, lines, bg, fg, o) {
   o = o || {};
-  var face = o.face || 1; // 1 => front at +z, -1 => front at -z
-  var fac = nightLit(lamb({ map: facadeTex(color, Math.max(w, d), h, false) }));
-  var front = nightLit(lamb({ map: storefrontTex(color) }), 0xfff0c8);
-  var side = fac;
-  var px = face === 1 ? side : side, nx = side;
-  var pz = face === 1 ? front : fac, nz = face === 1 ? fac : front;
-  var b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [side, side, flatRoofM, flatRoofM, pz, nz]);
+  var face = o.face || 1, fz = z + face * d / 2;
+  var wallM = o.wallMat || stuccoMat(color);
+  var b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [wallM, wallM, flatRoofM, flatRoofM, wallM, wallM]);
   b.position.set(x, h / 2 + 0.1, z);
   scene.add(b); solidMeshes.push(b); addCollider(x, z, w, d);
-  scene.add(box(w + 0.5, 0.5, d + 0.5, parapetM(color), x, h + 0.35, z));
+  if (o.roofType === 'hip') {
+    var rh = o.roofH || 2.6, rf = new THREE.Mesh(hipGeo, o.roofMat || grayHipM);
+    rf.scale.set(w + 1.6, rh, d + 1.6); rf.position.set(x, h + 0.1 + rh / 2, z); scene.add(rf);
+    vEave(x, z, w, d, h + 0.02, venCapM);
+  } else {
+    vParapet(x, z, w, d, h + 0.1, venCapM);
+  }
+  // storefront glass bays flanking a center entrance
+  var units = Math.max(2, Math.round(w / 6)), seg = w / units, EHW = Math.min(w * 0.3, seg * 0.95);
+  for (var i = 0; i <= units; i++) { var pxp = x - w / 2 + i * seg; if (Math.abs(pxp - x) < EHW - 0.6) continue; vPier(pxp, fz, face, 0.9, h - 0.4, 0.4, o.pierMat || terracottaM, o.brickBase ? brickBaseM : null); }
+  for (i = 0; i < units; i++) { var bx = x - w / 2 + seg * (i + 0.5); if (Math.abs(bx - x) < EHW) continue; vBay(bx, 0.2, fz, face, seg - 2.2, Math.min(h - 1.0, 4.2), venCapM, bayGlassM); }
+  vBay(x, 0.2, fz, face, 2 * EHW - 2, Math.min(h - 0.8, 4.4), venCapM, bayGlassM);
+  vCanopy(x, fz, face, 2 * EHW, 2.2, Math.min(h - 0.6, 3.8), o.canopyMat || greenMetalM, o.pierMat || terracottaM);
+  vAC(x, z - face * d * 0.2, h + 0.1, venAcM);
   if (lines) {
-    var sz = z + face * (d / 2 + 0.06);
-    signPlane(x, h - 0.6, sz, face === 1 ? 0 : Math.PI, Math.min(w - 2, 12), 1.5, lines, bg, fg);
-    // striped awning
-    var awn = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(w - 1, 13), 1.5), lamb({ map: awningTex(bg, '#e8e2d0'), side: THREE.DoubleSide }));
-    awn.rotation.x = face === 1 ? -0.6 : 0.6;
-    awn.position.set(x, h * 0.55, z + face * (d / 2 + 0.7));
-    scene.add(awn);
+    var sz = z + face * (d / 2 + 0.08);
+    signPlane(x, h - 0.5, sz, face === 1 ? 0 : Math.PI, Math.min(w - 2, 12), 1.4, lines, bg, fg);
   }
   mapBuildings.push({ x: x, z: z, w: w, d: d, h: h, c: o.mmColor || fg || color, pad: o.pad !== false });
   return b;
@@ -866,13 +882,29 @@ function school(x, z) {
   parkingLot(x + 54, z, 24, 44);
 }
 
+// red-brick bank (geo_ref: Regions = cream arched entry parapet; BoA = gray
+// standing-seam hip roof + flagpole). Front faces +z; sides get punched windows.
 function bankBldg(x, z, name) {
-  bldg(x, z, 26, 20, 7, '#eae3d2', { flat: true, door: false, mmColor: '#3f6f9c' });
-  // columns portico facing road
-  var pm = lamb({ color: 0xf2ecdd });
-  for (var i = -1; i <= 1; i++) scene.add(cyl(0.5, 0.5, 5.5, 10, pm, x + i * 8, 2.85, z + 10.5));
-  scene.add(box(24, 0.8, 3, pm, x, 5.9, z + 10.5));
-  signPlane(x, 5, z + 10.1, 0, 16, 1.6, [name], '#123a6a', '#ffe9a0');
+  var w = 26, d = 20, h = 7, fz = z + d / 2, boa = name.indexOf('AMERICA') >= 0;
+  var b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [brickBankM, brickBankM, flatRoofM, flatRoofM, brickBankM, brickBankM]);
+  b.position.set(x, h / 2 + 0.1, z); scene.add(b); solidMeshes.push(b); addCollider(x, z, w, d);
+  mapBuildings.push({ x: x, z: z, w: w, d: d, h: h, c: '#3f6f9c', pad: true });
+  if (boa) {
+    var roof = new THREE.Mesh(hipGeo, grayHipM); roof.scale.set(w + 1.8, 3.0, d + 1.8); roof.position.set(x, h + 0.1 + 1.5, z); scene.add(roof);
+    vEave(x, z, w, d, h + 0.02, venCapM);
+    scene.add(cyl(0.09, 0.09, 7, 6, lamb({ color: 0xdddddd }), x - w / 2 + 1.6, 3.6, fz + 2));
+  } else {
+    vParapet(x, z, w, d, h + 0.1, venCapM);
+    scene.add(box(9, 2.4, 0.7, stuccoBeigeM, x, h + 1.0, fz + 0.1));   // cream arched entry parapet
+  }
+  // entrance glass + canopy, flanking punched windows (cream trim)
+  vBay(x, 0.2, fz, 1, 5.5, 4.2, venCapM, bayGlassM);
+  vCanopy(x, fz, 1, 8, 2.6, 4.0, boa ? grayHipM : venCapM, brickBaseM);
+  vWin(x - 8.5, 3.7, fz, 1, 3.0, 2.4, venCapM, bayGlassM);
+  vWin(x + 8.5, 3.7, fz, 1, 3.0, 2.4, venCapM, bayGlassM);
+  for (var s = -1; s <= 1; s += 2) { vWinX(z - 4.5, 3.7, x + s * w / 2, s, 3.0, 2.4, venCapM, bayGlassM); vWinX(z + 4.5, 3.7, x + s * w / 2, s, 3.0, 2.4, venCapM, bayGlassM); }
+  vAC(x, z - 5, h + 0.1, venAcM);
+  signPlane(x, h - 0.6, fz + 0.14, 0, 16, 1.4, [name], '#123a6a', '#ffe9a0');
 }
 
 function townhouseRow(x, z, units, ry) {
@@ -926,8 +958,11 @@ function redHouse(x, z) {
   for (var f = 1; f <= 4; f++) scene.add(box(19, 0.3, 19, lamb({ color: 0xcbbfa4 }), x, 0.1 + f * (22 / 5), z));
 }
 
+// Starbucks (geo_ref sv_starbucks): sage clapboard siding, gray standing-seam
+// metal hip roof, brick base, dark-green channel letters.
 function coffeeShop(x, z) {
-  shop(x, z, 15, 13, 5, '#e2d6bc', ['STARBUCKS'], '#0a5c3a', '#ffffff', { face: 1, mmColor: '#0a5c3a' });
+  shop(x, z, 15, 13, 5, '#a7ad92', ['STARBUCKS'], '#0a5c3a', '#ffffff',
+    { face: 1, wallMat: clapSageM, roofType: 'hip', roofMat: grayHipM, canopyMat: grayHipM, brickBase: true, mmColor: '#0a5c3a' });
 }
 
 // ---------------- breakable props (trees + street lights vs cars) ----------------
@@ -1687,11 +1722,11 @@ function venueBuilder(v) {
     case 'farnell':     return { fn: function () { school(0, 0); }, nw: 82, nd: 32 };
     case 'bank':        return { fn: function () { bankBldg(0, 0, id === 'boa' ? 'BANK OF AMERICA' : id === 'regions' ? 'REGIONS BANK' : 'BANK'); }, nw: 26, nd: 20 };
     case 'pharmacy':    return { fn: function () { shop(0, 0, 24, 20, 6, '#e8dcc6', ['WESTCHASE PHARMACY'], '#1c4d8f', '#ffe9a0', { face: 1, mmColor: '#3f8fd0' }); }, nw: 24, nd: 20 };
-    case 'sushi':       return { fn: function () { shop(0, 0, 28, 22, 7, '#c0392b', ['SAKURA SUSHI'], '#111111', '#ffcf3a', { face: 1, mmColor: '#d94f3d' }); }, nw: 28, nd: 22 };
-    case 'dollar_tree': return { fn: function () { shop(0, 0, 30, 20, 6, '#3f7f4a', ['DOLLAR TREE'], '#1c5e2a', '#ffe9a0', { face: -1, mmColor: '#2fae4a' }); }, nw: 30, nd: 20 };
+    case 'sushi':       return { fn: function () { shop(0, 0, 28, 22, 7, '#e2d4b6', ['SAKURA SUSHI'], '#111111', '#ffcf3a', { face: 1, wallMat: stuccoTanM, canopyMat: lamb({ color: 0x1a1a1a }), mmColor: '#d94f3d' }); }, nw: 28, nd: 22 };
+    case 'dollar_tree': return { fn: function () { shop(0, 0, 30, 20, 6, '#e2d4b6', ['DOLLAR TREE'], '#1c5e2a', '#ffe9a0', { face: -1, wallMat: stuccoTanM, brickBase: true, mmColor: '#2fae4a' }); }, nw: 30, nd: 20 };
     case 'storage':     return { fn: function () { storage(0, 0); }, nw: 46, nd: 40 };
     case 'strip':       return { fn: function () { stripMall(0, 0, 50, id === 'strip_a' ? ['AUTO', 'GYM'] : id === 'strip_b' ? ['PIZZA', 'VAPE', 'TAX'] : ['NAILS', 'SUBS', 'LAUNDRY']); }, nw: 50, nd: 20 };
-    case 'dunkin':      return { fn: function () { shop(0, 0, 12, 11, 5, '#e8862e', ['DUNKIN'], '#e01a7a', '#ff8c42', { face: -1, mmColor: '#e8862e' }); }, nw: 12, nd: 11 };
+    case 'dunkin':      return { fn: function () { shop(0, 0, 12, 11, 5, '#e8862e', ['DUNKIN'], '#e01a7a', '#ff8c42', { face: -1, wallMat: grayBlockM, canopyMat: orangeMetalM, pierMat: grayBlockM, mmColor: '#e8862e' }); }, nw: 12, nd: 11 };
     case 'starbucks':   return { fn: function () { coffeeShop(0, 0); }, nw: 15, nd: 13 };
     case 'offices':     return { fn: function () { shop(0, 0, 20, 16, 6, '#e5d7bc', ['WEST PARK OFFICES'], '#3a3a3a', '#ffe9a0', { face: 1, mmColor: '#c9b98a' }); }, nw: 20, nd: 16 };
     case 'yoga':        return { fn: function () { shop(0, 0, 16, 14, 5, '#e0d2b8', ['YOGA'], '#5a2e6a', '#ffe9a0', { face: 1, mmColor: '#b07acd' }); }, nw: 16, nd: 14 };
