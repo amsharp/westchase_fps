@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.42.0';
+var GAME_VERSION = 'v1.43.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -1209,9 +1209,57 @@ function getGGMat(gi, ti) {   // shipped variant texture as-is (no hue-swap)
   var im = new Image();
   var tx = new THREE.Texture(im);
   tx.magFilter = THREE.NearestFilter; tx.minFilter = THREE.NearestFilter; tx.generateMipmaps = false;
-  im.onload = function () { tx.needsUpdate = true; };
+  var mat = lamb({ map: tx });
+  im.onload = function () {
+    tx.needsUpdate = true;
+    // PAINTED-LIGHT GLOW: the texels around each measured head/taillight
+    // position glow at night (emissiveMap masked to just those triangles),
+    // so the lights themselves read brighter than the body — not only the
+    // floating glow quads. Mask: rasterize the UV footprint of every triangle
+    // whose centroid sits within ~0.45 model units of a GG_LIGHT_TUNE point,
+    // then keep the texture's own pixels there (heads stay warm, tails red).
+    var tune = GG_LIGHT_TUNE[GGBOT_VEHS[gi].n];
+    if (!tune) return;
+    var geo = getGGGeo(gi);
+    if (!geo.boundingBox) geo.computeBoundingBox();
+    var pos = geo.getAttribute('position'), uv = geo.getAttribute('uv');
+    var noseX = geo.boundingBox.max.x, tailX = geo.boundingBox.min.x;
+    var pts = [[noseX, tune.hy, tune.hz], [noseX, tune.hy, -tune.hz], [tailX, tune.ty, tune.tz], [tailX, tune.ty, -tune.tz]];
+    var R2 = 0.45 * 0.45, W = im.width, H = im.height;
+    var mc = document.createElement('canvas'); mc.width = W; mc.height = H;
+    var g = mc.getContext('2d');
+    g.fillStyle = '#fff'; g.strokeStyle = '#fff'; g.lineWidth = 2;   // slight dilation so thin slivers still read
+    var found = false;
+    for (var t = 0; t < pos.count; t += 3) {
+      var cx = (pos.getX(t) + pos.getX(t + 1) + pos.getX(t + 2)) / 3;
+      var cy = (pos.getY(t) + pos.getY(t + 1) + pos.getY(t + 2)) / 3;
+      var cz = (pos.getZ(t) + pos.getZ(t + 1) + pos.getZ(t + 2)) / 3;
+      var near = false;
+      for (var q = 0; q < 4; q++) { var P = pts[q], ax = cx - P[0], ay = cy - P[1], az = cz - P[2]; if (ax * ax + ay * ay + az * az < R2) { near = true; break; } }
+      if (!near) continue;
+      found = true;
+      g.beginPath();
+      g.moveTo(uv.getX(t) * W, (1 - uv.getY(t)) * H);
+      g.lineTo(uv.getX(t + 1) * W, (1 - uv.getY(t + 1)) * H);
+      g.lineTo(uv.getX(t + 2) * W, (1 - uv.getY(t + 2)) * H);
+      g.closePath(); g.fill(); g.stroke();
+    }
+    if (!found) return;
+    // keep the texture's pixels only inside the light mask (transparent = no emission)
+    g.globalCompositeOperation = 'source-in';
+    g.drawImage(im, 0, 0, W, H);
+    var etx = new THREE.CanvasTexture(mc);
+    etx.magFilter = THREE.NearestFilter; etx.minFilter = THREE.NearestFilter; etx.generateMipmaps = false;
+    mat.emissive = new THREE.Color(0xffffff);
+    mat.emissiveMap = etx;
+    mat.emissiveIntensity = 0;
+    mat.userData = mat.userData || {};
+    mat.userData.emisBase = 1.35;   // lights burn noticeably brighter than the lit-window wash
+    mat.needsUpdate = true;
+    nightEmis.push(mat);
+  };
   im.src = GGBOT_VEHS[gi].texs[ti];
-  ggMatCache[key] = lamb({ map: tx });
+  ggMatCache[key] = mat;
   return ggMatCache[key];
 }
 function ggEnds(gi) {
