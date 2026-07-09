@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.30.1';
+var GAME_VERSION = 'v1.30.2';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -4745,19 +4745,34 @@ function copShoot(c, wpn, dt, tgt) {
   sfx(wpn.sfx, { x: c.x, z: c.z, y: (c.baseY || 0) + 1.4, range: 150 });
   var dx = tgt.x - c.x, dz = tgt.z - c.z, d = Math.sqrt(dx * dx + dz * dz) || 1;
   // muzzle flash at the gun's barrel tip; chest-height fallback if holstered
-  puff(copMuzzle(c) || new THREE.Vector3(c.x + dx / d * 0.5, (c.baseY || 0) + 1.45, c.z + dz / d * 0.5), 0xffe08a);
+  var mz3 = copMuzzle(c) || new THREE.Vector3(c.x + dx / d * 0.5, (c.baseY || 0) + 1.45, c.z + dz / d * 0.5);
+  puff(mz3, 0xffe08a);
   var hitChance = wpn.acc * Math.max(0.1, 1 - d / wpn.range);
+  var hitV = null;   // where a round landed on a person (for the client blood puff)
   if (Math.random() < hitChance) {
-    if (tgt.id) { netSendHit(tgt.id, wpn.dmg); return; }   // remote player: their client applies (car redirect included)
-    if (state.dead) return;
-    if (driving) {
-      // rounds slam into your car instead
-      var cp2 = driving.car.group.position;
-      puff(new THREE.Vector3(cp2.x + (Math.random() - 0.5) * 2, 1 + Math.random(), cp2.z + (Math.random() - 0.5) * 2), 0xd8c860);
-      driving.carHP = (driving.carHP === undefined ? 100 : driving.carHP) - wpn.dmg * 2;
-      if (driving.carHP <= 0) igniteCar(driving);
-    } else hurtPlayer(wpn.dmg);
+    if (tgt.id) { hitV = new THREE.Vector3(tgt.x, (tgt.y || 0) + 1.1, tgt.z); netSendHit(tgt.id, wpn.dmg); }   // remote player: their client applies (car redirect included)
+    else if (!state.dead) {
+      if (driving) {
+        // rounds slam into your car instead
+        var cp2 = driving.car.group.position;
+        puff(new THREE.Vector3(cp2.x + (Math.random() - 0.5) * 2, 1 + Math.random(), cp2.z + (Math.random() - 0.5) * 2), 0xd8c860);
+        driving.carHP = (driving.carHP === undefined ? 100 : driving.carHP) - wpn.dmg * 2;
+        if (driving.carHP <= 0) igniteCar(driving);
+      } else { hitV = new THREE.Vector3(player.x, player.y - 0.2, player.z); hurtPlayer(wpn.dmg); }
+    }
   }
+  // clients only MIRROR street cops — they never run copShoot — so broadcast
+  // the shot and let each peer render the muzzle flash / gunshot / blood
+  if (net.mode === 'host') recordCopFx(mz3, wpn, hitV);
+}
+// buffer a cop-fire event for the next world snapshot; entry =
+// [mx,my,mz ×10, flags(bit0=smg, bit1=hit)] (+ [hx,hy,hz ×10] when a hit)
+function recordCopFx(mz, wpn, hitV) {
+  var buf = net.copFxBuf;
+  if (buf.length > 48) return;   // burst-fire flood guard
+  var e = [Math.round(mz.x * 10), Math.round(mz.y * 10), Math.round(mz.z * 10), (wpn.sfx === 'copsmg' ? 1 : 0) | (hitV ? 2 : 0)];
+  if (hitV) { e.push(Math.round(hitV.x * 10), Math.round(hitV.y * 10), Math.round(hitV.z * 10)); }
+  buf.push(e);
 }
 function damageCop(c, dmg, kx, kz, silent) {
   if (c.state === 'down') return;
@@ -7829,7 +7844,7 @@ function startGame() {
 }
 
 // ---------------- multiplayer (PeerJS data channels, host = hub) ----------------
-var net = { mode: 'sp', peer: null, conns: [], remotes: {}, id: null, sendT: 0, envSyncT: 0, worldT: 0, worldSnap: null, copList: [], sQ: 0, worldQ: 0, lastWorldQ: 0, sN: 0 };
+var net = { mode: 'sp', peer: null, conns: [], remotes: {}, id: null, sendT: 0, envSyncT: 0, worldT: 0, worldSnap: null, copList: [], sQ: 0, worldQ: 0, lastWorldQ: 0, sN: 0, copFxBuf: [], cfxQ: -1 };
 // STUN finds a direct route; TURN relays when peers can't reach each other
 // directly (e.g. two players behind the same home router whose NAT doesn't
 // hairpin and whose wifi blocks mDNS). Without a WORKING TURN server,
@@ -8304,7 +8319,8 @@ function updateNet(dt) {
         ufo.mode === 'fly' ? 1 : (ufo.mode === 'falling' ? 2 : 3), Math.round(ufo.group.rotation.y * 100)];
       var alienArr = null;
       if (alien) alienArr = [Math.round(alien.x * 10), Math.round(alien.z * 10), Math.round(alien.mesh.rotation.y * 100), alien.state === 'dead' ? 1 : 0];
-      netBroadcast({ t: 'world', q: ++net.worldQ, cars: carsArr, npcs: npcArr, cops: copArr, cash: cashArr, drps: dropArr, ufo: ufoArr, al: alienArr, ufoT: ufoTriggered ? 1 : 0 });
+      var cfxArr = net.copFxBuf.length ? net.copFxBuf : null; net.copFxBuf = [];
+      netBroadcast({ t: 'world', q: ++net.worldQ, cars: carsArr, npcs: npcArr, cops: copArr, cash: cashArr, drps: dropArr, ufo: ufoArr, al: alienArr, ufoT: ufoTriggered ? 1 : 0, cfx: cfxArr });
     }
   }
   if (isClient()) applyWorldSnap(dt);
@@ -8385,7 +8401,15 @@ function applyWorldSnap(dt) {
     n.state = st === 2 ? 'down' : (st === 3 ? 'ragdoll' : 'walk');
     nm.position.set(n.x, st === 3 ? (b[4] / 10 || 0) : 0, n.z);
     nm.rotation.y = b[2] / 100;
-    nm.rotation.x = st >= 2 ? -1.5 : 0;
+    if (st === 3) {
+      // the host only snapshots the ragdoll's body x/z/y, not its spin — so
+      // tumble the mesh locally (like killNpcRagdoll does host-side) instead of
+      // snapping it flat, restoring the death-tumble bystanders used to miss
+      if (!n.cRag) { n.cRag = 1; n.cSpinX = (Math.random() - 0.5) * 14; n.cSpinZ = (Math.random() - 0.5) * 14; nm.rotation.x = 0; nm.rotation.z = 0; }
+      nm.rotation.x += n.cSpinX * dt; nm.rotation.z += n.cSpinZ * dt;
+    } else {
+      n.cRag = 0; nm.rotation.x = st === 2 ? -1.5 : 0; nm.rotation.z = 0;
+    }
     if (nm.userData.shadow) nm.userData.shadow.visible = st < 2;
     // animate from the mirrored movement so idle/standing NPCs don't "march in
     // place" — speed derived from the position delta, stride-matched phase
@@ -8411,6 +8435,21 @@ function applyWorldSnap(dt) {
     // (idle) instead of marching in place; walks only when actually moving
     var cmv = Math.hypot(cp.x - cox, cp.z - coz); cp.phase += cmv * 3.4;
     animPerson(cp.mesh, cs[3] === 2 ? 0 : ((dt > 0 && cmv / dt > 0.5) ? cmv / dt : 0), dt, cp.phase);
+  }
+  // cop gunfire FX: the host runs copShoot and buffers each shot; render the
+  // muzzle flash + gunshot (+ blood at whoever got hit) so bystanders and the
+  // victim SEE where fire is coming from, not just take silent invisible damage.
+  // guard on the snapshot's q — worldSnap persists across frames, so without
+  // this each shot would re-fire (and re-sound) every frame until the next snap
+  if (s.cfx && s.q !== net.cfxQ) {
+    net.cfxQ = s.q;
+    for (i = 0; i < s.cfx.length; i++) {
+      var fe = s.cfx[i];
+      var mzv = new THREE.Vector3(fe[0] / 10, fe[1] / 10, fe[2] / 10);
+      puff(mzv, 0xffe08a);
+      sfx((fe[3] & 1) ? 'copsmg' : 'copshot', { x: mzv.x, z: mzv.z, y: mzv.y, range: 150 });
+      if ((fe[3] & 2) && fe.length >= 7) puff(new THREE.Vector3(fe[4] / 10, fe[5] / 10, fe[6] / 10), 0xd93a2a);
+    }
   }
   // cash mirror
   if (cashes.length !== s.cash.length) {
