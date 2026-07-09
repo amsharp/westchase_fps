@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.31.0';
+var GAME_VERSION = 'v1.32.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -143,21 +143,30 @@ function noise(g, s, n, dark, light) {
   }
 }
 
-var grassT = tex(128, function (g, s) {
-  g.fillStyle = '#5f9440'; g.fillRect(0, 0, s, s);
-  for (var i = 0; i < 5; i++) {
-    var gx = Math.random() * s, gy = Math.random() * s;
-    var gr = g.createRadialGradient(gx, gy, 2, gx, gy, 18 + Math.random() * 14);
-    gr.addColorStop(0, 'rgba(120,96,52,0.35)'); gr.addColorStop(1, 'rgba(120,96,52,0)');
-    g.fillStyle = gr; g.fillRect(0, 0, s, s);
+var grassT = tex(256, function (g, s) {
+  // richer, less-neon turf: deeper olive base + many SMALL tonal patches
+  // (kept well under half a tile so the ~10u world tiling doesn't read as
+  // repeating blobs) + dense blade detail + sparse dry/dirt flecks.
+  g.fillStyle = '#4f7d37'; g.fillRect(0, 0, s, s);
+  // broad soft mottle in muted greens/olives (small radii → fine grain)
+  var patch = ['rgba(64,102,44,0.5)', 'rgba(108,142,74,0.45)', 'rgba(88,120,58,0.4)',
+               'rgba(120,110,66,0.28)', 'rgba(70,96,48,0.5)'];
+  for (var i = 0; i < 70; i++) {
+    var gx = Math.random() * s, gy = Math.random() * s, gr2 = 5 + Math.random() * 20;
+    var gr = g.createRadialGradient(gx, gy, 1, gx, gy, gr2);
+    gr.addColorStop(0, patch[(Math.random() * patch.length) | 0]); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = gr; g.fillRect(gx - gr2, gy - gr2, gr2 * 2, gr2 * 2);
   }
-  var greens = ['#527f35', '#6ba14a', '#7cb058', '#48732e', '#86b465'];
-  for (i = 0; i < 900; i++) {
+  // dense blade speckle (varied greens, muted highs)
+  var greens = ['#4a7330', '#5d8a3e', '#6f9c4a', '#3f6a2a', '#77a352', '#547a36'];
+  for (i = 0; i < 2600; i++) {
     g.strokeStyle = greens[(Math.random() * greens.length) | 0];
     g.lineWidth = 1;
     var x = Math.random() * s, y = Math.random() * s;
-    g.beginPath(); g.moveTo(x, y); g.lineTo(x + (Math.random() - 0.5) * 2, y - 2 - Math.random() * 3); g.stroke();
+    g.beginPath(); g.moveTo(x, y); g.lineTo(x + (Math.random() - 0.5) * 2.5, y - 2 - Math.random() * 4); g.stroke();
   }
+  // a few dry/dirt flecks for tonal break-up
+  for (i = 0; i < 120; i++) { g.fillStyle = Math.random() < 0.5 ? 'rgba(120,104,64,0.4)' : 'rgba(150,158,120,0.3)'; g.fillRect((Math.random() * s) | 0, (Math.random() * s) | 0, 2, 2); }
 }, TOTAL / 10, TOTAL / 10);
 
 var walkT = tex(128, function (g, s) {
@@ -454,7 +463,13 @@ var skyDome = null;
   var uv = geo.attributes.uv;
   for (var i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) / (E * 2) + 0.5, uv.getY(i) / (E * 2) + 0.5);
   geo.rotateX(-Math.PI / 2);
-  scene.add(new THREE.Mesh(geo, lamb2(grassT)));
+  // push the huge base plane very slightly back in depth so the many overlaid
+  // ground layers (road 0.05 / lots 0.10 / sidewalks 0.12 / pads 0.16) always
+  // win the depth test — kills any distance-dependent coplanar z-fighting on
+  // real GPUs regardless of the small (5cm) vertical separations above it.
+  var gmat = lamb2(grassT);
+  gmat.polygonOffset = true; gmat.polygonOffsetFactor = 1; gmat.polygonOffsetUnits = 1;
+  scene.add(new THREE.Mesh(geo, gmat));
 })();
 
 function roadStrip(cx, cz, w, d, vertical) {
