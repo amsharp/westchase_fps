@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Westchase Map Editor</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { width:100%; height:100%; overflow:hidden; font-family:-apple-system,Segoe UI,Roboto,sans-serif;
+    background:#1a1e26; color:#dfe4ea; -webkit-user-select:none; user-select:none; }
+  #app { display:grid; grid-template-columns:212px 1fr 230px; grid-template-rows:46px 1fr 26px; height:100%; }
+  /* ---- top bar ---- */
+  #top { grid-column:1/4; display:flex; align-items:center; gap:6px; padding:0 10px; background:#232935;
+    border-bottom:1px solid #333c4d; }
+  #top .title { font-weight:700; letter-spacing:.5px; color:#ffd98a; margin-right:10px; font-size:15px; }
+  .tbtn { background:#2d3444; color:#dfe4ea; border:1px solid #3c4557; border-radius:6px; padding:6px 10px;
+    cursor:pointer; font-size:13px; display:flex; align-items:center; gap:5px; }
+  .tbtn:hover { background:#37405420; background:#374054; }
+  .tbtn.on { background:#3a6ea5; border-color:#5b8fd0; color:#fff; }
+  .sep { width:1px; height:26px; background:#3c4557; margin:0 4px; }
+  #top label { font-size:12px; color:#9aa4b2; display:flex; align-items:center; gap:4px; }
+  #top input[type=number] { width:46px; background:#1c2028; color:#dfe4ea; border:1px solid #3c4557;
+    border-radius:4px; padding:3px 4px; font-size:12px; }
+  .spacer { flex:1; }
+  /* ---- side panels ---- */
+  #left, #right { background:#20252f; overflow-y:auto; padding:10px; }
+  #left { border-right:1px solid #333c4d; }
+  #right { border-left:1px solid #333c4d; }
+  .sec { margin-bottom:14px; }
+  .sec h3 { font-size:11px; text-transform:uppercase; letter-spacing:1px; color:#8b97a8; margin-bottom:7px;
+    border-bottom:1px solid #2c333f; padding-bottom:4px; }
+  .assetgrid { display:grid; grid-template-columns:1fr 1fr; gap:5px; }
+  .asset { background:#2a3140; border:1px solid #353d4d; border-radius:6px; padding:6px 5px; cursor:pointer;
+    font-size:11px; display:flex; align-items:center; gap:6px; line-height:1.15; }
+  .asset:hover { background:#333c4e; }
+  .asset.on { border-color:#5b8fd0; background:#33456a; }
+  .asset .sw { width:13px; height:13px; border-radius:3px; flex:none; border:1px solid #0004; }
+  .roadrow { display:flex; gap:5px; margin-bottom:5px; }
+  .roadrow .asset { flex:1; }
+  .layer { display:flex; align-items:center; gap:7px; font-size:12px; padding:3px 0; cursor:pointer; color:#c3cbd6; }
+  .layer input { accent-color:#5b8fd0; }
+  /* ---- properties ---- */
+  .prop { margin-bottom:8px; }
+  .prop label { display:block; font-size:11px; color:#8b97a8; margin-bottom:3px; }
+  .prop input, .prop select { width:100%; background:#1c2028; color:#dfe4ea; border:1px solid #3c4557;
+    border-radius:5px; padding:6px 7px; font-size:13px; }
+  .prow { display:flex; gap:7px; }
+  .prow .prop { flex:1; }
+  #delBtn { width:100%; background:#7a2b2b; border:1px solid #a13b3b; color:#fff; border-radius:6px;
+    padding:8px; cursor:pointer; font-size:13px; margin-top:6px; }
+  #delBtn:hover { background:#933; }
+  #noSel { color:#6b7480; font-size:12px; font-style:italic; }
+  /* ---- canvas ---- */
+  #cwrap { position:relative; overflow:hidden; background:#0f1319; }
+  #c { display:block; position:absolute; top:0; left:0; }
+  #bottom { grid-column:1/4; display:flex; align-items:center; gap:16px; padding:0 12px; background:#232935;
+    border-top:1px solid #333c4d; font-size:12px; color:#9aa4b2; }
+  #bottom b { color:#cfd6e0; font-weight:600; }
+  #hint { color:#7f8b9a; }
+  /* ---- help overlay ---- */
+  #help { position:absolute; inset:0; background:#0c0f14e6; display:flex; align-items:center; justify-content:center; z-index:40; }
+  #help .card { background:#20252f; border:1px solid #3c4557; border-radius:10px; padding:22px 26px; max-width:520px; font-size:13px; line-height:1.7; }
+  #help h2 { color:#ffd98a; margin-bottom:10px; }
+  #help kbd { background:#2d3444; border:1px solid #46506380; border-radius:4px; padding:1px 6px; font-family:monospace; color:#cfe; }
+  #help .close { margin-top:16px; text-align:center; }
+  #toast { position:absolute; bottom:14px; left:50%; transform:translateX(-50%); background:#2d5a2d; color:#dfffdf;
+    padding:8px 16px; border-radius:8px; font-size:13px; opacity:0; transition:opacity .3s; z-index:30; pointer-events:none; border:1px solid #4a8a4a; }
+  #toast.show { opacity:1; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="top">
+    <span class="title">WESTCHASE MAP EDITOR</span>
+    <button class="tbtn" data-tool="select" title="Select / move / rotate (V)">▣ Select</button>
+    <button class="tbtn" data-tool="road" title="Draw road (R)">╱ Road</button>
+    <button class="tbtn" data-tool="building" title="Stamp building (B)">▤ Building</button>
+    <button class="tbtn" data-tool="prop" title="Stamp prop (P)">• Prop</button>
+    <div class="sep"></div>
+    <label><input type="checkbox" id="snapChk" checked> snap</label>
+    <label>grid <input type="number" id="gridSize" value="4" min="1" max="50" step="1"></label>
+    <div class="sep"></div>
+    <button class="tbtn" id="undoBtn" title="Undo (Ctrl+Z)">↶</button>
+    <button class="tbtn" id="redoBtn" title="Redo (Ctrl+Shift+Z)">↷</button>
+    <div class="spacer"></div>
+    <button class="tbtn" id="fitBtn" title="Fit view (F)">⤢ Fit</button>
+    <button class="tbtn" id="helpBtn">? Help</button>
+    <button class="tbtn" id="loadBtn">⤒ Load</button>
+    <button class="tbtn" id="resetBtn" title="Reload the original game map">↺ Reset</button>
+    <button class="tbtn" id="copyBtn" title="Copy the map JSON to clipboard — paste it to Claude">⧉ Copy JSON</button>
+    <button class="tbtn on" id="saveBtn" style="background:#2d6a4f;border-color:#40916c;">⤓ Save Map</button>
+    <input type="file" id="fileIn" accept=".json" style="display:none">
+  </div>
+
+  <div id="left">
+    <div class="sec">
+      <h3>Add Road / Path</h3>
+      <div id="roadPalette"></div>
+      <div style="font-size:11px;color:#6b7480;margin-top:5px;">click to drop points · Enter/dbl-click finish · Esc cancel</div>
+    </div>
+    <div class="sec">
+      <h3>Add Building</h3>
+      <div class="assetgrid" id="bldPalette"></div>
+    </div>
+    <div class="sec">
+      <h3>Add Prop</h3>
+      <div class="assetgrid" id="propPalette"></div>
+    </div>
+    <div class="sec">
+      <h3>Layers</h3>
+      <div id="layers"></div>
+    </div>
+  </div>
+
+  <div id="cwrap">
+    <canvas id="c"></canvas>
+    <div id="toast"></div>
+    <div id="help">
+      <div class="card">
+        <h2>Map Editor — quick guide</h2>
+        <div>
+          <b>Tools:</b> <kbd>V</kbd> select · <kbd>R</kbd> road · <kbd>B</kbd> building · <kbd>P</kbd> prop<br>
+          <b>Pan:</b> right-drag, middle-drag, or hold <kbd>Space</kbd> + drag &nbsp;·&nbsp; <b>Zoom:</b> mouse wheel<br>
+          <b>Select mode:</b> click an object, drag to move, drag the round handle to rotate.<br>
+          &nbsp;&nbsp;<kbd>[</kbd> <kbd>]</kbd> rotate 5° (Shift = 1°) · arrows nudge · <kbd>Del</kbd> remove.<br>
+          <b>Road:</b> pick a class at left, click to drop vertices, <kbd>Enter</kbd> or double-click to finish. In
+          select mode you can drag a road's vertices or the whole road.<br>
+          <b>Building / Prop:</b> pick a type at left, click to stamp. Front arrow shows facing.<br>
+          <b>Undo/Redo:</b> <kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Shift+Z</kbd> · <b>Fit:</b> <kbd>F</kbd><br>
+          <b>Save Map</b> downloads <code>westchase_map.json</code> — hand that file to Claude to rebuild the game map.
+          Your work also auto-saves to this browser; <b>Load</b> restores a saved file.
+        </div>
+        <div class="close"><button class="tbtn on" id="helpClose">Got it</button></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="right">
+    <div class="sec"><h3>Properties</h3><div id="props"><div id="noSel">Nothing selected.<br>Click an object, or pick an asset at left to add one.</div></div></div>
+  </div>
+
+  <div id="bottom">
+    <span id="coordRead">x 0, z 0</span>
+    <span id="zoomRead">100%</span>
+    <span id="selRead"></span>
+    <span class="spacer" style="flex:1"></span>
+    <span id="hint">V select · R road · B building · P prop · right-drag pan · wheel zoom</span>
+  </div>
+</div>
+
+<script src="remapdata.js"></script>
+<script>
+"use strict";
+// ============================ catalogs ============================
+var ROAD_CLASSES = [
+  { cls:0, name:'Arterial',   hw:14,  color:'#3b3f46' },
+  { cls:1, name:'Collector',  hw:8,   color:'#43474f' },
+  { cls:2, name:'Residential',hw:5,   color:'#4a4e57' },
+  { cls:3, name:'Path/Drive', hw:4.5, color:'#5c5648' }
+];
+var BUILDINGS = [
+  { type:'racetrac',   name:'RaceTrac',    w:36, d:22, color:'#d94f3d' },
+  { type:'publix',     name:'Publix',      w:74, d:44, color:'#1c7e3a' },
+  { type:'farnell',    name:'School',      w:82, d:32, color:'#c8a24a' },
+  { type:'bank',       name:'Bank',        w:26, d:20, color:'#3f6f9c' },
+  { type:'pharmacy',   name:'Pharmacy',    w:24, d:20, color:'#3f8fd0' },
+  { type:'sushi',      name:'Restaurant',  w:28, d:22, color:'#c0392b' },
+  { type:'dollar_tree',name:'Dollar Tree', w:30, d:20, color:'#2fae4a' },
+  { type:'storage',    name:'Self-Storage',w:46, d:40, color:'#c9662a' },
+  { type:'strip',      name:'Strip Mall',  w:50, d:20, color:'#2f6f9e' },
+  { type:'dunkin',     name:'Dunkin',      w:12, d:11, color:'#e8862e' },
+  { type:'starbucks',  name:'Coffee Shop', w:15, d:13, color:'#0a5c3a' },
+  { type:'offices',    name:'Offices',     w:20, d:16, color:'#c9b98a' },
+  { type:'yoga',       name:'Small Shop',  w:16, d:14, color:'#b07acd' },
+  { type:'townhouse',  name:'Townhouses',  w:48, d:10, color:'#c7b48a' },
+  { type:'red_house',  name:'Red House',   w:18, d:18, color:'#a93226' },
+  { type:'house',      name:'House',       w:11, d:9,  color:'#d8c8a0' },
+  { type:'shop',       name:'Generic Shop',w:20, d:16, color:'#b8b0a0' }
+];
+var PROPS = [
+  { type:'oak',        name:'Oak Tree',   color:'#2f6f2e', r:2.4 },
+  { type:'palm',       name:'Palm',       color:'#4a9a4a', r:1.8 },
+  { type:'streetlight',name:'Streetlight',color:'#9aa4b2', r:0.7 },
+  { type:'bench',      name:'Bench',      color:'#8a6a3a', r:1.0 },
+  { type:'atm',        name:'ATM',        color:'#2f6fb0', r:0.8 },
+  { type:'vending',    name:'Vending',    color:'#c0392b', r:0.8 },
+  { type:'trashcan',   name:'Trash Can',  color:'#556',    r:0.6 },
+  { type:'dumpster',   name:'Dumpster',   color:'#3a6a3a', r:1.2 },
+  { type:'planter',    name:'Planter',    color:'#6a8a3a', r:0.9 },
+  { type:'hydrant',    name:'Hydrant',    color:'#c0392b', r:0.5 },
+  { type:'mailbox',    name:'Mailbox',    color:'#2f4fb0', r:0.5 },
+  { type:'bikerack',   name:'Bike Rack',  color:'#888f99', r:1.0 },
+  { type:'bush',       name:'Bush',       color:'#3f7f34', r:1.0 },
+  { type:'cone',       name:'Cone',       color:'#ff8c22', r:0.4 }
+];
+function bldByType(t){ for(var i=0;i<BUILDINGS.length;i++) if(BUILDINGS[i].type===t) return BUILDINGS[i]; return BUILDINGS[BUILDINGS.length-1]; }
+function propByType(t){ for(var i=0;i<PROPS.length;i++) if(PROPS[i].type===t) return PROPS[i]; return PROPS[0]; }
+// REMAP_CLEAR id -> editor building type
+var IDMAP = { racetrac:'racetrac',publix:'publix',farnell:'farnell',regions:'bank',boa:'bank',
+  pharmacy:'pharmacy',sushi:'sushi',dollar_tree:'dollar_tree',storage:'storage',
+  strip_a:'strip',strip_b:'strip',strip_c:'strip',dunkin:'dunkin',starbucks:'starbucks',
+  offices:'offices',yoga:'yoga',th_a:'townhouse',th_b:'townhouse',th_c:'townhouse',th_d:'townhouse',red_house:'red_house' };
+
+// ============================ state ============================
+var HALF = 600;
+var S = { roads:[], buildings:[], props:[], zones:[] };   // zones = passthrough poly clears
+var cam = { x:-40, y:-20, zoom:1.4 };
+var tool = 'select';
+var stamp = { road:0, building:'shop', prop:'oak' };   // active palette selection per tool
+var sel = null;                    // selected object {kind:'road'|'building'|'prop', ref}
+var layersOn = { roads:true, sidewalks:true, buildings:true, props:true, grid:true, labels:true };
+var pen = null;                    // road being drawn: {cls,hw,pts:[]}
+var drag = null;                   // active drag operation
+var undoStack = [], redoStack = [];
+var uid = 1;
+function nid(){ return 'e'+(uid++); }
+
+// ============================ load initial map ============================
+function loadFromGame() {
+  S = { roads:[], buildings:[], props:[], zones:[] };
+  if (typeof REMAP_ROADS !== 'undefined') {
+    REMAP_ROADS.forEach(function(r){
+      S.roads.push({ _id:nid(), id:r.id, cls:r.cls, hw:r.hw, dirt:!!r.dirt,
+        pts:r.pts.map(function(p){return [p[0],p[1]];}) });
+    });
+  }
+  if (typeof REMAP_CLEAR !== 'undefined') {
+    REMAP_CLEAR.forEach(function(c){
+      if (c.poly) { S.zones.push({ _id:nid(), id:c.id, poly:c.poly.map(function(p){return [p[0],p[1]];}) }); return; }
+      var type = IDMAP[c.id] || 'shop';
+      S.buildings.push({ _id:nid(), id:c.id, type:type, x:c.x, z:c.z, rot:c.rot||0, w:c.w, d:c.d });
+    });
+  }
+  sel = null; pen = null; undoStack = []; redoStack = [];
+}
+
+// ============================ history ============================
+function snapshot(){ return JSON.stringify({roads:S.roads,buildings:S.buildings,props:S.props,zones:S.zones}); }
+function pushHistory(){ undoStack.push(snapshot()); if(undoStack.length>120) undoStack.shift(); redoStack.length=0; autosave(); }
+function restore(str){ var o=JSON.parse(str); S.roads=o.roads; S.buildings=o.buildings; S.props=o.props; S.zones=o.zones||[]; sel=null; }
+function undo(){ if(!undoStack.length) return; redoStack.push(snapshot()); restore(undoStack.pop()); buildProps(); }
+function redo(){ if(!redoStack.length) return; undoStack.push(snapshot()); restore(redoStack.pop()); buildProps(); }
+
+// ============================ persistence ============================
+function autosave(){ try{ localStorage.setItem('wc_editor_map', exportJSON()); }catch(e){} }
+function exportObj(){
+  return {
+    version:1, note:'Westchase map editor export',
+    roads: S.roads.map(function(r){ return { id:r.id, cls:r.cls, hw:r.hw, dirt:r.dirt||false, pts:r.pts }; }),
+    buildings: S.buildings.map(function(b){ return { id:b.id||b.type, type:b.type, x:round(b.x), z:round(b.z), rot:round(b.rot), w:round(b.w), d:round(b.d) }; }),
+    props: S.props.map(function(p){ return { type:p.type, x:round(p.x), z:round(p.z), rot:round(p.rot) }; }),
+    zones: S.zones.map(function(z){ return { id:z.id, poly:z.poly }; })
+  };
+}
+function round(n){ return Math.round(n*10)/10; }
+function exportJSON(){ return JSON.stringify(exportObj()); }
+function saveMap(){
+  var blob = new Blob([JSON.stringify(exportObj(),null,1)], {type:'application/json'});
+  var a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = 'westchase_map.json'; document.body.appendChild(a); a.click(); a.remove();
+  toast('Saved westchase_map.json — hand it to Claude to rebuild the map');
+}
+function loadObj(o){
+  S = { roads:[], buildings:[], props:[], zones:[] };
+  (o.roads||[]).forEach(function(r){ S.roads.push({_id:nid(),id:r.id,cls:r.cls,hw:r.hw,dirt:!!r.dirt,pts:r.pts.map(function(p){return[p[0],p[1]];})}); });
+  (o.buildings||[]).forEach(function(b){ S.buildings.push({_id:nid(),id:b.id,type:b.type,x:b.x,z:b.z,rot:b.rot||0,w:b.w,d:b.d}); });
+  (o.props||[]).forEach(function(p){ S.props.push({_id:nid(),type:p.type,x:p.x,z:p.z,rot:p.rot||0}); });
+  (o.zones||[]).forEach(function(z){ S.zones.push({_id:nid(),id:z.id,poly:z.poly}); });
+  sel=null; pen=null; undoStack=[]; redoStack=[]; buildProps();
+}
+
+// ============================ canvas / camera ============================
+var cvs = document.getElementById('c'), ctx = cvs.getContext('2d'), wrap = document.getElementById('cwrap');
+var VW=0, VH=0;
+function resize(){ VW=wrap.clientWidth; VH=wrap.clientHeight; var dpr=window.devicePixelRatio||1;
+  cvs.width=VW*dpr; cvs.height=VH*dpr; cvs.style.width=VW+'px'; cvs.style.height=VH+'px'; ctx.setTransform(dpr,0,0,dpr,0,0); }
+window.addEventListener('resize', resize);
+function w2s(wx,wz){ return [ VW/2 + (wx-cam.x)*cam.zoom, VH/2 + (wz-cam.y)*cam.zoom ]; }
+function s2w(sx,sz){ return [ (sx-VW/2)/cam.zoom + cam.x, (sz-VH/2)/cam.zoom + cam.y ]; }
+function fitView(){ cam.x=-40; cam.y=-20; cam.zoom=Math.min(VW,VH)/760; }
+
+// ============================ geometry helpers ============================
+function bcorners(b){
+  var a=b.rot*Math.PI/180, c=Math.cos(a), s=Math.sin(a), hw=b.w/2, hd=b.d/2, o=[];
+  [[-hw,-hd],[hw,-hd],[hw,hd],[-hw,hd]].forEach(function(p){
+    o.push([ p[0]*c+p[1]*s + b.x, -p[0]*s+p[1]*c + b.z ]);   // rotation.y convention
+  });
+  return o;
+}
+function pointInPoly(px,pz,poly){ var in_=false; for(var i=0,j=poly.length-1;i<poly.length;j=i++){
+  if((poly[i][1]>pz)!==(poly[j][1]>pz) && px<(poly[j][0]-poly[i][0])*(pz-poly[i][1])/(poly[j][1]-poly[i][1])+poly[i][0]) in_=!in_; } return in_; }
+function distSeg(px,pz,ax,az,bx,bz){ var dx=bx-ax,dz=bz-az,l2=dx*dx+dz*dz||1;
+  var t=((px-ax)*dx+(pz-az)*dz)/l2; t=t<0?0:t>1?1:t; var qx=ax+dx*t-px,qz=az+dz*t-pz; return Math.sqrt(qx*qx+qz*qz); }
+function frontDir(rotDeg){ var a=rotDeg*Math.PI/180; return [Math.sin(a), Math.cos(a)]; }  // local +z after rotation.y
+
+// ============================ hit testing ============================
+function pick(wx,wz){
+  // buildings (topmost first)
+  for(var i=S.buildings.length-1;i>=0;i--){ if(pointInPoly(wx,wz,bcorners(S.buildings[i]))) return {kind:'building',ref:S.buildings[i]}; }
+  // props
+  for(i=S.props.length-1;i>=0;i--){ var p=S.props[i], pr=propByType(p.type).r+1.2;
+    if((wx-p.x)*(wx-p.x)+(wz-p.z)*(wz-p.z)<pr*pr) return {kind:'prop',ref:p}; }
+  // roads (near centerline)
+  for(i=S.roads.length-1;i>=0;i--){ var r=S.roads[i];
+    for(var j=0;j<r.pts.length-1;j++){ if(distSeg(wx,wz,r.pts[j][0],r.pts[j][1],r.pts[j+1][0],r.pts[j+1][1])<r.hw+1.5) return {kind:'road',ref:r}; } }
+  return null;
+}
+function roadVertexAt(wx,wz){ // returns {r, i} if near a vertex of the selected road
+  if(!sel||sel.kind!=='road') return null; var r=sel.ref, tol=8/cam.zoom;
+  for(var i=0;i<r.pts.length;i++){ if(Math.abs(wx-r.pts[i][0])<tol && Math.abs(wz-r.pts[i][1])<tol) return {r:r,i:i}; }
+  return null;
+}
+function rotHandleAt(sx,sz){ // building/prop rotate handle in screen space
+  if(!sel) return false; var h=rotHandlePos(); if(!h) return false;
+  return (sx-h[0])*(sx-h[0])+(sz-h[1])*(sz-h[1]) < 100;
+}
+function rotHandlePos(){ // screen pos of rotate handle above selection front
+  if(!sel||sel.kind==='road') return null; var o=sel.ref; var fd=frontDir(o.rot);
+  var reach = (sel.kind==='building') ? o.d/2+7 : propByType(o.type).r+5;
+  var wp=[o.x+fd[0]*reach, o.z+fd[1]*reach]; return w2s(wp[0],wp[1]);
+}
+
+// ============================ snapping ============================
+function snap(v){ if(!document.getElementById('snapChk').checked) return v; var g=+document.getElementById('gridSize').value||1; return Math.round(v/g)*g; }
+function snapPt(wx,wz){ return [snap(wx),snap(wz)]; }
+
+// ============================ rendering ============================
+function render(){
+  ctx.clearRect(0,0,VW,VH);
+  ctx.fillStyle='#7fb85f'; ctx.fillRect(0,0,VW,VH);              // grass
+  drawWorldBounds();
+  if(layersOn.grid) drawGrid();
+  if(layersOn.roads){ S.roads.forEach(function(r){ if(layersOn.sidewalks) drawSidewalk(r); }); S.roads.forEach(drawRoad); }
+  if(layersOn.buildings) S.buildings.forEach(drawBuilding);
+  if(layersOn.props) S.props.forEach(drawProp);
+  drawZones();
+  if(pen) drawPen();
+  drawSelection();
+  requestAnimationFrame(render);
+}
+function drawWorldBounds(){ var a=w2s(-HALF,-HALF), b=w2s(HALF,HALF);
+  ctx.fillStyle='#0f1319'; ctx.fillRect(0,0,VW,VH);
+  ctx.fillStyle='#84bd63'; ctx.fillRect(a[0],a[1],b[0]-a[0],b[1]-a[1]);
+  ctx.strokeStyle='#5a7d44'; ctx.lineWidth=2; ctx.strokeRect(a[0],a[1],b[0]-a[0],b[1]-a[1]); }
+function drawGrid(){
+  var step=50; ctx.lineWidth=1; ctx.strokeStyle='#ffffff18'; ctx.fillStyle='#ffffff55'; ctx.font='10px monospace';
+  for(var x=-HALF;x<=HALF;x+=step){ var p0=w2s(x,-HALF),p1=w2s(x,HALF);
+    ctx.strokeStyle = x===0?'#ffffff50':'#ffffff14'; ctx.beginPath(); ctx.moveTo(p0[0],p0[1]); ctx.lineTo(p1[0],p1[1]); ctx.stroke(); }
+  for(var z=-HALF;z<=HALF;z+=step){ var q0=w2s(-HALF,z),q1=w2s(HALF,z);
+    ctx.strokeStyle = z===0?'#ffffff50':'#ffffff14'; ctx.beginPath(); ctx.moveTo(q0[0],q0[1]); ctx.lineTo(q1[0],q1[1]); ctx.stroke(); }
+}
+function polyScreen(pts){ return pts.map(function(p){ return w2s(p[0],p[1]); }); }
+function drawSidewalk(r){ if(r.cls>2||r.dirt) return; var sw=(r.cls===0?5:3.4), off=r.hw+sw/2+0.6;
+  ctx.strokeStyle='#e9e6dd'; ctx.lineWidth=Math.max(1,sw*cam.zoom); ctx.lineJoin='round'; ctx.lineCap='round';
+  [-1,1].forEach(function(side){ var sp=offsetPts(r.pts,off*side).map(function(p){return w2s(p[0],p[1]);});
+    ctx.beginPath(); sp.forEach(function(p,i){ i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]); }); ctx.stroke(); }); }
+function offsetPts(pts,off){ var out=[],n=pts.length; for(var i=0;i<n;i++){ var p=pts[i>0?i-1:0],q=pts[i<n-1?i+1:n-1];
+  var tx=q[0]-p[0],tz=q[1]-p[1],l=Math.sqrt(tx*tx+tz*tz)||1; out.push([pts[i][0]+(-tz/l)*off, pts[i][1]+(tx/l)*off]); } return out; }
+function drawRoad(r){ var cl=ROAD_CLASSES[r.cls]||ROAD_CLASSES[3]; var sp=polyScreen(r.pts);
+  ctx.strokeStyle = r.dirt?'#8a744f':cl.color; ctx.lineWidth=Math.max(2,r.hw*2*cam.zoom); ctx.lineJoin='round'; ctx.lineCap='round';
+  ctx.beginPath(); sp.forEach(function(p,i){ i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]); }); ctx.stroke();
+  if(r.cls<=1 && !r.dirt){ ctx.strokeStyle='#e8c23a'; ctx.lineWidth=Math.max(1,cam.zoom*0.5); ctx.setLineDash([6,7]);
+    ctx.beginPath(); sp.forEach(function(p,i){ i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]); }); ctx.stroke(); ctx.setLineDash([]); }
+}
+function drawBuilding(b){ var meta=bldByType(b.type); var c=bcorners(b).map(function(p){return w2s(p[0],p[1]);});
+  ctx.fillStyle=meta.color; ctx.strokeStyle='#00000066'; ctx.lineWidth=1.5;
+  ctx.beginPath(); c.forEach(function(p,i){ i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]); }); ctx.closePath(); ctx.fill(); ctx.stroke();
+  // front arrow
+  var fd=frontDir(b.rot), fc=w2s(b.x,b.z), fp=w2s(b.x+fd[0]*(b.d/2+3), b.z+fd[1]*(b.d/2+3));
+  ctx.strokeStyle='#fff'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(fc[0],fc[1]); ctx.lineTo(fp[0],fp[1]); ctx.stroke();
+  ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(fp[0],fp[1],2.5,0,7); ctx.fill();
+  if(layersOn.labels && cam.zoom>0.7){ ctx.fillStyle='#111'; ctx.font='bold 11px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(meta.name, fc[0], fc[1]); }
+}
+function drawProp(p){ var meta=propByType(p.type); var sc=w2s(p.x,p.z); var r=Math.max(3,meta.r*cam.zoom);
+  ctx.fillStyle=meta.color; ctx.strokeStyle='#0007'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.arc(sc[0],sc[1],r,0,7); ctx.fill(); ctx.stroke();
+  if(layersOn.labels && cam.zoom>1.6){ ctx.fillStyle='#0a0a0a'; ctx.font='9px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='top';
+    ctx.fillText(meta.name, sc[0], sc[1]+r+1); } }
+function drawZones(){ ctx.fillStyle='#ffffff12'; ctx.strokeStyle='#ffffff40'; ctx.lineWidth=1; ctx.setLineDash([3,3]);
+  S.zones.forEach(function(z){ var sp=polyScreen(z.poly); ctx.beginPath(); sp.forEach(function(p,i){ i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]); }); ctx.closePath(); ctx.fill(); ctx.stroke(); }); ctx.setLineDash([]); }
+function drawPen(){ var cl=ROAD_CLASSES[pen.cls]; var sp=polyScreen(pen.pts.concat([mouseW]));
+  ctx.strokeStyle=cl.color+'cc'; ctx.lineWidth=Math.max(2,pen.hw*2*cam.zoom); ctx.lineCap='round'; ctx.lineJoin='round';
+  ctx.beginPath(); sp.forEach(function(p,i){ i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]); }); ctx.stroke();
+  sp.forEach(function(p){ ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(p[0],p[1],3,0,7); ctx.fill(); }); }
+function drawSelection(){
+  if(!sel) return;
+  if(sel.kind==='road'){ var sp=polyScreen(sel.ref.pts);
+    ctx.strokeStyle='#5bd0ff'; ctx.lineWidth=2; ctx.setLineDash([5,4]);
+    ctx.beginPath(); sp.forEach(function(p,i){ i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]); }); ctx.stroke(); ctx.setLineDash([]);
+    sp.forEach(function(p){ ctx.fillStyle='#5bd0ff'; ctx.strokeStyle='#fff'; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.arc(p[0],p[1],4,0,7); ctx.fill(); ctx.stroke(); });
+    return;
+  }
+  var o=sel.ref;
+  if(sel.kind==='building'){ var c=bcorners(o).map(function(p){return w2s(p[0],p[1]);});
+    ctx.strokeStyle='#5bd0ff'; ctx.lineWidth=2.5; ctx.beginPath(); c.forEach(function(p,i){ i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]); }); ctx.closePath(); ctx.stroke(); }
+  else { var s=w2s(o.x,o.z); ctx.strokeStyle='#5bd0ff'; ctx.lineWidth=2.5; ctx.beginPath(); ctx.arc(s[0],s[1],Math.max(5,propByType(o.type).r*cam.zoom+3),0,7); ctx.stroke(); }
+  var h=rotHandlePos(); if(h){ var s2=w2s(o.x,o.z);
+    ctx.strokeStyle='#5bd0ff88'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(s2[0],s2[1]); ctx.lineTo(h[0],h[1]); ctx.stroke();
+    ctx.fillStyle='#5bd0ff'; ctx.strokeStyle='#fff'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(h[0],h[1],7,0,7); ctx.fill(); ctx.stroke(); }
+}
+
+// ============================ interaction ============================
+var mouseW=[0,0], panning=false, spaceDown=false, lastMouse=[0,0];
+cvs.addEventListener('contextmenu', function(e){ e.preventDefault(); });
+cvs.addEventListener('mousedown', function(e){
+  var rect=cvs.getBoundingClientRect(), sx=e.clientX-rect.left, sz=e.clientY-rect.top;
+  var w=s2w(sx,sz); mouseW=w;
+  if(e.button===2 || e.button===1 || (e.button===0 && spaceDown)){ panning=true; lastMouse=[e.clientX,e.clientY]; return; }
+  if(e.button!==0) return;
+  if(tool==='road'){ penClick(snapPt(w[0],w[1])); return; }
+  if(tool==='building'){ addBuilding(stamp.building, snap(w[0]), snap(w[1])); return; }
+  if(tool==='prop'){ addProp(stamp.prop, snap(w[0]), snap(w[1])); return; }
+  // select tool
+  if(sel && rotHandleAt(sx,sz)){ drag={type:'rotate',o:sel.ref}; pushHistory(); return; }
+  var rv=roadVertexAt(w[0],w[1]);
+  if(rv){ drag={type:'vertex',r:rv.r,i:rv.i}; pushHistory(); return; }
+  var hit=pick(w[0],w[1]);
+  if(hit){ selectObj(hit);
+    if(hit.kind==='road'){ drag={type:'roadmove',r:hit.ref,last:[w[0],w[1]]}; }
+    else { drag={type:'move',o:hit.ref,dx:hit.ref.x-w[0],dz:hit.ref.z-w[1]}; }
+    pushHistory();
+  } else { selectObj(null); }
+});
+window.addEventListener('mousemove', function(e){
+  var rect=cvs.getBoundingClientRect(), sx=e.clientX-rect.left, sz=e.clientY-rect.top;
+  var w=s2w(sx,sz); mouseW=w;
+  document.getElementById('coordRead').textContent='x '+w[0].toFixed(0)+', z '+w[1].toFixed(0);
+  if(panning){ cam.x-=(e.clientX-lastMouse[0])/cam.zoom; cam.y-=(e.clientY-lastMouse[1])/cam.zoom; lastMouse=[e.clientX,e.clientY]; return; }
+  if(!drag) return;
+  if(drag.type==='move'){ drag.o.x=snap(w[0]+drag.dx); drag.o.z=snap(w[1]+drag.dz); syncProps(); }
+  else if(drag.type==='vertex'){ drag.r.pts[drag.i]=[snap(w[0]),snap(w[1])]; }
+  else if(drag.type==='roadmove'){ var ddx=w[0]-drag.last[0], ddz=w[1]-drag.last[1];
+    drag.r.pts.forEach(function(p){ p[0]+=ddx; p[1]+=ddz; }); drag.last=[w[0],w[1]]; }
+  else if(drag.type==='rotate'){ var o=drag.o; var ang=Math.atan2(w[0]-o.x, w[1]-o.z)*180/Math.PI;
+    o.rot=snapAngle(ang); syncProps(); }
+});
+window.addEventListener('mouseup', function(){ panning=false; if(drag){ drag=null; autosave(); } });
+function snapAngle(a){ a=(a%360+360)%360; if(document.getElementById('snapChk').checked) a=Math.round(a/5)*5; return Math.round(a*10)/10; }
+cvs.addEventListener('wheel', function(e){ e.preventDefault();
+  var rect=cvs.getBoundingClientRect(), sx=e.clientX-rect.left, sz=e.clientY-rect.top;
+  var before=s2w(sx,sz); cam.zoom*=Math.exp(-e.deltaY*0.0012); cam.zoom=Math.max(0.15,Math.min(14,cam.zoom));
+  var after=s2w(sx,sz); cam.x+=before[0]-after[0]; cam.y+=before[1]-after[1];
+  document.getElementById('zoomRead').textContent=Math.round(cam.zoom*70)+'%';
+}, {passive:false});
+
+function penClick(pt){ if(!pen){ var cl=ROAD_CLASSES[stamp.road]; pen={cls:cl.cls,hw:cl.hw,pts:[pt]}; }
+  else pen.pts.push(pt); }
+cvs.addEventListener('dblclick', function(){ finishPen(); });
+function finishPen(){ if(pen && pen.pts.length>=2){ pushHistory();
+  S.roads.push({_id:nid(),id:'user_'+nid(),cls:pen.cls,hw:pen.hw,dirt:false,pts:pen.pts}); } pen=null; }
+function addBuilding(type,x,z){ pushHistory(); var m=bldByType(type);
+  var b={_id:nid(),id:type+'_'+nid(),type:type,x:x,z:z,rot:0,w:m.w,d:m.d}; S.buildings.push(b);
+  setTool('select'); selectObj({kind:'building',ref:b}); }
+function addProp(type,x,z){ pushHistory(); var p={_id:nid(),type:type,x:x,z:z,rot:0}; S.props.push(p);
+  selectObj({kind:'prop',ref:p}); }
+function deleteSel(){ if(!sel) return; pushHistory();
+  if(sel.kind==='road') S.roads=S.roads.filter(function(r){return r!==sel.ref;});
+  if(sel.kind==='building') S.buildings=S.buildings.filter(function(b){return b!==sel.ref;});
+  if(sel.kind==='prop') S.props=S.props.filter(function(p){return p!==sel.ref;});
+  selectObj(null); }
+
+// ============================ keyboard ============================
+window.addEventListener('keydown', function(e){
+  if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT') return;
+  if(e.code==='Space'){ spaceDown=true; e.preventDefault(); return; }
+  if(e.ctrlKey||e.metaKey){ if(e.key==='z'){ e.preventDefault(); if(e.shiftKey) redo(); else undo(); } if(e.key==='y'){ e.preventDefault(); redo(); } return; }
+  var k=e.key.toLowerCase();
+  if(k==='v') setTool('select'); else if(k==='r') setTool('road'); else if(k==='b') setTool('building'); else if(k==='p') setTool('prop');
+  else if(k==='f') fitView();
+  else if(e.key==='Enter'){ finishPen(); }
+  else if(e.key==='Escape'){ pen=null; selectObj(null); }
+  else if(e.key==='Delete'||e.key==='Backspace'){ deleteSel(); }
+  else if(sel && sel.kind!=='road' && (e.key==='['||e.key===']')){ var d=(e.key===']'?1:-1)*(e.shiftKey?1:5);
+    sel.ref.rot=snapAngle(sel.ref.rot+d); syncProps(); }
+  else if(sel && (e.key.indexOf('Arrow')===0)){ e.preventDefault(); var s=e.shiftKey?10:1;
+    var dx=e.key==='ArrowLeft'?-s:e.key==='ArrowRight'?s:0, dz=e.key==='ArrowUp'?-s:e.key==='ArrowDown'?s:0;
+    if(sel.kind==='road') sel.ref.pts.forEach(function(p){p[0]+=dx;p[1]+=dz;}); else { sel.ref.x+=dx; sel.ref.z+=dz; } syncProps(); }
+});
+window.addEventListener('keyup', function(e){ if(e.code==='Space') spaceDown=false; });
+
+// ============================ UI: palettes, layers, props ============================
+function el(tag,cls,txt){ var e=document.createElement(tag); if(cls)e.className=cls; if(txt!=null)e.textContent=txt; return e; }
+function buildPalettes(){
+  var rp=document.getElementById('roadPalette'); rp.innerHTML='';
+  ROAD_CLASSES.forEach(function(cl,i){ var row= i%2===0?el('div','roadrow'):rp.lastChild;
+    var a=el('div','asset'+(tool==='road'&&stamp.road===i?' on':'')); a.dataset.road=i;
+    var sw=el('div','sw'); sw.style.background=cl.color; a.appendChild(sw); a.appendChild(el('span',null,cl.name+' ('+cl.hw+')'));
+    a.onclick=function(){ stamp.road=i; setTool('road'); buildPalettes(); };
+    if(i%2===0) rp.appendChild(row); row.appendChild(a); });
+  var bp=document.getElementById('bldPalette'); bp.innerHTML='';
+  BUILDINGS.forEach(function(m){ var a=el('div','asset'+(tool==='building'&&stamp.building===m.type?' on':''));
+    var sw=el('div','sw'); sw.style.background=m.color; a.appendChild(sw); a.appendChild(el('span',null,m.name));
+    a.onclick=function(){ stamp.building=m.type; setTool('building'); buildPalettes(); }; bp.appendChild(a); });
+  var pp=document.getElementById('propPalette'); pp.innerHTML='';
+  PROPS.forEach(function(m){ var a=el('div','asset'+(tool==='prop'&&stamp.prop===m.type?' on':''));
+    var sw=el('div','sw'); sw.style.background=m.color; a.appendChild(sw); a.appendChild(el('span',null,m.name));
+    a.onclick=function(){ stamp.prop=m.type; setTool('prop'); buildPalettes(); }; pp.appendChild(a); });
+}
+function buildLayers(){ var L=document.getElementById('layers'); L.innerHTML='';
+  [['roads','Roads'],['sidewalks','Sidewalks'],['buildings','Buildings'],['props','Props'],['labels','Labels'],['grid','Grid']].forEach(function(p){
+    var lab=el('label','layer'); var cb=el('input'); cb.type='checkbox'; cb.checked=layersOn[p[0]];
+    cb.onchange=function(){ layersOn[p[0]]=cb.checked; }; lab.appendChild(cb); lab.appendChild(el('span',null,p[1])); L.appendChild(lab); });
+}
+function setTool(t){ tool=t; document.querySelectorAll('#top .tbtn[data-tool]').forEach(function(b){ b.classList.toggle('on', b.dataset.tool===t); });
+  if(t!=='road') pen=null; buildPalettes(); }
+document.querySelectorAll('#top .tbtn[data-tool]').forEach(function(b){ b.onclick=function(){ setTool(b.dataset.tool); }; });
+
+// ============================ properties panel ============================
+function selectObj(o){ sel=o; buildProps(); document.getElementById('selRead').textContent = o?('selected: '+(o.kind==='building'?bldByType(o.ref.type).name:o.kind)):''; }
+function buildProps(){
+  var host=document.getElementById('props');
+  if(!sel){ host.innerHTML='<div id="noSel">Nothing selected.<br>Click an object, or pick an asset at left to add one.</div>'; return; }
+  host.innerHTML='';
+  var o=sel.ref;
+  function field(label,val,cb,step){ var d=el('div','prop'); d.appendChild(el('label',null,label));
+    var inp=el('input'); inp.type='number'; inp.value=val; inp.step=step||1; inp.oninput=function(){ cb(parseFloat(inp.value)||0); }; d.appendChild(inp); return d; }
+  function selectField(label,opts,val,cb){ var d=el('div','prop'); d.appendChild(el('label',null,label));
+    var s=el('select'); opts.forEach(function(op){ var o2=el('option',null,op.name); o2.value=op.type!=null?op.type:op.cls; if((op.type!=null?op.type:op.cls)==val)o2.selected=true; s.appendChild(o2); });
+    s.onchange=function(){ cb(s.value); }; d.appendChild(s); return d; }
+  if(sel.kind==='building'){
+    host.appendChild(selectField('Type', BUILDINGS, o.type, function(v){ o.type=v; var m=bldByType(v); host.querySelectorAll('.selname').forEach(function(){}); autosave(); }));
+    var row=el('div','prow'); row.appendChild(field('X',round(o.x),function(v){o.x=v;},0.5)); row.appendChild(field('Z',round(o.z),function(v){o.z=v;},0.5)); host.appendChild(row);
+    host.appendChild(field('Rotation°',round(o.rot),function(v){o.rot=v;},1));
+    var row2=el('div','prow'); row2.appendChild(field('Width',round(o.w),function(v){o.w=v;},0.5)); row2.appendChild(field('Depth',round(o.d),function(v){o.d=v;},0.5)); host.appendChild(row2);
+  } else if(sel.kind==='prop'){
+    host.appendChild(selectField('Type', PROPS, o.type, function(v){ o.type=v; autosave(); }));
+    var r3=el('div','prow'); r3.appendChild(field('X',round(o.x),function(v){o.x=v;},0.5)); r3.appendChild(field('Z',round(o.z),function(v){o.z=v;},0.5)); host.appendChild(r3);
+    host.appendChild(field('Rotation°',round(o.rot),function(v){o.rot=v;},1));
+  } else if(sel.kind==='road'){
+    host.appendChild(selectField('Class', ROAD_CLASSES, o.cls, function(v){ o.cls=+v; o.hw=ROAD_CLASSES[+v].hw; syncProps(); }));
+    host.appendChild(field('Half-width',o.hw,function(v){o.hw=v;},0.5));
+    var dl=el('label','layer'); var dc=el('input'); dc.type='checkbox'; dc.checked=!!o.dirt; dc.onchange=function(){o.dirt=dc.checked;}; dl.appendChild(dc); dl.appendChild(el('span',null,'dirt road')); host.appendChild(dl);
+    host.appendChild(el('div','prop','vertices: '+o.pts.length));
+  }
+  var del=el('button'); del.id='delBtn'; del.textContent='🗑 Delete  (Del)'; del.onclick=deleteSel; host.appendChild(del);
+}
+function syncProps(){ buildProps(); }
+
+// ============================ toasts + wiring ============================
+var toastT;
+function toast(msg){ var t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(function(){t.classList.remove('show');},2600); }
+document.getElementById('saveBtn').onclick=saveMap;
+document.getElementById('copyBtn').onclick=function(){
+  var txt=JSON.stringify(exportObj());
+  function ok(){ toast('Map JSON copied — paste it to Claude'); }
+  if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(ok,function(){ fallbackCopy(txt); }); }
+  else fallbackCopy(txt);
+};
+function fallbackCopy(txt){ var ta=document.createElement('textarea'); ta.value=txt; ta.style.position='fixed'; ta.style.top='0'; ta.style.opacity='0';
+  document.body.appendChild(ta); ta.focus(); ta.select(); try{ document.execCommand('copy'); toast('Map JSON copied — paste it to Claude'); }catch(e){ prompt('Copy this map JSON and paste it to Claude:', txt); } ta.remove(); }
+document.getElementById('undoBtn').onclick=undo;
+document.getElementById('redoBtn').onclick=redo;
+document.getElementById('fitBtn').onclick=fitView;
+document.getElementById('helpBtn').onclick=function(){ document.getElementById('help').style.display='flex'; };
+document.getElementById('helpClose').onclick=function(){ document.getElementById('help').style.display='none'; };
+document.getElementById('resetBtn').onclick=function(){ if(confirm('Reload the original game map? Unsaved changes are lost.')){ loadFromGame(); buildProps(); toast('Reset to the current game map'); } };
+document.getElementById('loadBtn').onclick=function(){ document.getElementById('fileIn').click(); };
+document.getElementById('fileIn').onchange=function(e){ var f=e.target.files[0]; if(!f) return; var rd=new FileReader();
+  rd.onload=function(){ try{ loadObj(JSON.parse(rd.result)); toast('Loaded '+f.name); }catch(err){ alert('Bad map file: '+err); } }; rd.readAsText(f); };
+
+// ============================ boot ============================
+function boot(){
+  resize();
+  var saved=null; try{ saved=localStorage.getItem('wc_editor_map'); }catch(e){}
+  if(typeof REMAP_ROADS==='undefined'){
+    document.getElementById('hint').textContent='remapdata.js not found — put editor.html next to it.';
+  }
+  loadFromGame();
+  if(saved){ try{ loadObj(JSON.parse(saved)); }catch(e){} }
+  fitView();
+  buildPalettes(); buildLayers(); buildProps(); setTool('select');
+  document.getElementById('zoomRead').textContent=Math.round(cam.zoom*70)+'%';
+  render();
+}
+boot();
+window.__ed = { S:S, get state(){return S;}, exportObj:exportObj, loadFromGame:loadFromGame, addBuilding:addBuilding, addProp:addProp, selectObj:selectObj, setTool:setTool, cam:cam, get sel(){return sel;}, deleteSel:deleteSel };
+</script>
+</body>
+</html>
