@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.48.0';
+var GAME_VERSION = 'v1.49.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -4771,7 +4771,10 @@ if (WC_REMAP) (function densityLayer() {
   for (var pj = 0; pj < SURF.length; pj++) {
     var su = SURF[pj]; if (su.kind !== 'parking' || su.w * su.d < 900) continue;
     var e1 = rectPt(su, 0, su.d / 2 - 1.5), e2 = rectPt(su, 0, -su.d / 2 + 1.5);
-    [e1, e2].forEach(function (p) { if (spotClear(p[0], p[1]) && !inLake(p[0], p[1])) { palm(p[0], p[1]); } });
+    // The short-edge midpoint that abuts the storefront drops a palm straight
+    // through the entrance awning / gas canopy (their overhang reaches past the
+    // building footprint) — skip any island spot within reach of a venue front.
+    [e1, e2].forEach(function (p) { if (spotClear(p[0], p[1]) && !inLake(p[0], p[1]) && !remapInClear(p[0], p[1], 3)) { palm(p[0], p[1]); } });
   }
   // frontage bushes + crepe myrtles at each commercial venue
   for (var vf = 0; vf < VENUES.length; vf++) {
