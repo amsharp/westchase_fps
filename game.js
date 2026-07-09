@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.55.0';
+var GAME_VERSION = 'v1.55.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -6241,6 +6241,7 @@ function updateEnvProps(dt) {
       }
     }
   }
+  if (typeof updateEnvToys === 'function') updateEnvToys(dt);   // gumball/claw prize balls
 }
 // fountain / drinking-fountain water spray (mirrors the lake fountainDrops loop)
 function updateEnvFlow(r, dt) {
@@ -6255,8 +6256,118 @@ function updateEnvFlow(r, dt) {
     f.vy -= 9.5 * dt; p.x += f.vx * dt; p.y += f.vy * dt; p.z += f.vz * dt;
   }
 }
-function envPropPrompt() { return ''; }     /* STEP 3 */
-function envPropInteract() { return false; } /* STEP 3 */
+// ---- STEP 3: env-prop E-interactions (singleplayer-local, like interiors) ----
+var envToyGeo = new THREE.SphereGeometry(0.09, 7, 6), envToys = [];
+var ENV_BUY = { hotdog_cart: { price: 3, heal: 15, item: 'HOT DOG' }, icecream_truck: { price: 2, heal: 10, item: 'ICE CREAM' }, food_truck: { price: 5, heal: 25, item: 'STREET TACO' }, lemonade_stand: { price: 1, heal: 8, item: 'LEMONADE' } };
+var ENV_SIGNS = ['WESTCHASE', 'RACE TRACK RD', 'COUNTRYWAY BLVD', 'NOW LEASING', 'GRAND OPENING', 'SLOW — CHILDREN AT PLAY', 'GARAGE SALE SAT 8AM', 'HONK IF YOU LOVE TAMPA'];
+var GUMBALL_COLS = [0xff4d4d, 0x4da6ff, 0x5bd75b, 0xffd24d, 0xff7ad2, 0xa26bff, 0xff9a3d];
+function spawnEnvToy(x, y, z, color) { var m = new THREE.Mesh(envToyGeo, new THREE.MeshLambertMaterial({ color: color })); m.position.set(x, y, z); scene.add(m); envToys.push({ mesh: m, vy: 2 + Math.random() * 1.6, vx: (Math.random() - 0.5) * 1.7, vz: (Math.random() - 0.5) * 1.7, life: 8 }); }
+function updateEnvToys(dt) {
+  for (var i = envToys.length - 1; i >= 0; i--) {
+    var t = envToys[i], p = t.mesh.position;
+    t.vy -= 9.5 * dt; p.x += t.vx * dt; p.y += t.vy * dt; p.z += t.vz * dt;
+    if (p.y < 0.09) { p.y = 0.09; t.vy = -t.vy * 0.45; t.vx *= 0.7; t.vz *= 0.7; }
+    t.life -= dt;
+    if (t.life <= 0) { scene.remove(t.mesh); t.mesh.material.dispose(); envToys.splice(i, 1); }
+  }
+}
+// short positional chiptune melody (procedural — no assets), gain by distance
+function playChiptune(x, z) {
+  if (!ac) return;
+  var dx = x - player.x, dz = z - player.z, g = 0.11 * (1 - Math.sqrt(dx * dx + dz * dz) / 42);
+  if (g <= 0.005) return;
+  var notes = [523, 659, 784, 659, 587, 784, 880, 784, 698, 587, 523];
+  for (var i = 0; i < notes.length; i++) (function (n, i) { setTimeout(function () { beep(n, 0.12, g, 'square'); if (i % 2 === 0) beep(n / 2, 0.12, g * 0.5, 'triangle'); }, i * 135); })(notes[i], i);
+}
+function envPropNear() {
+  if (!state.running || state.dead || driving || inside) return null;
+  var best = null, bd = 1e9;
+  for (var i = 0; i < envPropInteractables.length; i++) {
+    var p = envPropInteractables[i];
+    var reach = 2.2 + Math.max(p.dims[0], p.dims[2]) / 2; reach *= reach;
+    var dx = player.x - p.x, dz = player.z - p.z, d2 = dx * dx + dz * dz;
+    if (d2 < reach && d2 < bd) { best = p; bd = d2; }
+  }
+  return best;
+}
+function envPropPrompt() {
+  if (state.sitting) return '[E] STAND';
+  var p = envPropNear(); if (!p) return '';
+  var k = p.kind;
+  if (k === 'sit') return '[E] SIT';
+  if (k === 'drink') return T < p.cd ? '' : '[E] DRINK';
+  if (k === 'read') return '[E] READ SIGN';
+  if (k === 'cook') return '[E] COOK';
+  if (k === 'vend') return p.name === 'gumball_machine' ? '[E] GUMBALL — $1' : '[E] SODA — $2';
+  if (k === 'buy') { var b = ENV_BUY[p.name]; return b ? '[E] BUY ' + b.item + ' — $' + b.price : '[E] BUY'; }
+  if (k === 'play') return p.name === 'claw_machine' ? '[E] CLAW — $2' : (p.name === 'jukebox' || p.name === 'arcade_cabinet' || p.name === 'boombox' ? '[E] PLAY MUSIC' : '[E] PLAY');
+  return '';
+}
+function envPropInteract() {
+  if (state.sitting) { state.sitting = false; return true; }
+  var p = envPropNear(); if (!p) return false;
+  var k = p.kind;
+  if (k === 'sit') {
+    state.sitting = true; sfx('eat', { x: p.x, z: p.z, range: 20 });   // soft cloth/thud on sit
+    return true;
+  }
+  if (k === 'drink') {
+    if (T < p.cd) return true; p.cd = T + 1.6;
+    state.hp = Math.min(100, state.hp + 5);
+    noiseBurst(0.25, 620, 0.14); popup('refreshing');
+    return true;
+  }
+  if (k === 'read') {
+    p.txt = p.txt || ENV_SIGNS[(Math.random() * ENV_SIGNS.length) | 0];
+    popup(p.txt); beep(660, 0.05, 0.06, 'square');
+    return true;
+  }
+  if (k === 'cook') {
+    noiseBurst(0.4, 500, 0.16); for (var s = 0; s < 4; s++) puff(new THREE.Vector3(p.x + (Math.random() - 0.5) * 0.5, p.dims[1] + 0.3, p.z + (Math.random() - 0.5) * 0.5), 0xbbbbbb);
+    if (p.spawns && Math.random() < 0.5) { popup('BURGER’S READY (+12 hp)'); state.hp = Math.min(100, state.hp + 12); sfx('eat'); }
+    else popup('sizzle…');
+    return true;
+  }
+  if (k === 'vend') {
+    if (p.name === 'gumball_machine') {
+      if (state.money < 1) { sfx('deny'); popup2('Need $1'); return true; }
+      state.money -= 1; beep(440, 0.05, 0.1, 'square'); noiseBurst(0.06, 700, 0.25);
+      spawnEnvToy(p.x + p.fx * 0.6, 0.9, p.z + p.fz * 0.6, GUMBALL_COLS[(Math.random() * GUMBALL_COLS.length) | 0]);
+      state.hp = Math.min(100, state.hp + 2); popup('gumball!');
+      return true;
+    }
+    if (state.money < 2) { sfx('deny'); popup2('Need $2'); return true; }
+    state.money -= 2; sfx('buy'); beep(880, 0.05, 0.1, 'square');
+    (function (pp) { setTimeout(function () { spawnSodaDrop(pp.x + pp.fx * 0.9, pp.z + pp.fz * 0.9); }, 260); })(p);
+    popup('SODA dispensed');
+    return true;
+  }
+  if (k === 'buy') {
+    var b = ENV_BUY[p.name]; if (!b) return true;
+    if (state.money < b.price) { sfx('deny'); popup2('Need $' + b.price); return true; }
+    state.money -= b.price; sfx('buy');
+    state.hp = Math.min(100, state.hp + b.heal);
+    toast('Bought a <b>' + b.item + '</b> — +' + b.heal + ' hp', 2600);
+    return true;
+  }
+  if (k === 'play') {
+    if (p.name === 'claw_machine') {
+      if (T < p.cd) return true; p.cd = T + 0.4;
+      if (state.money < 2) { sfx('deny'); popup2('Need $2'); return true; }
+      state.money -= 2; beep(700, 0.06, 0.1, 'square'); noiseBurst(0.3, 400, 0.12);
+      if (Math.random() < 0.28) { spawnEnvToy(p.x + p.fx * 0.7, 1.0, p.z + p.fz * 0.7, GUMBALL_COLS[(Math.random() * GUMBALL_COLS.length) | 0]); spawnCash(p.x + p.fx * 0.9, p.z + p.fz * 0.9, 5 + ((Math.random() * 16) | 0)); sfx('cash'); popup('A PRIZE!'); }
+      else popup2('so close…');
+      return true;
+    }
+    if (p.name === 'jukebox' || p.name === 'arcade_cabinet' || p.name === 'boombox') { playChiptune(p.x, p.z); popup('♪ music ♪'); return true; }
+    // playground equipment: flavor chirp
+    if (T < p.cd) return true; p.cd = T + 0.8;
+    beep(700, 0.08, 0.06, 'square', 1000); setTimeout(function () { beep(1000, 0.08, 0.06, 'square', 700); }, 110);
+    popup('wheee!');
+    return true;
+  }
+  return false;
+}
 
 // ---------------- police / wanted system ----------------
 var cops = [];
@@ -11087,6 +11198,7 @@ function updatePlayer(dt) {
   updateBreakIn(dt);
   var f = 0, s = 0;
   if (keys['KeyW']) f += 1; if (keys['KeyS']) f -= 1; if (keys['KeyD']) s += 1; if (keys['KeyA']) s -= 1;
+  if (state.sitting) { if (f || s || keys['Space']) state.sitting = false; else { f = 0; s = 0; } }   // env sit: stand on any move input
   var spd = keys['ShiftLeft'] || keys['ShiftRight'] ? 8.4 : 5.2;
   if (f || s) { var inv = spd / Math.sqrt(f * f + s * s); var fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw); player.x += (fx * f + rx * s) * inv * dt; player.z += (fz * f + rz * s) * inv * dt; }
   if (keys['Space'] && player.grounded) { player.vy = 5.6; player.grounded = false; }
@@ -11133,6 +11245,7 @@ function updatePlayer(dt) {
   recoilPitch += -recoilPitch * Math.min(1, dt * 5);   // recoil recovers back to the aim over ~0.4s (was: pitch climbed and stuck)
   camera.position.set(player.x, player.y, player.z); camera.rotation.y = yaw; camera.rotation.x = Math.max(-1.45, Math.min(1.45, pitch + recoilPitch));
   var moving = (f || s) && player.grounded; var bob = moving ? Math.sin(T * (spd > 6 ? 13 : 9)) * 0.035 : 0; camera.position.y += bob;
+  if (state.sitting) camera.position.y -= 0.55;   // seated eye height
   recoil = Math.max(0, recoil - dt * 8); vm.position.z = recoil * 0.07; vm.position.y = bob * 0.5; vm.rotation.x = recoil * 0.06;
   gunBloom = Math.max(0, gunBloom - dt * 0.06);   // spread recovers ~0.7s after easing off
   // weapon draw + rocket reload animations (procedural, PS1-cheap)
@@ -11356,7 +11469,7 @@ window.__wc = {
   densityInfo: function () { return densityStats; },
   forestFillPts: expFillPts,
   streetProps: streetPropInteractables, streetPropInteract: streetPropInteract, getStreetProp: getStreetProp, hydrantJets: hydrantJets,
-  envProps: envProps, envPropInteractables: envPropInteractables, envStats: envStats, getEnvProp: getEnvProp, envPropInteract: envPropInteract,
+  envProps: envProps, envPropInteractables: envPropInteractables, envStats: envStats, getEnvProp: getEnvProp, envPropInteract: envPropInteract, envPropPrompt: envPropPrompt, envToys: envToys,
   solidMeshes: solidMeshes, nightEmis: nightEmis,
   houses: houseStats, houseBlocksSpot: houseBlocksSpot, houseMeshesRef: houseMeshesRef,
   isUnderwater: function () { return underwater; },

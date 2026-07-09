@@ -257,6 +257,33 @@ Some of it does more than sit there:
 - **Newspaper boxes** (E) rattle, and every so often somebody's change
   falls out.
 
+## Parks, plazas & roadside life
+
+On top of the street furniture, the town is scattered with a second pack of
+places to hang around. Cafe tables and swaying umbrellas sit out front of
+Dunkin', Starbucks and the sushi bar; there's a full **playground** by
+Farnell school (climber, slide, swinging swings, a hoop) and a skate ramp in
+a cul-de-sac; a **lakeside picnic** spot with a stone fountain, a BBQ and a
+crackling fire pit; food trucks and an ice-cream van in the lots; a
+wacky-waving **tube man** and a hot-dog cart out at the RaceTrac; flamingos,
+gnomes, bird baths and a spinning windmill in the yards; and neon that spins
+(barber pole, pizza sign), flags that wave, and arcade/soda screens that glow.
+
+Most of it answers to your E key:
+
+- **Sit** on any bench, bus bench or cafe chair (E again, or just walk, to
+  stand back up).
+- **Drink** from a park fountain for a small top-up.
+- **Buy** from the hot-dog cart, ice-cream truck, food truck or a kid's
+  lemonade stand — a few bucks for a quick heal.
+- **Soda & gumball machines** vend for $2 / $1; the gumball pops out a
+  colored ball.
+- **Claw machine** ($2) usually teases you, but now and then it coughs up a
+  cash prize.
+- **Arcade cabinets, jukeboxes and boomboxes** (E) play a little chiptune.
+- **Cook** at a grill, **read** the monument/sandwich-board signs, or just
+  watch the tube man flail.
+
 ## The lake
 
 The lake in the northwest is swimmable: the sandy bed slopes down about
