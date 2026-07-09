@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.42.0';
+var GAME_VERSION = 'v1.43.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -7367,13 +7367,16 @@ var SUPPORT_POSE = {
 // collapses onto the camera and the forward-most vertex sits ~0.02m ahead —
 // INSIDE the 0.1m near plane → invisible. Pushing the rig forward per weapon
 // un-clips the hands and lands the trigger hand near the grip.
+// z pulled toward the camera (v1.43) so the weapon reads at arm's length, not
+// shoved at the screen; each weapon's gun mesh is retracted by the SAME delta
+// below so the trigger hand stays on the grip.
 var ANCHOR_OFF = {
   fists:  [0.00, -0.04, -0.30],
-  pistol: [0.06, -0.06, -0.42],
-  smg:    [0.09, -0.05, -0.50],
-  rifle:  [0.10, -0.05, -0.55],
-  auto:   [0.11, -0.05, -0.55],
-  rocket: [0.10, -0.05, -0.50]
+  pistol: [0.06, -0.06, -0.32],
+  smg:    [0.09, -0.05, -0.36],
+  rifle:  [0.10, -0.05, -0.39],
+  auto:   [0.11, -0.05, -0.39],
+  rocket: [0.10, -0.05, -0.36]
 };
 var dbgArmOv = null;                 // debug override for SUPPORT_POSE (via __wc.dbgArm)
 var _supEuler = new THREE.Euler();
@@ -7538,7 +7541,7 @@ var vmPistol = new THREE.Group();
   if (hasMeshyGun('glock19')) {
     // Meshy Glock 19 (real length 0.19m, drawn a touch big to read on 480p)
     var mg = getGunMesh('glock19', 0.30);
-    mg.position.set(0.27, -0.33, -0.5);
+    mg.position.set(0.27, -0.33, -0.40);   // v1.43: retracted 0.10 toward camera (matches ANCHOR_OFF)
     mg.rotation.order = 'YXZ';
     mg.rotation.y = -Math.PI / 2 + 0.22;   // nose forward (-z), classic inward cant
     mg.rotation.x = 0.05;
@@ -7561,7 +7564,7 @@ var vmSmg = new THREE.Group();
 (function () {
   if (hasMeshyGun('tec9')) {
     var mg = getGunMesh('tec9', 0.5);
-    mg.position.set(0.27, -0.29, -0.55);
+    mg.position.set(0.27, -0.29, -0.41);   // v1.43: retracted 0.14 toward camera
     mg.rotation.order = 'YXZ';
     mg.rotation.y = -Math.PI / 2 + 0.22;
     mg.rotation.x = 0.05;
@@ -7605,7 +7608,7 @@ var vmRifle = new THREE.Group();
 (function () {
   if (hasMeshyGun('kar98k')) {
     var mg = getGunMesh('kar98k', 0.95);
-    mg.position.set(0.25, -0.29, -0.72);
+    mg.position.set(0.25, -0.29, -0.56);   // v1.43: retracted 0.16 toward camera
     mg.rotation.order = 'YXZ';
     mg.rotation.y = -Math.PI / 2 + 0.22;
     mg.rotation.x = 0.05;
@@ -7631,7 +7634,7 @@ var vmAuto = new THREE.Group();
 (function () {
   if (hasMeshyGun('ak47')) {
     var mg = getGunMesh('ak47', 0.8);
-    mg.position.set(0.26, -0.30, -0.62);
+    mg.position.set(0.26, -0.30, -0.46);   // v1.43: retracted 0.16 toward camera
     mg.rotation.order = 'YXZ';
     mg.rotation.y = -Math.PI / 2 + 0.22;
     mg.rotation.x = 0.05;
@@ -7667,13 +7670,13 @@ var rpgWarhead = null;   // the Meshy launcher's own warhead mesh (hidden while 
   if (hasMeshyGun('rpg7')) {
     var mg = getGunMesh('rpg7', 0.95);
     mg.traverse(function (o) { if (o.userData && o.userData.warhead) rpgWarhead = o; });
-    mg.position.set(0.3, -0.26, -0.6);
+    mg.position.set(0.3, -0.26, -0.46);   // v1.43: retracted 0.14 toward camera
     mg.rotation.order = 'YXZ';
     mg.rotation.y = -Math.PI / 2 + 0.22;
     vmRocket.add(mg);
     var kAr1 = vmArm(0.32, -0.48, -0.32, 0.18); kAr1.userData.gunArm = 1; vmRocket.add(kAr1);
     var kAr2 = vmArm(0.16, -0.46, -0.6, -0.3); kAr2.userData.gunArm = 1; vmRocket.add(kAr2);
-    var fa = gunFlashAt(0.3, -0.26, -0.6, 0.95, 0.02);
+    var fa = gunFlashAt(0.3, -0.26, -0.46, 0.95, 0.02);   // muzzle literal tracks the retracted mesh
     WEAPONS.rocket.flashAt = fa;
     headCant = 0.22;
     rocketFwd.set(-Math.cos(-Math.PI / 2 + 0.22), 0, Math.sin(-Math.PI / 2 + 0.22));
