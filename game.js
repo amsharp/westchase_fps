@@ -4730,7 +4730,7 @@ function copShoot(c, wpn, dt, tgt) {
   c.fireT = wpn.rate;
   if (!c.interior && !copHasLOS(c, tgt)) return;   // interior is one small room — they can always see you
   if (!tgt.id) {   // barks only for the local player
-    var copAt = { x: c.x, z: c.z, y: (c.baseY || 0) + 1.6, yell: true, ref: c };
+    var copAt = { x: c.x, z: c.z, y: (c.baseY || 0) + 1.6, yell: true, net: c.interior ? 0 : 1, ref: c };
     if (state.wanted >= 4) playVoiceAny(c.fem ? ['cop_fire_f_1', 'cop_fire_f_2'] : ['cop_fire_1', 'cop_fire_2'], 0.6, 'copBark', 12, copAt);
     else if (!playNpcVoice(c.vname, 'quirk', 0.6, 12, copAt)) playVoiceAny(c.fem ? ['cop_engage_f_1', 'cop_engage_f_2'] : ['cop_engage_1', 'cop_engage_2'], 0.6, 'copBark', 12, copAt);
   }
@@ -4792,7 +4792,7 @@ function updateCops(dt) {
       var wc2 = cops[wI];
       if (wc2.state === 'down' || wc2.interior) continue;
       var wdx = wc2.x - player.x, wdz = wc2.z - player.z;
-      if (wdx * wdx + wdz * wdz < 150) { playVoice(wc2.fem ? 'cop_warn_f' : 'cop_warn', 0.55, 30, { x: wc2.x, z: wc2.z, yell: true, ref: wc2 }); break; }
+      if (wdx * wdx + wdz * wdz < 150) { playVoice(wc2.fem ? 'cop_warn_f' : 'cop_warn', 0.55, 30, { x: wc2.x, z: wc2.z, yell: true, net: 1, ref: wc2 }); break; }
     }
   }
   if (!isClient()) {
@@ -6162,7 +6162,9 @@ function updateUfo(dt) {
 function damageNPC(n, dmg, kx, kz, silent) {
   if (n.state === 'down') return;
   breakNpcChat(n);   // taking damage ends a conversation mid-line
-  if (!silent && !playNpcVoice(n.vname, 'hit', 0.65, 4, { x: n.x, z: n.z, yell: true, ref: n })) playVoiceAny(n.fem ? ['pedf_hit', 'pedf_hit_2'] : ['pedm_hit_1', 'pedm_hit_2', 'pedo_hit'], 0.6, 'pedHit', 5, { x: n.x, z: n.z, yell: true, ref: n });
+  // hit reaction plays even for client-caused (silent) damage so both peers hear
+  // it — silent only suppresses the host's popup/kill-credit, not the world's audio
+  if (!playNpcVoice(n.vname, 'hit', 0.65, 4, { x: n.x, z: n.z, yell: true, net: 1, ref: n })) playVoiceAny(n.fem ? ['pedf_hit', 'pedf_hit_2'] : ['pedm_hit_1', 'pedm_hit_2', 'pedo_hit'], 0.6, 'pedHit', 5, { x: n.x, z: n.z, yell: true, net: 1, ref: n });
   n.hp -= dmg; n.hurtFlash = 0.12; n.x += (kx || 0) * 0.5; n.z += (kz || 0) * 0.5;
   lastCrimeT = T;
   if (n.hp <= 0) {
@@ -6635,6 +6637,31 @@ var psxArms = null;
 // posed each frame on a static frame of the 'grab' clip
 var GUNHOLD_GROUPS = { pistol: 1, smg: 1, rifle: 1, auto: 1, rocket: 1 };
 var gunHold = { clip: 'relax', t: 0.75 };   // relax mid-frame: right palm sits on the grips
+// The shared arm rig's clips leave the LEFT (support) arm hanging at the side,
+// which reads as a detached floating hand for every gun. After posing, we swing
+// the left arm up onto each weapon's foregrip with fixed local eulers per bone
+// [shoulder.L, upper_arm.L, forearm.L, hand.L] (rig bone indices 24..27).
+// Pistol keeps a believable one-hand stance (support hand cupping under the grip).
+var SUPPORT_POSE = {
+  pistol: [null, [0.15, -0.55, -1.15], [-0.35, -0.9, 0.35], [0.2, 0.1, -0.35]],
+  smg:    [null, [0.15, -0.7, -1.0], [-0.55, -1.15, 0.2], [0.15, 0.1, -0.2]],
+  rifle:  [null, [0.1, -1.05, -0.8], [-0.75, -1.25, 0.15], [0.15, 0.15, -0.15]],
+  auto:   [null, [0.12, -0.95, -0.85], [-0.7, -1.2, 0.2], [0.15, 0.1, -0.2]],
+  rocket: [null, [0.05, -0.8, -0.75], [-0.6, -1.05, 0.25], [0.2, 0.1, -0.2]]
+};
+var dbgArmOv = null;                 // debug override for SUPPORT_POSE (via __wc.dbgArm)
+var _supEuler = new THREE.Euler();
+var _supIdx = [24, 25, 26, 27];
+function applySupportPose(w) {
+  if (!psxArms) return;
+  var p = dbgArmOv || SUPPORT_POSE[w];
+  if (!p) return;
+  for (var i = 0; i < 4; i++) {
+    if (!p[i]) continue;
+    _supEuler.set(p[i][0], p[i][1], p[i][2]);
+    psxArms.bones[_supIdx[i]].quaternion.setFromEuler(_supEuler);
+  }
+}
 function armsTintTex(skinHex) {
   var cv = document.createElement('canvas');
   cv.width = 1; cv.height = 1;   // valid upload before the image decodes
@@ -6771,7 +6798,7 @@ function initPSXArms() {
       [vmPistol, vmSmg, vmRifle, vmAuto, vmRocket].forEach(function (g) {
         g.children.forEach(function (c) { if (c.userData.gunArm) c.visible = false; });
       });
-      if (GUNHOLD_GROUPS[state.equipped]) { vmMap[state.equipped].add(psxArms.root); armsPose(psxArms, gunHold.clip, gunHold.t, true); }
+      if (GUNHOLD_GROUPS[state.equipped]) { vmMap[state.equipped].add(psxArms.root); armsPose(psxArms, gunHold.clip, gunHold.t, true); applySupportPose(state.equipped); }
     }
   } catch (e) { psxArms = null; }
 }
@@ -7034,7 +7061,7 @@ function setEquipped(w) {
   // draw/reload animations move the hands with the gun
   if (psxArms) {
     if (w === 'fists') { vmFists.add(psxArms.root); vmFists.rotation.set(0, 0, 0); armsPose(psxArms, 'idle', T); }
-    else if (GUNHOLD_GROUPS[w]) { vmMap[w].add(psxArms.root); armsPose(psxArms, gunHold.clip, gunHold.t, true); }
+    else if (GUNHOLD_GROUPS[w]) { vmMap[w].add(psxArms.root); armsPose(psxArms, gunHold.clip, gunHold.t, true); applySupportPose(w); }
   }
   vm.visible = !zoomed && !driving;
   Object.keys(vmMap).forEach(function (k) { vmMap[k].visible = (k === w); });
@@ -7489,10 +7516,18 @@ function startAmbient() {
 // ---- PS1-crunched TTS dialogue (optional voicelines.js) ----
 var voiceBufs = {}, voiceLastT = {}, dealerMet = false, shopBought = false, clerkScaredT = -99;
 function playVoice(id, gain, cd, at) {
-  if (typeof VOICE_LINES === 'undefined' || !VOICE_LINES[id] || !ac) return;
-  if (!voiceEarshot(at)) return;
+  if (typeof VOICE_LINES === 'undefined' || !VOICE_LINES[id]) return;
+  if (at) voicePos(at);
+  // host broadcasts world voices (at.net) so joined clients hear the shared
+  // world's chatter/reactions positionally — regardless of the HOST's own
+  // earshot, since each client re-tests earshot at its own position
+  var host = isHost() && at && at.net;
+  var heard = voiceEarshot(at);
+  if (!host && !heard) return;
   if (voiceLastT[id] !== undefined && T - voiceLastT[id] < (cd || 5)) return;
   voiceLastT[id] = T;
+  if (host) netBroadcast({ t: 'voice', id: id, g: gain || 0.5, x: Math.round(at.x * 10), z: Math.round(at.z * 10), yl: at.yell ? 1 : 0, py: at.y === undefined ? undefined : Math.round(at.y * 10) });
+  if (!ac || !heard) return;
   function playBuf(buf) {
     var src = ac.createBufferSource(); src.buffer = buf;
     src.connect(voiceOut(gain || 0.5, at)); src.start();
@@ -7504,7 +7539,9 @@ function playVoice(id, gain, cd, at) {
 }
 var voiceGroupT = {};
 function playVoiceAny(ids, gain, cdKey, cd, at) {
-  if (!voiceEarshot(at)) return;
+  if (at) voicePos(at);
+  var host = isHost() && at && at.net;   // host must not gate on its own earshot — it still broadcasts
+  if (!host && !voiceEarshot(at)) return;
   if (voiceGroupT[cdKey] !== undefined && T - voiceGroupT[cdKey] < cd) return;
   voiceGroupT[cdKey] = T;
   playVoice(ids[(Math.random() * ids.length) | 0], gain, 0, at);
@@ -7521,17 +7558,22 @@ function stopNpcVoice(name) {   // cut a character's line short (death)
 }
 function playNpcVoice(name, cat, gain, cd, at) {
   if (!name || typeof NPC_VOICES === 'undefined' || !NPC_VOICES[name] || !NPC_VOICES[name][cat]) return false;
-  if (!voiceEarshot(at)) return true;   // too far to hear ANY voice — suppress fallback too
+  if (at) voicePos(at);
+  var host = isHost() && at && at.net;
+  var heard = voiceEarshot(at);
+  if (!host && !heard) return true;   // too far to hear ANY voice — suppress fallback too
   var key = 'npcv_' + name;
   if (voiceGroupT[key] !== undefined && T - voiceGroupT[key] < (cd || 4)) return true;
   voiceGroupT[key] = T;
-  if (!ac) return true;
   var arr = NPC_VOICES[name][cat];
   // cycle through the lines so you don't hear the same one twice in a row
   var ck = name + '_' + cat;
   if (npcVoiceCycle[ck] === undefined) npcVoiceCycle[ck] = (Math.random() * arr.length) | 0;
   else npcVoiceCycle[ck] = (npcVoiceCycle[ck] + 1) % arr.length;
   var idx = npcVoiceCycle[ck];
+  // broadcast the exact character+line so a joined client plays the same one
+  if (host) netBroadcast({ t: 'voice', nm: name, ct: cat, ix: idx, g: gain || 0.45, x: Math.round(at.x * 10), z: Math.round(at.z * 10), yl: at.yell ? 1 : 0, py: at.y === undefined ? undefined : Math.round(at.y * 10) });
+  if (!ac || !heard) return true;
   var id = name + '_' + cat + '_' + idx;
   var token = {};
   npcVoiceLive[name] = token;
@@ -7549,6 +7591,32 @@ function playNpcVoice(name, cat, gain, cd, at) {
   var bytes = b64Bytes(arr[idx].split(',')[1]);
   ac.decodeAudioData(bytes.buffer, function (buf) { npcVoiceBufs[id] = buf; playBuf(buf); }, function () { });
   return true;
+}
+// client-side replay of a host-broadcast world voice ({t:'voice'}). Purely
+// render/audio: plays the exact line at the mirror's world position, re-testing
+// earshot locally. Never re-broadcasts (client), never touches simulation.
+function playNetVoice(m) {
+  if (!ac) return;
+  var at = { x: m.x / 10, z: m.z / 10, yell: m.yl ? 1 : 0 };
+  if (m.py !== undefined) at.y = m.py / 10;
+  if (!voiceEarshot(at)) return;
+  var url, cache, cacheId;
+  if (m.nm) {
+    if (typeof NPC_VOICES === 'undefined' || !NPC_VOICES[m.nm] || !NPC_VOICES[m.nm][m.ct] || !NPC_VOICES[m.nm][m.ct][m.ix]) return;
+    url = NPC_VOICES[m.nm][m.ct][m.ix]; cacheId = m.nm + '_' + m.ct + '_' + m.ix; cache = npcVoiceBufs;
+  } else {
+    if (typeof VOICE_LINES === 'undefined' || !VOICE_LINES[m.id]) return;
+    url = VOICE_LINES[m.id]; cacheId = m.id; cache = voiceBufs;
+  }
+  var gain = m.g || 0.5;
+  function playBuf(buf) {
+    var src = ac.createBufferSource(); src.buffer = buf;
+    src.connect(voiceOut(gain, at)); src.start();
+    trackVoice(src, at);
+  }
+  if (cache[cacheId]) { playBuf(cache[cacheId]); return; }
+  var bytes = b64Bytes(url.split(',')[1]);
+  ac.decodeAudioData(bytes.buffer, function (buf) { cache[cacheId] = buf; playBuf(buf); }, function () { });
 }
 function meshyNameFromCfg(cfg) {
   if (!cfg || !cfg.preset || cfg.preset <= PSX_SKINS.length) return null;
@@ -8041,6 +8109,8 @@ function handleNet(m, conn) {
     sfx('laser', { x: m.a[0], z: m.a[2], range: 130 });
   } else if (m.t === 'gotDrop') {
     applyDropPickup(m.k);
+  } else if (m.t === 'voice') {
+    if (net.mode === 'client') playNetVoice(m);   // host-broadcast world voice
   } else if (net.mode === 'host') {
     // ---- client → host world actions (host is authoritative) ----
     if (m.t === 'dmgNpc') {
@@ -8642,7 +8712,7 @@ function updatePlayer(dt) {
       else { armsPose(psxArms, 'idle', T); vmFists.rotation.y = 0; vmFists.rotation.z = 0; }
     } else if (pt < 0.28) { var kk = Math.sin((pt / 0.28) * Math.PI); punchArm.position.z = punchArmBase.z - kk * 0.5; punchArm.position.x = punchArmBase.x - kk * 0.14; punchArm.rotation.x = -kk * 0.4; }
     else { punchArm.position.copy(punchArmBase); punchArm.rotation.x = 0; }
-  } else if (psxArms && GUNHOLD_GROUPS[state.equipped]) armsPose(psxArms, gunHold.clip, gunHold.t, true);
+  } else if (psxArms && GUNHOLD_GROUPS[state.equipped]) { armsPose(psxArms, gunHold.clip, gunHold.t, true); applySupportPose(state.equipped); }
   if (flashT > 0) {
     flashT -= dt;
     if (flashT <= 0) flash.visible = false;
@@ -8730,6 +8800,10 @@ window.__wc = {
   resetCooldowns: function () { punchT = -99; lastShot = -99; },
   gunBloom: function () { return gunBloom; },
   setGunHold: function (c, t) { gunHold.clip = c; gunHold.t = t; },   // debug: tune the arms hold pose
+  dbgArm: function (ov) { dbgArmOv = ov; },   // debug: override support-arm eulers [[x,y,z]x bones 24-27]
+  getBoneQ: function (i) { return psxArms ? psxArms.bones[i].quaternion.toArray().map(function (v) { return Math.round(v * 1000) / 1000; }) : null; },
+  poseArmsNow: function () { if (psxArms && GUNHOLD_GROUPS[state.equipped]) { armsPose(psxArms, gunHold.clip, gunHold.t, true); applySupportPose(state.equipped); } },
+  handPos: function () { if (!psxArms) return null; psxArms.mesh.updateMatrixWorld(true); var pl = new THREE.Vector3(), pr = new THREE.Vector3(); psxArms.bones[27].getWorldPosition(pl); psxArms.bones[4].getWorldPosition(pr); return { L: pl.toArray().map(function (v) { return Math.round(v * 100) / 100; }), R: pr.toArray().map(function (v) { return Math.round(v * 100) / 100; }) }; },
 
   spawnUfo: spawnUfo, damageUfo: damageUfo, damageAlien: damageAlien,
   ufoRef: function () { return ufo; }, alienRef: function () { return alien; },
