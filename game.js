@@ -8139,7 +8139,7 @@ function drawMinimap() {
 
 // ---------------- input ----------------
 var canvas = renderer.domElement;
-function lockPointer() { if (canvas.requestPointerLock) canvas.requestPointerLock(); }
+function lockPointer() { if (WC_BOT) return; if (canvas.requestPointerLock) canvas.requestPointerLock(); }   // headless bot has no user gesture
 var startScreen = document.getElementById('startScreen');
 var pauseScreen = document.getElementById('pauseScreen');
 function startGame() {
