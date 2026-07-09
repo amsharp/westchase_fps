@@ -84,20 +84,57 @@ const KEY_FN = `async (arg) => {
     if (R > 60 && B > 60 && G < 95 && Math.abs(R - B) < 70 && (R - G) > 45 && (B - G) > 45) return true;
     return false;
   };
-  // flood fill from all border pixels; only remove connected background
-  const N = cw * ch, seen = new Uint8Array(N), stack = [];
-  const push = (x, y) => { if (x>=0&&x<cw&&y>=0&&y<ch){ const p=y*cw+x; if(!seen[p]){ seen[p]=1; stack.push(p); } } };
-  for (let x = 0; x < cw; x++) { push(x, 0); push(x, ch-1); }
-  for (let y = 0; y < ch; y++) { push(0, y); push(cw-1, y); }
+  // GLOBAL magenta key: no item uses magenta, so remove every magenta-family
+  // pixel (this also clears enclosed background holes like a ring/chain center
+  // that a border flood-fill would miss).
+  const N = cw * ch;
   let bgcnt = 0;
-  while (stack.length) {
-    const p = stack.pop(), i = p * 4;
-    if (!isBg(i)) continue;      // stop at the item's dark outline
-    d[i+3] = 0; bgcnt++;
-    const x = p % cw, y = (p / cw) | 0;
-    push(x+1,y); push(x-1,y); push(x,y+1); push(x,y-1);
+  for (let i = 0; i < d.length; i += 4) if (isBg(i)) { d[i+3] = 0; bgcnt++; }
+  // strip gutter/border residue: only NEAR-BLACK pixels in the outer ring are
+  // leftover black gutter (items keep a magenta moat from the edge). Restricting
+  // to near-black avoids clipping colored items that reach near the cell edge.
+  const EDGE = Math.max(3, Math.round(Math.min(cw, ch) * 0.06));
+  for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) {
+    if (x < EDGE || y < EDGE || x >= cw - EDGE || y >= ch - EDGE) {
+      const i = (y*cw+x)*4, lum = 0.299*d[i] + 0.587*d[i+1] + 0.114*d[i+2];
+      if (lum < 80) d[i+3] = 0;
+    }
   }
   const opFrac = 1 - bgcnt / N;
+
+  // Keep only the LARGEST connected component (the item), dropping every
+  // detached sliver — e.g. the extra gutter line the grid model sometimes draws
+  // in an added narrow 4th column. A non-largest component is spared ONLY if it
+  // is genuine item decoration: chunky (not a thin line) and not near-black
+  // (gutter residue is dark). This keeps things like loose pills while killing
+  // gutter bars that, on a small/thin item, can rival the item by pixel count.
+  const lbl = new Int32Array(N).fill(-1), comps = [];
+  const fstack = [];
+  for (let s = 0; s < N; s++) {
+    if (d[s*4+3] <= 40 || lbl[s] !== -1) continue;
+    const id = comps.length; lbl[s] = id; fstack.push(s);
+    let cnt = 0, dark = 0, minx = cw, maxx = 0, miny = ch, maxy = 0;
+    while (fstack.length) {
+      const p = fstack.pop(); cnt++;
+      const x = p % cw, y = (p / cw) | 0, i = p*4;
+      if (0.299*d[i] + 0.587*d[i+1] + 0.114*d[i+2] < 80) dark++;
+      if (x<minx)minx=x; if (x>maxx)maxx=x; if (y<miny)miny=y; if (y>maxy)maxy=y;
+      if (x > 0 && d[(p-1)*4+3] > 40 && lbl[p-1]===-1){lbl[p-1]=id;fstack.push(p-1);}
+      if (x < cw-1 && d[(p+1)*4+3] > 40 && lbl[p+1]===-1){lbl[p+1]=id;fstack.push(p+1);}
+      if (y > 0 && d[(p-cw)*4+3] > 40 && lbl[p-cw]===-1){lbl[p-cw]=id;fstack.push(p-cw);}
+      if (y < ch-1 && d[(p+cw)*4+3] > 40 && lbl[p+cw]===-1){lbl[p+cw]=id;fstack.push(p+cw);}
+    }
+    comps.push({ cnt, dark, minSide: Math.min(maxx-minx+1, maxy-miny+1) });
+  }
+  let big = 0; for (let k = 1; k < comps.length; k++) if (comps[k].cnt > comps[big].cnt) big = k;
+  const minCell = Math.min(cw, ch);
+  for (let p = 0; p < N; p++) {
+    const id = lbl[p]; if (id === -1) continue;
+    if (id === big) continue;
+    const c = comps[id];
+    const chunky = c.minSide > minCell * 0.10 && (c.dark / c.cnt) < 0.7;
+    if (!chunky) d[p*4+3] = 0;
+  }
 
   // alpha bbox
   let minX = cw, minY = ch, maxX = -1, maxY = -1;
