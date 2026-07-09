@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.35.1';
+var GAME_VERSION = 'v1.36.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -86,7 +86,9 @@ var mapPave = [];        // {x,z,w,d} concrete pads
 var mapDrives = [];      // {x,z,w,d} access roads / driveways
 
 // ---------------- renderer / scene ----------------
-var renderer = new THREE.WebGLRenderer({ antialias: true });
+// preserveDrawingBuffer lets the bug-report tool read the framebuffer back with
+// toDataURL after a render (negligible perf cost for this game)
+var renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(1);
 document.getElementById('game').appendChild(renderer.domElement);
 var MAXANISO = renderer.capabilities.getMaxAnisotropy ? Math.min(4, renderer.capabilities.getMaxAnisotropy()) : 1;
@@ -8711,7 +8713,7 @@ if (location.hash.indexOf('#join=') === 0) {
   document.getElementById('joinCode').value = location.hash.split('#join=').pop();
 }
 pauseScreen.addEventListener('click', function () { pauseScreen.classList.add('hidden'); lockPointer(); });
-document.addEventListener('pointerlockchange', function () { var locked = document.pointerLockElement === canvas; if (!locked && state.running && !state.menu && !chatOpen) pauseScreen.classList.remove('hidden'); else if (locked) pauseScreen.classList.add('hidden'); });
+document.addEventListener('pointerlockchange', function () { var locked = document.pointerLockElement === canvas; if (!locked && state.running && !state.menu && !chatOpen && !bugOpen) pauseScreen.classList.remove('hidden'); else if (locked) pauseScreen.classList.add('hidden'); });
 document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 document.addEventListener('mousemove', function (e) { if (document.pointerLockElement !== canvas || state.menu) return; var sens = 0.0022 * (zoomed ? 0.35 : 1); yaw -= e.movementX * sens; pitch -= e.movementY * sens; pitch = Math.max(-1.45, Math.min(1.45, pitch)); });
 document.addEventListener('mousedown', function (e) {
@@ -8861,8 +8863,58 @@ function playVoiceFrame(id, rate, b64) {
   if (start - now > 0.6) start = now + 0.03;   // fell way behind (tab stutter) — resync
   srcN.start(start); st.cursor = start + buf.duration;
 }
+// ---------------- in-game bug reporter (F8) ----------------
+// captures the current frame + a typed description + meta and POSTs it to the
+// relay server (/bug) for Claude to triage later. works in SP and MP.
+var bugOpen = false;
+function bugServerUrl() { return (WC_SERVER_URL || '').replace(/^ws/, 'http').replace(/\/$/, ''); }
+function openBug() {
+  if (bugOpen) return;
+  bugOpen = true;
+  var shot = '';
+  try { renderer.render(scene, camera); shot = renderer.domElement.toDataURL('image/jpeg', 0.55); } catch (e) { }
+  var img = document.getElementById('bugShot'); img.src = shot || ''; img.dataset.shot = shot || '';
+  document.getElementById('bugText').value = '';
+  var st = document.getElementById('bugStatus'); st.textContent = ''; st.className = '';
+  document.getElementById('bugSend').disabled = false;
+  for (var k in keys) keys[k] = false;
+  document.exitPointerLock && document.exitPointerLock();
+  document.getElementById('bugPanel').classList.remove('hidden');
+  setTimeout(function () { document.getElementById('bugText').focus(); }, 0);
+}
+function closeBug() {
+  if (!bugOpen) return;
+  bugOpen = false;
+  document.getElementById('bugPanel').classList.add('hidden');
+  if (state.running && !state.menu) lockPointer();
+}
+function submitBug() {
+  var st = document.getElementById('bugStatus');
+  var text = document.getElementById('bugText').value.trim();
+  var shot = document.getElementById('bugShot').dataset.shot || '';
+  var base = bugServerUrl();
+  if (!base) { st.className = 'err'; st.textContent = 'No server configured.'; return; }
+  document.getElementById('bugSend').disabled = true;
+  st.className = ''; st.textContent = 'Sending…';
+  var meta = { ver: GAME_VERSION, mode: net.mode, room: net.room || null, pos: [Math.round(player.x), Math.round(player.z)], inside: !!inside, driving: !!driving, wanted: state.wanted, ua: navigator.userAgent.slice(0, 140) };
+  fetch(base + '/bug', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: text, img: shot, meta: meta }) })
+    .then(function (r) { return r.json(); })
+    .then(function (j) {
+      if (j && j.ok) { st.className = ''; st.textContent = 'Thanks! Report ' + j.id + ' sent.'; setTimeout(closeBug, 1100); }
+      else { st.className = 'err'; st.textContent = 'Failed: ' + ((j && j.error) || 'unknown'); document.getElementById('bugSend').disabled = false; }
+    })
+    .catch(function () { st.className = 'err'; st.textContent = 'Could not reach the server.'; document.getElementById('bugSend').disabled = false; });
+}
+(function () {
+  var s = document.getElementById('bugSend'), c = document.getElementById('bugCancel'), t = document.getElementById('bugText');
+  if (s) s.addEventListener('click', submitBug);
+  if (c) c.addEventListener('click', closeBug);
+  if (t) t.addEventListener('keydown', function (e) { e.stopPropagation(); if (e.code === 'Escape') closeBug(); });
+})();
 document.addEventListener('keydown', function (e) {
+  if (bugOpen) { if (e.code === 'F8' || e.code === 'Escape') { e.preventDefault(); closeBug(); } return; }
   if (chatOpen) return;   // the chat input owns the keyboard while open
+  if (e.code === 'F8' && state.running) { e.preventDefault(); openBug(); return; }
   if (e.code === 'KeyV' && !e.repeat && state.running && !state.menu && netActive()) { voiceStart(); return; }
   keys[e.code] = true;
   if ((e.code === 'Enter' || e.code === 'NumpadEnter') && state.running && !state.menu && netActive()) { e.preventDefault(); openChat(); return; }
@@ -9145,6 +9197,7 @@ window.__wc = {
   buildCharacter: buildCharacter, randomCharConfig: randomCharConfig, buildMeshySkinned: buildMeshySkinned,
   sendChat: sendChat, attachHeldGun: attachHeldGun, addChatMsg: addChatMsg, updateNpcTags: updateNpcTags, npcTagPool: function () { return npcTagPool; },
   voiceStart: voiceStart, voiceStop: voiceStop, voiceState: function () { return { on: voice.on, play: voicePlay }; },
+  openBug: openBug, closeBug: closeBug, submitBug: submitBug, bugServerUrl: bugServerUrl,
   encodeCC: encodeCC, decodeCC: decodeCC, seededRng: seededRng,
   openCreator: openCreator, closeCreator: closeCreator,
   creatorSpin: function (v) { if (cprev) cprev.spin = v; },
