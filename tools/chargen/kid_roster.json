@@ -1,0 +1,13 @@
+{
+ "_comment": "8 child NPCs for Westchase FPS. race = starting ethnicity (task #72 matches kids to racially-consistent parents). h = target in-game height in game units (feeds genskin --height). age informs seed proportions. sex informs voice assignment.",
+ "kids": {
+  "LEO":    { "sex": "boy",  "age": 7,  "race": "white",       "h": 1.18, "seed": "a 7-year-old white boy with spiky short brown hair, wearing a bright green t-shirt with a big chunky cartoon green T-rex dinosaur graphic on the chest, blue denim shorts, and red light-up sneakers" },
+  "MAYA":   { "sex": "girl", "age": 9,  "race": "black",       "h": 1.30, "seed": "a 9-year-old Black girl with box braids in a ponytail with a few colorful beads, wearing blue denim overalls over a yellow t-shirt, a small pink backpack on her shoulders, and white sneakers" },
+  "SOFIA":  { "sex": "girl", "age": 6,  "race": "latino",      "h": 1.10, "seed": "a 6-year-old Latina girl with dark hair in two pigtails, wearing a pink dress with a chunky rainbow and unicorn print, and white sandals" },
+  "JAYDEN": { "sex": "boy",  "age": 11, "race": "black",       "h": 1.42, "seed": "an 11-year-old Black boy with a short fade haircut, wearing a bright orange basketball jersey with a big white number on the front, black gym shorts, and white high-top sneakers" },
+  "EMMA":   { "sex": "girl", "age": 8,  "race": "white",       "h": 1.24, "seed": "an 8-year-old white girl with a blonde ponytail, wearing a teal t-shirt with a big chunky purple butterfly graphic, purple shorts, and pink light-up sneakers" },
+  "KAI":    { "sex": "boy",  "age": 10, "race": "east_asian",  "h": 1.36, "seed": "a 10-year-old East Asian boy with a black bowl-cut hairstyle, wearing a blue-and-white horizontal striped t-shirt with a chunky cartoon rocket ship graphic, tan cargo shorts, and blue sneakers" },
+  "PRIYA":  { "sex": "girl", "age": 7,  "race": "south_asian", "h": 1.16, "seed": "a 7-year-old South Asian Indian girl with long dark hair and a bright headband, wearing a red t-shirt with a big chunky yellow star graphic, colorful floral leggings, and white sandals" },
+  "NOAH":   { "sex": "boy",  "age": 5,  "race": "white",       "h": 1.05, "seed": "a small 5-year-old white boy with curly light-brown hair under a little red baseball cap, wearing blue denim overalls over a t-shirt with a chunky cartoon red truck graphic, and small white sneakers" }
+ }
+}
