@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.40.0';
+var GAME_VERSION = 'v1.41.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -63,6 +63,7 @@ var player = { x: -72, z: -97, y: EYE, vy: 0, grounded: true };   // Publix lot,
 var spawnX = -72, spawnZ = -97;   // where death respawns you — overridden to the real spawn per world
 var lastShot = -99, punchT = -99, recoil = 0, punchSide = false, punchSlap = false, gunBloom = 0, equipT = -99;
 var lastShotBy = {};   // per-weapon last-fire time so a fast gun can't lock out a slow one you switch to — and a weapon's own reload (the RPG's 5s) can't be dodged by switching away and back
+var recentAtmCash = [];   // host-side dedup of client atmCash spawns (per-peer prop breaks can double-report one meter)
 var recoilPitch = 0;   // camera kick from firing, decays back to the aim pitch (separate from mouse-look pitch)
 var T = 0;
 var driving = null;   // traffic-car entry the player is driving
@@ -3470,17 +3471,31 @@ function randomCharConfig(rng) {
   cfg.preset = (MESHY_CIVS.length && rng() < 0.85) ? 4 + ((rng() * MESHY_CIVS.length) | 0) : 1 + ((rng() * PSX_SKINS.length) | 0);
   return cfg;
 }
+// v2 ('b' prefix): every field is one base36 char EXCEPT preset (the last
+// field), which is two chars — preset is data-driven (4 + Meshy civ count, now
+// 39) and one char caps at 35, which silently turned the newest presets
+// (DON/ALEX/XANDER) into JESS on reload and for remote players. 'a'-prefix
+// strings (old saves) still decode with the legacy one-char preset.
 function encodeCC(cfg) {
-  var s = 'a';
-  for (var i = 0; i < CC_FIELDS.length; i++) s += (cfg[CC_FIELDS[i]] | 0).toString(36);
+  var s = 'b';
+  for (var i = 0; i < CC_FIELDS.length; i++) {
+    var v = (cfg[CC_FIELDS[i]] | 0);
+    if (CC_FIELDS[i] === 'preset') { var p2 = v.toString(36); s += (p2.length < 2 ? '0' : '') + p2; }
+    else s += Math.min(35, v).toString(36);
+  }
   return s;
 }
 function decodeCC(s) {
-  if (!s || s.charAt(0) !== 'a' || s.length < CC_FIELDS.length + 1) return null;
-  var cfg = {};
+  if (!s) return null;
+  var v2 = s.charAt(0) === 'b';
+  if (!v2 && s.charAt(0) !== 'a') return null;
+  if (s.length < CC_FIELDS.length + 1 + (v2 ? 1 : 0)) return null;
+  var cfg = {}, pos = 1;
   for (var i = 0; i < CC_FIELDS.length; i++) {
-    var v = parseInt(s.charAt(i + 1), 36); if (isNaN(v)) v = 0;
-    var k = CC_FIELDS[i];
+    var k = CC_FIELDS[i], v;
+    if (v2 && k === 'preset') { v = parseInt(s.substr(pos, 2), 36); pos += 2; }
+    else { v = parseInt(s.charAt(pos), 36); pos += 1; }
+    if (isNaN(v)) v = 0;
     cfg[k] = Math.max(0, Math.min(CC_MAX[k] - 1, v));
   }
   return cfg;
@@ -7330,6 +7345,7 @@ function hurtPlayer(d) {
       driving.pspeed = 0; driving = null; document.getElementById('crosshair').style.display = ''; vm.visible = true;
     }
     if (inside) exitStore(true);   // clean up interior cops + lockout, respawn is outside anyway
+    closeMenus(false); closeChat(false); closeBug();   // dying with a panel open left it stuck (frozen after respawn) + a buy-guns-back-while-dead exploit
     var lost = Math.floor(state.money * 0.25); state.money -= lost;
     document.getElementById('deadInfo').textContent = lost > 0 ? 'You dropped $' + lost + ' on the pavement.' : 'At least you were already broke.';
     document.getElementById('deadScreen').classList.remove('hidden');
@@ -7822,7 +7838,7 @@ function refreshShop() {
     if (!w.price) return;   // not for sale (ray gun drops from... something)
     var left = document.createElement('div'); left.innerHTML = '<b>' + w.name + '</b> — <span class="cash">$' + w.price + '</span><small>' + w.desc + '</small>'; row.appendChild(left);
     if (state.owned[k]) { var sp = document.createElement('span'); sp.className = 'owned'; sp.textContent = 'OWNED'; row.appendChild(sp); }
-    else { var btn = document.createElement('button'); btn.textContent = 'BUY'; btn.disabled = state.money < w.price; btn.onclick = function () { if (state.money < w.price) { playVoiceAny(['dealer_nocash_1', 'dealer_nocash_2'], 0.5, 'dealerNo', 5, { ref: dealer }); sfx('deny'); return; } state.money -= w.price; state.owned[k] = true; shopBought = true; playVoiceAny(['dealer_buy_1', 'dealer_buy_2'], 0.5, 'dealerBuy', 4, { ref: dealer }); sfx('buy'); popup(w.name + ' purchased!'); refreshShop(); }; row.appendChild(btn); }
+    else { var btn = document.createElement('button'); btn.textContent = 'BUY'; btn.disabled = state.money < w.price; btn.onclick = function () { if (state.dead) return; if (state.money < w.price) { playVoiceAny(['dealer_nocash_1', 'dealer_nocash_2'], 0.5, 'dealerNo', 5, { ref: dealer }); sfx('deny'); return; } state.money -= w.price; state.owned[k] = true; shopBought = true; playVoiceAny(['dealer_buy_1', 'dealer_buy_2'], 0.5, 'dealerBuy', 4, { ref: dealer }); sfx('buy'); popup(w.name + ' purchased!'); refreshShop(); }; row.appendChild(btn); }
     rows.appendChild(row);
   });
   document.getElementById('shopCash').textContent = '$' + state.money;
@@ -8284,8 +8300,18 @@ function handleNet(m, conn) {
     } else if (m.t === 'atmCash') {
       // a client cracked an ATM/meter — spawn the cash into the authoritative
       // world so it snapshots to everyone (and the cracker can loot it).
-      // clamp val + position: never trust a peer's cash amount/coords
-      spawnCash(clampf(m.x, -HALF, HALF), clampf(m.z, -HALF, HALF), clampf(m.val, 1, 200) | 0);
+      // clamp val + position: never trust a peer's cash amount/coords.
+      // dedup: prop breaks are per-peer (not net-synced), so when two peers both
+      // witness the same meter get rammed they BOTH send atmCash — drop repeats
+      // near the same spot within 2s so one meter pays once
+      var acx = clampf(m.x, -HALF, HALF), acz = clampf(m.z, -HALF, HALF);
+      var dup = false;
+      for (var aci = 0; aci < recentAtmCash.length; aci++) { var rc2 = recentAtmCash[aci]; if (T - rc2.t < 2 && (rc2.x - acx) * (rc2.x - acx) + (rc2.z - acz) * (rc2.z - acz) < 4) { dup = true; break; } }
+      if (!dup) {
+        recentAtmCash.push({ x: acx, z: acz, t: T });
+        if (recentAtmCash.length > 24) recentAtmCash.shift();
+        spawnCash(acx, acz, clampf(m.val, 1, 200) | 0);
+      }
     } else if (m.t === 'takeCash') {
       var bi = -1, bd2 = 6;
       for (var ci = 0; ci < cashes.length; ci++) {
@@ -8976,9 +9002,12 @@ document.addEventListener('keydown', function (e) {
   if (e.code === 'KeyV' && !e.repeat && state.running && !state.menu && netActive()) { voiceStart(); return; }
   keys[e.code] = true;
   if ((e.code === 'Enter' || e.code === 'NumpadEnter') && state.running && !state.menu && netActive()) { e.preventDefault(); openChat(); return; }
-  if (e.code === 'Tab') { e.preventDefault(); if (!state.running) return; if (state.menu === 'inv') closeMenus(); else { closeMenus(false); openMenu('inv'); } }
+  if (e.code === 'Tab') { e.preventDefault(); if (!state.running || state.dead) return; if (state.menu === 'inv') closeMenus(); else { closeMenus(false); openMenu('inv'); } }
   if (e.code === 'KeyE') {
-    if (!state.running) return;
+    // dead-guard matters: E during the 2.6s death window could enterStore
+    // (respawn then never cleared `inside` → wrong floor/colliders forever),
+    // enter a car, or open the shop
+    if (!state.running || state.dead) return;
     if (state.menu === 'shop' || state.menu === 'clerk') { closeMenus(); return; }
     if (state.menu) return;
     if (driving) { exitCar(); return; }
