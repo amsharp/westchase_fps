@@ -8,8 +8,12 @@ sushi restaurant (NE), and a bank + supermarket + school + townhouses to
 the lake (NW). Coffee shop, offices, and the 5-story red-roof house (the
 tallest structure in town) sit west along the main road. Outskirt
 neighborhoods, a lake, dense impassable oak forest with a fogged backdrop,
-and "ROAD CLOSED" barriers at the map edges round it out. Renders at 480p
-with low-res procedural textures for a retro-but-realistic look.
+and "ROAD CLOSED" barriers at the map edges round it out. The main
+intersection is fully signalized to match the satellite view — mast-arm
+traffic lights with street-name signs on every approach (traffic actually
+stops on red), twin-bar crosswalks, stop bars, left-turn arrows, and palm
+clusters on the corners. Renders at 480p with low-res procedural textures
+for a retro-but-realistic look.
 
 ## How to play
 

@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.53.3';
+var GAME_VERSION = 'v1.54.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -3395,12 +3395,13 @@ var redM = new THREE.MeshBasicMaterial({ color: 0xff3b28 }), yelM = new THREE.Me
 var redDkM = lamb({ color: 0x381210 }), yelDkM = lamb({ color: 0x383008 }), grnDkM = lamb({ color: 0x0c3212 });
 var signalLights = [];   // {mesh, lit, dark, col:'r'|'y'|'g', grp:'main'|'cross'}
 var dotGeo = new THREE.SphereGeometry(0.12, 8, 6);
-function signalHead(parent, x, y, z, fx, fz) {
+function signalHead(parent, x, y, z, fx, fz, grpOverride) {
   parent.add(box(0.34, 1.0, 0.34, signalBox, x, y, z));
   // heads on arms spanning the main road face E/W traffic → 'main' group;
-  // cross-road arms face N/S traffic → 'cross'. Lamps start dark; updateSignals
-  // lights the correct one on the first frame.
-  var off = 0.2, grp = fx !== 0 ? 'main' : 'cross';
+  // cross-road arms face N/S traffic → 'cross' (remap legs pass the group
+  // explicitly — fx/fz are LOCAL offsets there and can't infer it). Lamps
+  // start dark; updateSignals lights the correct one on the first frame.
+  var off = 0.2, grp = grpOverride || (fx !== 0 ? 'main' : 'cross');
   [[0.32, redM, redDkM, 'r'], [0, yelM, yelDkM, 'y'], [-0.32, grnM, grnDkM, 'g']].forEach(function (d) {
     var s = new THREE.Mesh(dotGeo, d[2]);
     s.position.set(x + fx * off, y + d[0], z + fz * off);
@@ -3506,8 +3507,8 @@ if (!WC_REMAP) [[52, -37], [-48, -37], [-72, -116], [-52, 37], [-116, -22]].forE
 // ---------------- corridor details (signal cycle, corner palms, paint) ----------------
 // signal cycle: main green 8 s → main yellow 3 s → cross green 6 s → cross
 // yellow 3 s (all-red in between is implicit) — opposing approaches share a
-// group so pairs stay in sync. Visual only: traffic does NOT obey the lights
-// yet (future work). Called from updateWorldFx.
+// group so pairs stay in sync. Remap traffic obeys them via carSignals (the
+// R3 junction block registers each approach). Called from updateWorldFx.
 var SIG_CYCLE = [['main', 'g', 8], ['main', 'y', 3], ['cross', 'g', 6], ['cross', 'y', 3]];
 var SIG_TOTAL = 20, sigClock = 0, sigMain = '', sigCross = '';
 function updateSignals(dt) {
@@ -3644,6 +3645,93 @@ if (!WC_REMAP) {
   turnArrow(-2.2, -22, Math.PI);        // southbound
   turnArrow(2.2, 22, 0);                // northbound
 }
+
+// ---- R3 junction furniture (remap): the main intersection rebuilt to the
+// Esri z19 satellite reference (28.07028,-82.63136). A plain-asphalt box
+// hides the ribbons' baked lane paint where the legs weave over each other;
+// each leg then gets twin-bar crosswalks, an approach-half stop bar,
+// left-turn arrows, a rotated mast-arm signal (heads registered in
+// signalLights AND carSignals so traffic actually stops on red), and the
+// corner palm clusters the satellite shows. Crosswalk end points feed NPC
+// crossing waypoints (r3CrossPads) — pedestrians route through the paint.
+var r3CrossPads = [];   // [x,z] sidewalk-side ends of each remap crosswalk
+if (WC_REMAP) (function r3Junction() {
+  // legs: unit dir AWAY from the origin + half-width, from REMAP_ROADS at (0,0)
+  var LEGS = [
+    { ux: -0.500, uz: 0.866, hw: 14, D: 24, grp: 'main', sign: 'COUNTRYWAY BLVD' },   // Race Track SW
+    { ux: 0.797, uz: -0.604, hw: 14, D: 24, grp: 'main', sign: 'COUNTRYWAY BLVD' },   // Race Track NE
+    { ux: 0.659, uz: 0.753, hw: 11, D: 23, grp: 'cross', sign: 'RACE TRACK RD' },     // Countryway SE
+    { ux: -0.033, uz: -0.999, hw: 8, D: 21, grp: 'cross', sign: 'RACE TRACK RD', ox: -1, oz: 0 } // Nine Eagles N
+  ];
+  // plain box: ribbons ladder up to y.158 and their dashed/yellow textures
+  // cross each other here — cover with the same plain asphalt the collectors
+  // use (0.162 stays under all junction paint at 0.165+)
+  var boxGeo = new THREE.CircleGeometry(27, 30); boxGeo.rotateX(-Math.PI / 2);
+  var boxM = new THREE.Mesh(boxGeo, expResM); boxM.position.set(0, 0.162, 0); scene.add(boxM);
+  // painted quad rotated to a leg: PlaneGeometry width runs ACROSS the road
+  function paintQuad(cx, cz, w, d, yaw, y, mat) {
+    var g = new THREE.PlaneGeometry(w, d); g.rotateX(-Math.PI / 2);
+    var m = new THREE.Mesh(g, mat); m.position.set(cx, y, cz); m.rotation.y = yaw; scene.add(m);
+  }
+  for (var li = 0; li < LEGS.length; li++) {
+    var lg = LEGS[li], ux = lg.ux, uz = lg.uz, hw = lg.hw, D = lg.D;
+    var ox = lg.ox || 0, oz = lg.oz || 0;
+    var rix = uz, riz = -ux;                    // right-hand side of INBOUND (-u) drivers
+    var perpYaw = Math.atan2(-ux, -uz);         // quad width axis -> across the road
+    var at = function (s, lat) { return [ox + ux * s + rix * lat, oz + uz * s + riz * lat]; };
+    // twin-bar crosswalk (two thin transverse lines, like the satellite)
+    var cw1 = at(D - 1.0, 0), cw2 = at(D - 3.2, 0);
+    paintQuad(cw1[0], cw1[1], hw * 2 - 2, 0.45, perpYaw, 0.167, stopBarM);
+    paintQuad(cw2[0], cw2[1], hw * 2 - 2, 0.45, perpYaw, 0.167, stopBarM);
+    r3CrossPads.push(at(D - 2.1, hw + 1.5), at(D - 2.1, -(hw + 1.5)));
+    // stop bar across the approach half only
+    var sb = at(D + 1.8, hw / 2 - 0.5);
+    paintQuad(sb[0], sb[1], hw - 1, 1.1, perpYaw, 0.165, stopBarM);
+    // left-turn pocket arrows hug the centerline on the inbound side
+    var arrowRy = Math.atan2(ux, uz);
+    var a1 = at(D + 6, 1.9), a2 = at(D + 11, 1.9);
+    turnArrowAt(a1[0], a1[1], arrowRy); turnArrowAt(a2[0], a2[1], arrowRy);
+    // mast arm: pole on the inbound right corner past the crosswalk, arm
+    // across the road, heads facing returning (+u) so approaching drivers see them
+    var pp = at(D + 2.5, hw + 2.5);
+    var g = new THREE.Group(); g.position.set(pp[0], 0, pp[1]);
+    g.rotation.y = perpYaw;                     // local +x -> across the road (toward centerline)
+    var poleH = 7.8, armY = poleH - 0.5, len = hw * 1.5;
+    g.add(cyl(0.28, 0.34, poleH, 10, poleMetal, 0, poleH / 2, 0));
+    addCollider(pp[0], pp[1], 0.68, 0.68);      // signal pole base
+    g.add(box(len, 0.22, 0.25, poleMetal, -len / 2, armY, 0));
+    var nHeads = hw >= 13 ? 3 : 2;
+    for (var hi = 0; hi < nHeads; hi++) {
+      var t = -(hi + 1) / (nHeads + 1) * len;
+      g.add(box(0.06, 0.5, 0.06, poleMetal, t, armY - 0.3, 0));
+      signalHead(g, t, armY - 0.78, 0, 0, -1, lg.grp);   // local -z == world +u (faces the approach)
+    }
+    greenSign(g, -len * 0.35, armY + 0.55, 0, Math.PI, lg.sign);
+    scene.add(g);
+    // traffic governor: cars heading inbound on this leg stop at the bar on red
+    carSignals.push({ x: sb[0], z: sb[1], ux: -ux, uz: -uz, hw: hw, grp: lg.grp, barX: sb[0], barZ: sb[1] });
+  }
+  // turn arrows need a custom yaw here (legacy turnArrow hardcodes axis yaws)
+  function turnArrowAt(x, z, ry) {
+    var geo = new THREE.PlaneGeometry(2.1, 4.4); geo.rotateX(-Math.PI / 2);
+    var m = new THREE.Mesh(geo, turnArrowM); m.position.set(x, 0.166, z); m.rotation.y = ry; scene.add(m);
+  }
+  // corner palm clusters on the grass between adjacent legs (satellite shows
+  // palms on every corner) — bisector of each adjacent leg pair, kept off the
+  // asphalt by the raw road-network guard
+  var order = LEGS.slice().sort(function (a, b) { return Math.atan2(a.uz, a.ux) - Math.atan2(b.uz, b.ux); });
+  for (var ci = 0; ci < order.length; ci++) {
+    var A = order[ci], B = order[(ci + 1) % order.length];
+    var bx = A.ux + B.ux, bz = A.uz + B.uz, bl = Math.sqrt(bx * bx + bz * bz);
+    if (bl < 0.3) continue;                     // near-opposite legs: no corner between them
+    bx /= bl; bz /= bl;
+    for (var pi = 0; pi < 3; pi++) {
+      var pr = 34 + pi * 5 + Math.random() * 2;
+      var px = bx * pr + (Math.random() - 0.5) * 4, pz = bz * pr + (Math.random() - 0.5) * 4;
+      if (remapPointClear(px, pz, 2.5)) palm(px, pz);
+    }
+  }
+})();
 
 // ---------------- street lights ----------------
 var streetLights = [];
@@ -4527,8 +4615,6 @@ function setNpcTarget(n) {
   var t = npcTargetFor(n); n.tx = t[0]; n.tz = t[1];
   n.wayX = undefined; n.wayZ = undefined;
   // core crosswalk routing only — neighborhood walkers jaywalk their streets
-  // (remap: the axis crosswalk pads don't exist — everyone jaywalks; the
-  // 3-leg Y crosswalk pads are R3 junction furniture)
   if (!WC_REMAP && !n.turf && Math.random() < 0.7) {
     if ((n.z >= MAIN_HW && n.tz <= -MAIN_HW) || (n.z <= -MAIN_HW && n.tz >= MAIN_HW)) {
       // crossing the E-W main road: pads at (+-13.5, 0)
@@ -4536,6 +4622,25 @@ function setNpcTarget(n) {
     } else if ((n.x >= CROSS_HW && n.tx <= -CROSS_HW) || (n.x <= -CROSS_HW && n.tx >= CROSS_HW)) {
       // crossing the N-S cross road: pads at (0, +-16.5)
       n.wayX = 0; n.wayZ = (n.z < 0 ? -1 : 1) * (MAIN_HW + 2.5);
+    }
+  } else if (WC_REMAP && !n.turf && r3CrossPads.length && Math.random() < 0.7) {
+    // remap: a walk whose straight line passes through the junction box
+    // routes via the nearest R3 crosswalk end instead of jaywalking the middle
+    var dxT = n.tx - n.x, dzT = n.tz - n.z, L2 = dxT * dxT + dzT * dzT;
+    if (L2 > 1) {
+      var tt = -(n.x * dxT + n.z * dzT) / L2;   // closest approach to the origin
+      if (tt > 0 && tt < 1) {
+        var cxp = n.x + dxT * tt, czp = n.z + dzT * tt;
+        if (cxp * cxp + czp * czp < 26 * 26) {
+          var best = -1, bd = 1e9;
+          for (var cpi = 0; cpi < r3CrossPads.length; cpi++) {
+            var cpd = r3CrossPads[cpi];
+            var cdd = (cpd[0] - n.x) * (cpd[0] - n.x) + (cpd[1] - n.z) * (cpd[1] - n.z);
+            if (cdd < bd) { bd = cdd; best = cpi; }
+          }
+          if (best >= 0) { n.wayX = r3CrossPads[best][0]; n.wayZ = r3CrossPads[best][1]; }
+        }
+      }
     }
   }
 }
@@ -5130,74 +5235,15 @@ if (WC_REMAP) (function densityLayer() {
     if (Math.random() < 0.7) crepeMyrtle(fpx + f.rx * (e * 0.4), fpz + f.rz * (e * 0.4));
   }
 
-  // ============ 2. Y-JUNCTION TRAFFIC FURNITURE ============
-  // mast-arm signals + stop bars + crosswalk paint on the true approaches to
-  // the main junction at the origin (a 3-leg Y). Legs identified from the roads
-  // that pass near (0,0); approach tangent points inward toward the junction.
-  if (RM) {
-    var legs = [];
-    for (var li = 0; li < RM.roads.length; li++) {
-      var rd = RM.roads[li]; if (rd.cls > 1 || rd.dirt) continue;
-      // sample this road's closest approach to the origin, gather inbound dirs
-      var lenR = rd.cum[rd.cum.length - 1];
-      for (var ss = 0; ss <= lenR; ss += 4) {
-        var q = rmAt(rd.pts, rd.cum, ss), dd = q.x * q.x + q.z * q.z;
-        if (dd < 34 * 34 && dd > 15 * 15) {
-          // inbound tangent = pointing toward origin
-          var towardX = -q.x, towardZ = -q.z, tl = Math.sqrt(dd) || 1;
-          var dot = (q.ux * towardX + q.uz * towardZ);
-          var dir = dot >= 0 ? 1 : -1;
-          legs.push({ x: q.x, z: q.z, ux: q.ux * dir, uz: q.uz * dir, hw: rd.hw, d: Math.sqrt(dd) });
-          break;
-        }
-      }
-    }
-    // de-dupe near-parallel legs, keep up to 4 approaches
-    var kept = [];
-    for (var ki = 0; ki < legs.length && kept.length < 4; ki++) {
-      var lg = legs[ki], dup = false;
-      for (var kk = 0; kk < kept.length; kk++) { if (Math.abs(kept[kk].ux * lg.ux + kept[kk].uz * lg.uz) > 0.9 && (kept[kk].x * lg.x + kept[kk].z * lg.z) > 0) dup = true; }
-      if (!dup) kept.push(lg);
-    }
-    // rotation-correct mast arm: arm along local +x, whole rig yawed (the legacy
-    // mastArm() only handles axis-aligned arms — it degenerates to a square
-    // plate on the diagonal Y approaches). Reuses signalHead() so the lamps
-    // register in signalLights and cycle via updateSignals.
-    function yMastArm(px, pz, armDirX, armDirZ, len, nHeads, grpMain) {
-      var g = new THREE.Group(); g.position.set(px, 0, pz);
-      g.rotation.y = Math.atan2(-armDirZ, armDirX);   // local +x -> (armDirX,armDirZ)
-      var poleH = 7.8, armY = poleH - 0.5;
-      g.add(cyl(0.28, 0.34, poleH, 10, poleMetal, 0, poleH / 2, 0));
-      addCollider(px, pz, 0.68, 0.68);   // signal pole base — static, not breakable
-      g.add(box(len + 0.25, 0.22, 0.25, poleMetal, len / 2, armY, 0));
-      for (var i = 0; i < nHeads; i++) {
-        var t = (i + 1) / (nHeads + 1) * len;
-        g.add(box(0.06, 0.5, 0.06, poleMetal, t, armY - 0.3, 0));
-        signalHead(g, t, armY - 0.78, 0, grpMain ? 1 : 0, grpMain ? 0 : 1);
-      }
-      scene.add(g);
-    }
-    for (var kj = 0; kj < kept.length; kj++) {
-      var L = kept[kj];
-      var perpX = -L.uz, perpZ = L.ux;             // across-road direction
-      var poleX = L.x + perpX * (L.hw + 3), poleZ = L.z + perpZ * (L.hw + 3);
-      // opposing/alternating approaches share a signal group so the cycle pairs up
-      yMastArm(poleX, poleZ, -perpX, -perpZ, 2 * L.hw + 6, 3, (kj % 2) === 0);
-      // rotated stop bar + crosswalk paint just inside the junction
-      var ry = Math.atan2(-perpZ, perpX);          // bar long axis spans the road
-      var barX = L.x + L.ux * 1.6, barZ = L.z + L.uz * 1.6;
-      // register this approach so traffic stops at the bar on red (same grp
-      // mapping as the lamps: alternating legs share the main/cross cycle)
-      carSignals.push({ x: L.x, z: L.z, ux: L.ux, uz: L.uz, hw: L.hw, grp: (kj % 2) === 0 ? 'main' : 'cross', barX: barX, barZ: barZ });
-      var sbar = box(L.hw * 2 - 1, 0.04, 0.9, stopBarM, barX, 0.165, barZ); sbar.rotation.y = ry; scene.add(sbar);
-      var cwX = L.x + L.ux * 4.2, cwZ = L.z + L.uz * 4.2, cwRy = Math.atan2(L.ux, L.uz);
-      for (var cb = -1; cb <= 1; cb++) {
-        dDecal('crosswalk', cwX - perpX * cb * 2.4, cwZ - perpZ * cb * 2.4, 0.175, cwRy, 1.0);
-      }
-      // left-turn arrow decal on the approach lane
-      dDecal('road_arrow', L.x + L.ux * 8 - perpX * (L.hw * 0.4), L.z + L.uz * 8 - perpZ * (L.hw * 0.4), 0.172, cwRy, 1.1);
-    }
-  }
+  // ============ 2. Y-JUNCTION TRAFFIC FURNITURE — moved ============
+  // Superseded by the R3 junction block next to the legacy paint (search
+  // "R3 junction furniture"). That block covers all FOUR legs from the exact
+  // REMAP_ROADS directions (this sampler missed the Race Track NE approach
+  // and placed one stop bar 14u from the origin — inside the junction box),
+  // faces the signal heads at approaching traffic, pairs the signal groups by
+  // road (Race Track = main, Countryway/Nine Eagles = cross), and registers
+  // carSignals once per approach. Keeping a second copy here double-registered
+  // conflicting signal groups and cars braked for both cycles.
 
   // ============ 3. DECALS (roads / lots / sidewalks / verges) ============
   var ROAD_DEC = ['oil_stain', 'asphalt_cracks', 'asphalt_patch', 'manhole', 'skid_marks', 'storm_drain', 'utility_plate'];
@@ -5211,8 +5257,9 @@ if (WC_REMAP) (function densityLayer() {
       var lenA = rr.cum[rr.cum.length - 1];
       for (var s2 = 8; s2 < lenA - 6; s2 += rr.cls <= 1 ? 7 : 11) {
         var pa = rmAt(rr.pts, rr.cum, s2), ry2 = Math.atan2(pa.ux, pa.uz);
-        // dashed centre line on arterials/collectors
-        if (rr.cls <= 1 && (s2 % 14 < 7)) dDecal('center_line', pa.x, pa.z, 0.172, ry2, 1);
+        // dashed centre line on arterials/collectors (not inside the R3
+        // junction box — its plain-asphalt patch is the whole point)
+        if (rr.cls <= 1 && (s2 % 14 < 7) && (pa.x * pa.x + pa.z * pa.z) > 34 * 34) dDecal('center_line', pa.x, pa.z, 0.172, ry2, 1);
         if (Math.random() < 0.5) {
           var lane = rnd(-rr.hw * 0.6, rr.hw * 0.6);
           var dx2 = pa.x - pa.uz * lane, dz2 = pa.z + pa.ux * lane;
