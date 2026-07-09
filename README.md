@@ -23,9 +23,9 @@ Type a **display name** at the top of the menu first — it floats over your
 head in-game with your **health bar** under it, so everyone can see who you
 are and how hurt you are (the name is remembered for next time). Hosting
 creates a lobby and gives you an **invite link / code** to send to friends
-(needs internet — connections go peer-to-peer over WebRTC, with an
-automatic relay fallback so two players on the same wifi/router can join
-each other too; the game generates fresh relay credentials each session).
+(needs internet — everyone connects through a **dedicated relay server**
+hosted on Railway; no peer-to-peer / WebRTC / NAT hassles, so same-wifi
+joins just work. Host = create a room, Join = paste the room code).
 Friends open the game and paste the link or code into the JOIN box. You'll
 see each other in-world (on foot or driving, with name tags and cyan
 minimap dots) and can shoot and punch each other — or steal each other's
