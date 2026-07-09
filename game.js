@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.47.0';
+var GAME_VERSION = 'v1.48.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -4742,7 +4742,13 @@ if (WC_REMAP) (function densityLayer() {
   var VENUES = (typeof REMAP_VENUES !== 'undefined') ? REMAP_VENUES : [];
   var EXITS = (typeof REMAP_EXITS !== 'undefined') ? REMAP_EXITS : [];
   var COMM = { racetrac: 1, publix: 1, dollar_tree: 1, storage: 1, starbucks: 1, bank: 1, strip: 1, dunkin: 1, offices: 1, yoga: 1, pharmacy: 1, sushi: 1, farnell: 1 };
-  function vFront(v) { var yaw = ((v.rot || 0) + (VENUE_FRONT180[v.type] ? 180 : 0)) * deg; return { yaw: yaw, fx: Math.sin(yaw), fz: Math.cos(yaw), rx: Math.cos(yaw), rz: -Math.sin(yaw) }; }
+  // The branded storefront always ends up facing (sin rot, cos rot): non-FRONT180
+  // venues author it at local +z (yaw=rot); FRONT180 venues author it at local -z
+  // and the group is spun +180 so that -z face lands on the same world heading.
+  // So frontage decor must key off rot alone — NOT the FRONT180 build spin, or the
+  // whole storefront (benches, signs, landscaping) lands on the back wall while the
+  // dumpster/junk pile ends up at the door.
+  function vFront(v) { var yaw = (v.rot || 0) * deg; return { yaw: yaw, fx: Math.sin(yaw), fz: Math.cos(yaw), rx: Math.cos(yaw), rz: -Math.sin(yaw) }; }
   // scatter a local point in a rotated rect -> world [x,z]
   function rectPt(s, u, v) { var r = (s.rot || 0) * deg, c = Math.cos(r), sn = Math.sin(r); return [s.x + u * c + v * sn, s.z - u * sn + v * c]; }
 
@@ -4894,13 +4900,15 @@ if (WC_REMAP) (function densityLayer() {
   }
 
   // ============ 4. SIGNS (facades / poles / yards / billboards / walls) ============
+  // NOTE: the generic 'storefront_sign' ("SHOP") prop was dropped — every venue's
+  // builder already paints its own branded storefront sign (DUNKIN / DOLLAR TREE /
+  // SAKURA SUSHI / …), so mounting a second "SHOP" placard on the same wall just
+  // read as a wrong/duplicate sign.
   var FACADE = {
-    racetrac: ['storefront_sign'], publix: ['storefront_sign', 'grand_opening_banner'],
-    dollar_tree: ['storefront_sign'], starbucks: ['storefront_sign', 'menu_board'],
-    bank: ['storefront_sign'], strip: ['storefront_sign', 'neon_bar_sign'],
-    dunkin: ['storefront_sign', 'menu_board'], offices: ['storefront_sign'],
-    yoga: ['neon_bar_sign', 'storefront_sign'], pharmacy: ['storefront_sign'],
-    sushi: ['neon_bar_sign', 'storefront_sign'], storage: ['graffiti_panel'], farnell: ['wall_mural']
+    racetrac: [], publix: ['grand_opening_banner'], starbucks: ['menu_board'],
+    strip: ['neon_bar_sign'], dunkin: ['menu_board'],
+    yoga: ['neon_bar_sign'], sushi: ['neon_bar_sign'],
+    storage: ['graffiti_panel'], farnell: ['wall_mural']
   };
   for (var vg = 0; vg < VENUES.length; vg++) {
     var vv2 = VENUES[vg], fl = FACADE[vv2.type]; if (!fl) continue;
