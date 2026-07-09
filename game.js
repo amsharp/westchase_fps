@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.27.0';
+var GAME_VERSION = 'v1.28.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -66,7 +66,7 @@ var driving = null;   // traffic-car entry the player is driving
 
 var dealerPos = { x: -72, z: -106 };   // in the Publix parking lot, facing the store
 var gasRob = { x: 60, z: 42 };   // entrance zone in front of the RaceTrac door
-var LAKE = { x: -325, z: 55, r: 62 };   // open SW field, clear of buildings/roads
+var LAKE = { x: -280, z: 55, r: 62 };   // open SW field, nudged east toward the road (clear of it + the parking lot)
 var LAKE_DEPTH = 4;            // bowl depth at the center
 var WATER_Y = 0.2;             // water surface height
 function lakeBedY(x, z) {
