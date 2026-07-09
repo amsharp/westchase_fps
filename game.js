@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.32.0';
+var GAME_VERSION = 'v1.33.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -168,6 +168,16 @@ var grassT = tex(256, function (g, s) {
   // a few dry/dirt flecks for tonal break-up
   for (i = 0; i < 120; i++) { g.fillStyle = Math.random() < 0.5 ? 'rgba(120,104,64,0.4)' : 'rgba(150,158,120,0.3)'; g.fillRect((Math.random() * s) | 0, (Math.random() * s) | 0, 2, 2); }
 }, TOTAL / 10, TOTAL / 10);
+
+// forest-floor litter (dark leaf/needle/dirt cover under dense canopy)
+var forestFloorT = tex(128, function (g, s) {
+  g.fillStyle = '#33471f'; g.fillRect(0, 0, s, s);
+  var pt = ['rgba(46,58,26,0.6)', 'rgba(70,52,28,0.55)', 'rgba(58,44,22,0.5)', 'rgba(40,54,26,0.6)', 'rgba(88,74,40,0.35)'];
+  for (var i = 0; i < 60; i++) { var gx = Math.random() * s, gy = Math.random() * s, r = 4 + Math.random() * 16, gr = g.createRadialGradient(gx, gy, 1, gx, gy, r); gr.addColorStop(0, pt[(Math.random() * pt.length) | 0]); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(gx - r, gy - r, r * 2, r * 2); }
+  // scattered leaf/needle litter strokes + twigs
+  var lit = ['#5a4a24', '#6e5a2c', '#3c4a20', '#7a6636', '#485a26'];
+  for (i = 0; i < 1400; i++) { g.strokeStyle = lit[(Math.random() * lit.length) | 0]; g.lineWidth = 1; var x = Math.random() * s, y = Math.random() * s, a = Math.random() * 6.28; g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * 3, y + Math.sin(a) * 3); g.stroke(); }
+}, TOTAL / 12, TOTAL / 12);
 
 var walkT = tex(128, function (g, s) {
   g.fillStyle = '#b5b1a6'; g.fillRect(0, 0, s, s);
@@ -1709,6 +1719,7 @@ var expFillPts = [];   // [x,z] of every fill tree (debug/audit)
 (function expForestFill() {
   var props = [getPackProp('oak1'), getPackProp('oak2'), getPackProp('oak3')];
   if (!props[0] || !props[1] || !props[2]) return;   // prop pack absent -> keep old sparse look
+  var bushP = [getPackProp('bush1'), getPackProp('bush2')].filter(Boolean);   // understory
   var m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), pv = new THREE.Vector3(), sv = new THREE.Vector3();
   // include the core patches too: their random count-based planting leaves
   // 15-25u bare gaps along their collider edges (same invisible-wall feel)
@@ -1729,13 +1740,23 @@ var expFillPts = [];   // [x,z] of every fill tree (debug/audit)
       pts.push([x0 + 1.5 + Math.random() * 5, ez]);
       pts.push([x1 - 1.5 - Math.random() * 5, ez]);
     }
-    // interior scatter
-    var ni = Math.round(w * d / 650);
-    for (j = 0; j < ni; j++) pts.push([x0 + 2 + Math.random() * (w - 4), z0 + 2 + Math.random() * (d - 4)]);
+    // interior scatter — dense Florida hammock: ~1 canopy tree per 300u^2,
+    // loosely clustered so the floor reads covered, not a regular grid
+    var ni = Math.round(w * d / 340);
+    for (j = 0; j < ni; j++) {
+      if (j % 4 === 0 || pts.length === 0) { pts.push([x0 + 2 + Math.random() * (w - 4), z0 + 2 + Math.random() * (d - 4)]); }
+      else { var an = pts[pts.length - 1]; pts.push([Math.max(x0 + 1, Math.min(x1 - 1, an[0] + (Math.random() - 0.5) * 16)), Math.max(z0 + 1, Math.min(z1 - 1, an[1] + (Math.random() - 0.5) * 16))]); }
+    }
+    // understory (low wide shrubs / palmetto clumps) — denser than the canopy
+    var upts = [];
+    var nu = bushP.length ? Math.round(w * d / 150) : 0;
+    for (j = 0; j < nu; j++) upts.push([x0 + 1 + Math.random() * (w - 2), z0 + 1 + Math.random() * (d - 2)]);
     // remap: keep fill trees off the true road ribbons (visual-only trees
     // standing on the new diagonals would read as broken; the patch colliders
     // are already split around the roads by the forestPatch guard)
-    pts = pts.filter(function (fp) { return (!WC_REMAP || remapPointClear(fp[0], fp[1], 2.5)) && !inLake(fp[0], fp[1]); });
+    var keep = function (fp) { return (!WC_REMAP || remapPointClear(fp[0], fp[1], 2.5)) && !inLake(fp[0], fp[1]); };
+    pts = pts.filter(keep);
+    upts = upts.filter(keep);
     // bucket by prop, one InstancedMesh per prop per patch
     var buckets = [[], [], []];
     for (j = 0; j < pts.length; j++) { buckets[(Math.random() * 3) | 0].push(pts[j]); expFillPts.push(pts[j]); }
@@ -1752,7 +1773,8 @@ var expFillPts = [];   // [x,z] of every fill tree (debug/audit)
       cg.boundingSphere = sphere;
       var im = new THREE.InstancedMesh(cg, pp.mat, list.length);
       for (j = 0; j < list.length; j++) {
-        var sc = 8.5 * (0.85 + Math.random() * 0.5) / pp.h;
+        // wide height spread (0.6-1.65) so canopy layers instead of a flat top
+        var sc = 8.5 * (0.6 + Math.random() * Math.random() * 1.65) / pp.h;
         q.setFromAxisAngle(Y_UP, Math.random() * Math.PI * 2);
         pv.set(list[j][0], 0, list[j][1]); sv.set(sc, sc, sc);
         m4.compose(pv, q, sv);
@@ -1760,6 +1782,30 @@ var expFillPts = [];   // [x,z] of every fill tree (debug/audit)
       }
       im.instanceMatrix.needsUpdate = true;
       scene.add(im);
+    }
+    // understory shrubs bucketed across the bush props (culled by patch sphere)
+    if (upts.length) {
+      var ubuckets = bushP.map(function () { return []; });
+      for (j = 0; j < upts.length; j++) ubuckets[(Math.random() * bushP.length) | 0].push(upts[j]);
+      for (var ub = 0; ub < bushP.length; ub++) {
+        var ul = ubuckets[ub]; if (!ul.length) continue;
+        var bp = bushP[ub];
+        var ubg = new THREE.BufferGeometry();
+        ubg.setAttribute('position', bp.geo.getAttribute('position'));
+        ubg.setAttribute('uv', bp.geo.getAttribute('uv'));
+        ubg.setAttribute('normal', bp.geo.getAttribute('normal'));
+        ubg.boundingSphere = sphere;
+        var uim = new THREE.InstancedMesh(ubg, bp.mat, ul.length);
+        for (j = 0; j < ul.length; j++) {
+          var uw = (1.0 + Math.random() * 1.6) / bp.h;   // low + wide (palmetto-ish)
+          q.setFromAxisAngle(Y_UP, Math.random() * Math.PI * 2);
+          pv.set(ul[j][0], 0, ul[j][1]); sv.set(uw, uw * (0.55 + Math.random() * 0.35), uw);
+          m4.compose(pv, q, sv);
+          uim.setMatrixAt(j, m4);
+        }
+        uim.instanceMatrix.needsUpdate = true;
+        scene.add(uim);
+      }
     }
     // one instanced shadow blob layer per patch
     var sg = new THREE.BufferGeometry();
@@ -1778,6 +1824,38 @@ var expFillPts = [];   // [x,z] of every fill tree (debug/audit)
     sm.instanceMatrix.needsUpdate = true;
     scene.add(sm);
   }
+})();
+
+// ---- merged forest-floor cover ----
+// One dark leaf-litter quad under every forest patch, all merged into a single
+// BufferGeometry (1 draw call). Covers the bright turf under the dense canopy
+// so the floor reads as shaded forest litter. Inset a few units so its edge
+// falls under the edge tree line (no hard dark rectangle on the open grass).
+(function forestFloorCover() {
+  if (!mapForest.length) return;
+  var TS = 9, pos = [], uv = [], nrm = [], inset = 3;
+  for (var i = 0; i < mapForest.length; i++) {
+    var r = mapForest[i];
+    var ax = r.x0 + inset, bx = r.x1 - inset, az = r.z0 + inset, bz = r.z1 - inset;
+    if (bx - ax < 4 || bz - az < 4) continue;
+    // two triangles, y just above the base grass plane
+    var y = 0.06;
+    var q = [[ax, az], [bx, az], [bx, bz], [ax, bz]];
+    var tri = [0, 1, 2, 0, 2, 3];
+    for (var t = 0; t < 6; t++) { var p = q[tri[t]]; pos.push(p[0], y, p[1]); uv.push(p[0] / TS, p[1] / TS); nrm.push(0, 1, 0); }
+  }
+  if (!pos.length) return;
+  var g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uv), 2));
+  g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(nrm), 3));
+  var ftex = forestFloorT.clone(); ftex.needsUpdate = true; ftex.repeat.set(1, 1);
+  // DoubleSide: the merged quads are wound front-down, so a single-sided
+  // material would backface-cull the whole cover when viewed from above.
+  var fmat = lamb({ map: ftex, side: THREE.DoubleSide });
+  fmat.polygonOffset = true; fmat.polygonOffsetFactor = -2; fmat.polygonOffsetUnits = -2;
+  var fm = new THREE.Mesh(g, fmat); fm.frustumCulled = false;
+  scene.add(fm);
 })();
 
 // keep random scatter off the new roads/ponds
