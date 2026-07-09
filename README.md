@@ -137,6 +137,12 @@ beat later the parent answers in their own voice — plus loose, silly chatter
 as they wander. Like the sidewalk conversations, an exchange cuts off the
 moment chaos scares them.
 
+Wander a family up to one of the **playgrounds** (Farnell Middle School and
+the townhouse lawn) and the kid breaks off to play while the parent stops to
+watch: they climb the **slide** and whoosh down, pump on the **swings**, or
+scramble over the **climber** — squealing the whole time — then rejoin the
+grown-up after a while. Gunfire or a blast clears the playground instantly.
+
 **Kids are off-limits.** Bullets, fists, explosions and cars all pass
 through them harmlessly — you cannot hurt, ragdoll, or kill a child, and
 they earn you nothing. Like everyone else, though, they're not fearless:
