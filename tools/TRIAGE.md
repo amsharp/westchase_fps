@@ -65,10 +65,10 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mreelboe (-70,-115) big green blob shrub — FIXED@v1.66.22 (landscape shrub() was a single flattened icosahedron dome = featureless blob; now a bushy mound of 3-5 overlapping size/rotation-jittered blobs, lead blob lower+wider with lifted satellites. Applies town-wide to every landscape shrub)
 - mredw3ho (237,-175) palm canopy too sparse; want variants — FIXED@v1.66.23 (palm crown was 8 thin flat fronds as 8 separate meshes; now a DENSER 3-tier crown — up/mid/drooping fronds, 11-16 per palm — baked into ONE merged geo per variant = 1 draw call each (~660 fewer draws town-wide). 4 variants: standard / tall-full / young-short / leaning, per-palm height + trunk lean. Also covers mrefts2d "ugly palms")
 - mree6ten (-276,261) crepe myrtle looks unnatural — FIXED@v1.66.23 (was a single ball/card on one stick; now a multi-stem VASE — 3-4 slender leaning trunks fanning from the base + a rounded mound of overlapping pink/white bloom + green leaf blobs)
-- mredt4y2 (151,-143) sidewalk trees need pavement cutouts — IN-AGENT (round5-vegetation)
-- mredxgss (180,-125) bushes on sidewalk (skinnier-sidewalk part logged larger) — IN-AGENT (round5-vegetation)
+- mredt4y2 (151,-143) sidewalk trees need pavement cutouts — FIXED@v1.66.26 (street trees sit on the verge/sidewalk band; every street tree now gets a curbed tree-WELL — square soil cutout + cast-iron grate + concrete frame — baked into one merged decal batch so the trunk reads as planted in a cutout, not spearing the slab)
+- mredxgss (180,-125) bushes on sidewalk — FIXED@v1.66.26 (root cause: landscape shrub()/grass() only rejected the road asphalt (hw+1), so plantings past the curb landed on the flanking sidewalk ribbon. New onSidewalk() test rejects the walk band (hw+0.2..hw+sw+1) so shrubs/grass stay on the planting strip. SKINNIER single-slab sidewalk restyle = LOGGED as larger sidewalk-geometry pass, see Notes)
 - mredznws (98,12) flies smaller + 2-3x count — FIXED@v1.66.22 (dumpster fly sprite radius 0.05->0.024, swarm 3->9 with per-fly orbit radius/height/speed/phase so it reads as a buzzing cloud, not a 3-dot ring)
-- mredr84j (52,-120) 2D trashbags look bad — IN-AGENT (round5-vegetation)
+- mredr84j (52,-120) 2D trashbags look bad — FIXED@v1.66.26 (trash_bags rendered as a flat photo-textured box; now a pile of 3-4 lumpy squashed blobs (icosphere) reusing the trash_bags texture on the same merged batch = one draw call, reads as bulging plastic bags)
 - mree4o24 (-82,148) pizza sign rotates on wrong axis — FIXED@v1.66.22 (round pizza disc faces +z but spun around Y = edge-on revolving-door that vanished each half-turn. Now the disc is re-centered on a pivot at its own centre and spins about its face-normal Z, so the pizza rotates in-plane like a wheel, always face-on)
 - task#51 finish landscaping: parking-lot islands + residential foundation shrubs + house-front bed placement — IN-AGENT (round5-vegetation)
 
@@ -91,6 +91,12 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 
 ## Notes
 - mrdphrsv is Claude's own deploy test, ignore.
+- LOGGED LARGER PASS (round5-vegetation, mredxgss part 2): "skinnier, single-slab
+  sidewalk style". Current sidewalks are wide flanking ribbons (sw=5 arterials /
+  3.4 others, built in the remap sidewalk-ribbon block ~game.js:2638 + the core
+  sidewalk() slabs). Making them skinnier single-slab is a road/sidewalk-geometry
+  redesign (affects widths, NPC sidewalk bias targets, junction clipping, street-
+  tree offsets) — out of surgical vegetation scope. Belongs with round5-roads.
 
 ## Batch 3 (uncatalogued -> assigned)
 - mreegamp (-140,43) placement bad — R5

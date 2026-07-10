@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.25';
+var GAME_VERSION = 'v1.66.26';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2434,6 +2434,27 @@ function remapPointClear(x, z, pad) {
     }
   }
   return true;
+}
+// true when (x,z) sits on a road's flanking SIDEWALK ribbon (between the curb
+// and the walk's outer edge). remapPointClear only rejects the asphalt (hw+pad),
+// so bushes/grass placed just past the curb landed ON the sidewalk (report
+// mredxgss) — landscape plantings reject this band so they stay on the grass.
+function onSidewalk(x, z) {
+  if (typeof REMAP_ROADS === 'undefined') return false;
+  for (var i = 0; i < REMAP_ROADS.length; i++) {
+    var r = REMAP_ROADS[i]; if (r.cls > 2 || r.dirt) continue;
+    var sw = r.cls === 0 ? 5 : 3.4, inner = r.hw + 0.2, outer = r.hw + sw + 1.0, pts = r.pts;
+    for (var j = 0; j < pts.length - 1; j++) {
+      var ax = pts[j][0], az = pts[j][1], bx = pts[j + 1][0], bz = pts[j + 1][1];
+      if (x < (ax < bx ? ax : bx) - outer || x > (ax > bx ? ax : bx) + outer ||
+          z < (az < bz ? az : bz) - outer || z > (az > bz ? az : bz) + outer) continue;
+      var dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz || 1;
+      var t = ((x - ax) * dx + (z - az) * dz) / L2; t = t < 0 ? 0 : (t > 1 ? 1 : t);
+      var px = ax + dx * t - x, pz = az + dz * t - z, d = Math.sqrt(px * px + pz * pz);
+      if (d >= inner && d <= outer) return true;
+    }
+  }
+  return false;
 }
 // true when the axis rect keeps `pad` clearance from every true road
 // (segments sampled every 4u — load-time checks only)
@@ -7294,6 +7315,7 @@ if (WC_REMAP) (function densityLayer() {
   var UDECAL = new THREE.PlaneGeometry(1, 1); UDECAL.rotateX(-Math.PI / 2);   // faces +y (XZ plane)
   var USIGN = new THREE.PlaneGeometry(1, 1);                                    // faces +z (XY plane)
   var UBOX = new THREE.BoxGeometry(1, 1, 1);
+  var UBLOB = new THREE.IcosahedronGeometry(0.5, 1);   // lumpy unit blob (trash-bag pile)
   var UCYL = new THREE.CylinderGeometry(0.5, 0.5, 1, 10);
   function mtx(px, py, pz, ry, sx, sy, sz) {
     var m = new THREE.Matrix4();
@@ -7380,6 +7402,7 @@ if (WC_REMAP) (function densityLayer() {
       g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(e.uv), 2));
       var o = e.meta, mo = {};
       if (o.texName) { var t = dTex(o.texName); if (t) { mo.map = t.tex; if (t.keyed) { mo.transparent = true; mo.alphaTest = 0.5; mo.side = THREE.DoubleSide; } else if (t.blend) { mo.transparent = true; mo.depthWrite = false; mo.alphaTest = 0.02; } } }
+      if (o.mapTex) mo.map = o.mapTex;   // pre-built canvas texture (e.g. tree wells)
       if (o.color !== undefined) mo.color = o.color;
       if (o.double) mo.side = THREE.DoubleSide;
       var mat = lamb(mo);
@@ -7393,6 +7416,19 @@ if (WC_REMAP) (function densityLayer() {
   function dDecal(name, x, z, y, ry, scale) { if (!dAsset[name]) return; var a = dAsset[name]; var w = a.dims[0] * (scale || 1), d = a.dims[1] * (scale || 1); bake('d_' + name, { texName: name, decal: true }, UDECAL, mtx(x, y, z, ry || 0, w, 1, d)); densityStats.decals++; }
   function dSign(name, x, y, z, ry, scale) { if (!dAsset[name]) return; var a = dAsset[name]; bake('d_' + name, { texName: name, double: true }, USIGN, mtx(x, y, z, ry, a.dims[0] * (scale || 1), a.dims[1] * (scale || 1), 1)); densityStats.signs++; }
   function dBoxAsset(name, x, y, z, ry) { if (!dAsset[name]) return; var a = dAsset[name]; bake('d_' + name, { texName: name }, UBOX, mtx(x, y, z, ry || 0, a.dims[0], a.dims[1], a.dims[2])); densityStats.clutter++; }
+  // a flat textured box read as "2D trash" (report mredr84j); pile 3-4 lumpy,
+  // squashed blobs instead so it reads as bulging plastic bags. Reuses the
+  // trash_bags texture on the shared 'd_trash_bags' batch (still one draw call).
+  function dTrashPile(x, z) {
+    if (!dAsset['trash_bags']) return;
+    var n = 3 + (Math.random() * 2 | 0);
+    for (var i = 0; i < n; i++) {
+      var lead = i === 0, r = lead ? 0.4 + Math.random() * 0.08 : 0.26 + Math.random() * 0.14;
+      var ang = i / n * 6.28 + Math.random(), rad = lead ? 0 : 0.2 + Math.random() * 0.2;
+      bake('d_trash_bags', { texName: 'trash_bags' }, UBLOB, mtx(x + Math.cos(ang) * rad, r * 0.82, z + Math.sin(ang) * rad, Math.random() * 6.28, r * 1.9, r * (1.5 + Math.random() * 0.4), r * 1.7));
+    }
+    densityStats.clutter++;
+  }
   function dCylAsset(name, x, y, z) { if (!dAsset[name]) return; var a = dAsset[name]; bake('d_' + name, { texName: name }, UCYL, mtx(x, y, z, 0, a.dims[0], a.dims[1], a.dims[0])); densityStats.clutter++; }
   // waist-high+ poles (roadside sign posts, billboard legs) block the player;
   // short yard-sign stakes (h < 1.5) stay pass-through
@@ -7444,6 +7480,19 @@ if (WC_REMAP) (function densityLayer() {
   function rectPt(s, u, v) { var r = (s.rot || 0) * deg, c = Math.cos(r), sn = Math.sin(r); return [s.x + u * c + v * sn, s.z - u * sn + v * c]; }
 
   // ============ 1. STREET / YARD TREES + FRONTAGE LANDSCAPING ============
+  // Street trees sit on the verge/sidewalk band — a bare trunk poking through
+  // the concrete slab read as broken (report mredt4y2). Give every street tree
+  // a curbed tree-WELL: a square soil cutout with a cast-iron grate + concrete
+  // frame, baked once into a single merged decal batch.
+  var treeWellTex = tex(64, function (g, s) {
+    g.fillStyle = '#918e86'; g.fillRect(0, 0, s, s);                          // concrete frame
+    var m = s * 0.12; g.fillStyle = '#3a2b1b'; g.fillRect(m, m, s - 2 * m, s - 2 * m);   // soil
+    for (var i = 0; i < 46; i++) { g.fillStyle = ['#2c2013', '#4a3826', '#241a0f'][(Math.random() * 3) | 0]; g.beginPath(); g.arc(m + Math.random() * (s - 2 * m), m + Math.random() * (s - 2 * m), 1 + Math.random() * 1.6, 0, 6.29); g.fill(); }
+    var cx = s / 2, cy = s / 2; g.strokeStyle = 'rgba(110,110,112,0.6)'; g.lineWidth = 2;   // grate bars
+    for (var a = 0; a < 8; a++) { var an = a / 8 * 6.28; g.beginPath(); g.moveTo(cx + Math.cos(an) * s * 0.1, cy + Math.sin(an) * s * 0.1); g.lineTo(cx + Math.cos(an) * s * 0.38, cy + Math.sin(an) * s * 0.38); g.stroke(); }
+    for (var rr = 0.17; rr < 0.4; rr += 0.11) { g.beginPath(); g.arc(cx, cy, s * rr, 0, 6.29); g.stroke(); }
+  }, 1, 1);
+  function treeWell(x, z) { bake('d_treewell', { mapTex: treeWellTex, decal: true }, UDECAL, mtx(x, 0.14, z, Math.random() * 1.57, 1.7, 1, 1.7)); }
   var TREE_CAP = 130, side = 1;
   if (RM) {
     for (var ri = 0; ri < RM.roads.length; ri++) {
@@ -7455,6 +7504,7 @@ if (WC_REMAP) (function densityLayer() {
         if (!remapPointClear(tx, tz, 2) || inLake(tx, tz) || houseBlocksSpot(tx, tz) || remapInClear(tx, tz, 1) || !spotClear(tx, tz)) continue;
         if (nearStreetlight(tx, tz, 4)) continue;   // tree canopy would swallow the lamp (mreeosgw)
         if (treeRnd() < 0.34) palm(tx, tz); else oak(tx, tz, 0.78 + treeRnd() * 0.42);
+        treeWell(tx, tz);
         densityStats.trees++;
       }
     }
@@ -7627,6 +7677,7 @@ if (WC_REMAP) (function densityLayer() {
       if (!jok) continue;
       jcPlaced.push([jx, jz]);
       if (cn === 'bucket') dCylAsset(cn, jx, ca.dims[1] / 2 + 0.02, jz);
+      else if (cn === 'trash_bags') dTrashPile(jx, jz);
       else dBoxAsset(cn, jx, ca.dims[1] / 2 + 0.02, jz, rnd(0, 6.28));
     }
     // AC condenser + utility box against a side wall
@@ -7863,8 +7914,10 @@ if (WC_REMAP) (function landscapePass() {
   var SHRUB_KEYS = ['dark', 'mid', 'olive'];
   function shrub(x, z, scale, key) {
     // never on asphalt: frontage math near the diagonal junction landed
-    // flower beds mid-road (report mrefti0d) — guard at the source
-    if (WC_REMAP && !remapPointClear(x, z, 1.0)) return;
+    // flower beds mid-road (report mrefti0d) — guard at the source. Also keep
+    // shrubs off the flanking sidewalk (report mredxgss) so they read as
+    // planting-strip greenery, not obstacles blocking the walk.
+    if (WC_REMAP && (!remapPointClear(x, z, 1.0) || onSidewalk(x, z))) return;
     scale = scale || rnd(0.75, 1.25); key = key || pick(SHRUB_KEYS);
     var n = 3 + (Math.random() * 3 | 0);   // 3-5 blobs
     for (var i = 0; i < n; i++) {
@@ -7879,7 +7932,7 @@ if (WC_REMAP) (function landscapePass() {
   }
   // ornamental fountain-grass tuft: 2 crossed alpha cards
   function grass(x, z, scale) {
-    if (WC_REMAP && !remapPointClear(x, z, 0.6)) return;
+    if (WC_REMAP && (!remapPointClear(x, z, 0.6) || onSidewalk(x, z))) return;
     scale = scale || rnd(0.7, 1.15); var ry = rnd(0, 3.14);
     lbake('ls_grass', grassMat, UCARD, mtx(x, 0.02, z, ry, scale * 1.3, scale, 1));
     lbake('ls_grass', grassMat, UCARD, mtx(x, 0.02, z, ry + Math.PI / 2, scale * 1.3, scale, 1));
