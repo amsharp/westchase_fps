@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.59.0';
+var GAME_VERSION = 'v1.59.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -4243,6 +4243,23 @@ for (var mli = 0; mli < MESHY_LIST.length; mli++) {
   else if (mr === 'cop') MESHY_COPS.push(mli);
   else MESHY_ROLE[mr] = mli;
 }
+// ---- shop staff (optional staffchars.js): full skinned, uniformed workers.
+// Appended to MESHY_LIST AFTER the civ/cop/role classification so they stay out
+// of the random NPC pools; indexed by name via STAFF_IDX and built on demand
+// (buildStaff) for shop interiors. Their uniform texture is baked into the
+// entry, so cfg only drives scale — pass any randomCharConfig().
+var STAFF_SRC = (typeof STAFF_CHARS !== 'undefined') ? STAFF_CHARS : [];
+var STAFF_IDX = {};
+for (var sfi = 0; sfi < STAFF_SRC.length; sfi++) {
+  if (!STAFF_SRC[sfi].skel) continue;   // full skinned only (texture-only reskins need base cloning — skipped)
+  STAFF_IDX[STAFF_SRC[sfi].n] = MESHY_LIST.length;
+  MESHY_LIST.push(STAFF_SRC[sfi]);
+}
+function buildStaff(name, cfg) {
+  var i = STAFF_IDX[name];
+  if (i === undefined) return buildPerson('#1c7e3a', '#e8e4da', CSKIN[2], { hairColor: 0x2a1c10 });   // fallback if staffchars.js absent
+  return buildMeshySkinned(cfg || randomCharConfig(), i);
+}
 var meshyPartsCache = [], meshyTexCache = [];
 function getMeshyParts(mi) {
   if (meshyPartsCache[mi]) return meshyPartsCache[mi];
@@ -4836,6 +4853,243 @@ function femFromCfg(cfg) {
   if (cfg.hair === 3 || cfg.hair === 6) return Math.random() < 0.75;   // long / ponytail
   return Math.random() < 0.35;   // ambiguous look: rolled once, stored, consistent for life
 }
+
+// ============================ NPC ACCESSORIES (#70) ============================
+// A fraction of walking pedestrians carry a prop from accessprops.js: a DOG on
+// a leash (trots alongside in world space), a STROLLER/walker pushed in front,
+// or a HANDHELD item (umbrella/cane/bag/cup...) parented to the right hand so it
+// swings with the arm. Decoded EXACTLY like getStreetProp / getEnvProp (int16 p
+// over per-entry q, uint16 uv with the 1-v flip, NearestFilter Lambert map).
+// Purely cosmetic + singleplayer-local: accessories are NEVER entries in `npcs`
+// (so bullets/melee/explosions/cars can never target a walked dog or a baby),
+// NEVER simulated on clients, and NEVER put on the wire — like breakables they
+// stay per-peer. `accessories[]` is the only registry; owners just carry a back
+// pointer `n.acc`. Must sit ABOVE the load-time spawnNPC loop (vars don't hoist).
+var ACCESS_BY_NAME = {};
+if (typeof ACCESS_PROPS !== 'undefined') for (var api = 0; api < ACCESS_PROPS.length; api++) ACCESS_BY_NAME[ACCESS_PROPS[api].n] = ACCESS_PROPS[api];
+var accessories = [];             // active attachment records (local-only)
+var accGeoCache = {}, accTexCache = {};
+var accStats = { attached: 0, byMode: {} };
+// scratch vectors/quats reused every frame — no allocations in the hot loop
+var _accV = new THREE.Vector3(), _accV2 = new THREE.Vector3(), _accQ = new THREE.Quaternion(), _accDir = new THREE.Vector3();
+function accDecodeGeo(e) {
+  if (accGeoCache[e.n]) return accGeoCache[e.n];
+  var qp = new Int16Array(b64Bytes(e.p).buffer), qu = new Uint16Array(b64Bytes(e.u).buffer);
+  var fp = new Float32Array(qp.length), fu = new Float32Array(qu.length);
+  for (var i = 0; i < qp.length; i++) fp[i] = qp[i] / e.q;
+  for (i = 0; i < qu.length; i += 2) { fu[i] = qu[i] / 8192; fu[i + 1] = 1 - qu[i + 1] / 8192; }
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(fp, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(fu, 2));
+  if (e.i) geo.setIndex(new THREE.BufferAttribute(new Uint16Array(b64Bytes(e.i).buffer), 1));   // set BEFORE normals
+  geo.computeVertexNormals();
+  return (accGeoCache[e.n] = geo);
+}
+function accTex(e, variant) {
+  // variant >= 0 -> texVariants[variant] recolor atlas; else the base tex
+  var key = e.n + '_' + (variant >= 0 ? variant : 'b');
+  if (accTexCache[key]) return accTexCache[key];
+  var src = (variant >= 0 && e.texVariants && e.texVariants[variant]) ? e.texVariants[variant] : e.tex;
+  var im = new Image(), tx = new THREE.Texture(im);
+  tx.magFilter = THREE.NearestFilter; tx.minFilter = THREE.NearestFilter; tx.generateMipmaps = false;
+  im.onload = function () { tx.needsUpdate = true; };
+  im.src = src;
+  return (accTexCache[key] = tx);
+}
+// build a fresh Group (one Mesh) for accessory `name`, optional texture variant
+function getAccessory(name, variant) {
+  var e = ACCESS_BY_NAME[name]; if (!e) return null;
+  if (variant === undefined) variant = -1;
+  var g = new THREE.Group();
+  var mesh = new THREE.Mesh(accDecodeGeo(e), lamb({ map: accTex(e, variant), side: THREE.DoubleSide }));
+  g.add(mesh);
+  g.userData.accDims = e.dims; g.userData.accName = name;
+  return g;
+}
+function accVariantCount(name) { var e = ACCESS_BY_NAME[name]; return (e && e.texVariants) ? e.texVariants.length : 0; }
+function accModeFor(e) {
+  if (e.n === 'dog') return 'leash';
+  if (e.cat === 'push') return 'push';    // stroller / walker: in front, hands on bar
+  if (e.cat === 'hold') return 'hand';    // umbrella / cane / bag / cup: in the hand
+  return 'side';                          // wheeled walk items: bicycle / suitcase / wagon
+}
+function listAccessories() {
+  var o = [];
+  for (var i = 0; i < (typeof ACCESS_PROPS !== 'undefined' ? ACCESS_PROPS.length : 0); i++) {
+    var e = ACCESS_PROPS[i];
+    o.push({ n: e.n, cat: e.cat, mode: accModeFor(e), variants: accVariantCount(e.n) });
+  }
+  return o;
+}
+// group-local placement for push (front) / side (beside) modes. The owner group
+// is upright (yaw only), local +z is forward; authored front is -x so a yaw of
+// +PI/2 turns the prop's front to face the owner's forward.
+var ACC_PLACE = {
+  stroller:  { mode: 'push', x: 0,     z: 0.62,  ry: Math.PI / 2 },
+  walker:    { mode: 'push', x: 0,     z: 0.5,   ry: Math.PI / 2 },
+  bicycle:   { mode: 'side', x: 0.5,   z: 0.05,  ry: Math.PI / 2 },
+  suitcase:  { mode: 'side', x: 0.34,  z: -0.42, ry: Math.PI / 2 },
+  wagon:     { mode: 'side', x: 0.0,   z: 0.72,  ry: Math.PI / 2 }
+};
+// right-hand local rest transforms for held items (tuned against the Meshy hand
+// bone frame — forearm hangs down at rest). p = position, r = euler, s = scale.
+var ACC_HAND = {
+  umbrella:      { p: [0.02, 0.02, 0.02],  r: [-1.4, 0, 0],   s: 1 },
+  cane:          { p: [0.0, 0.0, 0.0],     r: [-1.5, 0, 0],   s: 1 },
+  coffee_cup:    { p: [0.03, 0.02, 0.02],  r: [-1.5, 0, 0],   s: 1 },
+  shopping_bags: { p: [0.0, -0.04, 0.0],   r: [-1.5, 0, 0],   s: 1 },
+  skateboard:    { p: [0.0, 0.0, 0.06],    r: [-1.5, 0, 1.2], s: 1 },
+  boombox:       { p: [0.02, 0.0, 0.0],    r: [-1.5, 0, 0],   s: 1 },
+  balloon:       { p: [0.0, 0.0, 0.0],     r: [-1.5, 0, 0],   s: 1 }
+};
+// pick an accessory name for a spawning NPC by rolling a category first, so dogs
+// don't dominate; returns null when the rolled pool is empty.
+var ACC_POOL_WALK = ['dog', 'bicycle', 'suitcase', 'wagon'];
+var ACC_POOL_HOLD = ['umbrella', 'shopping_bags', 'coffee_cup', 'cane', 'skateboard', 'boombox', 'balloon'];
+var ACC_POOL_PUSH = ['stroller', 'walker'];
+function rollAccessoryName() {
+  var r = Math.random();
+  var pool;
+  if (r < 0.42) pool = ACC_POOL_HOLD;         // handhelds most common
+  else if (r < 0.80) pool = ACC_POOL_WALK;    // dogs + wheeled walkers
+  else pool = ACC_POOL_PUSH;                  // strollers/walkers rarer
+  // keep only names that actually exist in the loaded pack
+  var live = [];
+  for (var i = 0; i < pool.length; i++) if (ACCESS_BY_NAME[pool[i]]) live.push(pool[i]);
+  if (!live.length) return null;
+  return live[(Math.random() * live.length) | 0];
+}
+// attach a specific accessory to NPC n (skips if the pack's absent, n already
+// has one, or the hand-mode item can't find a hand bone).
+function attachAccessory(n, name, variant) {
+  if (!n || typeof ACCESS_PROPS === 'undefined' || !ACCESS_BY_NAME[name] || n.acc) return null;
+  var e = ACCESS_BY_NAME[name], mode = accModeFor(e);
+  var vc = accVariantCount(name);
+  if (variant === undefined) variant = vc ? ((Math.random() * vc) | 0) : -1;
+  var g = getAccessory(name, variant); if (!g) return null;
+  var rec = { owner: n, name: name, cat: e.cat, mode: mode, mesh: g, dims: e.dims, variant: variant, phase: Math.random() * 6.28 };
+  if (mode === 'leash') {
+    // dog lives in world space and trots after the owner (kid-style follow)
+    rec.x = n.x; rec.z = n.z; rec.yaw = n.mesh.rotation.y;
+    rec.side = (Math.random() < 0.5 ? 1 : -1) * (0.55 + Math.random() * 0.4);
+    rec.back = 0.35 + Math.random() * 0.3; rec.wob = Math.random() * 6.28;
+    g.position.set(n.x, 0, n.z); scene.add(g);
+    var lm = new THREE.Mesh(accLeashGeo(), accLeashMat());
+    scene.add(lm); rec.leash = lm;
+  } else if (mode === 'hand') {
+    var hand = n.mesh.userData.handR;
+    if (!hand) return null;
+    var h = ACC_HAND[name] || { p: [0, 0, 0], r: [-1.5, 0, 0], s: 1 };
+    g.position.set(h.p[0], h.p[1], h.p[2]);
+    g.rotation.set(h.r[0], h.r[1], h.r[2]);
+    g.scale.setScalar(h.s || 1);
+    if (name === 'balloon') { var str = new THREE.Mesh(accLeashGeo(), accStringMat()); g.userData.balloonStr = str; g.add(str); }
+    hand.add(g);
+  } else {
+    // push / side: ride the owner group at a fixed local offset (auto-follows)
+    var pl = ACC_PLACE[name] || { x: 0.4, z: 0, ry: Math.PI / 2 };
+    g.position.set(pl.x, 0, pl.z);
+    g.rotation.y = pl.ry;
+    n.mesh.add(g);
+  }
+  n.acc = rec; accessories.push(rec);
+  accStats.attached++; accStats.byMode[mode] = (accStats.byMode[mode] || 0) + 1;
+  return rec;
+}
+// roll a dice at NPC spawn: ~18% of pedestrians carry something
+function maybeAttachAccessory(n) {
+  if (typeof ACCESS_PROPS === 'undefined' || !n || n.acc) return;
+  if (Math.random() > 0.18) return;
+  var name = rollAccessoryName();
+  if (name) attachAccessory(n, name);
+}
+// shared thin leash/string cylinder (unit height along +Y, scaled per frame)
+function accLeashGeo() { if (!accGeoCache.__leash) accGeoCache.__leash = new THREE.CylinderGeometry(0.012, 0.012, 1, 4); return accGeoCache.__leash; }
+function accLeashMat() { if (!accTexCache.__leash) accTexCache.__leash = lamb({ color: 0x2e2620 }); return accTexCache.__leash; }
+function accStringMat() { if (!accTexCache.__string) accTexCache.__string = lamb({ color: 0xdddddd }); return accTexCache.__string; }
+// remove & clean up one accessory record (index i into accessories)
+function detachAccessory(a, i) {
+  if (a.mode === 'leash') {
+    if (a.leash && a.leash.parent) a.leash.parent.remove(a.leash);
+    if (a.mesh && a.mesh.parent) a.mesh.parent.remove(a.mesh);   // dog vanishes with a dropped leash
+  } else if (a.mode === 'push' || a.mode === 'side') {
+    // reparent to the world at its current spot so it doesn't spin with the
+    // ragdolling owner — a pushed stroller is left standing where it was
+    if (a.mesh && a.mesh.parent) {
+      a.mesh.getWorldPosition(_accV); a.mesh.getWorldQuaternion(_accQ);
+      a.mesh.parent.remove(a.mesh); scene.add(a.mesh);
+      a.mesh.position.copy(_accV); a.mesh.position.y = 0; a.mesh.quaternion.copy(_accQ);
+    }
+    a.dropped = true;   // now inert scenery; leave it (never re-owned)
+  } else {   // hand: the item drops from the hand and vanishes
+    if (a.mesh && a.mesh.parent) a.mesh.parent.remove(a.mesh);
+  }
+  if (a.owner) a.owner.acc = null;
+  accessories.splice(i, 1);
+}
+// per-frame accessory driver — called from updateNPCs after animPerson has posed
+// every NPC this frame (so hand items ride the freshly-posed arm)
+var _accFace = function (dx, dz) { return Math.atan2(dz, -dx); };   // authored front -x -> world dir
+function updateAccessories(dt) {
+  for (var i = accessories.length - 1; i >= 0; i--) {
+    var a = accessories[i];
+    if (a.dropped) continue;                 // detached scenery, nothing to do
+    var n = a.owner;
+    // owner died / despawned -> graceful detach (dog wanders off, stroller stays)
+    if (!n || n.state === 'ragdoll' || n.state === 'down' || (n.hp !== undefined && n.hp <= 0)) { detachAccessory(a, i); continue; }
+    // owner ducked into a building (temporary) -> hide the accessory, don't drop
+    if (n.state === 'hidden') {
+      if (a.mesh) a.mesh.visible = false;
+      if (a.leash) a.leash.visible = false;
+      continue;
+    }
+    if (a.mesh && !a.mesh.visible) a.mesh.visible = true;
+    if (a.leash && !a.leash.visible) a.leash.visible = true;
+    if (a.mode === 'leash') updateLeashDog(a, n, dt);
+    else if (a.mode === 'push') updatePushAcc(a, n, dt);
+    // hand & side ride their parent transform — no per-frame work needed
+  }
+}
+function updateLeashDog(a, n, dt) {
+  var g = a.mesh;
+  var hy = n.mesh.rotation.y;
+  var fx = Math.sin(hy), fz = Math.cos(hy);       // owner forward
+  var rx = Math.cos(hy), rz = -Math.sin(hy);      // owner right
+  a.wob += dt;
+  // trot target: a little behind + to one side, with a lazy wander wobble
+  var tx = n.x - fx * a.back + rx * a.side + Math.sin(a.wob * 1.7) * 0.18;
+  var tz = n.z - fz * a.back + rz * a.side + Math.cos(a.wob * 1.3) * 0.18;
+  var dx = tx - a.x, dz = tz - a.z, d = Math.sqrt(dx * dx + dz * dz);
+  var spd = Math.min(6.5, Math.max((n.speed || 1.5) + 0.4, d * 3.2));   // catch up when the lead stretches
+  if (d > 0.02) {
+    var mv = Math.min(d, spd * dt);
+    a.x += dx / d * mv; a.z += dz / d * mv;
+    if (mv > 0.004) a.yaw = _accFace(dx, dz);      // face travel direction
+  }
+  var bob = Math.abs(Math.sin(a.wob * 6.5)) * 0.03;   // gentle trot bob
+  g.position.set(a.x, bob, a.z);
+  g.rotation.y = a.yaw;
+  // leash: thin line from the owner's right hand (~0.9m up) to the dog's collar
+  var hxx = n.x + fx * 0.12 + rx * 0.22, hyy = 0.92, hzz = n.z + fz * 0.12 + rz * 0.22;
+  var cfx = Math.sin(a.yaw), cfz = Math.cos(a.yaw);
+  var cxx = a.x - cfx * (a.dims ? a.dims[0] : 0.2), cyy = 0.42, czz = a.z - cfz * (a.dims ? a.dims[0] : 0.2);
+  var lm = a.leash;
+  lm.position.set((hxx + cxx) / 2, (hyy + cyy) / 2, (hzz + czz) / 2);
+  var ldx = cxx - hxx, ldy = cyy - hyy, ldz = czz - hzz;
+  var llen = Math.sqrt(ldx * ldx + ldy * ldy + ldz * ldz) || 0.001;
+  lm.scale.set(1, llen, 1);
+  lm.quaternion.setFromUnitVectors(Y_UP, _accDir.set(ldx / llen, ldy / llen, ldz / llen));
+}
+function updatePushAcc(a, n, dt) {
+  // stroller/walker already rides the owner group; nudge both arms forward so
+  // the hands reach the push bar. animPerson re-poses the arm bones from the
+  // clip every frame, so setting rotation.x here (after the loop) reads as a
+  // steady reach without accumulating.
+  var L = n.mesh.userData.limbs; if (!L) return;
+  if (L.armL) L.armL.rotation.x = -0.9;
+  if (L.armR) L.armR.rotation.x = -0.9;
+}
+
 function spawnNPC() {
   var cfg = randomCharConfig();
   // pedestrians always wear the Meshy roster — the old blocky PSX bodies
@@ -4856,7 +5110,7 @@ function spawnNPC() {
   var n = { mesh: mesh, x: 0, z: 0, tx: 0, tz: 0, hp: 100, state: 'walk', speed: 1.5 + Math.random() * 1.1, phase: Math.random() * 9, pause: 0, fleeT: 0, fleeDX: 0, fleeDZ: 0, downT: 0, hurtFlash: 0, vname: meshyNameFromCfg(cfg), fem: femFromCfg(cfg) };
   assignNpcHome(n);
   mesh.position.set(n.x, 0, n.z); mesh.userData.npc = n;
-  scene.add(mesh); npcs.push(n); setNpcTarget(n); return n;
+  scene.add(mesh); npcs.push(n); setNpcTarget(n); maybeAttachAccessory(n); return n;
 }
 for (var ni = 0; ni < NPC_COUNT; ni++) spawnNPC();
 
@@ -4876,6 +5130,7 @@ var dollarSprite = (function () {
 // ---------------- gas station interior (hidden under the map) ----------------
 var INT = { x0: 44, x1: 66, z0: 32, z1: 48, y: -60 };
 var inside = false, robbedVisit = false, copsCalledVisit = false, gasClosedUntil = -9999;
+var curInterior = null;   // active generalized interior spec (null for the gas one-off or outdoors)
 var doorIn = { x: 55, z: 45.8 };      // just inside the door
 var doorOut = { x: 61, z: 40.5 };     // on the sidewalk outside the store
 var clerkPos = { x: 62.6, z: 40.5 };
@@ -4977,7 +5232,7 @@ scene.add(clerk);
 
 function enterStore() {
   if (T < gasClosedUntil) { popup2('STORE CLOSED — come back later'); sfx('deny'); return; }
-  inside = true; robbedVisit = false; copsCalledVisit = false;
+  inside = true; curInterior = null; robbedVisit = false; copsCalledVisit = false;
   setZoom(false);
   player.x = doorIn.x; player.z = doorIn.z; player.y = INT.y + EYE;
   yaw = 0; pitch = 0;   // facing into the store
@@ -4995,7 +5250,7 @@ function netSendRobCD(store, secs) {
   if (net.mode === 'host') netBroadcast(m); else netToHost(m);
 }
 function exitStore(diedInside) {
-  inside = false;
+  inside = false; curInterior = null;   // clear any generalized interior too (death-in-interior routes here)
   for (var i = cops.length - 1; i >= 0; i--) if (cops[i].interior) { scene.remove(cops[i].mesh); cops.splice(i, 1); }
   if (robbedVisit || copsCalledVisit) { gasClosedUntil = T + 180; netSendRobCD('gas', 180); }
   robbedVisit = false; copsCalledVisit = false;
@@ -5043,6 +5298,229 @@ function refreshClerk() {
     }
   });
   addBtn('Never mind', function () { closeMenus(); });
+}
+
+// ==================== generalized shop interiors ==========================
+// Data-driven under-map rooms — a reusable generalization of the gas-station
+// one-off above (Dunkin/Starbucks/sushi/Dollar Tree/bank can register their own
+// spec later). Each room is stacked at a DISTINCT Y level AND XZ offset so the
+// interiors never overlap each other (or the gas room) — important because
+// rocket/boom/cop math is 2D. `inside` stays the global flag; `curInterior`
+// points at the active spec (null = gas one-off or outdoors). Only the active
+// room's colliders + floor Y are swapped in (updatePlayer). Interiors remain
+// PER-PLAYER (never net-synced), matching the gas room.
+var interiors = {};
+function registerInterior(spec) {
+  spec.colliders = spec.colliders || [];
+  spec.staff = spec.staff || [];
+  spec.zones = spec.zones || [];
+  spec.built = false;
+  interiors[spec.id] = spec;
+  return spec;
+}
+function intCol(spec, cx, cz, w, d) {
+  spec.colliders.push({ x0: cx - w / 2, x1: cx + w / 2, z0: cz - d / 2, z1: cz + d / 2 });
+}
+function enterInterior(id) {
+  var spec = interiors[id]; if (!spec) return;
+  if (!spec.built) { spec.build(spec); spec.built = true; }
+  inside = true; curInterior = spec;
+  setZoom(false);
+  player.x = spec.doorIn.x; player.z = spec.doorIn.z; player.y = spec.box.y + EYE;
+  yaw = spec.doorIn.yaw || 0; pitch = 0;
+  if (spec.onEnter) spec.onEnter(spec);
+}
+function exitInterior() {
+  var spec = curInterior;
+  inside = false; curInterior = null;
+  if (spec) {
+    player.x = spec.doorOut.x; player.z = spec.doorOut.z; player.y = EYE;
+    yaw = (spec.doorOut.yaw !== undefined) ? spec.doorOut.yaw : Math.PI; pitch = 0;
+  }
+}
+function nearInteriorDoor() {   // outdoors: is the player standing on a shop-interior door zone?
+  for (var id in interiors) {
+    var iz = interiors[id].doorZone; if (!iz) continue;
+    var dx = player.x - iz.x, dz = player.z - iz.z;
+    if (dx * dx + dz * dz < iz.r2) return interiors[id];
+  }
+  return null;
+}
+function interiorInteractE() {   // inside a generalized interior: E resolves exit / talk / grab
+  var spec = curInterior; if (!spec) return;
+  var ez = spec.exitZone;
+  if (ez) { var ex = player.x - ez.x, ez2 = player.z - ez.z; if (ex * ex + ez2 * ez2 < ez.r2) { exitInterior(); return; } }
+  for (var i = 0; i < spec.zones.length; i++) {
+    var t = spec.zones[i], dx = player.x - t.x, dz = player.z - t.z;
+    if (dx * dx + dz * dz < t.r2 && t.fn) { t.fn(spec); return; }
+  }
+}
+function interiorPrompt() {
+  var spec = curInterior; if (!spec) return '';
+  var ez = spec.exitZone;
+  if (ez) { var ex = player.x - ez.x, ez2 = player.z - ez.z; if (ex * ex + ez2 * ez2 < ez.r2) return '[E] LEAVE'; }
+  for (var i = 0; i < spec.zones.length; i++) {
+    var t = spec.zones[i], dx = player.x - t.x, dz = player.z - t.z;
+    if (dx * dx + dz * dz < t.r2) return t.prompt || '[E] TALK';
+  }
+  return '';
+}
+function updateInterior(dt) {   // idle-animate the current room's staff in place
+  if (!inside || !curInterior) return;
+  var st = curInterior.staff;
+  for (var i = 0; i < st.length; i++) animPerson(st[i], 0, dt, 0);
+}
+function staffSay(lines) { toast(lines[(Math.random() * lines.length) | 0], 2600); sfx('buy'); }
+
+// ---- PUBLIX grocery interior (venue publix, NW corner storefront z=-12) ----
+var PUBLIX = registerInterior({
+  id: 'publix',
+  box: { x0: 272, x1: 328, z0: -336, z1: -264, y: -120 },   // 56 x 72 room, stacked at y=-120
+  doorZone: { x: -61.5, z: -10, r2: 40 },                    // world storefront (Publix front face at z=-12)
+  doorIn: { x: 318, z: -269, yaw: 0 },                       // spawn just inside the entrance, facing north into the store
+  doorOut: { x: -61.5, z: -6, yaw: Math.PI },                // step back onto the lot, facing the parking
+  exitZone: { x: 318, z: -268, r2: 11 },
+  label: 'PUBLIX',
+  build: buildPublix
+});
+function buildPublix(spec) {
+  var B = spec.box, Y = B.y, cx = 300, cz = -300, W = B.x1 - B.x0, D = B.z1 - B.z0;
+  // --- procedural textures (canvas-generated, like the rest of the game) ---
+  var floorT = tex(64, function (g, s) {
+    g.fillStyle = '#cfccc1'; g.fillRect(0, 0, s, s);
+    g.fillStyle = '#c2beb2'; g.fillRect(0, 0, s / 2, s / 2); g.fillRect(s / 2, s / 2, s / 2, s / 2);
+    g.strokeStyle = '#ada99c'; g.lineWidth = 2; g.strokeRect(0, 0, s, s);
+    noise(g, s, 70, 0.04, 0.04);
+  }, W / 4, D / 4);
+  var wallT = tex(64, function (g, s) {
+    g.fillStyle = '#eef1ea'; g.fillRect(0, 0, s, s);
+    g.fillStyle = '#1c7e3a'; g.fillRect(0, s * 0.16, s, 7);
+    g.fillStyle = '#155f2c'; g.fillRect(0, s * 0.16 + 7, s, 2);
+    noise(g, s, 60, 0.03, 0.03);
+  }, 10, 1);
+  var prodT = tex(128, function (g, s) {
+    g.fillStyle = '#d6d3ca'; g.fillRect(0, 0, s, s);
+    var cols = ['#d8412e', '#2a7ad8', '#3fae4a', '#e8c020', '#e0682a', '#c845a0', '#f2f2f2', '#7a4a20', '#e04888'];
+    for (var y = 5; y < s; y += 26) {
+      for (var x = 3; x < s - 6; x += 13) {
+        g.fillStyle = cols[(Math.random() * cols.length) | 0]; g.fillRect(x, y, 11, 20);
+        g.fillStyle = 'rgba(255,255,255,0.16)'; g.fillRect(x, y, 11, 4);
+      }
+      g.fillStyle = '#9a968a'; g.fillRect(0, y + 22, s, 4);
+    }
+  }, 5, 3);
+  var coolerT = tex(128, function (g, s) {
+    var gr = g.createLinearGradient(0, 0, 0, s);
+    gr.addColorStop(0, '#4a6a78'); gr.addColorStop(1, '#12303c'); g.fillStyle = gr; g.fillRect(0, 0, s, s);
+    var cols = ['#d8412e', '#e8c020', '#f2f2f2', '#2a7ad8', '#3fae4a', '#e0682a'];
+    for (var x = 6; x < s - 6; x += 10) for (var y = 12; y < s - 6; y += 18) { g.fillStyle = cols[(Math.random() * cols.length) | 0]; g.fillRect(x, y, 6, 14); }
+    g.strokeStyle = '#9db4bc'; g.lineWidth = 3;
+    for (var xx = 0; xx <= s; xx += s / 4) { g.beginPath(); g.moveTo(xx, 0); g.lineTo(xx, s); g.stroke(); }
+  }, 8, 1);
+  var produceT = tex(64, function (g, s) {
+    g.fillStyle = '#3a6a2a'; g.fillRect(0, 0, s, s);
+    var cols = ['#e8481e', '#f0a020', '#e8d020', '#8ac020', '#d02840', '#f06020', '#c83030'];
+    for (var i = 0; i < 46; i++) { g.fillStyle = cols[(Math.random() * cols.length) | 0]; var r = 3 + Math.random() * 3; g.beginPath(); g.arc(Math.random() * s, Math.random() * s, r, 0, 7); g.fill(); }
+  }, 1, 1);
+  var floorM = lamb2(floorT), wallM = lamb2(wallT), prodM = lamb2(prodT), produceM = lamb2(produceT);
+  var coolerM = new THREE.MeshBasicMaterial({ map: coolerT });   // self-lit glow
+  var shelfEndM = lamb({ color: 0xc2beb2 }), metalM = lamb({ color: 0xb6babf }), whiteM = lamb({ color: 0xdedad0 });
+  var conveyorM = lamb({ color: 0x23262b }), regM = lamb({ color: 0x2a2e34 }), screenM = new THREE.MeshBasicMaterial({ color: 0x3fae6a });
+  var glassM = new THREE.MeshPhongMaterial({ color: 0xbfe0ea, transparent: true, opacity: 0.32, shininess: 90 });
+
+  // --- shell: floor / ceiling / lights / walls ---
+  var floor = new THREE.Mesh(new THREE.PlaneGeometry(W, D), floorM);
+  floor.rotation.x = -Math.PI / 2; floor.position.set(cx, Y, cz); scene.add(floor);
+  var ceil = new THREE.Mesh(new THREE.PlaneGeometry(W, D), lamb({ color: 0xdadcd6 }));
+  ceil.rotation.x = Math.PI / 2; ceil.position.set(cx, Y + 4.4, cz); scene.add(ceil);
+  var panelM = new THREE.MeshBasicMaterial({ color: 0xf8f7ec });
+  for (var pxi = -18; pxi <= 18; pxi += 12) for (var pzi = -24; pzi <= 24; pzi += 16) {
+    var lp = new THREE.Mesh(new THREE.PlaneGeometry(4.5, 1.4), panelM);
+    lp.rotation.x = Math.PI / 2; lp.position.set(cx + pxi, Y + 4.36, cz + pzi); scene.add(lp);
+  }
+  function wall(x, z, w, d) { var m = box(w, 4.4, d, wallM, x, Y + 2.2, z); scene.add(m); solidMeshes.push(m); intCol(spec, x, z, w, d); }
+  wall(cx, B.z0, W, 0.5);         // north (cooler wall)
+  wall(cx, B.z1, W, 0.5);         // south (entrance wall)
+  wall(B.x0, cz, 0.5, D);         // west
+  wall(B.x1, cz, 0.5, D);         // east
+  // entrance door + exit sign (south wall, east portion)
+  var doorM = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 3.4), phong({ color: 0x33485a, shininess: 90, specular: 0xaaccdd }));
+  doorM.position.set(318, Y + 1.7, B.z1 - 0.28); doorM.rotation.y = Math.PI; scene.add(doorM);
+  var exitSign = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 0.5), new THREE.MeshBasicMaterial({ map: signTex(['EXIT'], '#103a18', '#4aff6a', 128, 40) }));
+  exitSign.position.set(318, Y + 3.7, B.z1 - 0.28); exitSign.rotation.y = Math.PI; scene.add(exitSign);
+  function sign(x, y, z, ry, w, h, lines, bg, fg) {
+    var m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: signTex(lines, bg, fg, 256, 64) }));
+    m.position.set(x, y, z); m.rotation.y = ry; scene.add(m); return m;
+  }
+  sign(cx, Y + 4.0, B.z1 - 0.3, Math.PI, 14, 1.9, ['PUBLIX'], '#1c7e3a', '#ffffff');   // big green banner over the doors
+
+  // --- checkout lanes (west of the entrance) ---
+  var laneX = [280, 288, 296, 304];
+  for (var li = 0; li < laneX.length; li++) {
+    var lx = laneX[li];
+    var counter = box(1.3, 1.0, 5, whiteM, lx, Y + 0.5, -270); scene.add(counter); solidMeshes.push(counter); intCol(spec, lx, -270, 1.3, 5);
+    scene.add(box(1.0, 0.08, 4.4, conveyorM, lx, Y + 1.02, -270));                     // conveyor belt
+    scene.add(box(0.7, 0.55, 0.6, regM, lx, Y + 1.28, -272.2));                          // register body
+    scene.add(box(0.5, 0.34, 0.05, screenM, lx, Y + 1.5, -271.9));                       // register screen
+    var pole = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.9), new THREE.MeshBasicMaterial({ map: signTex([String(li + 1)], '#f2f2f2', '#d8412e', 64, 64) }));
+    pole.position.set(lx, Y + 2.6, -272.5); scene.add(pole);                             // lane number
+  }
+  // --- gondola aisles (product shelves) + end-caps ---
+  var aisleX = [285, 294, 303, 312];
+  for (var ai = 0; ai < aisleX.length; ai++) {
+    var gx = aisleX[ai];
+    var gond = box(2.4, 1.9, 38, [prodM, prodM, whiteM, shelfEndM, prodM, prodM], gx, Y + 0.95, -300);
+    scene.add(gond); solidMeshes.push(gond); intCol(spec, gx, -300, 2.4, 38);
+    // shelf-edge trim slabs (reads as tiers)
+    for (var sh = 0.55; sh < 1.9; sh += 0.55) { var edge = box(2.5, 0.06, 38, metalM, gx, Y + sh, -300); scene.add(edge); }
+    // end-cap at the south (entrance-facing) end
+    var cap = box(2.4, 1.5, 1.4, [prodM, prodM, whiteM, shelfEndM, prodM, prodM], gx, Y + 0.75, -280); scene.add(cap); solidMeshes.push(cap); intCol(spec, gx, -280, 2.4, 1.4);
+  }
+  // --- cooler / freezer wall along the north wall (emissive glass) ---
+  for (var fxu = 278; fxu <= 322; fxu += 8) {
+    var unit = box(7.6, 2.8, 1.4, [metalM, metalM, metalM, metalM, coolerM, metalM], fxu, Y + 1.4, -334.2);
+    scene.add(unit);
+  }
+  intCol(spec, cx, -334.2, 46, 1.4);
+  sign(cx, Y + 3.4, -333.4, 0, 12, 1.4, ['DAIRY  &  FROZEN'], '#12303c', '#bfe0ea');
+  // --- produce section (west side, colorful open bins) ---
+  var binZ = [-292, -300, -308];
+  for (var bi = 0; bi < binZ.length; bi++) {
+    var bz = binZ[bi];
+    var bin = box(3.2, 0.85, 3.2, [whiteM, whiteM, produceM, whiteM, whiteM, whiteM], 277, Y + 0.42, bz); scene.add(bin); solidMeshes.push(bin); intCol(spec, 277, bz, 3.2, 3.2);
+  }
+  sign(275.2, Y + 3.0, -300, Math.PI / 2, 8, 1.4, ['PRODUCE'], '#2a5e1a', '#e8f0c0');
+  // --- deli counter (back-east) with a glass case ---
+  var deli = box(10, 1.1, 1.6, whiteM, 314, Y + 0.55, -324); scene.add(deli); solidMeshes.push(deli); intCol(spec, 314, -324, 10, 1.6);
+  scene.add(box(10, 0.9, 1.5, glassM, 314, Y + 1.55, -324));            // glass case
+  scene.add(box(9.4, 0.5, 1.0, produceM, 314, Y + 1.2, -324));          // meats/salads inside
+  sign(314, Y + 3.0, -323.2, 0, 8, 1.4, ['DELI'], '#8a1e1e', '#ffe9a0');
+
+  // --- staff (built on demand from staffchars.js; idle-animated by updateInterior) ---
+  function placeStaff(name, x, z, ry) {
+    var m = buildStaff(name);
+    m.position.set(x, Y, z); m.rotation.y = ry; scene.add(m); spec.staff.push(m); return m;
+  }
+  placeStaff('CASHIER_MIKE', 279, -269, Math.PI);       // behind checkout lane 1, facing customers
+  placeStaff('BAGGER_JADE', 281.4, -267.2, 0);          // bagging at the end of the lane
+  placeStaff('STOCKER_CARL', 289.5, -300, Math.PI / 2); // mid-aisle, facing a shelf
+  placeStaff('DELI_ANNA', 314, -326.4, 0);              // behind the deli counter
+  placeStaff('MANAGER_GREG', 292, -276, Math.PI);       // near the entrance/produce, greeting
+
+  // --- interact zones (talk / grab a free sample) ---
+  spec.sampleCd = -999;
+  spec.zones.push({ x: 279, z: -271, r2: 8, prompt: '[E] CHAT WITH CASHIER', fn: function () { staffSay(['"Find everything okay today?"', '"Paper or plastic?"', '"Have a great one!"']); } });
+  spec.zones.push({ x: 289.5, z: -300, r2: 8, prompt: '[E] CHAT WITH STOCKER', fn: function () { staffSay(['"Fresh shipment just came in."', '"Aisle 4 is fully stocked."', '"Watch the wet floor, buddy."']); } });
+  spec.zones.push({ x: 314, z: -326, r2: 9, prompt: '[E] CHAT WITH DELI', fn: function () { staffSay(['"Number 42? You\'re up!"', '"The rotisserie is hot and ready."', '"Half pound of the honey ham?"']); } });
+  spec.zones.push({ x: 292, z: -278, r2: 8, prompt: '[E] TALK TO MANAGER', fn: function () { staffSay(['"Welcome to Publix — where shopping is a pleasure."', '"Let me know if you need anything."', '"BOGO deals in every aisle today."']); } });
+  spec.zones.push({
+    x: 277, z: -300, r2: 10, prompt: '[E] GRAB A FREE SAMPLE',
+    fn: function (s) {
+      if (T - s.sampleCd < 25) { popup2('No more samples right now'); sfx('deny'); return; }
+      s.sampleCd = T; state.hp = Math.min(100, state.hp + 20);
+      popup('+20 HP  fresh sample'); sfx('buy');
+    }
+  });
 }
 
 // ---------------- street props (AI PSX props: streetprops.js) ----------------
@@ -8615,7 +9093,7 @@ function npcChatLine(n, cat) {
   return false;
 }
 function updateNPCs(dt) {
-  if (isClient()) { updateNPCExtras(); return; }   // npcs mirrored from host snapshot
+  if (isClient()) { updateNPCExtras(); updateAccessories(dt); return; }   // npcs mirrored from host snapshot; accessories still ride them locally
   // sample car velocities (player/remote-driven cars have no analytic speed —
   // approximate from last frame's position delta, same idea as _bx/_bz in
   // updateWorldFx but sampled here so the delta isn't already consumed)
@@ -8931,6 +9409,7 @@ function updateNPCs(dt) {
     if (!animSkip) animPerson(m, spd, dt, n.phase);
   }
   updateNPCExtras();
+  updateAccessories(dt);
 }
 var handsUpQ = new THREE.Quaternion();
 var X_AXIS = new THREE.Vector3(1, 0, 0);
@@ -12767,6 +13246,7 @@ document.addEventListener('keydown', function (e) {
       return;
     }
     if (inside) {
+      if (curInterior) { interiorInteractE(); return; }   // generalized interiors (Publix etc.)
       var cdx = player.x - clerkPos.x, cdz = player.z - clerkPos.z;
       var xdx = player.x - doorIn.x, xdz = player.z - doorIn.z;
       if (cdx * cdx + cdz * cdz < 12) openMenu('clerk');
@@ -12781,6 +13261,8 @@ document.addEventListener('keydown', function (e) {
     if (ddx * ddx + ddz * ddz < 36) { openMenu('shop'); return; }
     var gdx = player.x - gasRob.x, gdz = player.z - gasRob.z;
     if (gdx * gdx + gdz * gdz < 40) { enterStore(); return; }
+    var idr = nearInteriorDoor();
+    if (idr) { enterInterior(idr.id); return; }   // Publix (and future shop interiors)
     if (streetPropInteract()) return;   // vending / payphone / ATM / newsbox / dumpster / kick / mailbox
     if (envPropInteract()) return;      // env props: sit / drink / buy / play / vend / read / mailbox
     if (bushRummage()) return;          // rummage a bush/hedge for lost items
@@ -12837,11 +13319,11 @@ function updatePlayer(dt) {
   if (f || s) { var inv = spd / Math.sqrt(f * f + s * s); var fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw); player.x += (fx * f + rx * s) * inv * dt; player.z += (fz * f + rz * s) * inv * dt; }
   if (keys['Space'] && player.grounded) { player.vy = 5.6; player.grounded = false; }
   player.vy -= GRAV * dt; player.y += player.vy * dt;
-  var eyeFloor = (inside ? INT.y : (qLoc ? QCELLAR.y : lakeBedY(player.x, player.z))) + EYE;
+  var eyeFloor = (inside ? (curInterior ? curInterior.box.y : INT.y) : (qLoc ? QCELLAR.y : lakeBedY(player.x, player.z))) + EYE;
   if (player.y <= eyeFloor) { player.y = eyeFloor; player.vy = 0; player.grounded = true; }
   player.x = Math.max(-HALF + 1.2, Math.min(HALF - 1.2, player.x)); player.z = Math.max(-HALF + 1.2, Math.min(HALF - 1.2, player.z));
   if (!landColliders) landColliders = colliders.filter(function (cc) { return !cc.lake; });
-  var p = pushOut(player.x, player.z, 0.55, inside ? intColliders : (qLoc ? qcellarColliders : landColliders)); player.x = p.x; player.z = p.z;
+  var p = pushOut(player.x, player.z, 0.55, inside ? (curInterior ? curInterior.colliders : intColliders) : (qLoc ? qcellarColliders : landColliders)); player.x = p.x; player.z = p.z;
   // pedestrians are solid-ish: you shoulder past them, not through them
   if (!inside && !qLoc && !state.dead) for (var pci = 0; pci < npcs.length; pci++) {
     var pcn = npcs[pci];
@@ -12962,18 +13444,23 @@ function updatePlayer(dt) {
     prompt.textContent = (qex * qex + qez * qez < 9) ? '[E] CLIMB OUT' : '';
   }
   else if (inside) {
-    var cdx = player.x - clerkPos.x, cdz = player.z - clerkPos.z;
-    var xdx = player.x - doorIn.x, xdz = player.z - doorIn.z;
-    if (cdx * cdx + cdz * cdz < 12) prompt.textContent = '[E] TALK TO CLERK';
-    else if (xdx * xdx + xdz * xdz < 7) prompt.textContent = '[E] LEAVE';
-    else prompt.textContent = '';
+    if (curInterior) { prompt.textContent = interiorPrompt(); }
+    else {
+      var cdx = player.x - clerkPos.x, cdz = player.z - clerkPos.z;
+      var xdx = player.x - doorIn.x, xdz = player.z - doorIn.z;
+      if (cdx * cdx + cdz * cdz < 12) prompt.textContent = '[E] TALK TO CLERK';
+      else if (xdx * xdx + xdz * xdz < 7) prompt.textContent = '[E] LEAVE';
+      else prompt.textContent = '';
+    }
   } else {
     var ddx = player.x - dealerPos.x, ddz = player.z - dealerPos.z;
     var gdx = player.x - gasRob.x, gdz = player.z - gasRob.z;
     var qgv2 = questGiverNear();
     var qhx2 = player.x - qHatch.x, qhz2 = player.z - qHatch.z;
+    var idr2 = nearInteriorDoor();
     if (ddx * ddx + ddz * ddz < 36) prompt.textContent = '[E] BUY GUNS';
     else if (gdx * gdx + gdz * gdz < 40) prompt.textContent = (T < gasClosedUntil) ? 'STORE CLOSED' : '[E] ENTER GAS STATION';
+    else if (idr2) prompt.textContent = '[E] ENTER ' + idr2.label;
     else if (qgv2) prompt.textContent = '[E] TALK TO ' + qgv2.giver.name.toUpperCase();
     else if (qhx2 * qhx2 + qhz2 * qhz2 < 12) prompt.textContent = '[E] ENTER CELLAR HATCH';
     else {
@@ -13156,7 +13643,7 @@ function loop(now) {
   var dt = Math.min(0.05, (now - last) / 1000); last = now;
   if (!state.running) { renderer.render(scene, camera); renderCreatorFrame(dt); return; }
   T += dt;
-  updatePlayer(dt); updateNPCs(dt); updateKids(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateUfo(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); updateNpcTags(); updateHUD(); drawMinimap();
+  updatePlayer(dt); updateNPCs(dt); updateKids(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateUfo(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); updateNpcTags(); updateHUD(); drawMinimap();
   renderer.render(scene, camera);
 }
 setEquipped('fists');
@@ -13198,6 +13685,9 @@ window.__wc = {
   teleport: function (x, z) { player.x = x; player.z = z; },
   tryAttack: tryAttack, setEquipped: setEquipped, cycleEquip: cycleEquip,
   enterStore: enterStore, exitStore: exitStore, refreshClerk: refreshClerk, animPerson: animPerson, animPersonClip: animPersonClip, playVoice: playVoice, oak: oak, bush: bush, getPackProp: getPackProp,
+  enterInterior: enterInterior, enterPublix: function () { enterInterior('publix'); }, exitInterior: exitInterior,
+  listInteriors: function () { var o = []; for (var id in interiors) o.push(id); return o; },
+  interiorState: function () { return { inside: inside, id: curInterior ? curInterior.id : (inside ? 'gas' : null), staff: curInterior ? curInterior.staff.length : 0, colliders: curInterior ? curInterior.colliders.length : 0, box: curInterior ? curInterior.box : null }; },
   initAudio: initAudio, playNpcVoice: playNpcVoice, playVoiceAny: playVoiceAny,
   audioVoices: function () { return activeVoices; }, getAC: function () { return ac; },
   voiceDbg: function () { return { local: dbgVoiceLocal, net: dbgVoiceNet, bcast: dbgVoiceBcast }; },
@@ -13290,6 +13780,25 @@ window.__wc = {
   playOnline: playOnline, becomeHost: becomeHost,
   buildIceConfig: buildIceConfig, hmacSha1B64: hmacSha1B64,
   buildCharacter: buildCharacter, randomCharConfig: randomCharConfig, buildMeshySkinned: buildMeshySkinned,
+  // NPC accessories (#70) — local-only cosmetic props on a fraction of walkers
+  listAccessories: listAccessories, accessories: function () { return accessories; }, accStats: function () { return accStats; },
+  getAccessory: getAccessory, attachAccessory: attachAccessory,
+  spawnAccessoryNpc: function (cat) {
+    // spawn a walking NPC near the player and force-attach an accessory. `cat`
+    // may be an exact accessory name (e.g. 'dog') or a category (walk|push|hold)
+    var n = spawnNPC();
+    if (n.acc) { detachAccessory(n.acc, accessories.indexOf(n.acc)); }
+    var name = cat;
+    if (!ACCESS_BY_NAME[name]) {
+      var pool = cat === 'push' ? ACC_POOL_PUSH : cat === 'hold' ? ACC_POOL_HOLD : cat === 'walk' ? ACC_POOL_WALK : null;
+      if (pool) { var live = []; for (var i = 0; i < pool.length; i++) if (ACCESS_BY_NAME[pool[i]]) live.push(pool[i]); name = live[(Math.random() * live.length) | 0]; }
+      else name = rollAccessoryName();
+    }
+    n.x = player.x + (Math.random() - 0.5) * 6; n.z = player.z + 4 + Math.random() * 3;
+    n.tx = n.x; n.tz = n.z + 20; n.state = 'walk'; n.mesh.position.set(n.x, 0, n.z);
+    if (name) attachAccessory(n, name);
+    return { npc: n, acc: n.acc, name: name };
+  },
   sendChat: sendChat, attachHeldGun: attachHeldGun, addChatMsg: addChatMsg, updateNpcTags: updateNpcTags, npcTagPool: function () { return npcTagPool; },
   voiceStart: voiceStart, voiceStop: voiceStop, voiceState: function () { return { on: voice.on, play: voicePlay }; },
   openBug: openBug, closeBug: closeBug, submitBug: submitBug, bugServerUrl: bugServerUrl,
@@ -13309,7 +13818,7 @@ window.__wc = {
   enterPOI: enterPOI, exitPOI: exitPOI, questLoc: function () { return qLoc; },
   questGiverNear: questGiverNear, questGiverTalk: questGiverTalk, refreshQuestPanel: refreshQuestPanel,
   openQuestLog: function () { openMenu('quest'); }, saveQuests: saveQuests, loadQuests: loadQuests,
-  tick: function (dt) { T += dt; updatePlayer(dt); updateNPCs(dt); updateKids(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateUfo(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); renderer.render(scene, camera); }
+  tick: function (dt) { T += dt; updatePlayer(dt); updateNPCs(dt); updateKids(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateUfo(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); renderer.render(scene, camera); }
 };
 
 // ---------------- boot screen handoff + menu cover art ----------------
