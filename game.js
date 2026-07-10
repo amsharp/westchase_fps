@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.62.5';
+var GAME_VERSION = 'v1.62.6';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -4982,16 +4982,20 @@ var ACC_PLACE = {
   suitcase:  { mode: 'side', x: 0.34,  z: -0.42, ry: Math.PI / 2 },
   wagon:     { mode: 'side', x: 0.0,   z: 0.72,  ry: Math.PI / 2 }
 };
-// right-hand local rest transforms for held items (tuned against the Meshy hand
-// bone frame — forearm hangs down at rest). p = position, r = euler, s = scale.
+// Held items parent to the right-hand bone for POSITION (so they ride the arm
+// swing) but are re-oriented to a stable WORLD pose every frame (updateHandAcc),
+// which sidesteps having to guess the hand bone's local axis frame. `grip` is a
+// mesh-child offset (in the upright frame) that lands the item's grip point at
+// the hand: -y drops the top-held items down, +y floats the balloon up. `tilt`
+// is the world euler [pitchX, yawOffset(+ owner yaw), rollZ].
 var ACC_HAND = {
-  umbrella:      { p: [0.02, 0.02, 0.02],  r: [-1.4, 0, 0],   s: 1 },
-  cane:          { p: [0.0, 0.0, 0.0],     r: [-1.5, 0, 0],   s: 1 },
-  coffee_cup:    { p: [0.03, 0.02, 0.02],  r: [-1.5, 0, 0],   s: 1 },
-  shopping_bags: { p: [0.0, -0.04, 0.0],   r: [-1.5, 0, 0],   s: 1 },
-  skateboard:    { p: [0.0, 0.0, 0.06],    r: [-1.5, 0, 1.2], s: 1 },
-  boombox:       { p: [0.02, 0.0, 0.0],    r: [-1.5, 0, 0],   s: 1 },
-  balloon:       { p: [0.0, 0.0, 0.0],     r: [-1.5, 0, 0],   s: 1 }
+  umbrella:      { grip: [0.0, 0.0, 0.0],   tilt: [-0.12, 0, 0] },   // pole base at hand, canopy overhead
+  cane:          { grip: [0.0, -0.86, 0.0], tilt: [0.14, 0, 0] },    // crook at hand, tip near the ground
+  coffee_cup:    { grip: [0.0, -0.06, 0.0], tilt: [0, 0, 0] },       // cup upright in the fist
+  shopping_bags: { grip: [0.0, -0.36, 0.0], tilt: [0, 0, 0] },       // hangs from the handles
+  skateboard:    { grip: [0.0, -0.18, 0.0], tilt: [0, 0, 1.45] },    // deck vertical, tucked under the arm
+  boombox:       { grip: [0.0, -0.12, 0.0], tilt: [0, 0, 0] },       // carried by the side handle
+  balloon:       { grip: [0.0, 0.62, 0.0],  tilt: [0, 0, 0] }        // floats above the hand on a string
 };
 // pick an accessory name for a spawning NPC by rolling a category first, so dogs
 // don't dominate; returns null when the rolled pool is empty.
@@ -5030,11 +5034,13 @@ function attachAccessory(n, name, variant) {
   } else if (mode === 'hand') {
     var hand = n.mesh.userData.handR;
     if (!hand) return null;
-    var h = ACC_HAND[name] || { p: [0, 0, 0], r: [-1.5, 0, 0], s: 1 };
-    g.position.set(h.p[0], h.p[1], h.p[2]);
-    g.rotation.set(h.r[0], h.r[1], h.r[2]);
-    g.scale.setScalar(h.s || 1);
-    if (name === 'balloon') { var str = new THREE.Mesh(accLeashGeo(), accStringMat()); g.userData.balloonStr = str; g.add(str); }
+    var h = ACC_HAND[name] || { grip: [0, 0, 0], tilt: [0, 0, 0] };
+    rec.hand = hand; rec.tilt = h.tilt;
+    // offset the mesh child so the grip point lands on the hand; the group's
+    // orientation is overwritten each frame by updateHandAcc (world-upright)
+    if (g.children[0]) g.children[0].position.set(h.grip[0], h.grip[1], h.grip[2]);
+    g.position.set(0, 0, 0);
+    if (name === 'balloon') { var str = new THREE.Mesh(accLeashGeo(), accStringMat()); str.userData.isStr = 1; g.add(str); rec.str = str; }
     hand.add(g);
   } else {
     // push / side: ride the owner group at a fixed local offset (auto-follows)
@@ -5097,8 +5103,33 @@ function updateAccessories(dt) {
     if (a.mesh && !a.mesh.visible) a.mesh.visible = true;
     if (a.leash && !a.leash.visible) a.leash.visible = true;
     if (a.mode === 'leash') updateLeashDog(a, n, dt);
-    else if (a.mode === 'push') updatePushAcc(a, n, dt);
-    // hand & side ride their parent transform — no per-frame work needed
+    else if (a.mode === 'hand') updateHandAcc(a, n, dt);
+    // push & side items ride their parent group transform (no per-frame work).
+    // NOTE: an earlier build nudged the owner's arms onto the push bar, but
+    // writing .rotation.x onto a skinned arm bone wipes the walk-clip quaternion
+    // and splays the arms — the natural swing behind the stroller reads better.
+  }
+}
+var _accEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+var _accHandQ = new THREE.Quaternion(), _accHandP = new THREE.Vector3();
+function updateHandAcc(a, n, dt) {
+  var g = a.mesh, hand = a.hand; if (!hand) return;
+  // hand item rides the arm for POSITION but holds a stable world orientation
+  // (upright, aligned to the owner's facing) so we don't have to guess the hand
+  // bone's local axis frame. Compose matrices for this owner first (cheap — only
+  // the handful of accessorised NPCs pay it) so the hand's world quat is current.
+  n.mesh.updateMatrixWorld(true);
+  hand.getWorldQuaternion(_accHandQ);
+  var t = a.tilt || [0, 0, 0];
+  _accEuler.set(t[0], n.mesh.rotation.y + (t[1] || 0), t[2]);
+  _accHandQ.invert();
+  g.quaternion.copy(_accHandQ).multiply(_accQ.setFromEuler(_accEuler));   // localQ = inv(handWorld) * desiredWorld
+  // balloon string: a thin line from the hand (group origin) up to the balloon
+  if (a.str) {
+    var by = (a.mesh.children[0] ? a.mesh.children[0].position.y : 0.6);
+    a.str.position.set(0, by * 0.5, 0);
+    a.str.scale.set(1, by, 1);
+    a.str.quaternion.identity();
   }
 }
 function updateLeashDog(a, n, dt) {
@@ -5117,6 +5148,11 @@ function updateLeashDog(a, n, dt) {
     a.x += dx / d * mv; a.z += dz / d * mv;
     if (mv > 0.004) a.yaw = _accFace(dx, dz);      // face travel direction
   }
+  // leash length clamp: a taut leash can never stretch across the map — if the
+  // owner teleports (door respawn, crosswalk waypoint, pushOut eject) the dog is
+  // hauled to the end of a ~2.4m leash instead of trailing halfway down the block
+  var odx = a.x - n.x, odz = a.z - n.z, od = Math.sqrt(odx * odx + odz * odz);
+  if (od > 2.4) { a.x = n.x + odx / od * 2.4; a.z = n.z + odz / od * 2.4; }
   var bob = Math.abs(Math.sin(a.wob * 6.5)) * 0.03;   // gentle trot bob
   g.position.set(a.x, bob, a.z);
   g.rotation.y = a.yaw;
@@ -5130,15 +5166,6 @@ function updateLeashDog(a, n, dt) {
   var llen = Math.sqrt(ldx * ldx + ldy * ldy + ldz * ldz) || 0.001;
   lm.scale.set(1, llen, 1);
   lm.quaternion.setFromUnitVectors(Y_UP, _accDir.set(ldx / llen, ldy / llen, ldz / llen));
-}
-function updatePushAcc(a, n, dt) {
-  // stroller/walker already rides the owner group; nudge both arms forward so
-  // the hands reach the push bar. animPerson re-poses the arm bones from the
-  // clip every frame, so setting rotation.x here (after the loop) reads as a
-  // steady reach without accumulating.
-  var L = n.mesh.userData.limbs; if (!L) return;
-  if (L.armL) L.armL.rotation.x = -0.9;
-  if (L.armR) L.armR.rotation.x = -0.9;
 }
 
 function spawnNPC() {

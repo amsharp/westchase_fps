@@ -160,6 +160,23 @@ gunfire and blasts send them fleeing, and they scramble out of the path of a
 speeding car. (They ride the same shared-world stream as the adults, so
 every player in town sees the same families.)
 
+## Out for a walk
+
+About one pedestrian in six is **out doing something** — walking a **dog** on
+a leash (it trots along a step behind on a taut line, catches up when they get
+ahead, and never stretches off across the block), pushing a **stroller** or a
+mobility **walker** out front, or carrying a **handheld** — an umbrella held
+overhead, a cane, a coffee cup, shopping bags, a skateboard, a balloon on a
+string. Wheeled things (a bike, a rolling suitcase, a kid's wagon) get walked
+alongside. Each prop rolls a colour/style variant so no two look alike.
+
+Like the kids, the **dogs and stroller babies are off-limits** — they're
+decorations riding along with their owner, never targets, so bullets, fists,
+cars and blasts can't touch them. If an owner is killed the leash drops and
+the dog slips away, a pushed stroller is just left standing where it was, and
+a carried item falls from the hand. (All of this is local colour — it isn't
+streamed over the network, so it stays smooth without adding traffic.)
+
 ## The loop
 
 You spawn **with no gun**. Punch pedestrians (they drop cash), pick up the
