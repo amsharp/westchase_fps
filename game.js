@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.57';
+var GAME_VERSION = 'v1.66.58';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -8221,6 +8221,19 @@ if (WC_REMAP) (function densityLayer() {
           dDecal(pick(ROAD_DEC), dx2, dz2, 0.17, rnd(0, 6.28), rnd(0.8, 1.3));
         }
       }
+      // long residential CONNECTORS (cls 2, >=120u — e.g. res_se_pocket) get
+      // the dashed centre line too: a ~180u through-road with zero paint read
+      // as "no lane markings" (report mrf7rtp6). Short loops/lanes stay plain.
+      // Own loop (even 7u cadence) — the surface-decal loop above steps 11u
+      // on cls 2, which would have made the s%14 dash rhythm irregular.
+      if (rr.cls === 2 && lenA >= 120) {
+        for (var s2b = 8; s2b < lenA - 6; s2b += 7) {
+          if (s2b % 14 >= 7) continue;
+          var pb = rmAt(rr.pts, rr.cum, s2b);
+          if (pb.x * pb.x + pb.z * pb.z <= 34 * 34) continue;
+          dDecal('center_line', pb.x, pb.z, 0.172, Math.atan2(pb.ux, pb.uz), 1);
+        }
+      }
     }
   }
   // parking-lot + pavement surface decals
@@ -8232,7 +8245,23 @@ if (WC_REMAP) (function densityLayer() {
       dDecal(pick(LOT_DEC), wp[0], wp[1], sf.kind === 'parking' ? 0.13 : 0.14, rnd(0, 6.28), rnd(0.8, 1.2));
     }
   }
-  // sidewalk + verge decals along the core-leg ribbons
+  // sidewalk + verge decals along the core-leg ribbons.
+  // walkRibbonAt mirrors the sidewalk-ribbon keep tests in buildRemapRoads:
+  // the ribbon breaks around venue clearance shapes, junction pads and other
+  // roads' asphalt, but the decal loop used to ignore all of that — so
+  // cracked-slab/gum decals were painted on bare GRASS where the walk had
+  // been clipped away (report mrf7rtp6).
+  function walkRibbonAt(x, z) {
+    if (typeof remapInClear !== 'undefined' && remapInClear(x, z, 1.2)) return false;
+    if (!remapPointClear(x, z, 1)) return false;
+    if (RM && RM.pads) {
+      for (var i = 0; i < RM.pads.length; i++) {
+        var pd = RM.pads[i], dx = x - pd.x, dz = z - pd.z;
+        if (dx * dx + dz * dz < (pd.r + 2) * (pd.r + 2)) return false;
+      }
+    }
+    return true;
+  }
   if (RM && RM.coreWalk) {
     for (var cw2 = 0; cw2 < RM.coreWalk.length; cw2++) {
       var w2 = RM.coreWalk[cw2];
@@ -8240,7 +8269,7 @@ if (WC_REMAP) (function densityLayer() {
         var sideS = Math.random() < 0.5 ? 1 : -1;
         var offW = w2.hw + 0.8 + Math.random() * (w2.sw - 1);
         var wx = w2.x + w2.ux * t2 - w2.uz * offW * sideS, wz = w2.z + w2.uz * t2 + w2.ux * offW * sideS;
-        if (spotClear(wx, wz)) dDecal(pick(WALK_DEC), wx, wz, 0.14, rnd(0, 6.28), rnd(0.8, 1.1));
+        if (spotClear(wx, wz) && walkRibbonAt(wx, wz)) dDecal(pick(WALK_DEC), wx, wz, 0.14, rnd(0, 6.28), rnd(0.8, 1.1));
         // verge decal a little further out onto the grass
         var offV = w2.hw + w2.sw + 1 + Math.random() * 4;
         var vx = w2.x + w2.ux * t2 - w2.uz * offV * sideS, vz = w2.z + w2.uz * t2 + w2.ux * offV * sideS;
