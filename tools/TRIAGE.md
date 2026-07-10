@@ -50,8 +50,8 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mreedozu (-199,33)  unidentifiable mesh
 - mreeelik (-118,75)  car placement weird
 - mredwjpp (213,-160) house clips sidewalk — FIXED@v1.66.5 (survey houses now nudged clear of the sidewalk ribbon: houseSidewalkNudge pushes any footprint intruding the walk band outward; 30 instances, ~4.5u max)
-- mredxzx6 (140,-89)  houses with no visible roads — IN-AGENT (round5-structure)
-- mredtppi (184,-172) missing raised curb divider — IN-AGENT (round5-structure)
+- mredxzx6 (140,-89)  houses with no visible roads — DEFER-LARGER-PASS (round5-structure): the SE pocket beyond race_track_rd has ~8-10 survey houses (incl two 60x35 buildings ~240,-135 & 304,-136) with NO internal street — the only road is race_track_rd 30-60u away. Genuinely needs a residential loop/cul-de-sac added to REMAP_ROADS; too big for a surgical nudge/driveway (houses are too far from any road to stub). Road-network pass.
+- mredtppi (184,-172) missing raised curb divider — ALREADY PRESENT (r3Medians): race_track_rd DOES build a raised landscaped median+curbs; verified a continuous run [chainage 941-1170] covers (184,-172)@1047. Report predates r3Medians (stale session). RE-CHECK if refiled.
 - mreduh7z (187,-178) "looks awful" (see screenshot)
 - mreea4we (-469,275) road ends with no curb — FIXED@v1.66.6 (remapDeadEndCurbs caps genuine street dead-ends — incl the SW industrial stub — with a low concrete curb bar + side returns; non-colliding, skips loops/junctions/exits/venue-ends)
 - mredw3ho (237,-175) palm canopy too sparse; want variants
@@ -76,8 +76,8 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mreelboe (-70,-115) big green blob — IN-AGENT (round4-render)
 - mreelusq (-113,-114) cop left arm buggy + walks into building — R3
 - mreemd0e (-194,-110) garage door between windows on facade — FIXED@v1.66.8 (townhouseRow front ground floor recomposed: plain stucco cover hides the shared-tex ground window row, 2-car garage on the left + entry door on the right; upper-floor windows kept)
-- mreendej (-8,-330) purple-home roof texture + overhangs sidewalk — R5 — IN-AGENT (round5-structure)
-- mreenqoe (-25,-347) homes with no road/walkway — R5 (same class as mredxzx6) — IN-AGENT (round5-structure)
+- mreendej (-8,-330) purple-home roof texture + overhangs sidewalk — OVERHANG FIXED@v1.66.5 (houseSidewalkNudge cleared house #239 @-24,-316.8 off the nine_eagles_dr walk). ROOF-TEXTURE sub-issue is a material/UV problem (hip-roof ConeGeometry shingle stretch on the hue-shifted variant) → HANDOFF to round4-render, out of structure lane.
+- mreenqoe (-25,-347) homes with no road/walkway — DEFER-LARGER-PASS (round5-structure): same class as mredxzx6 — the S pocket west of nine_eagles_dr has a house cluster (~-42,-360 / -62,-360 …) sitting in open field with no street/walkway; the eastern homes front nine_eagles but the western cluster is roadless. Needs a residential street added to REMAP_ROADS (road-network pass), not a surgical fix.
 - mreeoimw (-1,-517) traffic too uniform; want occasional honks — R5 feature
 - mreeosgw (-10,-492) lamp post + tree clipping — FIXED@v1.66.10 (street-tree pass now rejects spots within 4u of a streetlight base via nearStreetlight; lamp colliders are only 0.22r so spotClear alone let a canopy swallow the pole)
 - mreepojo (157,-74) 'half ass gas station' — R5
