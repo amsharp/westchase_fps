@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.38';
+var GAME_VERSION = 'v1.66.39';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -7922,8 +7922,12 @@ if (WC_REMAP) (function densityLayer() {
 
   // ============ 5. CLUTTER (behind commercial, wall units, entrances) ============
   var BACK_CLUTTER = ['cardboard_box', 'wooden_crate', 'trash_bags', 'wood_pallet', 'blue_tarp', 'bucket'];
+  // Banks don't get a loading-dock back yard: the Regions branch's back wall
+  // faces the main-intersection pedestrian plaza, so a dumpster + crate pile
+  // there reads as random unidentifiable junk (bug mregiwcv). Other commercial
+  // formats keep their service clutter.
   for (var vc = 0; vc < VENUES.length; vc++) {
-    var vv3 = VENUES[vc]; if (!COMM[vv3.type]) continue;
+    var vv3 = VENUES[vc]; if (!COMM[vv3.type] || vv3.type === 'bank') continue;
     var f3 = vFront(vv3);
     // dumpster + junk pile behind the store (opposite the front)
     var backx = vv3.x - f3.fx * (vv3.d / 2 + 2.6), backz = vv3.z - f3.fz * (vv3.d / 2 + 2.6);
@@ -9232,8 +9236,10 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
 
   // ---------- 9. ROADWORK / UTILITY (porta-potty + screen walls) ----------
   if (byId.storage) { var st = byId.storage, stf = vFront(st); place('porta_potty', st.x - stf.fx * (st.d / 2 + 3), st.z - stf.fz * (st.d / 2 + 3), faceDir(stf.fx, stf.fz), { instance: true }); place('trash_recycle', st.x - stf.fx * (st.d / 2 + 3) + stf.rx * 3, st.z - stf.fz * (st.d / 2 + 3) + stf.rz * 3, 0, { instance: true }); }
-  // screen walls hiding the mechanical yard behind a bank/strip
-  if (byId.regions) { var rg = byId.regions, rgf = vFront(rg); var scx = rg.x - rgf.fx * (rg.d / 2 + 2), scz = rg.z - rgf.fz * (rg.d / 2 + 2); run(scx - rgf.rx * 2.5, scz - rgf.rz * 2.5, scx + rgf.rx * 2.5, scz + rgf.rz * 2.5, 'screen_wall', -1); }
+  // (bug mregiwcv) The Regions bank's back faces the main-intersection plaza,
+  // not a hidden mechanical yard — a short run of 3 lone screen-wall panels
+  // there read as unidentifiable free-standing slabs. Removed; the back wall
+  // is now clean (its service clutter is gated off above too).
 
   // ---------- 10. PARK LAMPS + retaining-wall accents along a lot edge ----------
   if (lots[0]) { var lo = lots[0], loc = Math.cos((lo.rot || 0) * deg), los = Math.sin((lo.rot || 0) * deg); var ex0 = lo.x - loc * (lo.w / 2 + 2), ez0 = lo.z + los * (lo.w / 2 + 2); place('park_lamp', ex0, ez0, 0); place('park_lamp', lo.x + loc * (lo.w / 2 + 2), lo.z - los * (lo.w / 2 + 2), 0); run(lo.x - lo.w / 2 * loc, lo.z + lo.w / 2 * los, lo.x + lo.w / 2 * loc, lo.z - lo.w / 2 * los, 'retaining_wall', 1); }

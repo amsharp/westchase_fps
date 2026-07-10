@@ -163,7 +163,7 @@ Clusters:
 - mreggwii (42,0)   wendel glitchy in MP — FIXED@v1.66.5 (world-snapshot interpolation for NPC/car/cop mirrors; was 8Hz exp-chase)
 - mregi4tl (128,-5) stuttery walking NPC in MP — FIXED@v1.66.5 (same)
 - mreghm0l (92,-48) floating idle anim — R2-anim extras
-- mregiwcv (-47,17) unidentifiable thing — IN-AGENT (round5-tail)
+- mregiwcv (-47,17) unidentifiable thing — FIXED@v1.66.39 (the "thing" = a run of 3 lone screen_wall panels (env prop, 52 tris ea) placed behind the Regions bank + a dumpster/crate back-clutter pile. The bank's BACK (ENE) faces the main-intersection pedestrian plaza — not a hidden mechanical yard — so those free-standing tan slabs + loading-dock junk read as unidentifiable garbage. Removed the screen_wall run for the bank and gated banks out of the BACK_CLUTTER pass; the back wall is now a clean brick plaza frontage. Verified: 0 meshes at the spot, no console errors.)
 - mregjcuz (-27,-4) should be lit at night — R5 lighting
 - mregk7im/mregkhdi/mregli5y/mregma9f (Dunkin interior: workers not facing, stretched counter, room-bounds wall, menu clipping, voice ask) — other agent interiors
 - mregn84n (-45,11) held-item grip botched — R2-anim extras
