@@ -28,8 +28,8 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mreee1df (-207,31)  invisible wall — likely the lakeside chain-post row (visible but thin); re-check in-game after the OBB fix ships
 - mree6h2d (-260,271) walk through tree
 - mree1rcg (55,79)    chainlink: NPCs stuck + links comically large
-- mredz61g (91,-18)   kids merged into each other spamming tag lines
-- mree93m6 (-475,353) another kid-merge during a game
+- mredz61g (91,-18)   kids merged spamming tag lines — FIXED@v1.65.4 (no tag-backs + fresh-it freeze + pairwise separation)
+- mree93m6 (-475,353) kid-merge during game — FIXED@v1.65.4 (same)
 
 ## Round 4 — OPEN: rendering/materials
 - mree7hy2 (-370,346) ground decal alpha broken
@@ -63,3 +63,27 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 
 ## Notes
 - mrdphrsv is Claude's own deploy test, ignore.
+
+## Batch 3 (uncatalogued -> assigned)
+- mreegamp (-140,43) placement bad — R5
+- mreegvj0 (-157,20) leaf cluster + missing alpha — R4
+- mreehkm9 (-142,-9) lemonade stand wants kid vendor + dialogue — R5 feature
+- mreei0of (-142,-30) flower bed out of place — R5
+- mreeipmy (-161,-76) ice cream truck wants vendor — R5 feature
+- mreejak5 (-158,-86) fences should break in panels under cars — R5 feature
+- mreejycz (-112,-48) whole swing rocks; odd placement — R4 anim
+- mreekjjq (-7,-57) walker accessory abandoned in street — R2 anim overlap
+- mreelboe (-70,-115) big green blob — R4
+- mreelusq (-113,-114) cop left arm buggy + walks into building — R3
+- mreemd0e (-194,-110) garage door between windows on facade — R5
+- mreendej (-8,-330) purple-home roof texture + overhangs sidewalk — R5
+- mreenqoe (-25,-347) homes with no road/walkway — R5 (same class as mredxzx6)
+- mreeoimw (-1,-517) traffic too uniform; want occasional honks — R5 feature
+- mreeosgw (-10,-492) lamp post + tree clipping — R5
+- mreepojo (157,-74) 'half ass gas station' — R5
+- mreeq7nj (150,193) random barrier — R3 (re-probe post-OBB fix)
+- mreeqqbh (298,235) road looks awful — R5
+- mreer5b4 (419,172) houses riding the sidewalk — R5 (same as mredwjpp)
+- mreesgtd (238,516) parked cars with lights on — R4
+- mreet1el (273,474) NPC pacing left-right loop — R3 (check whisker ping-pong)
+- mreetig1 (233,306) secondary intersection looks bad — R5

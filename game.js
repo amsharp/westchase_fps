@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.65.3';
+var GAME_VERSION = 'v1.65.4';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -11433,12 +11433,20 @@ function updateKidGames(dt) {
       game.tagCD -= dt;
       for (i = 0; i < M.length; i++) {
         k = M[i];
+        if (k.gameFreeze > 0) continue;   // fresh "it" counts to three
         if (k === it) {
           var best = null, bd = 1e9;
           for (j = 0; j < M.length; j++) { if (M[j] === it) continue; var o = M[j], d2 = (o.x - it.x) * (o.x - it.x) + (o.z - it.z) * (o.z - it.z); if (d2 < bd) { bd = d2; best = o; } }
           if (best) {
             step(it, best.x, best.z, 4.7);
-            if (bd < 2.25 && game.tagCD <= 0) { it.gameRole = 'runner'; best.gameRole = 'it'; game.tagCD = 1.6; playKidVoice(best.persona, 'tag', 0.6, 3, { x: best.x, z: best.z, kkey: 'g' + gi, ref: best, net: 1 }); }
+            // playground rules: no tag-backs, and the fresh "it" freezes for a
+            // beat — without both, an overlapped pair ping-pong tagged each
+            // other spamming voice lines (bug reports mredz61g, mree93m6)
+            if (bd < 2.25 && game.tagCD <= 0 && best !== game.lastIt) {
+              game.lastIt = it;
+              it.gameRole = 'runner'; best.gameRole = 'it'; best.gameFreeze = 1.2;
+              game.tagCD = 1.6; playKidVoice(best.persona, 'tag', 0.6, 3, { x: best.x, z: best.z, kkey: 'g' + gi, ref: best, net: 1 });
+            }
           } else step(it, game.cx, game.cz, 2);
         } else {
           var fdx = k.x - it.x, fdz = k.z - it.z, fd = Math.sqrt(fdx * fdx + fdz * fdz) || 1;
@@ -11483,6 +11491,18 @@ function updateKidGames(dt) {
       }
       if (game.members.indexOf(caller) < 0) continue;   // game ended above
     }
+    // pairwise separation: playing kids must never stack into one body (the
+    // chaser outruns the runner, and nothing else keeps members apart)
+    for (i = 0; i < M.length; i++) for (j = i + 1; j < M.length; j++) {
+      var sA = M[i], sB = M[j];
+      var sdx = sB.x - sA.x, sdz = sB.z - sA.z, sd2 = sdx * sdx + sdz * sdz;
+      if (sd2 > 0.64) continue;
+      if (sd2 < 0.0001) { sA.x -= 0.3; sB.x += 0.3; continue; }
+      var sd = Math.sqrt(sd2), push = (0.8 - sd) * 0.5, sux = sdx / sd, suz = sdz / sd;
+      sA.x -= sux * push; sA.z -= suz * push; sB.x += sux * push; sB.z += suz * push;
+    }
+    // freeze timers tick down here (set on a fresh tag)
+    for (i = 0; i < M.length; i++) if (M[i].gameFreeze > 0) M[i].gameFreeze -= dt;
     // commit: collision, mesh, gait, parents watch
     for (i = 0; i < M.length; i++) {
       k = M[i]; if (k.game !== game) continue;
