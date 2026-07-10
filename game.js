@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.59';
+var GAME_VERSION = 'v1.66.60';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -18574,9 +18574,9 @@ function updatePlayer(dt) {
   vmSwayX += (-dYaw * 0.9 - vmSwayX) * swK;      // ease toward the turn-lag target
   vmSwayY += (dPit * 0.9 - vmSwayY) * swK;
   vm.position.x = brX + vmSwayX * 0.06;
-  vm.position.z = recoil * 0.07;
-  vm.position.y = bob * 0.5 + brY + vmSwayY * 0.05;
-  vm.rotation.x = recoil * 0.06 + brY * 0.7 + vmSwayY * 0.18;
+  vm.position.z = recoil * 0.10;                 // snappier muzzle kick back toward the shoulder
+  vm.position.y = bob * 0.5 + brY + vmSwayY * 0.05 + recoil * 0.012;   // slight muzzle-rise lift
+  vm.rotation.x = recoil * 0.095 + brY * 0.7 + vmSwayY * 0.18;         // more visible barrel-climb
   vm.rotation.y = vmSwayX * 0.14;
   vm.rotation.z = brX * 0.5 - vmSwayX * 0.25;
   gunBloom = Math.max(0, gunBloom - dt * 0.06);   // spread recovers ~0.7s after easing off
