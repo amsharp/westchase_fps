@@ -5029,6 +5029,44 @@ var _legFixQ = null, _legFixAx = null;
 // Number = parallel Y yaw; {y,z} = Y yaw + mirrored Z adduction (see meshyPose).
 // GARY: lat 0.681u -> 0.327u (roster norm ~0.28-0.32u), feet stay planted.
 var MESHY_LEG_FIX = { HECTOR: 1.2, NIA: 1.2, GARY: { y: 0.2, z: 0.25 } };
+// Stand-in idle for rigs that ship NO idle clip (kids): frame 0 of the walk is
+// a mid-stride passing pose — hips high on the Y track, both feet off the
+// ground — so a frame-0 "idle" visibly hovers (bug mreghm0l). Find the walk
+// cycle's plant moment (lowest highest-foot) once per skeleton and hold that.
+var _plantV = null;
+function _deepBone(b) {
+  var c = b, g = 0;
+  while (g++ < 10) {
+    var nx = null;
+    for (var i = 0; i < c.children.length; i++) if (c.children[i].isBone) { nx = c.children[i]; break; }
+    if (!nx) break;
+    c = nx;
+  }
+  return c;
+}
+function meshyPlantPose(m) {
+  var sk = m.userData.skin, d = sk.d;
+  if (d.plantCyc === undefined) {
+    var L = m.userData.limbs;
+    if (!L || !L.legL || !L.legR) { d.plantCyc = 0; }
+    else {
+      if (!_plantV) _plantV = new THREE.Vector3();
+      var fL = _deepBone(L.legL), fR = _deepBone(L.legR);
+      var best = 0, bestY = 1e9;
+      for (var i = 0; i < 16; i++) {
+        meshyPose(sk, 'walk', i / 16);
+        m.updateMatrixWorld(true);
+        fL.getWorldPosition(_plantV); m.worldToLocal(_plantV);
+        var hi = _plantV.y;
+        fR.getWorldPosition(_plantV); m.worldToLocal(_plantV);
+        if (_plantV.y > hi) hi = _plantV.y;
+        if (hi < bestY) { bestY = hi; best = i / 16; }
+      }
+      d.plantCyc = best;
+    }
+  }
+  meshyPose(sk, 'walk', d.plantCyc);
+}
 function buildMeshySkinned(cfg, mi) {
   var d = getMeshySkin(mi);
   var g = new THREE.Group();
@@ -5056,6 +5094,7 @@ function buildMeshySkinned(cfg, mi) {
   g.userData.limbs = { armL: bones[bi.LeftArm], armR: bones[bi.RightArm], legL: bones[bi.LeftUpLeg], legR: bones[bi.RightUpLeg] };
   g.userData.spine = bones[bi.Spine] || bones[bi.Spine01] || null;   // slouch pivot (walker accessory)
   g.userData.handR = bones[bi.RightHand] || bones[bi.RightForeArm] || bones[bi.RightArm];
+  g.userData.handL = bones[bi.LeftHand] || bones[bi.LeftForeArm] || bones[bi.LeftArm];   // walker grip aim
   var shadow = blobShadow(0.42, 0.42, 0.16); g.add(shadow);
   g.userData.shadow = shadow;
   g.userData.cc = encodeCC(cfg);
@@ -5719,30 +5758,97 @@ function updateAccessories(dt) {
     if (a.mesh && !a.mesh.visible) a.mesh.visible = true;
     if (a.leash && !a.leash.visible) a.leash.visible = true;
     if (a.mode === 'leash') updateLeashDog(a, n, dt);
-    else if (a.mode === 'hand') updateHandAcc(a, n, dt);
+    else if (a.mode === 'hand') { if (a.name === 'boombox') poseCarryArm(n); updateHandAcc(a, n, dt); }
     else if (a.name === 'walker') poseWalkerGrip(n);
-    // stroller & side items ride their parent group transform (no per-frame work).
-    // NOTE: an earlier build nudged the owner's arms onto the push bar, but
-    // writing .rotation.x onto a skinned arm bone wipes the walk-clip quaternion
-    // and splays the arms — for the STROLLER the natural swing behind it reads
-    // better; the WALKER, however, must be gripped (see poseWalkerGrip), so we
-    // MULTIPLY a grip rotation onto the posed arm bones (keeps the clip base).
+    else if (a.name === 'suitcase') poseCaseDrag(n);
+    // stroller & other side items ride their parent group transform (no
+    // per-frame work) — the natural arm swing reads fine behind a stroller.
+    // Grip-class items (walker/boombox/suitcase) pose the owner's arms above.
+    if (n.mesh && n.mesh.userData) n.mesh.userData.reposed = false;   // consumed (see gripPoseOK)
   }
 }
-// Pose a walker user gripping the handles + hunched forward. Runs AFTER
-// animPerson has posed the skeleton this frame, so we post-multiply the arm and
-// spine bones (like the clerk's hands-up) instead of overwriting the clip.
-var _walkerQ = null, _walkerAx = null;
+// ---- grip-class accessory posing (walker / boombox / suitcase) -------------
+// All grip poses are WORLD-space swings. The skinned rigs' bone-local axes
+// differ per character — the old bone-local X multiply raised one rig's arms
+// onto the walker but pointed another rig's arm straight out ("zombie arm",
+// bug mreguavi) — so aimLimbAt rotates the posed limb by a world-space delta
+// mapped into the bone's parent frame; it re-aims from the CURRENT pose, so
+// it's self-correcting. Poses only run on frames the owner's clip actually
+// re-posed (m.userData.reposed, set by animPerson/animPersonClip and consumed
+// in updateAccessories): the spine hunch is a relative rotation and would
+// compound into a windmill on anim-LOD skipped frames.
+var _aimP = null, _aimD1 = null, _aimD2 = null, _aimQ = null, _aimPQ = null, _aimPQ2 = null, _gripV = null;
+function gripTmps() {
+  if (_aimP) return;
+  _aimP = new THREE.Vector3(); _aimD1 = new THREE.Vector3(); _aimD2 = new THREE.Vector3();
+  _aimQ = new THREE.Quaternion(); _aimPQ = new THREE.Quaternion(); _aimPQ2 = new THREE.Quaternion();
+  _gripV = new THREE.Vector3();
+}
+function gripPoseOK(n) {
+  var m = n.mesh;
+  if (!m || !m.userData.skin || !m.userData.reposed) return false;
+  if (n.state !== 'walk' && n.state !== 'stand') return false;   // fleeing/chat/downed: let the clip play
+  var L = m.userData.limbs;
+  return !!(L && L.armL && L.armR);
+}
+// swing the posed limb rigidly about rootBone so tipBone's direction from the
+// pivot passes through world point (wx,wy,wz). Caller must have called
+// updateMatrixWorld on the owner first.
+function aimLimbAt(rootBone, tipBone, wx, wy, wz) {
+  rootBone.getWorldPosition(_aimP);
+  tipBone.getWorldPosition(_aimD1).sub(_aimP);
+  _aimD2.set(wx, wy, wz).sub(_aimP);
+  if (_aimD1.lengthSq() < 1e-8 || _aimD2.lengthSq() < 1e-8) return;
+  _aimQ.setFromUnitVectors(_aimD1.normalize(), _aimD2.normalize());
+  rootBone.parent.getWorldQuaternion(_aimPQ);
+  _aimPQ2.copy(_aimPQ).invert().multiply(_aimQ).multiply(_aimPQ);   // local delta = P^-1 * dR * P
+  rootBone.quaternion.premultiply(_aimPQ2);
+}
+// pitch a bone about the upright owner's lateral axis (positive = lean forward)
+function pitchLimbWorld(bone, yaw, ang) {
+  _aimD1.set(Math.cos(yaw), 0, -Math.sin(yaw));
+  _aimQ.setFromAxisAngle(_aimD1, ang);
+  bone.parent.getWorldQuaternion(_aimPQ);
+  _aimPQ2.copy(_aimPQ).invert().multiply(_aimQ).multiply(_aimPQ);
+  bone.quaternion.premultiply(_aimPQ2);
+}
+// walker user: forward hunch + both hands onto the rail ends (rails sit at
+// owner-local x +-0.24, y ~0.82, rear ends ~z 0.3 — see ACC_PLACE)
 function poseWalkerGrip(n) {
-  var m = n.mesh; if (!m) return;
-  if (n.state !== 'walk' && n.state !== 'stand') return;   // fleeing/downed: let the clip play
-  var L = m.userData.limbs; if (!L || !L.armL || !L.armR) return;
-  if (!_walkerQ) { _walkerQ = new THREE.Quaternion(); _walkerAx = new THREE.Vector3(1, 0, 0); }
+  if (!gripPoseOK(n)) return;
+  gripTmps();
+  var m = n.mesh, L = m.userData.limbs;
+  m.updateMatrixWorld(true);
   var sp = m.userData.spine;
-  if (sp) { _walkerQ.setFromAxisAngle(_walkerAx, 0.3); sp.quaternion.multiply(_walkerQ); }   // hunch forward over the frame
-  _walkerQ.setFromAxisAngle(_walkerAx, -0.95);   // reach both arms forward+down onto the ~0.85m grips
-  L.armL.quaternion.multiply(_walkerQ);
-  L.armR.quaternion.multiply(_walkerQ);
+  if (sp) { pitchLimbWorld(sp, m.rotation.y, 0.32); m.updateMatrixWorld(true); }   // hunch, then refresh shoulders
+  var hL = m.userData.handL || L.armL, hR = m.userData.handR || L.armR;
+  _gripV.set(0.24, 0.82, 0.32); m.localToWorld(_gripV);    // left hand (+x side)
+  aimLimbAt(L.armL, hL, _gripV.x, _gripV.y, _gripV.z);
+  _gripV.set(-0.24, 0.82, 0.32); m.localToWorld(_gripV);
+  aimLimbAt(L.armR, hR, _gripV.x, _gripV.y, _gripV.z);
+}
+// rolling suitcase: right arm reaches down-back to the telescoping handle top
+// of the case parked at owner-local (-0.36, -, -0.34)
+function poseCaseDrag(n) {
+  if (!gripPoseOK(n)) return;
+  gripTmps();
+  var m = n.mesh, L = m.userData.limbs, hR = m.userData.handR;
+  if (!hR) return;
+  m.updateMatrixWorld(true);
+  _gripV.set(-0.36, 0.92, -0.21); m.localToWorld(_gripV);
+  aimLimbAt(L.armR, hR, _gripV.x, _gripV.y, _gripV.z);
+}
+// boombox: pin the carrying arm straight down (pushed slightly out so the box
+// clears the hip) — the box itself rides the hand bone via updateHandAcc
+function poseCarryArm(n) {
+  if (!gripPoseOK(n)) return;
+  gripTmps();
+  var m = n.mesh, L = m.userData.limbs, hR = m.userData.handR;
+  if (!hR) return;
+  m.updateMatrixWorld(true);
+  L.armR.getWorldPosition(_gripV);
+  var yw = m.rotation.y, rx = -Math.cos(yw), rz = Math.sin(yw);   // owner right axis (hands live on -x)
+  aimLimbAt(L.armR, hR, _gripV.x + rx * 0.18, _gripV.y - 1, _gripV.z + rz * 0.18);
 }
 var _accEuler = new THREE.Euler(0, 0, 0, 'YXZ');
 var _accHandQ = new THREE.Quaternion(), _accHandP = new THREE.Vector3();
@@ -11935,6 +12041,7 @@ function updateNPCExtras() {
 // states (a 0.6s flinch, a 1.1s jab) play the full authored motion instead of
 // only its first ~20% at natural speed. defaults to the clip's own duration.
 function animPersonClip(m, clip, tSec, oneshot, warpDur) {
+  m.userData.reposed = true;   // grip-class accessories only re-pose on fresh clip frames
   var sk = m.userData.skin;
   if (sk && sk.d.clips[clip]) { meshyPose(sk, clip, tSec / (warpDur || sk.d.clips[clip].d), oneshot); return true; }
   var L = m.userData.limbs;
@@ -11942,6 +12049,7 @@ function animPersonClip(m, clip, tSec, oneshot, warpDur) {
   return false;
 }
 function animPerson(m, spd, dt, phase) {
+  m.userData.reposed = true;   // grip-class accessories only re-pose on fresh clip frames
   var sk = m.userData.skin;
   if (sk) {
     if (spd > 0.1) {
@@ -12388,7 +12496,7 @@ function updateKidGames(dt) {
       k = M[i]; if (k.game !== game) continue;
       var pos = pushOut(k.x, k.z, 0.32); k.x = pos.x; k.z = pos.z;
       k.mesh.position.set(k.x, 0, k.z);
-      if ((k._mv || 0) > 0.15) animPerson(k.mesh, k._mv, dt, k.phase); else meshyPose(k.mesh.userData.skin, 'walk', 0);
+      if ((k._mv || 0) > 0.15) animPerson(k.mesh, k._mv, dt, k.phase); else meshyPlantPose(k.mesh);
       watchParent(k);
     }
   }
@@ -12414,7 +12522,7 @@ function updateKids(dt) {
       updateKidPlayOn(k, dt, i);
       m.position.set(k.x, k.playY || 0, k.z);
       if (k.playMoving) { k.phase += 2.4 * dt * 3.4; animPerson(m, 2.4, dt, k.phase); }
-      else meshyPose(m.userData.skin, 'walk', 0);
+      else meshyPlantPose(m);
       watchParent(k);
       k.playT -= dt; if (k.playT <= 0) endKidPlay(k);
       continue;
@@ -12479,9 +12587,10 @@ function updateKids(dt) {
     // dodge cars (unhittable, but they still scramble out of the way)
     if (T > (k.dodgeCD || 0)) { var thr = npcCarThreat(k); if (thr) { k.state = 'flee'; k.stateT = 0.9; k.fleeDX = thr.x; k.fleeDZ = thr.z; k.fleeSpd = 6.6; k.dodgeCD = T + 2; } }
     m.position.set(k.x, 0, k.z);
-    // kids ship no idle clip — hold the builder's natural stance when planted
+    // kids ship no idle clip — hold the walk clip's PLANT frame when parked
+    // (meshyPlantPose; frame 0 is a mid-stride pose that hovers, bug mreghm0l)
     // instead of letting animPerson's idle-fallback slow-walk in place
-    if (spd > 0.05) animPerson(m, spd, dt, k.phase); else meshyPose(k.mesh.userData.skin, 'walk', 0);
+    if (spd > 0.05) animPerson(m, spd, dt, k.phase); else meshyPlantPose(k.mesh);
     // ambient chatter/play near the player (loose per-kid timer)
     k.voiceT -= dt;
     if (k.voiceT <= 0) {
@@ -12538,7 +12647,7 @@ function mirrorKids(dt) {
     k.x += (e[0] / 10 - k.x) * k2; k.z += (e[1] / 10 - k.z) * k2;
     m.position.set(k.x, 0, k.z); m.rotation.y = e[2] / 100;
     var mv = Math.hypot(k.x - ox, k.z - oz), sp = (dt > 0 && mv / dt > 0.4) ? mv / dt : 0; k.phase += mv * 3.4;
-    if (sp > 0.05) animPerson(m, sp, dt, k.phase); else meshyPose(m.userData.skin, 'walk', 0);
+    if (sp > 0.05) animPerson(m, sp, dt, k.phase); else meshyPlantPose(m);
   }
 }
 spawnKids();
