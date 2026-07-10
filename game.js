@@ -751,7 +751,7 @@ function publixSign(x, y, z, ry, w, h) {
   im.onload = function () { tx.needsUpdate = true; };
   im.src = PUBLIX_SIGN;
   var m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: tx, side: THREE.DoubleSide }));
-  m.position.set(x, y, z); m.rotation.y = ry; scene.add(m); return m;
+  m.position.set(x, y, z); m.rotation.y = ry; m.name = 'publixSign'; scene.add(m); return m;
 }
 function parapetM(color) { return lamb({ color: new THREE.Color(color).multiplyScalar(0.85) }); }
 
