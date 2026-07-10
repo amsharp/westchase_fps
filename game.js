@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.49';
+var GAME_VERSION = 'v1.66.50';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -782,10 +782,35 @@ var zebraT = (function () {
 })();
 
 // ---------------- signs & generic buildings ----------------
-function signPlane(x, y, z, ry, w, h, lines, bg, fg) {
+// warm night backglow for storefront/venue signage: a soft additive halo that
+// ramps in after dark (wcNightGlow, driven in updateEnv) so lit signs read as a
+// warm neon glow at night and stay invisible by day. One shared halo texture;
+// each halo is a single quad drawn only at night. Perimeter ROAD CLOSED barrier
+// signs opt out via noGlow.
+var signHaloT = (function () {
+  var c = document.createElement('canvas'); c.width = c.height = 64;
+  var g = c.getContext('2d');
+  var gr = g.createRadialGradient(32, 32, 1, 32, 32, 32);
+  gr.addColorStop(0, 'rgba(255,226,150,0.55)'); gr.addColorStop(0.5, 'rgba(255,206,120,0.30)'); gr.addColorStop(1, 'rgba(255,200,110,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+  var t = new THREE.CanvasTexture(c); t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter; t.generateMipmaps = false;
+  return t;
+})();
+var signGlows = [];
+function addSignGlow(x, y, z, ry, w, h) {
+  var hm = new THREE.Mesh(new THREE.PlaneGeometry(w * 1.6, h * 2.6),
+    new THREE.MeshBasicMaterial({ map: signHaloT, color: 0xffdc9a, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
+  var nx = Math.sin(ry), nz = Math.cos(ry);       // nudge just in front of the sign face
+  hm.position.set(x + nx * 0.05, y, z + nz * 0.05); hm.rotation.y = ry;
+  hm.visible = false; scene.add(hm); signGlows.push(hm);
+  return hm;
+}
+function signPlane(x, y, z, ry, w, h, lines, bg, fg, noGlow) {
   var m = new THREE.Mesh(new THREE.PlaneGeometry(w, h),
     new THREE.MeshBasicMaterial({ map: signTex(lines, bg, fg), side: THREE.DoubleSide }));
-  m.position.set(x, y, z); m.rotation.y = ry; scene.add(m); return m;
+  m.position.set(x, y, z); m.rotation.y = ry; scene.add(m);
+  if (!noGlow) addSignGlow(x, y, z, ry, w, h);
+  return m;
 }
 // AI PUBLIX wordmark strip (publixsign.js), repeat-tiled so each instance keeps
 // its natural aspect on a wide banner instead of the old stretched/cut-off text
@@ -800,7 +825,9 @@ function publixSign(x, y, z, ry, w, h) {
   im.onload = function () { tx.needsUpdate = true; };
   im.src = PUBLIX_SIGN;
   var m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: tx, side: THREE.DoubleSide }));
-  m.position.set(x, y, z); m.rotation.y = ry; m.name = 'publixSign'; scene.add(m); return m;
+  m.position.set(x, y, z); m.rotation.y = ry; m.name = 'publixSign'; scene.add(m);
+  addSignGlow(x, y, z, ry, w, h);
+  return m;
 }
 function parapetM(color) { return lamb({ color: new THREE.Color(color).multiplyScalar(0.85) }); }
 
@@ -1484,7 +1511,7 @@ function roadblock(x, z, w, d) {
     scene.add(b);
   }
   addCollider(x, z, w, d);
-  signPlane(x, 2.2, z + (horizontal ? (z < 0 ? 1.5 : -1.5) : 0), horizontal ? 0 : Math.PI / 2, 6, 1.6, ['ROAD', 'CLOSED'], '#b03018', '#ffffff');
+  signPlane(x, 2.2, z + (horizontal ? (z < 0 ? 1.5 : -1.5) : 0), horizontal ? 0 : Math.PI / 2, 6, 1.6, ['ROAD', 'CLOSED'], '#b03018', '#ffffff', true);
 }
 (function roadblocks() {
   if (WC_REMAP) return;   // remapPerimeter places rotated barriers at the 6 true exits
@@ -3009,7 +3036,7 @@ function remapBarrier(e) {
     scene.add(b);
   }
   addColliderOBB(bx, bz, half, 0.8, yaw);
-  signPlane(bx + e.dx * 1.2, 2.2, bz + e.dz * 1.2, Math.atan2(e.dx, e.dz), 6, 1.6, ['ROAD', 'CLOSED'], '#b03018', '#ffffff');
+  signPlane(bx + e.dx * 1.2, 2.2, bz + e.dz * 1.2, Math.atan2(e.dx, e.dz), 6, 1.6, ['ROAD', 'CLOSED'], '#b03018', '#ffffff', true);
 }
 
 // ---- streetlight rows along the true arterials/collectors ----
@@ -4812,6 +4839,9 @@ function updateEnv(dt) {
   var nightGlow = Math.max(0, Math.min(1, 1 - f * 1.6));
   wcNightGlow = nightGlow;
   for (var ne = 0; ne < nightEmis.length; ne++) nightEmis[ne].emissiveIntensity = nightGlow * (nightEmis[ne].userData.emisBase || 0.24);
+  // storefront/venue sign backglow — a warm halo that fades in after dark, off by day
+  var sgO = nightGlow * 0.42;
+  for (var sg = 0; sg < signGlows.length; sg++) { var hm = signGlows[sg]; hm.visible = sgO > 0.02; if (hm.visible) hm.material.opacity = sgO; }
   if (raining) skyTmp.copy(C_RAINNIGHT_SKY).lerp(C_RAIN_SKY, f);
   else skyTmp.copy(C_NIGHT_SKY).lerp(C_DAY_SKY, f);
   if (overcast > 0.01) skyTmp.lerp(C_HAZE, 0.5 * overcast * f);   // desaturate a touch, day only
@@ -18160,7 +18190,7 @@ window.__wc = {
   spawnDumpsterRat: spawnDumpsterRat, spawnDumpsterBum: spawnDumpsterBum,
   bushSpots: function () { return bushSpots; }, bushRummage: bushRummage, checkMail: checkMail,
   envProps: envProps, envPropInteractables: envPropInteractables, envStats: envStats, getEnvProp: getEnvProp, envPropInteract: envPropInteract, envPropPrompt: envPropPrompt, envToys: envToys,
-  solidMeshes: solidMeshes, nightEmis: nightEmis, colliders: colliders,
+  solidMeshes: solidMeshes, nightEmis: nightEmis, signGlows: signGlows, colliders: colliders,
   houses: houseStats, houseBlocksSpot: houseBlocksSpot, houseMeshesRef: houseMeshesRef,
   isUnderwater: function () { return underwater; },
   net: net, startGame: startGame, hostGame: hostGame, joinGame: joinGame, handleNet: handleNet,
