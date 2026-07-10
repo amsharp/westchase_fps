@@ -18,9 +18,9 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mredq7g0 (boards clip column) — FIXED@v1.65.6 (BACK_CLUTTER placed with clearance+spacing+retries)
 
 ## Round 2 — IN-AGENT (animation)
-- mredkjhs (splayed walk stride)     — IN-AGENT
-- mredp25b (walker not held)         — IN-AGENT
-- mredn2zu (silent talking pair)     — IN-AGENT
+- mredkjhs (splayed walk: HECTOR) — FIXED (per-char leg-yaw retarget correction MESHY_LEG_FIX; lat 0.85->0.31)
+- mredp25b (walker not held) — FIXED (poseWalkerGrip: hunch + hands on grips + shuffle; also covers refile mreguavi — its v1.66.6 session predates the fix)
+- mredn2zu (silent talking pair) — FIXED (8/35 civs ship no voice pack; pairs now require a voiceable opener, all-mute pairs skip)
 
 ## Round 3 — OPEN: collision/gameplay (next up, high priority)
 - mree5z0n (-223,225) invisible barrier — FIXED@v1.65.3 (rotated houses now use ORIENTED colliders; the axis-aligned AABB was swallowing driveways)
@@ -138,3 +138,8 @@ Clusters:
 ## Batch 9
 - mregrr51 (-46,-2) directional damage indicators — SHIPPED@v1.66.8 (red chevrons around screen center pointing at the source: cop shots, PvP, NPC jabs, explosions, car hits, alien beam)
 - mreguavi (-68,9) WALKER NPC still broken (backwards, hands off, not hunched) — escalated: reclaiming from round2-anim if no report this cycle
+
+## Batch 10 (animation round handoff)
+- mregenli NIA walk — FIXED@v1.66.10 (MESHY_LEG_FIX NIA:1.2, lat 0.77->0.32); bike texture + xander voice parts still OPEN
+- mregajgt GARY walk — OPEN: same class but Y-yaw alone insufficient (lat stuck 0.62 @0.9rad) — needs axis/mirror sweep in _animtuneY
+- mreghm0l floating idle / mreg77qb boombox / mregcwvd luggage — OPEN: accessory grip/placement class, use the poseWalkerGrip pattern (see anim round notes)

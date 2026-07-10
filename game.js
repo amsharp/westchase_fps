@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.9';
+var GAME_VERSION = 'v1.66.10';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -4759,7 +4759,7 @@ function meshyPose(sk, clipKey, cycles, oneshot) {
 // an entry; everyone else stays at 0 (untouched). Measured lateral foot spread
 // for HECTOR drops 0.854u -> 0.31u (roster norm ~0.28u) at 1.2 rad.
 var _legFixQ = null, _legFixAx = null;
-var MESHY_LEG_FIX = { HECTOR: 1.2 };
+var MESHY_LEG_FIX = { HECTOR: 1.2, NIA: 1.2 };   // GARY splays too but Y-yaw alone doesn't fix it (lat stuck ~0.62) — needs an axis sweep
 function buildMeshySkinned(cfg, mi) {
   var d = getMeshySkin(mi);
   var g = new THREE.Group();
