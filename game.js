@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.58.0';
+var GAME_VERSION = 'v1.59.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -877,7 +877,7 @@ function supermarket(x, z) {
   signPlane(x, h + 0.4, fz + 0.35, 0, 30, 2.4, ['PUBLIX'], '#1c7e3a', '#ffffff');
   for (i = -1; i <= 1; i++) vAC(x + i * 22, z - 6, h + 0.1, venAcM);
   parkingLot(x, z + 44, 78, 40);
-  for (i = -1; i <= 1; i++) scene.add(cyl(0.2, 0.2, 7, 6, lamb({ color: 0x555 }), x + i * 26, 3.5, z + 44));
+  for (i = -1; i <= 1; i++) scene.add(cyl(0.2, 0.2, 7, 6, lamb({ color: 0x8a8f94 }), x + i * 26, 3.5, z + 44));
 }
 
 // Farnell Middle (geo_ref sv_farnell): long 2-story tan panel building, ribbon
@@ -975,7 +975,7 @@ function subdivision(cx, cz, cols, rows, sx, sz) {
     var side = r === 0 ? -1 : 1;
     var hz = cz + side * (5 + sz / 2);
     house(hx, hz);
-    if (Math.random() < 0.5) oak(hx + (Math.random() - 0.5) * sx * 0.6, hz + side * (sz * 0.6));
+    if (treeRnd() < 0.5) oak(hx + (treeRnd() - 0.5) * sx * 0.6, hz + side * (sz * 0.6));
   }
 }
 
@@ -995,6 +995,16 @@ function coffeeShop(x, z) {
 
 // ---------------- breakable props (trees + street lights vs cars) ----------------
 var breakables = [];
+// Deterministic RNG stream for world-build placement coin flips that decide
+// whether / which breakable-registering object to place (tree scatter,
+// forest-patch skips, fence-type pick). These register breakables+colliders,
+// so unseeded Math.random() gates made the collider/breakable COUNT drift per
+// load — which confused MP desync tests (breakables are per-peer, but the
+// count varying looked like a bug). Own stream so interleaved Math.random()
+// elsewhere can't perturb it; consumed in deterministic load order.
+// seededRng is a hoisted function decl; lazy-init keeps load order safe.
+var _treeRngFn = null;
+function treeRnd() { if (!_treeRngFn) _treeRngFn = seededRng(0x7EE57A11); return _treeRngFn(); }
 var Y_UP = new THREE.Vector3(0, 1, 0);
 var packPropCache = {};
 function getPackProp(name) {
@@ -1171,7 +1181,7 @@ function forestPatch(x0, x1, z0, z1, count) {
   var area = (x1 - x0) * (z1 - z0);
   if (count === undefined) count = Math.min(60, Math.round(area / 260));
   for (var i = 0; i < count; i++) {
-    var fx = x0 + Math.random() * (x1 - x0), fz = z0 + Math.random() * (z1 - z0);
+    var fx = x0 + treeRnd() * (x1 - x0), fz = z0 + treeRnd() * (z1 - z0);
     // survey houses may nose into a forest-rect edge — keep trees out of them
     if (houseBlocksSpot(fx, fz) || inLake(fx, fz)) continue;
     oak(fx, fz);
@@ -2742,7 +2752,7 @@ function remapCoreSpot() {
 // stand on the Y-junction asphalt; keep only the ones clear of true roads)
 [[20, 20], [-20, 20], [20, -20], [-20, -20], [-90, 22], [90, 22], [-90, -22], [30, -60], [-30, 70]].forEach(function (p) { if (!WC_REMAP || remapPointClear(p[0], p[1], 2)) palm(p[0], p[1]); });
 for (var oi = 0; oi < 40; oi++) {
-  var ox = -CORE + 40 + Math.random() * (CORE * 2 - 80), oz = -CORE + 40 + Math.random() * (CORE * 2 - 80);
+  var ox = -CORE + 40 + treeRnd() * (CORE * 2 - 80), oz = -CORE + 40 + treeRnd() * (CORE * 2 - 80);
   // keep oaks off the roads/core (and off the expansion roads/ponds)
   if (Math.abs(oz) > MAIN_HW + 6 && Math.abs(ox) > CROSS_HW + 6 && (Math.abs(ox) > 180 || Math.abs(oz) > 170) && expClear(ox, oz, 4) && !houseBlocksSpot(ox, oz) && !inLake(ox, oz)) oak(ox, oz);
 }
@@ -3409,8 +3419,10 @@ if (!WC_REMAP) {
 // ---------------- street furniture & landscaping ----------------
 var bushMats = [lamb({ color: 0x3f6f2e }), lamb({ color: 0x4a7d34 }), lamb({ color: 0x355f28 })];
 var bushGeo = new THREE.SphereGeometry(1, 7, 5);
+var bushSpots = [];   // E-rummageable landmark/frontage bushes (STEP 2 scavenge)
 function bush(x, z, scale) {
   scale = scale || (0.8 + Math.random() * 0.6);
+  bushSpots.push({ x: x, z: z, cd: -99 });
   var pb = getPackProp(Math.random() < 0.5 ? 'bush1' : 'bush2');
   if (pb) {
     var gb = new THREE.Group();
@@ -3550,7 +3562,7 @@ function medianSeg(x0, x1) {
   scene.add(box(w, 0.3, 3, medGrassM, cx, 0.26, 0));
   scene.add(box(w, 0.34, 0.28, curbM, cx, 0.28, -1.5));
   scene.add(box(w, 0.34, 0.28, curbM, cx, 0.28, 1.5));
-  for (var px = x0 + 7; px < x1 - 5; px += 32) { if (Math.random() < 0.6) palm(px, 0); else crepeMyrtle(px, 0); }
+  for (var px = x0 + 7; px < x1 - 5; px += 32) { if (treeRnd() < 0.6) palm(px, 0); else crepeMyrtle(px, 0); }
 }
 if (!WC_REMAP) {   // median + corner islands are axis-junction furniture (R3 re-authors)
   medianSeg(CROSS_HW + 11, 300);
@@ -3789,8 +3801,8 @@ if (WC_REMAP) (function r3Junction() {
     if (bl < 0.3) continue;                     // near-opposite legs: no corner between them
     bx /= bl; bz /= bl;
     for (var pi = 0; pi < 3; pi++) {
-      var pr = 34 + pi * 5 + Math.random() * 2;
-      var px = bx * pr + (Math.random() - 0.5) * 4, pz = bz * pr + (Math.random() - 0.5) * 4;
+      var pr = 34 + pi * 5 + treeRnd() * 2;
+      var px = bx * pr + (treeRnd() - 0.5) * 4, pz = bz * pr + (treeRnd() - 0.5) * 4;
       if (remapPointClear(px, pz, 2.5)) palm(px, pz);
     }
   }
@@ -3857,9 +3869,9 @@ if (WC_REMAP) (function r3Medians() {
       scene.add(cyl(MW + 0.15, MW + 0.15, GH + 0.02, 12, curbM, n0.x, GH / 2 + 0.05, n0.z));
       scene.add(cyl(MW + 0.15, MW + 0.15, GH + 0.02, 12, curbM, n1.x, GH / 2 + 0.05, n1.z));
       // palms/crepe myrtles down the center, like the satellite's median planting
-      for (var ps = a + 10; ps < b - 10; ps += 26 + Math.random() * 12) {
+      for (var ps = a + 10; ps < b - 10; ps += 26 + treeRnd() * 12) {
         var pp = rmAt(rd.pts, cum, ps);
-        if (Math.random() < 0.6) palm(pp.x, pp.z); else crepeMyrtle(pp.x, pp.z);
+        if (treeRnd() < 0.6) palm(pp.x, pp.z); else crepeMyrtle(pp.x, pp.z);
       }
     }
   }
@@ -5081,7 +5093,7 @@ var SP_SNAP = { stopsign: 'light', yieldsign: 'light', speedsign: 'light', onewa
 // base/pole collider handed to registerBreakable (deactivates while toppled).
 // Cones / barricades / shopping carts stay pass-through — steppable clutter.
 var SP_BLOCKR = { hydrant: 0.24, parkingmeter: 0.15, payphone: 0.3, stopsign: 0.14, yieldsign: 0.14, speedsign: 0.14, onewaysign: 0.14, newsbox: 0.24, trashcan: 0.36, wheeliebin: 0.35 };
-var SP_INTERACT = { vendingmachine: 'vend', payphone: 'phone', atm: 'atm', newsbox: 'news' };
+var SP_INTERACT = { vendingmachine: 'vend', payphone: 'phone', atm: 'atm', newsbox: 'news', dumpster: 'dumpster', trashcan: 'kick', wheeliebin: 'kick', mailbox: 'mailbox', homemailbox: 'mailbox' };
 // authored front is -x; face = direction the front should point in the world
 var SP_FACE = { W: 0, E: Math.PI, N: -Math.PI / 2, S: Math.PI / 2 };
 
@@ -5188,10 +5200,12 @@ function spOverlapsBuilding(x, z, hx, hz) {
       var bb = breakables[breakables.length - 1];
       if (name === 'parkingmeter') bb.kind = 'meter';
       if (name === 'hydrant') bb.kind = 'hydrant';
+      if (name === 'trashcan' || name === 'wheeliebin') bb.kind = 'trash';   // spills junk on any break
     }
     if (SP_INTERACT[name]) {
       var it = { kind: SP_INTERACT[name], x: x, z: z, fx: -Math.cos(ry), fz: Math.sin(ry), g: g, cd: -99, robbed: false };
       if (it.kind === 'atm') { g.userData.atm = it; if (!SP_SOLID[name]) solidMeshes.push(g); }
+      if (it.kind === 'kick' && SP_SNAP[name]) it.bb = breakables[breakables.length - 1];   // topple target for a boot
       streetPropInteractables.push(it);
     }
   }
@@ -5346,7 +5360,7 @@ if (WC_REMAP) (function densityLayer() {
         var pt = rmAt(r.pts, r.cum, sc), off = r.hw + (r.cls <= 1 ? 4.5 : 3.2);
         var tx = pt.x - pt.uz * off * side, tz = pt.z + pt.ux * off * side; side = -side;
         if (!remapPointClear(tx, tz, 2) || inLake(tx, tz) || houseBlocksSpot(tx, tz) || remapInClear(tx, tz, 1) || !spotClear(tx, tz)) continue;
-        if (Math.random() < 0.34) palm(tx, tz); else oak(tx, tz, 0.78 + Math.random() * 0.42);
+        if (treeRnd() < 0.34) palm(tx, tz); else oak(tx, tz, 0.78 + treeRnd() * 0.42);
         densityStats.trees++;
       }
     }
@@ -5366,7 +5380,7 @@ if (WC_REMAP) (function densityLayer() {
     var f = vFront(v), fpx = v.x + f.fx * (v.d / 2 + 2.2), fpz = v.z + f.fz * (v.d / 2 + 2.2);
     var e = v.w / 2 - 1.5;
     bush(fpx + f.rx * e, fpz + f.rz * e); bush(fpx - f.rx * e, fpz - f.rz * e);
-    if (Math.random() < 0.7) crepeMyrtle(fpx + f.rx * (e * 0.4), fpz + f.rz * (e * 0.4));
+    if (treeRnd() < 0.7) crepeMyrtle(fpx + f.rx * (e * 0.4), fpz + f.rz * (e * 0.4));
   }
 
   // ============ 2. Y-JUNCTION TRAFFIC FURNITURE — moved ============
@@ -5533,7 +5547,7 @@ if (WC_REMAP) (function densityLayer() {
     // hedge along the back of each townhouse row
     if (vv4.type === 'townhouse') {
       var f4 = vFront(vv4), hw2 = vv4.w / 2 - 1, bx2 = vv4.x - f4.fx * (vv4.d / 2 + 1.2), bz2 = vv4.z - f4.fz * (vv4.d / 2 + 1.2);
-      fenceRun(bx2 - f4.rx * hw2, bz2 - f4.rz * hw2, bx2 + f4.rx * hw2, bz2 + f4.rz * hw2, Math.random() < 0.5 ? 'hedge_row' : 'privacy_fence', true);
+      fenceRun(bx2 - f4.rx * hw2, bz2 - f4.rz * hw2, bx2 + f4.rx * hw2, bz2 + f4.rz * hw2, treeRnd() < 0.5 ? 'hedge_row' : 'privacy_fence', true);
     }
     // low brick wall along the street edge of Publix / BofA lots
     if (vv4.id === 'publix' || vv4.id === 'boa') {
@@ -5554,8 +5568,8 @@ if (WC_REMAP) (function densityLayer() {
     if (spOverlapsBuilding(x, z, hx, hz)) return;
     g.position.set(x, y === undefined ? 0.13 : y, z); g.rotation.y = ry; scene.add(g);
     if (SP_SOLID[name]) { addCollider(x, z, hx * 2, hz * 2); solidMeshes.push(g); }
-    if (SP_SNAP[name]) { registerBreakable(g, x, z, Math.max(hx, hz) + 0.15, SP_SNAP[name], null, SP_BLOCKR[name] || 0); var bb = breakables[breakables.length - 1]; if (name === 'parkingmeter') bb.kind = 'meter'; if (name === 'hydrant') bb.kind = 'hydrant'; }
-    if (SP_INTERACT[name]) { var it = { kind: SP_INTERACT[name], x: x, z: z, fx: -Math.cos(ry), fz: Math.sin(ry), g: g, cd: -99, robbed: false }; if (it.kind === 'atm') { g.userData.atm = it; if (!SP_SOLID[name]) solidMeshes.push(g); } streetPropInteractables.push(it); }
+    if (SP_SNAP[name]) { registerBreakable(g, x, z, Math.max(hx, hz) + 0.15, SP_SNAP[name], null, SP_BLOCKR[name] || 0); var bb = breakables[breakables.length - 1]; if (name === 'parkingmeter') bb.kind = 'meter'; if (name === 'hydrant') bb.kind = 'hydrant'; if (name === 'trashcan' || name === 'wheeliebin') bb.kind = 'trash'; }
+    if (SP_INTERACT[name]) { var it = { kind: SP_INTERACT[name], x: x, z: z, fx: -Math.cos(ry), fz: Math.sin(ry), g: g, cd: -99, robbed: false }; if (it.kind === 'atm') { g.userData.atm = it; if (!SP_SOLID[name]) solidMeshes.push(g); } if (it.kind === 'kick' && SP_SNAP[name]) it.bb = breakables[breakables.length - 1]; streetPropInteractables.push(it); }
     densityStats.props++;
   }
   if (typeof STREET_PROPS !== 'undefined') {
@@ -5567,6 +5581,8 @@ if (WC_REMAP) (function densityLayer() {
       var lat = Math.min(vv5.w / 2 - 2, 5);
       spFull('bench', fpx2 + f6.rx * lat, fpz2 + f6.rz * lat, frontYaw);
       spFull('trashcan', fpx2 - f6.rx * lat, fpz2 - f6.rz * lat, frontYaw);
+      spFull('newsbox', fpx2 - f6.rx * (lat * 0.5), fpz2 - f6.rz * (lat * 0.5), frontYaw);   // free daily paper
+      if (vv5.type === 'publix' || vv5.type === 'dollar_tree') spFull('wheeliebin', fpx2 + f6.rx * (lat * 0.75), fpz2 + f6.rz * (lat * 0.75), frontYaw);
       if (vv5.type === 'publix' || vv5.type === 'dollar_tree') spFull('vendingmachine', fpx2 + f6.rx * (lat * 0.4), fpz2 + f6.rz * (lat * 0.4), frontYaw);
       if (vv5.type === 'bank') spFull('atm', fpx2, fpz2, frontYaw);
       if (vv5.type === 'farnell' || vv5.type === 'publix') spFull('bikerack', fpx2 + f6.rx * (lat * 0.7), fpz2 + f6.rz * (lat * 0.7), frontYaw);
@@ -5845,6 +5861,9 @@ function streetPropPrompt() {
   if (p.kind === 'phone') return T < p.cd ? '' : '[E] USE PAYPHONE';
   if (p.kind === 'atm') return '[E] USE ATM';
   if (p.kind === 'news') return T < p.cd ? '' : '[E] NEWSPAPER BOX';
+  if (p.kind === 'dumpster') return T < p.cd ? '' : '[E] DUMPSTER DIVE';
+  if (p.kind === 'kick') return (p.bb && p.bb.broken) ? '' : '[E] KICK IT OVER';
+  if (p.kind === 'mailbox') return T < p.cd ? '' : '[E] CHECK MAIL';
   return '';
 }
 function streetPropInteract() {
@@ -5888,8 +5907,20 @@ function streetPropInteract() {
     p.cd = T + 30;
     noiseBurst(0.07, 1100, 0.35);
     setTimeout(function () { noiseBurst(0.06, 900, 0.3); beep(320, 0.05, 0.1, 'square'); }, 100);
-    if (Math.random() < 1 / 6) { spawnCash(p.x + p.fx * 0.7, p.z + p.fz * 0.7, 5); sfx('cash'); popup('Someone left change!'); }
+    var nr = Math.random();
+    if (nr < 1 / 6) { spawnCash(p.x + p.fx * 0.7, p.z + p.fz * 0.7, 5); sfx('cash'); popup('Someone left change!'); }
+    else if (nr < 0.55) { giveItem('newspaper', 1, true); toast(itemIconHtml('newspaper') + ' You grab today\'s <b>paper</b>.', 2400); }
     else popup('Just old news.');
+  } else if (p.kind === 'dumpster') {
+    if (diveState) return true;
+    if (T < p.cd) { sfx('deny'); popup2('picked clean — try later'); return true; }
+    startDive(p);
+  } else if (p.kind === 'kick') {
+    if (p.bb && !p.bb.broken) { breakProp(p.bb, p.x - player.x, p.z - player.z); popup('you boot it over'); }   // spills 0-2 junk via onStreetPropBreak('trash')
+    else { sfx('deny'); }
+  } else if (p.kind === 'mailbox') {
+    if (T < p.cd) return true;
+    checkMail(p);
   }
   return true;
 }
@@ -5911,6 +5942,9 @@ function onStreetPropBreak(b) {
   if (b.kind === 'meter') {
     spawnCashNet(b.x, b.z, 5 + ((Math.random() * 11) | 0));
     sfx('cash', { x: b.x, z: b.z, range: 50 });
+  } else if (b.kind === 'trash') {   // kicked/rammed bins spill 0-2 pieces of junk
+    var tn = (Math.random() * 3) | 0;
+    for (var ti = 0; ti < tn; ti++) { var tid = Math.random() < 0.85 ? pick(DIVE_JUNK) : pick(DIVE_FOOD); spawnItemDrop(tid, b.x + (Math.random() - 0.5) * 1.6, b.z + (Math.random() - 0.5) * 1.6, 120); }
   } else if (b.kind === 'hydrant') {
     var parts = [];
     var jm = new THREE.MeshBasicMaterial({ color: 0xcfeaff, transparent: true, opacity: 0.85 });
@@ -6009,6 +6043,8 @@ var envPropInteractables = [];  // subset with an interact flag (STEP 3 E-hooks)
 var envStats = { placed: 0, merged: 0, colliders: 0, batches: 0, byCat: {} };
 var ENV_BY_NAME = {};
 if (typeof ENV_PROPS !== 'undefined') for (var epi = 0; epi < ENV_PROPS.length; epi++) ENV_BY_NAME[ENV_PROPS[epi].n] = ENV_PROPS[epi];
+// townhouse mailbox clusters become E-rummageable (junk mail / stray package)
+if (ENV_BY_NAME.mailbox_cluster) ENV_BY_NAME.mailbox_cluster.interact = 'mailbox';
 
 var envGeoCache = {}, envTexCache = {};
 // shared water-droplet particle (fountain / drinking-fountain flow anim)
@@ -6420,6 +6456,7 @@ function envPropPrompt() {
   if (k === 'vend') return p.name === 'gumball_machine' ? '[E] GUMBALL — $1' : '[E] SODA — $2';
   if (k === 'buy') { var b = ENV_BUY[p.name]; return b ? '[E] BUY ' + b.item + ' — $' + b.price : '[E] BUY'; }
   if (k === 'play') return p.name === 'claw_machine' ? '[E] CLAW — $2' : (p.name === 'jukebox' || p.name === 'arcade_cabinet' || p.name === 'boombox' ? '[E] PLAY MUSIC' : '[E] PLAY');
+  if (k === 'mailbox') return T < p.cd ? '' : '[E] CHECK MAIL';
   return '';
 }
 function envPropInteract() {
@@ -6474,7 +6511,12 @@ function envPropInteract() {
       if (T < p.cd) return true; p.cd = T + 0.4;
       if (state.money < 2) { sfx('deny'); popup2('Need $2'); return true; }
       state.money -= 2; beep(700, 0.06, 0.1, 'square'); noiseBurst(0.3, 400, 0.12);
-      if (Math.random() < 0.28) { spawnEnvToy(p.x + p.fx * 0.7, 1.0, p.z + p.fz * 0.7, GUMBALL_COLS[(Math.random() * GUMBALL_COLS.length) | 0]); spawnCash(p.x + p.fx * 0.9, p.z + p.fz * 0.9, 5 + ((Math.random() * 16) | 0)); sfx('cash'); popup('A PRIZE!'); }
+      if (Math.random() < 0.28) {
+        spawnEnvToy(p.x + p.fx * 0.7, 1.0, p.z + p.fz * 0.7, GUMBALL_COLS[(Math.random() * GUMBALL_COLS.length) | 0]);
+        var cid = pick(['rubberduck', 'actionfig', 'magic8', 'vhs', 'cassette', 'gnome']);   // real quirky bag prize
+        giveItem(cid, 1, true); sfx('cash');
+        toast(itemIconHtml(cid) + ' The claw actually grabs a <b>' + itemDef(cid).name + '</b>!', 3000);
+      }
       else popup2('so close…');
       return true;
     }
@@ -6483,6 +6525,11 @@ function envPropInteract() {
     if (T < p.cd) return true; p.cd = T + 0.8;
     beep(700, 0.08, 0.06, 'square', 1000); setTimeout(function () { beep(1000, 0.08, 0.06, 'square', 700); }, 110);
     popup('wheee!');
+    return true;
+  }
+  if (k === 'mailbox') {
+    if (T < p.cd) return true;
+    checkMail(p);
     return true;
   }
   return false;
@@ -7591,6 +7638,7 @@ function updateDecals(dt) {
 // ---------------- ragdoll kills + explosions ----------------
 function killNpcRagdoll(n, dx, dz, power) {
   if (n.state === 'down' || n.state === 'ragdoll' || n.state === 'hidden') return;
+  if (n.qtag && typeof questKillTag === 'function') questKillTag(n.qtag);   // quest kill-beat credit
   breakNpcChat(n);   // free the chat partner before this one goes flying
   n.state = 'ragdoll'; n.hp = 0;
   stopNpcVoice(n.vname);
@@ -8029,6 +8077,182 @@ function seedLitter() {
     for (var k = 0; k < cnt; k++) {
       var id = (Math.random() < 0.12) ? vals[(Math.random() * vals.length) | 0] : junk[(Math.random() * junk.length) | 0];
       spawnItemDrop(id, spots[s].x + (Math.random() - 0.5) * 3.2, spots[s].z + (Math.random() - 0.5) * 3.2, 9999);
+    }
+  }
+}
+
+// ============================================================
+// DUMPSTER DIVING & SCAVENGING (v1.58) — all LOCAL-ONLY, like the
+// bag / litter / interiors. Nothing here touches the world snapshot:
+// each peer rolls its own loot, spawns its own rats/bums/flies.
+// ============================================================
+function pick(a) { return a[(Math.random() * a.length) | 0]; }
+// bag the item; if the bag is full the overflow drops as world pickups at
+// the player's feet (so a full bag never silently eats a jackpot).
+function giveItem(id, n, silent) {
+  n = n || 1;
+  if (!itemDef(id)) return 0;
+  var left = bagAdd(id, n), got = n - left;
+  for (var i = 0; i < left; i++) { var d = spawnItemDrop(id, player.x + (Math.random() - 0.5) * 1.7, player.z + (Math.random() - 0.5) * 1.7, 120); if (d) d.bagFull = true; }
+  if (!silent) itemToast(id, n);
+  return got;
+}
+// ---- dumpster loot table ----
+var DIVE_JUNK = ['tincan', 'glassbottle', 'newspaper', 'boot', 'bananapeel', 'cardboard'];
+var DIVE_QUIRK = ['rubberduck', 'cassette', 'vhs', 'actionfig', 'magic8', 'fish', 'brick', 'lottery'];
+var DIVE_FOOD = ['pizza', 'burger', 'hotdog', 'donut', 'banana', 'apple', 'chips', 'sandwich'];
+var DIVE_VAL = ['wallet', 'smartphone'];
+var DIVE_JACK = ['goldwatch', 'goldchain', 'cashwad', 'diamondring'];
+var DIVE_PUFF = [0x6b5a3a, 0x8a7a52, 0x9a9a88, 0x4a5a3a, 0xb0a070];
+// pure roll (also exported for headless distribution tests):
+//   45% junk (of which ~18% is a quirky novelty), 20% food, 12% valuable,
+//   3% jackpot, 20% nothing-but-flavor (a banana peel for the bag).
+function rollDive() {
+  var r = Math.random();
+  if (r < 0.45) return { cat: 'junk', id: Math.random() < 0.18 ? pick(DIVE_QUIRK) : pick(DIVE_JUNK) };
+  if (r < 0.65) return { cat: 'food', id: pick(DIVE_FOOD) };
+  if (r < 0.77) return { cat: 'valuable', id: pick(DIVE_VAL) };
+  if (r < 0.80) return { cat: 'jackpot', id: pick(DIVE_JACK) };
+  return { cat: 'nothing', id: 'bananapeel' };
+}
+// procedural rummage clatter (no assets): a soft thud + two filtered noise
+// rustles + a tinny can plink
+function dumpsterRustle(x, z) {
+  var at = { x: x, z: z, range: 30 };
+  sfx('thud', at);
+  noiseBurst(0.12, 850, 0.2);
+  setTimeout(function () { noiseBurst(0.1, 1500, 0.14); beep(170 + Math.random() * 90, 0.05, 0.08, 'square', 90); }, 150);
+}
+var diveState = null;   // {p, t0, dur, emT} while rummaging
+function startDive(p) {
+  diveState = { p: p, t0: T, dur: 2.0, emT: 0 };
+  popup('rummaging…');
+  dumpsterRustle(p.x, p.z);
+}
+// resolve loot + surprises at the end of the ~2s rummage
+function resolveDive(p) {
+  var res = rollDive(), def = itemDef(res.id);
+  giveItem(res.id, 1, true);
+  if (res.cat === 'food') toast(itemIconHtml(res.id) + ' A half-eaten <b>' + def.name + '</b> — still warm? Into the bag it goes.', 3000);
+  else if (res.cat === 'jackpot') { sfx('cash'); toast(itemIconHtml(res.id) + ' JACKPOT! Someone threw out a <b>' + def.name + '</b>?!', 3600); }
+  else if (res.cat === 'valuable') { sfx('cash'); toast(itemIconHtml(res.id) + ' Score — a perfectly good <b>' + def.name + '</b>!', 3000); }
+  else if (res.cat === 'nothing') toast('🍌 Just a banana peel… waste not.', 2600);
+  else itemToast(res.id);
+  var s = Math.random();
+  if (s < 0.07) spawnDumpsterRat(p);          // startled rat (jump-scare, no damage)
+  else if (s < 0.11) spawnDumpsterBum(p);     // grumpy sleeper shoves you off
+  p.cd = T + 90;                              // per-dumpster cooldown
+  return res;
+}
+// mailbox rummage (shared by street mailboxes + townhouse env clusters):
+// 15% junk mail (a newspaper), 2% mis-delivered package (a random common
+// item, but a cop who can SEE you get suspicious — witnessed-crime pattern).
+function checkMail(p) {
+  p.cd = T + 40;
+  noiseBurst(0.06, 1000, 0.3); beep(300, 0.05, 0.09, 'square', 220);
+  var r = Math.random();
+  if (r < 0.02) {
+    var id = randomCommonItem() || 'wallet';
+    giveItem(id, 1, true);
+    toast(itemIconHtml(id) + ' A mis-delivered <b>package</b>… finders keepers? (you feel a little guilty)', 3200);
+    for (var i = 0; i < cops.length; i++) {
+      var c = cops[i]; if (c.state === 'down') continue;
+      var dx = c.x - p.x, dz = c.z - p.z; if (dx * dx + dz * dz > 1600) continue;
+      if (copHasLOS({ x: c.x, z: c.z }, { x: p.x, z: p.z, y: 1.2 })) { if (state.wanted < 1) setWanted(1); popup2('a cop saw that!'); break; }
+    }
+  } else if (r < 0.17) {
+    giveItem('newspaper', 1, true);
+    toast(itemIconHtml('newspaper') + ' Just <b>junk mail</b> and flyers.', 2400);
+  } else popup('Bills, bills, bills…');
+}
+// ---- bush / hedge rummage (registered as bush() props are built) ----
+// bushSpots is declared up by the bush() builder (load-order). E to rummage:
+// ~10% a lost item, otherwise a rustle of leaves + an occasional startled bird.
+function bushNear() {
+  if (!state.running || state.dead || driving || inside) return null;
+  var best = null, bd = 2.0 * 2.0;
+  for (var i = 0; i < bushSpots.length; i++) { var b = bushSpots[i]; var dx = player.x - b.x, dz = player.z - b.z, d2 = dx * dx + dz * dz; if (d2 < bd) { best = b; bd = d2; } }
+  return best;
+}
+function bushPrompt() { var b = bushNear(); return b ? (T < b.cd ? '' : '[E] RUMMAGE BUSH') : ''; }
+function bushRummage() {
+  var b = bushNear(); if (!b || T < b.cd) return false;
+  b.cd = T + 25;
+  noiseBurst(0.18, 700, 0.14); for (var i = 0; i < 5; i++) puff(new THREE.Vector3(b.x + (Math.random() - 0.5) * 1.1, 0.6 + Math.random() * 0.9, b.z + (Math.random() - 0.5) * 1.1), pick([0x3f6f2e, 0x4a7d34, 0x355f28]));
+  var r = Math.random();
+  if (r < 0.10) { var id = Math.random() < 0.5 ? randomCommonItem() : pick(DIVE_QUIRK); if (id) { giveItem(id, 1, true); toast(itemIconHtml(id) + ' Lost in the hedge: a <b>' + itemDef(id).name + '</b>!', 2800); } }
+  else if (r < 0.30) { spawnCritter(b.x, b.z, 'bird', { x: player.x, z: player.z }); beep(2100, 0.04, 0.12, 'square', 2600); setTimeout(function () { beep(1800, 0.04, 0.1, 'square', 2400); }, 70); popup('a bird bursts out!'); }
+  else popup('just leaves…');
+  return true;
+}
+// ---- critters (rat scurry / bird flutter billboards) ----
+var critters = [], critTex = {};
+function critterTex(kind) {
+  if (critTex[kind]) return critTex[kind];
+  var c = document.createElement('canvas'); c.width = c.height = 32; var g = c.getContext('2d');
+  if (kind === 'rat') {
+    g.fillStyle = '#3a3330'; g.beginPath(); g.ellipse(15, 20, 10, 6, 0, 0, 7); g.fill();          // body
+    g.beginPath(); g.ellipse(24, 17, 4, 3.5, 0, 0, 7); g.fill();                                    // head
+    g.strokeStyle = '#3a3330'; g.lineWidth = 1.6; g.beginPath(); g.moveTo(6, 21); g.quadraticCurveTo(0, 26, 3, 30); g.stroke();  // tail
+    g.fillStyle = '#d5b8b0'; g.beginPath(); g.arc(23, 12, 2.4, 0, 7); g.fill();                     // ear
+    g.fillStyle = '#000'; g.beginPath(); g.arc(27, 16, 1, 0, 7); g.fill();                          // eye
+  } else {
+    g.fillStyle = '#4a4640'; g.beginPath(); g.ellipse(16, 18, 6, 4, 0, 0, 7); g.fill();             // body
+    g.beginPath(); g.moveTo(16, 15); g.lineTo(4, 8); g.lineTo(14, 18); g.fill();                     // wing L
+    g.beginPath(); g.moveTo(16, 15); g.lineTo(28, 8); g.lineTo(18, 18); g.fill();                     // wing R
+  }
+  var t = new THREE.CanvasTexture(c); t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
+  critTex[kind] = t; return t;
+}
+function spawnCritter(x, z, kind, awayFrom) {
+  var sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: critterTex(kind), transparent: true, depthWrite: false }));
+  var sc = kind === 'rat' ? 0.62 : 0.5; sp.scale.set(sc, sc * 0.72, sc);
+  var ax = Math.atan2(z - (awayFrom ? awayFrom.z : player.z), x - (awayFrom ? awayFrom.x : player.x)) + (Math.random() - 0.5) * 1.3;
+  var spd = kind === 'rat' ? 6.5 : 3.2;
+  sp.position.set(x, kind === 'rat' ? 0.3 : 1.4, z); scene.add(sp);
+  critters.push({ mesh: sp, vx: Math.cos(ax) * spd, vz: Math.sin(ax) * spd, vy: kind === 'bird' ? 3.4 : 0, life: kind === 'rat' ? 1.4 : 1.7, kind: kind });
+}
+function spawnDumpsterRat(p) {
+  spawnCritter(p.x, p.z, 'rat', p);
+  beep(1500, 0.05, 0.2, 'square', 900); setTimeout(function () { beep(1150, 0.05, 0.13, 'square', 1700); }, 55);  // shriek
+  recoilPitch += 0.18;   // startle flinch
+  popup2('EEK! a rat!');
+}
+function spawnDumpsterBum(p) {
+  if (typeof WC_BOT !== 'undefined' && WC_BOT) return;
+  var n = (typeof spawnNPC === 'function') ? spawnNPC() : null;
+  if (n) {
+    n.x = p.x + p.fx * 0.6; n.z = p.z + p.fz * 0.6;
+    n.mesh.position.set(n.x, 0, n.z); n.mesh.updateMatrixWorld(true);
+    n.state = 'walk'; if (typeof setNpcTarget === 'function') setNpcTarget(n);
+  }
+  var dx = player.x - p.x, dz = player.z - p.z, d = Math.sqrt(dx * dx + dz * dz) || 1;
+  player.x += dx / d * 1.6; player.z += dz / d * 1.6;   // one shove
+  recoilPitch += 0.3;
+  toast('🧟 A grumpy man erupts from the trash: <b>"HEY! I\'m SLEEPING here!"</b>', 3400);
+  sfx('grunt', { x: p.x, z: p.z, range: 32 });
+}
+// ---- dumpster flies (cooldown "readiness" tell) + critter motion ----
+var flyGeo = new THREE.SphereGeometry(0.05, 4, 3), flyMat = new THREE.MeshBasicMaterial({ color: 0x1a1712 });
+function updateScavengeFx(dt) {
+  var i, c;
+  for (i = critters.length - 1; i >= 0; i--) {
+    c = critters[i]; c.life -= dt;
+    c.mesh.position.x += c.vx * dt; c.mesh.position.z += c.vz * dt;
+    if (c.kind === 'bird') { c.mesh.position.y += c.vy * dt; c.vy = Math.max(0.8, c.vy - 2.5 * dt); }
+    else { c.vx *= (1 - dt * 1.6); c.vz *= (1 - dt * 1.6); }   // rat decelerates as it hides
+    c.mesh.material.opacity = Math.max(0, Math.min(1, c.life * 1.6));
+    if (c.life <= 0) { scene.remove(c.mesh); c.mesh.material.dispose(); critters.splice(i, 1); }
+  }
+  var sp = streetPropInteractables;
+  for (i = 0; i < sp.length; i++) {
+    var p = sp[i]; if (p.kind !== 'dumpster') continue;
+    var dxp = p.x - player.x, dzp = p.z - player.z, near = dxp * dxp + dzp * dzp < 1600;   // within 40u
+    if (!p.flies) { if (!near) continue; p.flies = []; for (var k = 0; k < 3; k++) { var m = new THREE.Mesh(flyGeo, flyMat); m.visible = false; scene.add(m); p.flies.push(m); } }
+    var ready = T >= p.cd;
+    for (var k2 = 0; k2 < p.flies.length; k2++) {
+      var fm = p.flies[k2]; fm.visible = ready && near;
+      if (fm.visible) { var a = T * 6 + k2 * 2.1; fm.position.set(p.x + Math.cos(a) * 0.55, 1.75 + Math.sin(a * 1.7) * 0.22, p.z + Math.sin(a) * 0.55); }
     }
   }
 }
@@ -10425,6 +10649,7 @@ function updateWorldFx(dt) {
     fd.vy -= 9.5 * dt;
     fp.x += fd.vx * dt; fp.y += fd.vy * dt; fp.z += fd.vz * dt;
   }
+  updateScavengeFx(dt);   // dumpster flies (cooldown tell) + rat/bird critter motion
   // head under the surface → blue filter + underwater loop
   setUnderwater(state.running && !inside && !driving && !state.dead && player.y < WATER_Y - 0.05);
 }
@@ -10827,8 +11052,8 @@ function refreshInvGrid() {
     })(i);
   }
 }
-function openMenu(which) { setZoom(false); state.menu = which; document.exitPointerLock && document.exitPointerLock(); if (which === 'shop') { shopBought = false; if (!dealerMet) { dealerMet = true; playVoice('dealer_hello_first', 0.5, 1, { ref: dealer }); } else playVoiceAny(['dealer_hello_1', 'dealer_hello_2'], 0.5, 'dealerHi', 18, { ref: dealer }); refreshShop(); document.getElementById('shopPanel').classList.remove('hidden'); } if (which === 'inv') { refreshInv(); document.getElementById('invPanel').classList.remove('hidden'); } if (which === 'clerk') { refreshClerk(); document.getElementById('clerkPanel').classList.remove('hidden'); } }
-function closeMenus(relock) { if (state.menu === 'shop' && !shopBought) playVoice('dealer_bye', 0.45, 40, { ref: dealer }); state.menu = null; document.getElementById('shopPanel').classList.add('hidden'); document.getElementById('invPanel').classList.add('hidden'); document.getElementById('clerkPanel').classList.add('hidden'); if (relock !== false && state.running) lockPointer(); }
+function openMenu(which) { setZoom(false); state.menu = which; document.exitPointerLock && document.exitPointerLock(); if (which === 'shop') { shopBought = false; if (!dealerMet) { dealerMet = true; playVoice('dealer_hello_first', 0.5, 1, { ref: dealer }); } else playVoiceAny(['dealer_hello_1', 'dealer_hello_2'], 0.5, 'dealerHi', 18, { ref: dealer }); refreshShop(); document.getElementById('shopPanel').classList.remove('hidden'); } if (which === 'inv') { refreshInv(); document.getElementById('invPanel').classList.remove('hidden'); } if (which === 'clerk') { refreshClerk(); document.getElementById('clerkPanel').classList.remove('hidden'); } if (which === 'quest') { refreshQuestPanel(); document.getElementById('questPanel').classList.remove('hidden'); } }
+function closeMenus(relock) { if (state.menu === 'shop' && !shopBought) playVoice('dealer_bye', 0.45, 40, { ref: dealer }); state.menu = null; document.getElementById('shopPanel').classList.add('hidden'); document.getElementById('invPanel').classList.add('hidden'); document.getElementById('clerkPanel').classList.add('hidden'); var qp = document.getElementById('questPanel'); if (qp) qp.classList.add('hidden'); if (relock !== false && state.running) lockPointer(); }
 
 // ---------------- minimap ----------------
 var mm = document.getElementById('mm');
@@ -10884,8 +11109,453 @@ function drawMinimap() {
   mg.fillStyle = '#ffd94a'; mg.font = 'bold 12px Courier New'; mg.fillText('$', w2m(dealerPos.x), w2m(dealerPos.z));
   // player arrow
   mg.save(); mg.translate(w2m(player.x), w2m(player.z)); mg.rotate(-yaw); mg.fillStyle = '#ffffff'; mg.strokeStyle = '#000'; mg.beginPath(); mg.moveTo(0, -5); mg.lineTo(3.6, 4); mg.lineTo(-3.6, 4); mg.closePath(); mg.fill(); mg.stroke(); mg.restore();
+  // active-quest waypoint: amber diamond at the current beat's waypoint; if it
+  // maps outside the minimap it clamps to the border as a pointing arrow
+  var wp = questWaypoint();
+  if (wp) {
+    var mx = w2m(wp.x), my = w2m(wp.z), inb = mx >= 5 && mx <= mm.width - 5 && my >= 5 && my <= mm.height - 5;
+    var blink = (Math.sin(T * 5) * 0.5 + 0.5);
+    mg.fillStyle = 'rgba(255,190,40,' + (0.55 + 0.45 * blink).toFixed(2) + ')'; mg.strokeStyle = '#3a2600'; mg.lineWidth = 1;
+    if (inb) {
+      mg.save(); mg.translate(mx, my); mg.rotate(Math.PI / 4); var dd2 = 3.4; mg.fillRect(-dd2, -dd2, dd2 * 2, dd2 * 2); mg.strokeRect(-dd2, -dd2, dd2 * 2, dd2 * 2); mg.restore();
+    } else {
+      // off-map: clamp to the border and draw a chevron pointing toward it
+      var cx = mm.width / 2, cy = mm.height / 2, ang = Math.atan2(my - cy, mx - cx);
+      var ex = Math.max(7, Math.min(mm.width - 7, mx)), ey = Math.max(7, Math.min(mm.height - 7, my));
+      mg.save(); mg.translate(ex, ey); mg.rotate(ang); mg.beginPath(); mg.moveTo(6, 0); mg.lineTo(-4, 4); mg.lineTo(-4, -4); mg.closePath(); mg.fill(); mg.stroke(); mg.restore();
+    }
+  }
   mg.strokeStyle = '#222'; mg.strokeRect(0.5, 0.5, mm.width - 1, mm.height - 1);
 }
+
+// ================= QUEST SYSTEM (framework) =================
+// RuneScape-style quest log: one active quest, minimap waypoint, declarative
+// beats. This is the ENGINE + UI that all 10 quests plug into. Quests are pure
+// data (QUESTS registry); beats advance on their objective type each frame.
+//   state.questLog = [{id, stage, done:[], completed, f:{}}]  (persisted)
+//   state.activeQuest = quest id | null
+//   state.unlocks = { <capability>: true }  (reward flags)
+state.questLog = state.questLog || [];
+state.activeQuest = state.activeQuest || null;
+state.unlocks = state.unlocks || {};
+
+// ---- quest item bank: quest rewards/clues reference items by id. The real
+// icon bank (quest_items.js -> QUEST_ITEM_DEFS/ICONS) is generated by a
+// separate agent and may not be wired yet, so register lightweight fallbacks
+// (using an existing icon) for any id the itemicons bank doesn't already know.
+// TODO: when quest_items.js ships QUEST_ITEM_DEFS + QUEST_ITEM_ICONS, prefer
+// those (they carry proper names + bespoke icons) over these placeholders.
+var QUEST_ITEM_FALLBACK = {   // quest id -> an existing itemicons.js icon id
+  loupe: 'flashlight', almond_vial: 'pills', guest_list: 'newspaper',
+  eviction_notice: 'newspaper', seating_chart: 'newspaper', scanner: 'flashlight',
+  lantern: 'flashlight', lockpick_set: 'crowbar', dog_whistle: 'lighter',
+  etched_lake_key: 'wrench', tunnel_fragment: 'newspaper', alien_keycard: 'smartphone'
+};
+var QUEST_ITEM_INFO = {   // minimal defs so itemDef()/bagAdd()/itemTex() work
+  loupe: { name: "Detective's Loupe", cat: 'tool', use: 'tool' },
+  almond_vial: { name: 'Bitter Almond Vial', cat: 'quirky', use: 'fun' },
+  guest_list: { name: 'Guest List', cat: 'quirky', use: 'fun' },
+  eviction_notice: { name: 'Eviction Notice', cat: 'quirky', use: 'fun' },
+  seating_chart: { name: 'Scratched Seating Chart', cat: 'quirky', use: 'fun' }
+};
+function questRegisterItems() {
+  if (!ITEM_BANK_OK) return;
+  // prefer a real wired bank if present
+  if (typeof QUEST_ITEM_DEFS !== 'undefined' && QUEST_ITEM_DEFS) {
+    for (var i = 0; i < QUEST_ITEM_DEFS.length; i++) { var qd = QUEST_ITEM_DEFS[i]; if (!ITEM_BY_ID[qd.id]) { ITEM_DEFS.push(qd); ITEM_BY_ID[qd.id] = qd; } }
+    if (typeof QUEST_ITEM_ICONS !== 'undefined' && QUEST_ITEM_ICONS) for (var k in QUEST_ITEM_ICONS) if (!ITEM_ICONS[k]) ITEM_ICONS[k] = QUEST_ITEM_ICONS[k];
+  }
+  for (var id in QUEST_ITEM_INFO) {
+    if (ITEM_BY_ID[id]) continue;
+    var inf = QUEST_ITEM_INFO[id];
+    var d = { id: id, name: inf.name, cat: inf.cat, stackMax: inf.stackMax || 4, use: inf.use, hp: 0, value: inf.value || 0, rarity: 1, quest: true };
+    ITEM_DEFS.push(d); ITEM_BY_ID[id] = d;
+    if (!ITEM_ICONS[id] && QUEST_ITEM_FALLBACK[id] && ITEM_ICONS[QUEST_ITEM_FALLBACK[id]]) ITEM_ICONS[id] = ITEM_ICONS[QUEST_ITEM_FALLBACK[id]];
+  }
+}
+
+// ---- QUESTS registry: each quest is pure data. beats[] drive advancement.
+// beat types: talk / reach / fetch / interact / kill / follow / timed.
+// beat fields (all optional but type): waypoint{x,z}, r (reach/POI radius),
+//   text (objective line), giver (talk target id), item+n (fetch), poi
+//   (interact target id), tag (kill target tag), secs+sub (timed),
+//   onEnter(q,beat) fired when the beat becomes active, onComplete(q,beat).
+var QUESTS = {
+  q1_dismember: {
+    id: 'q1_dismember', name: 'A Night to Dismember',
+    giver: { id: 'vivian', name: 'Vivian Crestwood', x: -196, z: -206 },
+    summary: 'A murder-mystery dinner party near the lake turned real. Miss Vivian Crestwood needs an investigator before the next blackout claims another guest. (Framework demo quest — shaped like Quest 1; NPCs/props are placeholders the quest-content agents will flesh out.)',
+    // reward: give the loupe item + unlock the "loupe" capability flag
+    reward: { item: 'loupe', n: 1, unlock: 'loupe', text: 'Detective\'s Loupe — highlights clues & reveals trapped containers.' },
+    beats: [
+      { type: 'talk', giver: 'vivian', waypoint: { x: -196, z: -206 }, text: 'Speak with Vivian at the townhouse party.' },
+      { type: 'reach', waypoint: { x: -188, z: -212 }, r: 5, text: 'Investigate the darkened dining room.' },
+      { type: 'interact', poi: 'cellar', waypoint: { x: -180, z: -200 }, text: 'Search the caterer\'s hidden cellar for evidence.',
+        onEnter: function (q, b) { questArmAmbush('cellar_cleaner'); } },
+      { type: 'fetch', item: 'almond_vial', n: 1, waypoint: { x: -180, z: -200 }, text: 'Recover the Bitter Almond Vial (the murder weapon).' },
+      { type: 'talk', giver: 'vivian', waypoint: { x: -196, z: -206 }, text: 'Return to Vivian and name the poisoner.' }
+    ]
+  }
+};
+var QUEST_ORDER = ['q1_dismember'];   // display order in the quest log
+
+// ---- persistence (localStorage wc_quests), same pattern as wc_char ----
+function saveQuests() {
+  try { localStorage.setItem('wc_quests', JSON.stringify({ log: state.questLog, active: state.activeQuest, unlocks: state.unlocks })); } catch (e) { }
+}
+function loadQuests() {
+  try {
+    var raw = localStorage.getItem('wc_quests'); if (!raw) return;
+    var o = JSON.parse(raw);
+    if (o && o.log) state.questLog = o.log;
+    if (o && o.active) state.activeQuest = o.active;
+    if (o && o.unlocks) state.unlocks = o.unlocks;
+    // re-grant any bag reward items that don't persist in the bag itself is a
+    // content decision; capabilities live in state.unlocks and DO persist.
+  } catch (e) { }
+}
+
+// ---- registry / entry helpers ----
+function questDef(id) { return QUESTS[id] || null; }
+function questEntry(id) { for (var i = 0; i < state.questLog.length; i++) if (state.questLog[i].id === id) return state.questLog[i]; return null; }
+function activeQuestEntry() { return state.activeQuest ? questEntry(state.activeQuest) : null; }
+function questBeat(q) { var d = q && questDef(q.id); if (!d) return null; return d.beats[q.stage] || null; }
+function questFlags(q) { return q.f || (q.f = {}); }
+
+// current active beat's waypoint (for the minimap + HUD tracker)
+function questWaypoint() {
+  var q = activeQuestEntry(); if (!q || q.completed) return null;
+  var b = questBeat(q); return (b && b.waypoint) ? b.waypoint : null;
+}
+function questObjectiveText() {
+  var q = activeQuestEntry(); if (!q) return null;
+  var d = questDef(q.id); if (!d) return null;
+  if (q.completed) return { name: d.name, text: 'COMPLETE' };
+  var b = questBeat(q); return { name: d.name, text: b ? (b.text || b.type) : '' };
+}
+
+// ---- lifecycle ----
+function startQuest(id) {
+  var d = questDef(id); if (!d) return null;
+  var q = questEntry(id);
+  if (!q) { q = { id: id, stage: 0, done: [], completed: false, f: {} }; state.questLog.push(q); }
+  if (q.completed) { toast('You already finished <b>' + d.name + '</b>.', 2600); return q; }
+  if (!state.activeQuest) state.activeQuest = id;
+  beatEnter(q);
+  toast('<b style="color:#ffd98a">QUEST STARTED</b><br>' + d.name, 3600);
+  sfx('buy');
+  saveQuests();
+  return q;
+}
+function setActiveQuest(id) {
+  if (id && !questEntry(id)) return false;
+  state.activeQuest = id || null; saveQuests();
+  if (state.menu === 'quest') refreshQuestPanel();
+  return true;
+}
+// fire the current beat's onEnter hook + reset any per-beat timer
+function beatEnter(q) {
+  var b = questBeat(q); if (!b) return;
+  var f = questFlags(q); f['b' + q.stage] = false;
+  if (b.type === 'timed') q.timerEnd = T + (b.secs || 30);
+  if (typeof b.onEnter === 'function') { try { b.onEnter(q, b); } catch (e) { } }
+}
+// mark the current beat done, run onComplete, advance (or finish the quest)
+function completeBeat() {
+  var q = activeQuestEntry(); if (!q || q.completed) return false;
+  var b = questBeat(q); if (!b) return false;
+  if (q.done.indexOf(q.stage) < 0) q.done.push(q.stage);
+  if (typeof b.onComplete === 'function') { try { b.onComplete(q, b); } catch (e) { } }
+  q.stage++;
+  var d = questDef(q.id);
+  if (q.stage >= d.beats.length) { finishQuest(q.id); }
+  else { beatEnter(q); toast('<b style="color:#8ee87f">OBJECTIVE COMPLETE</b>', 1800); sfx('cash'); }
+  if (state.menu === 'quest') refreshQuestPanel();
+  saveQuests();
+  return true;
+}
+// debug/manual: skip the current beat's condition and advance
+function advanceBeat() { return completeBeat(); }
+function finishQuest(id) {
+  var q = questEntry(id), d = questDef(id); if (!q || !d) return;
+  q.completed = true; q.stage = d.beats.length;
+  if (state.activeQuest === id) state.activeQuest = null;
+  grantReward(id);
+  toast('<b style="color:#ffd98a">QUEST COMPLETE</b><br>' + d.name, 5000);
+  sfx('cash');
+  saveQuests();
+}
+// grant a quest's reward: item into the bag and/or a capability unlock flag
+function grantReward(id) {
+  var d = questDef(id); if (!d || !d.reward) return;
+  var r = d.reward;
+  if (r.unlock) state.unlocks[r.unlock] = true;
+  if (r.item) {
+    questRegisterItems();   // make sure the reward item resolves
+    var left = bagAdd(r.item, r.n || 1);
+    if (left > 0) { spawnItemDrop(r.item, player.x - Math.sin(yaw) * 2.2, player.z - Math.cos(yaw) * 2.2, 180); }   // bag full -> drop it at feet
+    var def = itemDef(r.item);
+    if (def) toast(itemIconHtml(r.item) + ' <b>REWARD:</b> ' + def.name, 4200);
+  } else if (r.text) toast('<b>REWARD:</b> ' + r.text, 4200);
+  saveQuests();
+}
+function hasUnlock(k) { return !!state.unlocks[k]; }
+
+// ---- objective checkers (one per beat type). Each returns true when done. ----
+function within(wp, r) { if (!wp) return false; var dx = player.x - wp.x, dz = player.z - wp.z; r = r || 6; return dx * dx + dz * dz <= r * r; }
+var questCheck = {
+  reach: function (q, b) { return within(b.waypoint, b.r || 6); },
+  fetch: function (q, b) { return b.item ? bagCount(b.item) >= (b.n || 1) : false; },
+  talk: function (q, b) { return !!questFlags(q)['b' + q.stage]; },
+  interact: function (q, b) { return !!questFlags(q)['b' + q.stage]; },
+  kill: function (q, b) { return !!questFlags(q)['b' + q.stage]; },
+  follow: function (q, b) { var f = questFlags(q); if (f['b' + q.stage]) return true; if (b.waypoint && b.escort && within(b.waypoint, b.r || 6)) return true; return false; },
+  timed: function (q, b) { return !!questFlags(q)['b' + q.stage]; }
+};
+function questBeatDone(q, b) { var fn = questCheck[b.type]; return fn ? fn(q, b) : false; }
+
+// ---- signal helpers: called from the interaction/kill paths to satisfy a
+// beat. Each only fires if the ACTIVE beat is of the right type + target. ----
+function questFlagBeat(q) { questFlags(q)['b' + q.stage] = true; }
+function questTalk(giverId) {
+  var q = activeQuestEntry(); if (!q || q.completed) return false;
+  var b = questBeat(q); if (!b || b.type !== 'talk') return false;
+  if (b.giver && b.giver !== giverId) return false;
+  questFlagBeat(q); return true;
+}
+function questInteract(poiId) {
+  var q = activeQuestEntry(); if (!q || q.completed) return false;
+  var b = questBeat(q); if (!b || b.type !== 'interact') return false;
+  if (b.poi && b.poi !== poiId) return false;
+  questFlagBeat(q); return true;
+}
+function questKillTag(tag) {
+  var q = activeQuestEntry(); if (!q || q.completed) return false;
+  var b = questBeat(q); if (!b || b.type !== 'kill') return false;
+  if (b.tag && b.tag !== tag) return false;
+  questFlagBeat(q); return true;
+}
+function questFollowArrive() {
+  var q = activeQuestEntry(); if (!q || q.completed) return false;
+  var b = questBeat(q); if (!b || b.type !== 'follow') return false;
+  questFlagBeat(q); return true;
+}
+function questTimedSub() {
+  var q = activeQuestEntry(); if (!q || q.completed) return false;
+  var b = questBeat(q); if (!b || b.type !== 'timed') return false;
+  if (q.timerEnd && T > q.timerEnd) return false;   // too late
+  questFlagBeat(q); return true;
+}
+
+// ---- secret POIs + proximity triggers ----
+// registerQuestPOI: fire onEnter when the player comes within r; once=one-shot.
+var questPOIs = [];
+function registerQuestPOI(o) { if (!o || o.x == null) return null; o.r = o.r || 6; o._fired = false; questPOIs.push(o); return o; }
+function questPOIById(id) { for (var i = 0; i < questPOIs.length; i++) if (questPOIs[i].id === id) return questPOIs[i]; return null; }
+
+// ambush primitive: a zone (or an armed trigger) that, on entry, spawns hostile
+// actors and/or flips tagged quest NPCs hostile. Concrete danger uses the
+// existing cop actor as a stand-in for the reskinned "Cleaners".
+// TODO: swap the spawned cop stand-ins for reskinned Cleaner NPCs when wired.
+var questAmbushes = [];
+function registerAmbush(o) { if (!o) return null; o.r = o.r || 10; o._fired = false; questAmbushes.push(o); return o; }
+function triggerAmbush(a) {
+  if (!a || a._fired) return; a._fired = true;
+  // flip any tagged quest NPCs hostile (content agents wire the AI reaction)
+  if (a.tag) for (var i = 0; i < npcs.length; i++) if (npcs[i].qtag === a.tag) npcs[i].qhostile = true;
+  // concrete hostiles: spawn cop stand-ins near the player
+  var n = a.count || 2;
+  for (var c = 0; c < n; c++) { try { spawnCop(); } catch (e) { } }
+  if (typeof a.onTrigger === 'function') { try { a.onTrigger(a); } catch (e) { } }
+  toast('<b style="color:#e5533d">AMBUSH!</b> ' + (a.text || 'Hostiles closing in.'), 3000);
+  sfx('deny');
+}
+// arm a named ambush the moment a beat needs it (called from beat onEnter);
+// it then fires on the next proximity check (or immediately if already close)
+var questArmed = {};
+function questArmAmbush(tag) { questArmed[tag] = true; }
+
+// ---- one concrete enterable secret sub-space: the "Gains Cave" cellar.
+// Modeled on the gas-station interior (a room under the map); qLoc switches the
+// floor height + collider set in updatePlayer. Built lazily on first entry.
+var QCELLAR = { x0: -186, x1: -174, z0: -206, z1: -194, y: -120 };
+var qcellarColliders = [];
+var qLoc = null;                       // null | 'cellar'
+var qCellarBuilt = false;
+var qHatch = { x: -180, z: -200 };     // surface hatch position (enter here)
+var qCellarExit = { x: -180, z: -196 }; // stand here inside to leave
+function qAddCellarCollider(cx, cz, w, d) { qcellarColliders.push({ x0: cx - w / 2, x1: cx + w / 2, z0: cz - d / 2, z1: cz + d / 2 }); }
+function buildCellar() {
+  if (qCellarBuilt) return; qCellarBuilt = true;
+  var Y = QCELLAR.y, cx = (QCELLAR.x0 + QCELLAR.x1) / 2, cz = (QCELLAR.z0 + QCELLAR.z1) / 2;
+  var W = QCELLAR.x1 - QCELLAR.x0, D = QCELLAR.z1 - QCELLAR.z0;
+  var stoneT = tex(64, function (g, s) {
+    g.fillStyle = '#6b6256'; g.fillRect(0, 0, s, s);
+    g.fillStyle = '#5a5248'; for (var y = 0; y < s; y += 12) for (var x = ((y / 12) & 1) ? 8 : 0; x < s; x += 16) g.fillRect(x, y, 14, 10);
+    noise(g, s, 90, 0.06, 0.05);
+  }, W / 3, D / 3);
+  var floor = new THREE.Mesh(new THREE.PlaneGeometry(W, D), lamb2(stoneT));
+  floor.rotation.x = -Math.PI / 2; floor.position.set(cx, Y, cz); scene.add(floor);
+  var ceil = new THREE.Mesh(new THREE.PlaneGeometry(W, D), lamb({ color: 0x2a2620 }));
+  ceil.rotation.x = Math.PI / 2; ceil.position.set(cx, Y + 3, cz); scene.add(ceil);
+  var wallM = lamb2(stoneT);
+  function wall(x, z, w, d) { var m = box(w, 3, d, wallM, x, Y + 1.5, z); scene.add(m); solidMeshes.push(m); qAddCellarCollider(x, z, w, d); }
+  wall(cx, QCELLAR.z0 - 0.3, W + 1.2, 0.6); wall(cx, QCELLAR.z1 + 0.3, W + 1.2, 0.6);
+  wall(QCELLAR.x0 - 0.3, cz, 0.6, D + 1.2); wall(QCELLAR.x1 + 0.3, cz, 0.6, D + 1.2);
+  // a dim glow so it isn't pitch black
+  var lamp = new THREE.PointLight(0xffd090, 0.9, 20); lamp.position.set(cx, Y + 2.4, cz); scene.add(lamp);
+  // a weight bench + crates prop hint (cheap boxes)
+  scene.add(box(1.4, 0.5, 0.5, lamb({ color: 0x33373f }), cx - 2, Y + 0.25, cz + 1.5));
+  scene.add(box(0.9, 0.9, 0.9, lamb({ color: 0x6b5a3a }), cx + 3, Y + 0.45, cz - 1.5));
+}
+function enterPOI(id) {
+  if (id === 'cellar') {
+    buildCellar();
+    qLoc = 'cellar';
+    inside = false;   // mutually exclusive with the gas interior
+    player.x = (QCELLAR.x0 + QCELLAR.x1) / 2; player.z = QCELLAR.z1 - 1.5; player.y = QCELLAR.y + EYE;
+    player.vy = 0; player.grounded = true;
+    questInteract('cellar');
+    // once inside, the evidence (fetch item) is present to grab
+    if (activeQuestEntry()) spawnItemDrop('almond_vial', (QCELLAR.x0 + QCELLAR.x1) / 2 - 2, (QCELLAR.z0 + QCELLAR.z1) / 2, 999);
+    // fire any armed ambush tied to this space
+    if (questArmed['cellar_cleaner']) { questArmed['cellar_cleaner'] = false; }   // (kept quiet here; danger stays on the surface for the demo)
+    toast('You drop into a cramped stone cellar. Something was hidden down here.', 3600);
+    sfx('whoosh');
+    return true;
+  }
+  return false;
+}
+function exitPOI() {
+  if (!qLoc) return false;
+  qLoc = null;
+  player.x = qHatch.x; player.z = qHatch.z + 2; player.y = EYE; player.vy = 0; player.grounded = true;
+  toast('You climb back out into the night air.', 2400);
+  return true;
+}
+
+// ---- per-frame quest update: POIs, ambushes, active-beat completion ----
+function updateQuests(dt) {
+  if (!state.running || state.dead) return;
+  // proximity POIs
+  for (var i = 0; i < questPOIs.length; i++) {
+    var p = questPOIs[i]; if (p._fired && p.once) continue;
+    var dx = player.x - p.x, dz = player.z - p.z;
+    if (dx * dx + dz * dz <= p.r * p.r) {
+      if (!p._inside) { p._inside = true; if (typeof p.onEnter === 'function') { try { p.onEnter(p); } catch (e) { } } p._fired = true; }
+    } else p._inside = false;
+  }
+  // ambush zones
+  for (var a = 0; a < questAmbushes.length; a++) {
+    var az = questAmbushes[a]; if (az._fired) continue;
+    var adx = player.x - az.x, adz = player.z - az.z;
+    if (adx * adx + adz * adz <= az.r * az.r) triggerAmbush(az);
+  }
+  // active-beat advancement
+  var q = activeQuestEntry(); if (!q || q.completed) return;
+  var b = questBeat(q); if (!b) return;
+  if (b.type === 'timed' && q.timerEnd && T > q.timerEnd && !questFlags(q)['b' + q.stage]) {
+    // ran out of time — restart the timed window (fail-forward, not a hard fail)
+    q.timerEnd = T + (b.secs || 30);
+    toast('<b style="color:#e5533d">TIME\'S UP</b> — try that again.', 2400);
+  }
+  if (questBeatDone(q, b)) completeBeat();
+}
+
+// ---- quest-giver interaction (E near a giver) ----
+function questGiverNear() {
+  var best = null, bestD = 1e9;
+  for (var i = 0; i < QUEST_ORDER.length; i++) {
+    var d = QUESTS[QUEST_ORDER[i]]; if (!d || !d.giver) continue;
+    var dx = player.x - d.giver.x, dz = player.z - d.giver.z, dd = dx * dx + dz * dz;
+    if (dd < 36 && dd < bestD) { bestD = dd; best = d; }
+  }
+  return best;
+}
+function questGiverTalk(d) {
+  if (!d) return false;
+  var q = questEntry(d.id);
+  if (!q) { startQuest(d.id); if (state.activeQuest !== d.id) setActiveQuest(d.id); questTalk(d.giver.id); return true; }
+  if (q.completed) { toast('<b>' + d.giver.name + ':</b> "Thank you again for everything."', 3000); return true; }
+  if (state.activeQuest !== d.id) setActiveQuest(d.id);
+  var b = questBeat(q);
+  if (b && b.type === 'talk' && (!b.giver || b.giver === d.giver.id)) { questTalk(d.giver.id); return true; }
+  toast('<b>' + d.giver.name + ':</b> "' + (b ? (b.text || 'Please, hurry.') : 'Please, hurry.') + '"', 3200);
+  return true;
+}
+
+// ---- quest log panel (PS1-style; toggled with J) ----
+var questSel = null;   // selected quest id in the panel
+function questStatus(id) {
+  var q = questEntry(id);
+  if (q && q.completed) return 'completed';
+  if (q) return (state.activeQuest === id) ? 'active' : 'started';
+  return 'available';
+}
+function refreshQuestPanel() {
+  var listEl = document.getElementById('questList'), detEl = document.getElementById('questDetail');
+  if (!listEl || !detEl) return;
+  if (!questSel || !QUESTS[questSel]) questSel = state.activeQuest || QUEST_ORDER[0];
+  // left column: quest list
+  listEl.innerHTML = '';
+  for (var i = 0; i < QUEST_ORDER.length; i++) {
+    (function (id) {
+      var d = QUESTS[id], st = questStatus(id);
+      var row = document.createElement('div');
+      row.className = 'qItem' + (id === questSel ? ' sel' : '') + ' ' + st;
+      var tag = st === 'completed' ? '✔' : (st === 'active' ? '◆' : (st === 'started' ? '•' : '·'));
+      row.innerHTML = '<span class="qTag">' + tag + '</span>' + d.name;
+      row.onclick = function () { questSel = id; refreshQuestPanel(); };
+      listEl.appendChild(row);
+    })(QUEST_ORDER[i]);
+  }
+  // right column: selected quest detail
+  var d = QUESTS[questSel]; if (!d) { detEl.innerHTML = ''; return; }
+  var q = questEntry(questSel), st = questStatus(questSel);
+  var html = '<div class="qName">' + d.name + '</div>';
+  html += '<div class="qState ' + st + '">' + (st === 'completed' ? 'COMPLETED' : st === 'active' ? 'ACTIVE' : st === 'started' ? 'IN PROGRESS' : 'AVAILABLE') + '</div>';
+  if (d.giver) html += '<div class="qGiver">Given by ' + d.giver.name + '</div>';
+  html += '<div class="qSummary">' + d.summary + '</div>';
+  html += '<div class="qBeats">';
+  for (var b = 0; b < d.beats.length; b++) {
+    var beat = d.beats[b], mark, cls;
+    if (st === 'completed' || (q && q.done.indexOf(b) >= 0)) { mark = '✔'; cls = 'done'; }
+    else if (q && q.stage === b) { mark = '▶'; cls = 'cur'; }
+    else { mark = '○'; cls = 'todo'; }
+    // hide the text of not-yet-reached beats to avoid spoilers, show current+done
+    var show = (cls === 'todo' && !(q && b <= q.stage)) ? '???' : (beat.text || beat.type);
+    html += '<div class="qBeat ' + cls + '"><span class="qbm">' + mark + '</span>' + show + '</div>';
+  }
+  html += '</div>';
+  if (d.reward) html += '<div class="qReward"><b>REWARD:</b> ' + (d.reward.text || (d.reward.item || '')) + '</div>';
+  html += '<div class="qActions">';
+  if (st === 'available') html += '<button id="qActStart">START (find ' + (d.giver ? d.giver.name : 'the giver') + ')</button>';
+  else if (st !== 'completed') html += '<button id="qActSet"' + (state.activeQuest === questSel ? ' disabled' : '') + '>SET ACTIVE</button>';
+  html += '</div>';
+  detEl.innerHTML = html;
+  var setB = document.getElementById('qActSet'); if (setB) setB.onclick = function () { setActiveQuest(questSel); refreshQuestPanel(); };
+  var startB = document.getElementById('qActStart'); if (startB) startB.onclick = function () { toast('Find <b>' + (d.giver ? d.giver.name : 'the quest giver') + '</b> on the map (amber beacon) and press E to begin.', 4000); };
+}
+
+// visible amber beacons at givers + the cellar hatch (so the framework is
+// eyeball-able before the real quest NPCs/props exist)
+(function questBeacons() {
+  function beacon(x, z, col) {
+    var g = new THREE.Group();
+    var pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 3.2, 6), new THREE.MeshBasicMaterial({ color: col }));
+    pole.position.y = 1.6; g.add(pole);
+    var orb = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 6), new THREE.MeshBasicMaterial({ color: col }));
+    orb.position.y = 3.4; g.add(orb);
+    g.position.set(x, 0, z); scene.add(g); return g;
+  }
+  for (var i = 0; i < QUEST_ORDER.length; i++) { var d = QUESTS[QUEST_ORDER[i]]; if (d && d.giver) beacon(d.giver.x, d.giver.z, 0xffcf4a); }
+  beacon(qHatch.x, qHatch.z, 0x7ad0ff);   // cellar hatch marker
+})();
+
+loadQuests();
+questRegisterItems();
+
+// ================= END QUEST SYSTEM =================
 
 // ---------------- input ----------------
 var canvas = renderer.domElement;
@@ -12081,6 +12751,7 @@ document.addEventListener('keydown', function (e) {
   keys[e.code] = true;
   if ((e.code === 'Enter' || e.code === 'NumpadEnter') && state.running && !state.menu && netActive()) { e.preventDefault(); openChat(); return; }
   if (e.code === 'Tab') { e.preventDefault(); if (!state.running || state.dead) return; if (state.menu === 'inv') closeMenus(); else { closeMenus(false); openMenu('inv'); } }
+  if (e.code === 'KeyJ' && !e.repeat) { e.preventDefault(); if (!state.running || state.dead) return; if (state.menu === 'quest') closeMenus(); else if (!state.menu) openMenu('quest'); return; }
   if (e.code === 'KeyQ' && state.menu === 'inv') { e.preventDefault(); if (bagSel >= 0 && state.bag[bagSel]) bagDrop(bagSel); return; }
   if (e.code === 'KeyE') {
     // dead-guard matters: E during the 2.6s death window could enterStore
@@ -12090,6 +12761,11 @@ document.addEventListener('keydown', function (e) {
     if (state.menu === 'shop' || state.menu === 'clerk') { closeMenus(); return; }
     if (state.menu) return;
     if (driving) { exitCar(); return; }
+    if (qLoc) {   // inside a quest sub-space (e.g. the cellar) — E near the exit climbs out
+      var qex = player.x - qCellarExit.x, qez = player.z - qCellarExit.z;
+      if (qex * qex + qez * qez < 9) exitPOI();
+      return;
+    }
     if (inside) {
       var cdx = player.x - clerkPos.x, cdz = player.z - clerkPos.z;
       var xdx = player.x - doorIn.x, xdz = player.z - doorIn.z;
@@ -12097,12 +12773,17 @@ document.addEventListener('keydown', function (e) {
       else if (xdx * xdx + xdz * xdz < 7) exitStore();
       return;
     }
+    var qgv = questGiverNear();
+    if (qgv) { questGiverTalk(qgv); return; }
+    var qhx = player.x - qHatch.x, qhz = player.z - qHatch.z;
+    if (qhx * qhx + qhz * qhz < 12) { enterPOI('cellar'); return; }
     var ddx = player.x - dealerPos.x, ddz = player.z - dealerPos.z;
     if (ddx * ddx + ddz * ddz < 36) { openMenu('shop'); return; }
     var gdx = player.x - gasRob.x, gdz = player.z - gasRob.z;
     if (gdx * gdx + gdz * gdz < 40) { enterStore(); return; }
-    if (streetPropInteract()) return;   // vending / payphone / ATM / newsbox
-    if (envPropInteract()) return;      // env props: sit / drink / buy / play / vend / read
+    if (streetPropInteract()) return;   // vending / payphone / ATM / newsbox / dumpster / kick / mailbox
+    if (envPropInteract()) return;      // env props: sit / drink / buy / play / vend / read / mailbox
+    if (bushRummage()) return;          // rummage a bush/hedge for lost items
     var sc = nearestStealableCar();
     if (sc) {
       if (sc.parked) startBreakIn(sc);   // empty lot car: 0.9s break-in first
@@ -12132,17 +12813,37 @@ function updatePlayer(dt) {
   var f = 0, s = 0;
   if (keys['KeyW']) f += 1; if (keys['KeyS']) f -= 1; if (keys['KeyD']) s += 1; if (keys['KeyA']) s -= 1;
   if (state.sitting) { if (f || s || keys['Space']) state.sitting = false; else { f = 0; s = 0; } }   // env sit: stand on any move input
+  // dumpster dive: rummage locks movement, dips the camera into the bin, spits
+  // trash puffs; resolves loot after ~2s. (any move input aborts it early)
+  var diveDip = 0, divePitch = 0;
+  if (diveState) {
+    if (f || s || keys['Space']) { diveState = null; }
+    else {
+      f = 0; s = 0;
+      var del = T - diveState.t0, prog = Math.min(1, del / diveState.dur);
+      var de = prog < 0.3 ? prog / 0.3 : (prog > 0.75 ? Math.max(0, (1 - prog) / 0.25) : 1);
+      diveDip = -0.8 * de; divePitch = -0.6 * de;
+      diveState.emT -= dt;
+      if (diveState.emT <= 0) {
+        diveState.emT = 0.17;
+        var dp = diveState.p;
+        puff(new THREE.Vector3(dp.x + (Math.random() - 0.5) * 1.2, 1.15 + Math.random() * 0.6, dp.z + (Math.random() - 0.5) * 1.2), DIVE_PUFF[(Math.random() * DIVE_PUFF.length) | 0]);
+        if (Math.random() < 0.5) dumpsterRustle(dp.x, dp.z);
+      }
+      if (prog >= 1) { resolveDive(diveState.p); diveState = null; }
+    }
+  }
   var spd = keys['ShiftLeft'] || keys['ShiftRight'] ? 8.4 : 5.2;
   if (f || s) { var inv = spd / Math.sqrt(f * f + s * s); var fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw); player.x += (fx * f + rx * s) * inv * dt; player.z += (fz * f + rz * s) * inv * dt; }
   if (keys['Space'] && player.grounded) { player.vy = 5.6; player.grounded = false; }
   player.vy -= GRAV * dt; player.y += player.vy * dt;
-  var eyeFloor = (inside ? INT.y : lakeBedY(player.x, player.z)) + EYE;
+  var eyeFloor = (inside ? INT.y : (qLoc ? QCELLAR.y : lakeBedY(player.x, player.z))) + EYE;
   if (player.y <= eyeFloor) { player.y = eyeFloor; player.vy = 0; player.grounded = true; }
   player.x = Math.max(-HALF + 1.2, Math.min(HALF - 1.2, player.x)); player.z = Math.max(-HALF + 1.2, Math.min(HALF - 1.2, player.z));
   if (!landColliders) landColliders = colliders.filter(function (cc) { return !cc.lake; });
-  var p = pushOut(player.x, player.z, 0.55, inside ? intColliders : landColliders); player.x = p.x; player.z = p.z;
+  var p = pushOut(player.x, player.z, 0.55, inside ? intColliders : (qLoc ? qcellarColliders : landColliders)); player.x = p.x; player.z = p.z;
   // pedestrians are solid-ish: you shoulder past them, not through them
-  if (!inside && !state.dead) for (var pci = 0; pci < npcs.length; pci++) {
+  if (!inside && !qLoc && !state.dead) for (var pci = 0; pci < npcs.length; pci++) {
     var pcn = npcs[pci];
     if (pcn.state === 'down' || pcn.state === 'ragdoll' || pcn.state === 'hidden') continue;
     var pcx = player.x - pcn.x, pcz = player.z - pcn.z, pc2 = pcx * pcx + pcz * pcz;
@@ -12153,7 +12854,7 @@ function updatePlayer(dt) {
     }
   }
   // cops are solid too — but they hold the line (player gives most of the ground)
-  if (!state.dead) for (var cci = 0; cci < cops.length; cci++) {
+  if (!qLoc && !state.dead) for (var cci = 0; cci < cops.length; cci++) {
     var ccc = cops[cci];
     if (ccc.state === 'down') continue;
     if (inside ? !ccc.interior : ccc.interior) continue;   // interior cops share x/z space at another floor
@@ -12164,7 +12865,7 @@ function updatePlayer(dt) {
       ccc.x -= ccx / ccd * ccp * 0.2; ccc.z -= ccz / ccd * ccp * 0.2;   // cops barely budge
     }
   }
-  if (!inside && !state.dead && isClient()) for (var cmi = 0; cmi < copsM.length; cmi++) {
+  if (!inside && !qLoc && !state.dead && isClient()) for (var cmi = 0; cmi < copsM.length; cmi++) {
     var cmc = copsM[cmi];
     if (cmc.down) continue;
     var cmx = player.x - cmc.x, cmz = player.z - cmc.z, cm2 = cmx * cmx + cmz * cmz;
@@ -12176,9 +12877,10 @@ function updatePlayer(dt) {
   if (mouseDown && !WEAPONS[state.equipped].melee && WEAPONS[state.equipped].auto) tryAttack();
   if (state.hp < 100 && T - state.lastHurt > 5) state.hp = Math.min(100, state.hp + 5 * dt);
   recoilPitch += -recoilPitch * Math.min(1, dt * 5);   // recoil recovers back to the aim over ~0.4s (was: pitch climbed and stuck)
-  camera.position.set(player.x, player.y, player.z); camera.rotation.y = yaw; camera.rotation.x = Math.max(-1.45, Math.min(1.45, pitch + recoilPitch));
+  camera.position.set(player.x, player.y, player.z); camera.rotation.y = yaw; camera.rotation.x = Math.max(-1.45, Math.min(1.45, pitch + recoilPitch + divePitch));
   var moving = (f || s) && player.grounded; var bob = moving ? Math.sin(T * (spd > 6 ? 13 : 9)) * 0.035 : 0; camera.position.y += bob;
   if (state.sitting) camera.position.y -= 0.55;   // seated eye height
+  camera.position.y += diveDip;                    // dumpster-dive head dip
   recoil = Math.max(0, recoil - dt * 8); vm.position.z = recoil * 0.07; vm.position.y = bob * 0.5; vm.rotation.x = recoil * 0.06;
   gunBloom = Math.max(0, gunBloom - dt * 0.06);   // spread recovers ~0.7s after easing off
   // weapon draw + rocket reload animations (procedural, PS1-cheap)
@@ -12255,6 +12957,10 @@ function updatePlayer(dt) {
   // context prompt
   var prompt = document.getElementById('prompt');
   if (state.menu) { prompt.textContent = ''; }
+  else if (qLoc) {
+    var qex = player.x - qCellarExit.x, qez = player.z - qCellarExit.z;
+    prompt.textContent = (qex * qex + qez * qez < 9) ? '[E] CLIMB OUT' : '';
+  }
   else if (inside) {
     var cdx = player.x - clerkPos.x, cdz = player.z - clerkPos.z;
     var xdx = player.x - doorIn.x, xdz = player.z - doorIn.z;
@@ -12264,10 +12970,14 @@ function updatePlayer(dt) {
   } else {
     var ddx = player.x - dealerPos.x, ddz = player.z - dealerPos.z;
     var gdx = player.x - gasRob.x, gdz = player.z - gasRob.z;
+    var qgv2 = questGiverNear();
+    var qhx2 = player.x - qHatch.x, qhz2 = player.z - qHatch.z;
     if (ddx * ddx + ddz * ddz < 36) prompt.textContent = '[E] BUY GUNS';
     else if (gdx * gdx + gdz * gdz < 40) prompt.textContent = (T < gasClosedUntil) ? 'STORE CLOSED' : '[E] ENTER GAS STATION';
+    else if (qgv2) prompt.textContent = '[E] TALK TO ' + qgv2.giver.name.toUpperCase();
+    else if (qhx2 * qhx2 + qhz2 * qhz2 < 12) prompt.textContent = '[E] ENTER CELLAR HATCH';
     else {
-      var spp = breakIn ? null : (streetPropPrompt() || envPropPrompt());   // street + env prop E-prompts
+      var spp = breakIn ? null : (streetPropPrompt() || envPropPrompt() || bushPrompt());   // street + env + bush E-prompts
       var nsc = spp || breakIn ? null : nearestStealableCar();
       if (breakIn) prompt.textContent = 'BREAKING IN…';
       else if (spp) prompt.textContent = spp;
@@ -12298,6 +13008,9 @@ function sizeHud() {
 }
 var hudMmB = 118;
 window.addEventListener('resize', sizeHud); sizeHud();
+// PS1-on-a-TV CRT overlay (subtle scanlines + vignette). Flip to false to disable.
+var CRT_FX = true;
+(function () { var f = document.getElementById('crtFx'); if (f) f.classList.toggle('hidden', !CRT_FX); })();
 // chunky glyph: hard black drop-shadow → reads as an outlined bitmap once upscaled
 function hudText(txt, x, y, size, fill, align) {
   hudCx.font = 'bold ' + size + 'px "Courier New",monospace';
@@ -12388,6 +13101,22 @@ function drawHudCanvas() {
   var hy = H - M - 42;
   drawSprite(SPR_HEART, M, hy + 8, 3, '#ff3b56');
   drawPix('' + hp, M + 34, hy, 6, hcol, 'left');
+  // ---- active-quest tracker (top-left — the bitmap layout keeps this corner
+  // free; quest name in pixel type, objective line in small flavor text) ----
+  var qo = questObjectiveText();
+  if (qo) {
+    var qy = M + 10;
+    var otxt = (qo.text === 'COMPLETE') ? '✔ COMPLETE' : ('◆ ' + qo.text);
+    hudCx.font = 'bold 12px "Courier New",monospace';
+    var qtw = hudCx.measureText(otxt).width;
+    var qnw = qo.name.length * 12 - 2;                    // drawPix px=2 advance
+    var qpw = Math.max(qnw, qtw) + 22;
+    hudCx.fillStyle = '#000'; hudCx.fillRect(M - 8, qy - 8, qpw + 4, 46);
+    hudCx.fillStyle = 'rgba(10,13,20,0.85)'; hudCx.fillRect(M - 6, qy - 6, qpw, 42);
+    hudCx.fillStyle = '#ffb428'; hudCx.fillRect(M - 6, qy - 6, 4, 42);   // amber accent bar
+    drawPix(qo.name, M + 4, qy, 2, '#ffd98a', 'left');
+    hudText(otxt, M + 4, qy + 30, 12, (qo.text === 'COMPLETE') ? '#8ee87f' : '#cfe6ff', 'left');
+  }
   // ---- weapon (bottom-right): bitmap name, small flavor line under it ----
   var wb = document.getElementById('weaponBox'), main = '', sub = '';
   if (wb) {
@@ -12427,7 +13156,7 @@ function loop(now) {
   var dt = Math.min(0.05, (now - last) / 1000); last = now;
   if (!state.running) { renderer.render(scene, camera); renderCreatorFrame(dt); return; }
   T += dt;
-  updatePlayer(dt); updateNPCs(dt); updateKids(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateUfo(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateVoiceAudio(dt); updateNet(dt); updateNpcTags(); updateHUD(); drawMinimap();
+  updatePlayer(dt); updateNPCs(dt); updateKids(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateUfo(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); updateNpcTags(); updateHUD(); drawMinimap();
   renderer.render(scene, camera);
 }
 setEquipped('fists');
@@ -12547,6 +13276,12 @@ window.__wc = {
   densityInfo: function () { return densityStats; },
   forestFillPts: expFillPts,
   streetProps: streetPropInteractables, streetPropInteract: streetPropInteract, getStreetProp: getStreetProp, hydrantJets: hydrantJets,
+  // dumpster diving / scavenging test hooks (all local-only)
+  dumpsters: function () { var o = []; for (var i = 0; i < streetPropInteractables.length; i++) if (streetPropInteractables[i].kind === 'dumpster') o.push(streetPropInteractables[i]); return o; },
+  rollDive: rollDive, startDive: startDive, giveItem: giveItem, critters: function () { return critters; },
+  diveActive: function () { return !!diveState; }, resolveDive: resolveDive,
+  spawnDumpsterRat: spawnDumpsterRat, spawnDumpsterBum: spawnDumpsterBum,
+  bushSpots: function () { return bushSpots; }, bushRummage: bushRummage, checkMail: checkMail,
   envProps: envProps, envPropInteractables: envPropInteractables, envStats: envStats, getEnvProp: getEnvProp, envPropInteract: envPropInteract, envPropPrompt: envPropPrompt, envToys: envToys,
   solidMeshes: solidMeshes, nightEmis: nightEmis,
   houses: houseStats, houseBlocksSpot: houseBlocksSpot, houseMeshesRef: houseMeshesRef,
@@ -12563,7 +13298,18 @@ window.__wc = {
   creatorSpin: function (v) { if (cprev) cprev.spin = v; },
   getPlayerChar: function () { return playerChar; },
   setPlayerChar: function (c) { playerChar = c; },
-  tick: function (dt) { T += dt; updatePlayer(dt); updateNPCs(dt); updateKids(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateUfo(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateVoiceAudio(dt); updateNet(dt); renderer.render(scene, camera); }
+  // --- quest system debug hooks ---
+  QUESTS: QUESTS, questLog: function () { return state.questLog; },
+  startQuest: startQuest, setActiveQuest: setActiveQuest, advanceBeat: advanceBeat, completeBeat: completeBeat,
+  finishQuest: finishQuest, grantReward: grantReward, hasUnlock: hasUnlock,
+  questState: function () { var q = activeQuestEntry(); return { active: state.activeQuest, stage: q ? q.stage : -1, beat: q ? questBeat(q) : null, obj: questObjectiveText(), waypoint: questWaypoint(), log: state.questLog, unlocks: state.unlocks }; },
+  questWaypoint: questWaypoint, questObjectiveText: questObjectiveText, questBeatDone: function () { var q = activeQuestEntry(); return q ? questBeatDone(q, questBeat(q)) : false; },
+  questTalk: questTalk, questInteract: questInteract, questKillTag: questKillTag, questFollowArrive: questFollowArrive, questTimedSub: questTimedSub,
+  registerQuestPOI: registerQuestPOI, questPOIById: questPOIById, registerAmbush: registerAmbush, triggerAmbush: triggerAmbush,
+  enterPOI: enterPOI, exitPOI: exitPOI, questLoc: function () { return qLoc; },
+  questGiverNear: questGiverNear, questGiverTalk: questGiverTalk, refreshQuestPanel: refreshQuestPanel,
+  openQuestLog: function () { openMenu('quest'); }, saveQuests: saveQuests, loadQuests: loadQuests,
+  tick: function (dt) { T += dt; updatePlayer(dt); updateNPCs(dt); updateKids(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateUfo(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); renderer.render(scene, camera); }
 };
 
 // ---------------- boot screen handoff + menu cover art ----------------

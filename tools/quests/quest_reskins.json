@@ -1,0 +1,20 @@
+[
+ {"n":"CHET",        "base":"CONCIERGE", "src":"quest", "role":"quest", "quest":"q1_dismember", "file":"reskin_CHET.jpg",
+  "instr":"change the dark charcoal suit jacket to a crisp WHITE service waiter jacket; keep the trousers black and the hair dark and slick.",
+  "notes":"caterer -> unmasks as a Cleaner. Base: CONCIERGE (suited mesh)."},
+ {"n":"METER_READER","base":"DIEGO",     "src":"meshy", "role":"quest", "quest":"q2_watching", "file":"reskin_METER_READER.jpg",
+  "instr":"change the coveralls to a light-grey utility uniform with a bright safety-orange high-visibility vest across the chest and shoulders.",
+  "notes":"dead-eyed meter reader; doubles as a Cleaner. Base: DIEGO (coveralls)."},
+ {"n":"DUKE",        "base":"DIEGO",     "src":"meshy", "role":"quest", "quest":"q4_heist", "file":"reskin_DUKE.jpg",
+  "instr":"change the coveralls to a faded tan mechanic jumpsuit; keep skin and hair the same.",
+  "notes":"laconic getaway wheelman. Base: DIEGO (coveralls)."},
+ {"n":"CHAD",        "base":"TYRELL",    "src":"meshy", "role":"quest", "quest":"q7_legday", "file":"reskin_CHAD.jpg",
+  "instr":"change the windbreaker jacket to a bright turquoise athletic tank-top look and the pants to grey gym shorts.",
+  "notes":"nasal gym-bro with permanent smoothie. Base: TYRELL (athletic)."},
+ {"n":"SILAS",       "base":"ALEX",      "src":"meshy", "role":"quest", "quest":"q8_cleaners", "file":"reskin_SILAS.jpg",
+  "instr":"change the hoodie to a plain washed-out dark-grey hoodie and darken the whole outfit to a tired, colorless look; keep pants dark.",
+  "notes":"weary Cleaners handler, hollow-eyed. Base: ALEX (hoodie)."},
+ {"n":"GRAY_BOY",    "base":"LEO",       "src":"kid",   "role":"quest", "quest":"q3_redhouse", "file":"reskin_GRAY_BOY.jpg",
+  "instr":"desaturate the ENTIRE character to a single monochrome pale ghostly grey-blue tone, removing all other color, like a faint glowing child spirit apparition.",
+  "notes":"kid-safe nursery ghost, unharmable. Base: LEO (kid)."}
+]

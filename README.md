@@ -180,6 +180,30 @@ its price. In multiplayer the pavement is shared: anyone can scoop up your
 dropped arsenal before you get back, so dying near your killer is a
 donation.
 
+## Quests & the quest log
+
+Westchase has **stories to work through**. Quest-givers stand around town
+under a soft **amber beacon** — walk up and press **E** to hear them out and
+take the job. You can only actively track **one quest at a time**.
+
+Open the **quest log with J**. On the left is every quest you've found
+(available, in-progress, or completed); click one to read its summary and
+its **objective checklist** on the right. Hit **SET ACTIVE** to track a
+quest — its current objective then shows in the **top-left HUD tracker**, and
+an **amber diamond marks the next waypoint on your minimap** (with an arrow
+pointing the way if it's far off).
+
+Objectives come in a few flavors — **talk** to someone, **reach** a spot,
+**find** an item, **search/interact** with a place, take out a **target**,
+**escort** someone, or beat a **timer**. Some quests send you into hidden
+places the town keeps quiet — a **cellar hatch** behind a building, for one.
+Finish a quest and you keep the **reward**: a new item in your bag and/or a
+lasting **capability** (the first one, the *Detective's Loupe*, helps you
+read a scene). Your progress is saved between sessions.
+
+*(The full story campaign is being built out quest by quest; the framework
+and its first demo quest, "A Night to Dismember," are in now.)*
+
 ## Items & your bag
 
 Beyond guns, the world is full of **loose items** — food, drinks, medkits,
@@ -203,6 +227,24 @@ pedestrians** sometimes drop an item along with their cash, and there's
 **litter to scavenge around the dumpsters** out back of the strip malls and
 Publix — mostly junk, but keep an eye out for a dropped wallet or phone. Your
 bag is yours alone — in multiplayer, items you knock loose aren't shared yet.
+
+### Dumpster diving & scavenging
+
+Press **E** on any **dumpster** to roll up your sleeves and dig in. A short
+rummage (head down in the bin, trash flying) turns up… something — usually
+junk, often food (gross, but hey, it heals — *still warm?*), sometimes a
+tossed-out wallet or phone, and once in a blue moon a **gold watch, chain or
+cash wad** somebody threw away. Every so often a **startled rat** shoots out,
+or a **grumpy sleeper** erupts to shove you off his bed. Each dumpster needs
+~90 seconds to refill (the buzzing flies tell you it's ready again).
+
+The whole town is scavengeable, in fact: **newspaper boxes** hand out today's
+paper, **kick over a trash can or wheelie bin** (E) to spill its junk, the
+**claw machine** grabs a real toy for your bag, the **mailboxes** at the
+townhouses hold junk mail (and, rarely, a mis-delivered package — pocket it,
+but not while a cop's watching), and you can **rummage the bushes** for the odd
+lost trinket (mind the birds). All of it drops straight into your bag; a full
+bag spills the overflow at your feet.
 
 ## The gas station
 
@@ -374,6 +416,8 @@ bed runs under everything.
 - **E** — talk to the dealer (when close)
 - **Tab** — inventory: equip/unequip weapons + your 6×4 item grid (click an
   item to use it, right-click or **Q** to drop one)
+- **J** — quest log (see your active quest, all beats, and set which quest
+  you're tracking)
 - **Enter** — open text chat (multiplayer), **Esc** to cancel
 - **Hold V** — push-to-talk voice chat (multiplayer)
 - **F8** — report a bug (grabs a screenshot + your note, sent for triage)

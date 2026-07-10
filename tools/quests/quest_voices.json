@@ -1,0 +1,33 @@
+{
+ "_comment": "Character -> Fish Audio voice registry for the quest dialogue packs. 8 NEW refs minted for the main new quest NPCs (chosen via findvoice.js). Vlad + Wendell Pike REUSE the existing VLAD/WENDELL game voices. Reskin/minor NPCs and returning cast REUSE existing refs (npc_voices.json / voices.json). BISCUIT is a dog: stylized bark/whimper WAVs (energetic voice + onomatopoeia), non-verbal.",
+ "new": {
+  "VIVIAN":   {"ref": "0dc74c8ebf83432290d6f454ff4e0db9", "title": "Scarlet Witch", "why": "commanding dramatic mature female — theatrical grande-dame hostess"},
+  "AGATHA":   {"ref": "be6a76eaf6dd495a9081f5fb3408404e", "title": "Old Woman VO (SmoothStep)", "why": "warm elderly female, gentle+grave caretaker"},
+  "SAL":      {"ref": "a35a83baa23d4048ae21f8f349bdc82e", "title": "Gangster Gritty Storyteller", "why": "deep raspy dramatic wiseguy raconteur"},
+  "DESIREE":  {"ref": "23224970828f44849cb20016cdec6f7a", "title": "Sexy Female Villain Voice", "why": "honeyed lure that turns venomous"},
+  "BRICK":    {"ref": "1f153d61b0ae4095b28c786ddeaec347", "title": "Dark Villain", "why": "deep raspy menacing — slow few-words bruiser"},
+  "WARDEN":   {"ref": "439895c3270543439da5da1532a5d21b", "title": "robot", "why": "precise synthetic — glitchy lake-entity guardian (also the q10 Entity)"},
+  "CONCIERGE":{"ref": "b2a986ab984a477b9cfbecc584f5c6f0", "title": "Austin butler", "why": "deep smooth calm — silken sinister Cleaners handler"},
+  "THORNE":   {"ref": "0327fdb5da9e4fd782899a8058c8ae2b", "title": "Narrator", "why": "deep authoritative measured — velvet menace chairman"}
+ },
+ "reused": {
+  "VLAD":     {"ref": "cb3738020a154e26842d9f29b8fba80b", "from": "existing VLAD game voice — squat-lord bravado"},
+  "WENDELL":  {"ref": "1090fd9fa122405e94f8a82821ebaa2e", "from": "existing WENDELL game voice — paranoid"},
+  "DON":      {"ref": "25e19c17980d4bc9b32e43f4438a2580", "from": "existing DON Sharp"},
+  "GLORIA":   {"ref": "0b6770770baf4db5b13c78c3091584a0", "from": "existing GLORIA"},
+  "XANDER":   {"ref": "8c67d2ba6cb74355b37583ae65212335", "from": "existing XANDER"},
+  "DERIK":    {"ref": "63433d66506f4c428f78562ee80d3d71", "from": "existing DERIK Sharp"},
+  "DYLAN":    {"ref": "50c4e200c9c84be88ddda124d319ef19", "from": "existing DYLAN Sharp (also q9 giver + Gray Boy giggles)"},
+  "MARCUS":   {"ref": "ccbc13d6002a46b7883f607fd8fe0516", "from": "ANDRE — indebted Regions teller"},
+  "CHET":     {"ref": "95ba5325b3e04dc5ab75592f7d4710d5", "from": "ped_m — oily caterer (planted Cleaner)"},
+  "METER":    {"ref": "a97131ef0e2f4bc3b55305c9d3ab57c5", "from": "COLT — dead-eyed meter reader / Cleaner"},
+  "SILAS":    {"ref": "afd158c7502846f7954b71ade6e7b4b2", "from": "ped_old — weary Cleaners handler"},
+  "DUKE":     {"ref": "38cf218eb5454fcfb1f66fcd171f89bb", "from": "JAMAL — laconic wheelman"},
+  "CHAD":     {"ref": "fee420f4813d4318bfea84f8f6cac53f", "from": "BRAD — nasal gym-bro"},
+  "HISTORIAN":{"ref": "afd158c7502846f7954b71ade6e7b4b2", "from": "ped_old — records-clerk exposition"},
+  "HUSBAND":  {"ref": "95ba5325b3e04dc5ab75592f7d4710d5", "from": "ped_m — rescued Good Samaritan"},
+  "SPOUSE":   {"ref": "ff975879e00d4cb891ac5f4e7f9acf15", "from": "ped_f — worried spouse (q5 giver)"},
+  "CHAMPION": {"ref": "50c4e200c9c84be88ddda124d319ef19", "from": "DYLAN kid voice — hide-and-seek champion"},
+  "BISCUIT":  {"ref": "3c9dcc58d40a45c2b60f5361294068ea", "from": "clerk energetic — stylized bark onomatopoeia"}
+ }
+}

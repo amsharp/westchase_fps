@@ -1,0 +1,55 @@
+{
+ "_comment": "11 quest NPC generations. 10 humanoid Meshy gens (gpt-image-1 seed -> Meshy image-to-3d lowpoly t-pose -> rigging -> genskin skinned). BISCUIT is NOT gen'd here: it reuses the existing accessprops.js `dog` mesh (chocolate/black-&-tan variant) at assembly time. `seed` = gpt-image-1 body description; `height` feeds Meshy rigging (genskin rescales to game units).",
+ "chars": {
+  "VIVIAN": {
+   "height": 1.66,
+   "quest": "q1_dismember",
+   "seed": "an elegant elderly woman in her 60s with a sleek silver bob haircut, wearing a floor-length emerald-green satin evening gown with thin shoulder straps, a triple-strand pearl necklace and pearl earrings, long white opera gloves, gold high heels; theatrical grande-dame poise"
+  },
+  "WENDELL": {
+   "height": 1.72,
+   "quest": "q2_watching",
+   "seed": "a wiry paranoid man in his 40s with messy thinning hair, wearing a worn maroon terrycloth bathrobe open over a white tank top and grey track pants, a grey ballcap lined with crinkled tinfoil, black binoculars hanging on a strap around his neck, brown slippers"
+  },
+  "AGATHA": {
+   "height": 1.58,
+   "quest": "q3_redhouse",
+   "seed": "a stooped frail elderly caretaker woman in her 80s with a wrinkled face and one milky-white blind eye, thin grey hair in a bun, wearing a long black wool shawl over a high-collared dark grey mourning dress to the ankles, black button boots"
+  },
+  "SAL": {
+   "height": 1.7,
+   "quest": "q4_heist",
+   "seed": "a sharp-dressed elderly wiseguy in his 70s with a lined face and a thin grey mustache, wearing a pinstripe charcoal three-piece suit with a red pocket square, a grey fedora hat, a gold pinky ring, brown leather shoes"
+  },
+  "DESIREE": {
+   "height": 1.68,
+   "quest": "q5_siren",
+   "seed": "a striking young woman in her late 20s with long wavy dark-red hair, wearing a slinky bright-red cocktail dress and red high heels, gold hoop earrings, a sweet inviting smile"
+  },
+  "BRICK": {
+   "height": 1.96,
+   "quest": "q5_siren",
+   "seed": "an enormous hulking bald bruiser man in his 30s, extremely broad shoulders and huge muscular arms, wearing a stretched white ribbed tank top and baggy grey cargo pants, heavy black boots, a dark tribal neck tattoo"
+  },
+  "WARDEN": {
+   "height": 2.2,
+   "quest": "q6_arcade",
+   "seed": "a towering flat-shaded glitch monster guardian, a blocky humanoid amalgam of corrupted low-polygon video-game geometry, mismatched neon wireframe and garbled rainbow texture chunks across its body, a single large glowing cyan eye in the center of a featureless head, jagged pixelated limbs; menacing digital golem, front-facing arms out"
+  },
+  "VLAD": {
+   "height": 1.92,
+   "quest": "q7_legday",
+   "seed": "a mountainous oiled bodybuilder man in his 40s with an enormous over-inflated muscular physique, a thick black handlebar mustache, wearing tiny bright-blue posing briefs and a red terrycloth sweatband on his forehead and red wristbands, bare oiled skin, white sneakers"
+  },
+  "CONCIERGE": {
+   "height": 1.86,
+   "quest": "q8_cleaners",
+   "seed": "an immaculate composed man in his 50s with slicked-back dark hair not a strand loose, a cold blank expression, wearing a flawless tailored charcoal-grey three-piece suit with a crisp white shirt and dark tie, thin black leather gloves, a single small gold circular lapel pin, polished black oxford shoes"
+  },
+  "THORNE": {
+   "height": 1.88,
+   "quest": "q10_beneath",
+   "seed": "a tall imposing patrician man in his 60s with a full head of swept silver hair and an unnaturally calm serene face, wearing a regal red-and-gold double-breasted blazer over a cream turtleneck, tan slacks, a gold circular HOA lapel pin on the chest, brown loafers; dignified chairman bearing"
+  }
+ }
+}

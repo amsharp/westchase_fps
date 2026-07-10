@@ -1,0 +1,513 @@
+{
+ "_comment": "Quest dialogue pack. Shape: NPCKEY -> category -> [lines] (mirrors shop_lines.json). NPCKEY is quest-scoped (q<N>_<CHAR>). Leading (tone) markers are acting notes; psxify speakable() strips them before synth. Voices resolve via _voices[NPCKEY] ({ref} or {refs:[...]} round-robin by line index). See QUESTVOICES.md for line->beat mapping.",
+ "_voices": {
+  "q1_VIVIAN":   {"ref": "0dc74c8ebf83432290d6f454ff4e0db9"},
+  "q1_CHET":     {"ref": "95ba5325b3e04dc5ab75592f7d4710d5"},
+  "q1_GLORIA":   {"ref": "0b6770770baf4db5b13c78c3091584a0"},
+  "q1_GUESTS":   {"refs": ["fee420f4813d4318bfea84f8f6cac53f", "41e720a2116c4ace8f9d1da1630f4d27", "87e56e4d711c46b2a950e8da6b1e507a", "c9eca4b3949347828b362f856df487bb"]},
+  "q2_WENDELL":  {"ref": "1090fd9fa122405e94f8a82821ebaa2e"},
+  "q2_DON":      {"ref": "25e19c17980d4bc9b32e43f4438a2580"},
+  "q2_METER":    {"ref": "a97131ef0e2f4bc3b55305c9d3ab57c5"},
+  "q3_AGATHA":   {"ref": "be6a76eaf6dd495a9081f5fb3408404e"},
+  "q3_GRAYBOY":  {"ref": "50c4e200c9c84be88ddda124d319ef19"},
+  "q3_HISTORIAN":{"ref": "afd158c7502846f7954b71ade6e7b4b2"},
+  "q3_GHOSTS":   {"refs": ["0b6770770baf4db5b13c78c3091584a0", "ff975879e00d4cb891ac5f4e7f9acf15", "87e56e4d711c46b2a950e8da6b1e507a", "50c4e200c9c84be88ddda124d319ef19"]},
+  "q4_SAL":      {"ref": "a35a83baa23d4048ae21f8f349bdc82e"},
+  "q4_MARCUS":   {"ref": "ccbc13d6002a46b7883f607fd8fe0516"},
+  "q4_DUKE":     {"ref": "38cf218eb5454fcfb1f66fcd171f89bb"},
+  "q5_DESIREE":  {"ref": "23224970828f44849cb20016cdec6f7a"},
+  "q5_BRICK":    {"ref": "1f153d61b0ae4095b28c786ddeaec347"},
+  "q5_HUSBAND":  {"ref": "95ba5325b3e04dc5ab75592f7d4710d5"},
+  "q5_SPOUSE":   {"ref": "ff975879e00d4cb891ac5f4e7f9acf15"},
+  "q6_XANDER":   {"ref": "8c67d2ba6cb74355b37583ae65212335"},
+  "q6_DERIK":    {"ref": "63433d66506f4c428f78562ee80d3d71"},
+  "q6_WARDEN":   {"ref": "439895c3270543439da5da1532a5d21b"},
+  "q7_VLAD":     {"ref": "cb3738020a154e26842d9f29b8fba80b"},
+  "q7_CHAD":     {"ref": "fee420f4813d4318bfea84f8f6cac53f"},
+  "q7_BYSTANDERS":{"refs": ["95ba5325b3e04dc5ab75592f7d4710d5", "ff975879e00d4cb891ac5f4e7f9acf15", "afd158c7502846f7954b71ade6e7b4b2", "c9eca4b3949347828b362f856df487bb"]},
+  "q8_CONCIERGE":{"ref": "b2a986ab984a477b9cfbecc584f5c6f0"},
+  "q8_SILAS":    {"ref": "afd158c7502846f7954b71ade6e7b4b2"},
+  "q8_TARGET":   {"refs": ["ccbc13d6002a46b7883f607fd8fe0516", "1090fd9fa122405e94f8a82821ebaa2e"]},
+  "q9_DYLAN":    {"ref": "50c4e200c9c84be88ddda124d319ef19"},
+  "q9_CHAMPION": {"ref": "63433d66506f4c428f78562ee80d3d71"},
+  "q9_DON":      {"ref": "25e19c17980d4bc9b32e43f4438a2580"},
+  "q9_BISCUIT":  {"ref": "3c9dcc58d40a45c2b60f5361294068ea"},
+  "q10_THORNE":  {"ref": "0327fdb5da9e4fd782899a8058c8ae2b"},
+  "q10_ENTITY":  {"ref": "439895c3270543439da5da1532a5d21b"},
+  "q10_DONRED":  {"ref": "25e19c17980d4bc9b32e43f4438a2580"},
+  "q10_CAST":    {"refs": ["0dc74c8ebf83432290d6f454ff4e0db9", "be6a76eaf6dd495a9081f5fb3408404e", "cb3738020a154e26842d9f29b8fba80b", "1090fd9fa122405e94f8a82821ebaa2e", "a35a83baa23d4048ae21f8f349bdc82e", "50c4e200c9c84be88ddda124d319ef19", "8c67d2ba6cb74355b37583ae65212335"]}
+ },
+
+ "q1_VIVIAN": {
+  "intro": [
+   "(scared) Oh thank god, a new face. We were playing a little murder-mystery game, and now it isn't a game anymore.",
+   "Nobody leaves. Nobody. The door won't open and the lights keep dying.",
+   "Will you help me, before we are all... before it's too late?",
+   "Seven guests, one hostess, and someone in this room is not who they say."
+  ],
+  "panic": [
+   "(scared) The lights! Not again. Stay where you are, don't move!",
+   "(scared) Gloria? Gloria, answer me. Oh no. Not Gloria.",
+   "She was only asking questions. Questions about the board.",
+   "Search her, quickly, before the next blackout takes another of us.",
+   "(whispering) I heard a key turn. But the door is locked. How is the door locked?"
+  ],
+  "reveal": [
+   "Point to them. Name the one who did this, and be certain.",
+   "(angry) You. It was you all along, hiding behind a serving tray.",
+   "He kept muttering about a board, and a lease. What lease?",
+   "(sighing) Poor Gloria. She asked the wrong people the wrong thing.",
+   "Take this loupe, dear. You see things the rest of us are too frightened to."
+  ]
+ },
+ "q1_CHET": {
+  "oily": [
+   "More wine, friend? The evening is only getting started.",
+   "Terrible business, the lights. I'll see to the fusebox. Do stay seated.",
+   "I cater. I clean. I make unpleasant things tidy.",
+   "Miss Gloria hardly touched her soup. A shame.",
+   "(whispering) Careful whose questions you answer tonight."
+  ],
+  "cold": [
+   "(angry) You should have enjoyed the party and gone home.",
+   "The board does not tolerate loose ends. Neither do I.",
+   "(angry) You want a confession? Come closer and get it.",
+   "This was never a whodunit. It was a cleanup."
+  ]
+ },
+ "q1_GLORIA": {
+  "banter": [
+   "I heard the chairman himself is here tonight. Can you imagine?",
+   "I only asked who really runs this town. Is that so wrong?",
+   "This soup tastes bitter. Almonds?",
+   "(scared) The lights. Someone's behind—",
+   "(whispering) Ask about... the board."
+  ]
+ },
+ "q1_GUESTS": {
+  "bicker": [
+   "I told you we shouldn't have come to this dreadful party.",
+   "It was the caterer! No, it was the widow!",
+   "Nobody accuse me. I was in the powder room the whole time.",
+   "Where did that man in the gold blazer go? He just vanished.",
+   "(scared) Another blackout? I can't take another blackout.",
+   "Check her hands. Murderers always have tells.",
+   "I want to go home. Why won't the door open?",
+   "Somebody in this room is lying, and it isn't me."
+  ]
+ },
+
+ "q2_WENDELL": {
+  "intro": [
+   "(whispering) Don't look up. Don't look up. They put a camera in the birdhouse.",
+   "My neighbor waters his lawn at three and at nine. Who does that? Who does that.",
+   "The one with the flamingos. Flamingos are antennas, friend. Antennas.",
+   "I need you to prove it. Follow them. Watch the watchers."
+  ],
+  "comms": [
+   "(whispering) He's buying antacids. Acid, for melting evidence. Write it down.",
+   "Tail him to the payphone but don't get close. Do not get made.",
+   "See the van? Grey, no plates, always parked just out of frame.",
+   "Connect the photos. Red string. Every route passes the birdhouse.",
+   "(scared) The lake. Tonight. That's where the lights come. I know it.",
+   "(scared) There! Over the water! Tell me you see it too!",
+   "Photograph it and run. Run before the workers turn around."
+  ],
+  "vindicated": [
+   "(sighing) I'm not crazy. I'm just early.",
+   "I built this from the birdhouse cam. Now you can hear them too.",
+   "They're always listening. So now, so are we.",
+   "(whispering) Take the scanner. And tape your windows. Trust me.",
+   "You believe me now. That's the worst part. You believe me."
+  ]
+ },
+ "q2_DON": {
+  "call": [
+   "(whispering) Yeah, it's me. The assessment. I'm handling it. I said I'm handling it.",
+   "No, nobody's watching me. Why would anybody be watching me?",
+   "I got kids. I got a family. I do what they ask, that's all."
+  ],
+  "fakeout": [
+   "(angry) You following me, pal? You following me?",
+   "Forget you saw me here. For your sake."
+  ]
+ },
+ "q2_METER": {
+  "cover": [
+   "Just reading the meter, sir. Routine. Move along.",
+   "City utilities. Nothing to see. Have a nice day."
+  ],
+  "hostile": [
+   "(angry) You're on a list now. You know that?",
+   "(angry) The board sends its regards. Run."
+  ]
+ },
+
+ "q3_AGATHA": {
+  "intro": [
+   "Five floors. Five families. Not one of them left whole.",
+   "He says it's just the house settling. Houses don't weep, child. People do.",
+   "This house remembers every one of them. I need you to put it to rest.",
+   "Take the cold lantern. Light it only when the air goes still.",
+   "The dark up there isn't empty. Remember that."
+  ],
+  "reveals": [
+   "The parlor. The first family argued here until the very end.",
+   "The nursery. Be gentle with the little one. He only wants to play.",
+   "The third floor floods, like the lake reaching up. Keep the flame lit.",
+   "The study holds the ledger. Every name they took is written there.",
+   "Assessed by the board. Reclaimed by the lake. That's what it says.",
+   "The top floor. The sealed door. That is where they keep their table."
+  ],
+  "farewell": [
+   "(sighing) My boy asked about the lake, same as your friend Gloria.",
+   "Now you know where their table sits. Finish it, when you're ready.",
+   "(sighing) I can rest a little now. The house is quieter.",
+   "Keep the lantern. It opens what they'd rather keep shut.",
+   "Go careful, child. The chairman does not forgive the curious."
+  ]
+ },
+ "q3_GRAYBOY": {
+  "giggles": [
+   "(laughing) You can't find me! Come and see!",
+   "(happy) Found me! Again, again!",
+   "(whispering) I'm not supposed to talk to the grown-ups.",
+   "Here. Matches. For the funny green light.",
+   "(laughing) One, two, three, ready or not!"
+  ]
+ },
+ "q3_HISTORIAN": {
+  "exposition": [
+   "That red house? Oldest deed in Westchase. Never once sold. Only inherited.",
+   "Every family listed at that address is marked the same: relocated.",
+   "Relocated where, the records don't say. Convenient, isn't it.",
+   "The Association signs off on every removal. Chairman Thorne, every time.",
+   "Folks who ask about the top floor tend to stop asking.",
+   "You didn't hear any of this from me."
+  ]
+ },
+ "q3_GHOSTS": {
+  "echoes": [
+   "(scared) Please, we'll be quiet, we'll be good, don't make us leave.",
+   "You can't just take our home. This is our home.",
+   "The lawn was perfect. We did everything they asked.",
+   "(whispering) The lights are over the lake again, mama.",
+   "Sign it. Sign the packet or they come at night.",
+   "(scared) Not the water. Please, not the water.",
+   "We only wanted to stay.",
+   "Tell them we were here. Tell someone we were here."
+  ]
+ },
+
+ "q4_SAL": {
+  "recruit": [
+   "Kid, I planned jobs before your daddy learned to lie.",
+   "Regions on the corner? I know a way in. But I'm too old to run. You run.",
+   "I'll draw the map. You bring the nerve.",
+   "Three keys, one inside man, one window. Simple, if you don't get greedy."
+  ],
+  "coaching": [
+   "Eyes, not hands. Count the cameras. Love the cameras.",
+   "The guard drinks at the Dunkin off-shift. Lift his key, don't spook him.",
+   "My toolkit's in the dumpster behind the Publix. Mind the false bottom.",
+   "The roof's got the timer schedule. Photograph it, don't linger.",
+   "Marcus is drowning in debt. Lean on that, gentle-like.",
+   "When the timer trips, quiet men come. Not cops. Worse. Grab the box and go."
+  ],
+  "payoff": [
+   "You got it. The ledger, the cash, all of it.",
+   "Let me just burn my name out of this book. There. Never happened.",
+   "The etched key? That don't open a box. That opens a door.",
+   "Under the water. Don't ask me how I know, kid.",
+   "Now get gone before the heat settles. You did good."
+  ]
+ },
+ "q4_MARCUS": {
+  "turn": [
+   "I can't talk here. The manager's watching. Meet me out back.",
+   "You know what I owe the dealer? More than this job pays in a year.",
+   "One withdrawal slip left blank. One back door left unlatched. That's all.",
+   "Then I never saw you. We clear?"
+  ],
+  "panic": [
+   "(nervous) They audit the vault at shift change. You have minutes, not hours.",
+   "(scared) You pushed too hard. I'm hitting the alarm, I'm sorry!",
+   "Just go! Go before they trace it back to me!"
+  ]
+ },
+ "q4_DUKE": {
+  "banter": [
+   "Engine's warm. You're late.",
+   "I drive. I don't wait long.",
+   "Cops on the scanner. Two blocks. Your call.",
+   "Get in or don't. Meter's running.",
+   "Nice score. Same time next disaster?"
+  ]
+ },
+
+ "q5_DESIREE": {
+  "lure": [
+   "(happy) Oh, thank goodness someone stopped! My car just died out here.",
+   "Could you take a look under the hood? A big strong hero like you?",
+   "It's so dark out here. I feel so much safer already."
+  ],
+  "fake_victim": [
+   "(scared) They make me do this. Please, I'm a victim too.",
+   "(scared) Brick will hurt me if I don't. You have to understand.",
+   "Turn around, just for a second, let me get my things."
+  ],
+  "venom": [
+   "(angry) You really thought I needed help? How sweet. How stupid.",
+   "Every good person who stops, stops for good.",
+   "You think we're the bad guys? We're the ones they let you catch.",
+   "The real crew doesn't fix cars. They fix people."
+  ]
+ },
+ "q5_BRICK": {
+  "menace": [
+   "(angry) Wrong car to help, hero.",
+   "Hand it over. Wallet. Phone. All of it.",
+   "Desiree points. I break. That's the arrangement.",
+   "(angry) You should've kept driving.",
+   "Boss says you're flagged. Not my problem.",
+   "Down in the hole with the rest of 'em."
+  ]
+ },
+ "q5_HUSBAND": {
+  "relief": [
+   "(scared) Please, don't hurt me. Oh, you're not one of them?",
+   "They tied me up down here for two days. Two days.",
+   "My wife, is she okay? Take me to my wife.",
+   "(happy) I stopped to help someone. I'll never live that down."
+  ]
+ },
+ "q5_SPOUSE": {
+  "plea": [
+   "(scared) My husband stopped to help a broken-down car and never came home.",
+   "The cops won't even look. Please, you have to.",
+   "It was on Race Track Road. A sedan, hazards on, hood up.",
+   "(happy) You found him! You brought him back! Thank you!"
+  ]
+ },
+
+ "q6_XANDER": {
+  "intro": [
+   "(scared) Dude, Derik went into the cabinet and he did not come back out.",
+   "I paused my game to be here so you know it's serious.",
+   "The screen just swallowed him. Like, pixel by pixel.",
+   "There's this cartridge, no label. You gotta play it to get in.",
+   "Level one is a Publix that's all wrong. Trust nothing.",
+   "The aisle repeats until you walk it in the right order. It's a puzzle, bro.",
+   "Whatever the boss is, it talks like the lake. That's not normal, right?"
+  ],
+  "relief": [
+   "(happy) You got him out! Derik! You absolute legend.",
+   "I am never touching an unlabeled cartridge again. Ever."
+  ]
+ },
+ "q6_DERIK": {
+  "trapped": [
+   "(whispering) Is someone there? I can't tell what's real in here.",
+   "I keep seeing lights. Over water. It's so cold.",
+   "The game's not a game. It remembers things. Bad things.",
+   "(scared) Don't let it finish loading me. Please."
+  ],
+  "waking": [
+   "(happy) I'm out? I'm out! I dreamed the whole town was underwater."
+  ]
+ },
+ "q6_WARDEN": {
+  "taunts": [
+   "In-sert coin to con-tin-ue.",
+   "You are not a player here. You are an entry.",
+   "I have your friend's save file. I have his sleep.",
+   "This memory is mine. The lake gave it to me to keep.",
+   "(angry) You do not belong in this level.",
+   "Every door under the water is locked. I am the lock.",
+   "Game over. Continue?"
+  ]
+ },
+
+ "q7_VLAD": {
+  "oath": [
+   "Stop. You have the shoulders of a champion and the cardio of a mouse.",
+   "I am Vlad. I do not lift weights. I lift destiny.",
+   "Leg day is not a day. Leg day is a way of life, my friend.",
+   "Do not kneel, you will skip leg day. Squat instead."
+  ],
+  "dares": [
+   "Fetch me my protein. It is somewhere in this town. Somewhere sacred.",
+   "Now carry the boulder. It is a gnome. To me it is a boulder. Carry it.",
+   "Chad thinks his smoothie is destiny. Chad is wrong. Race him.",
+   "Run! Run! The smoothie melts and so does your glory!",
+   "You waddle like a champion carrying a very small stone!",
+   "The Gains Cave awaits. Behind the building. Behind the pain.",
+   "Wait. Those two men. They are not lifting. They are hiding crates.",
+   "(angry) Nobody hides crates in my cave. We finish this together."
+  ],
+  "crowning": [
+   "You have done it. Your legs are now acceptable.",
+   "Take my blessed sneakers. They add hops to your soul.",
+   "Go, champion. Never skip. Never skip leg day."
+  ]
+ },
+ "q7_CHAD": {
+  "trash": [
+   "(happy) Bro, you'll never catch me, I've got a smoothie and a head start.",
+   "This is my third cardio of the day. You're built for comfort, not speed.",
+   "(wheezing) Okay, this is farther than it looks. Worth it though.",
+   "Vlad's a nutjob but the man's traps are magnificent.",
+   "You carried a gnome across town? Respect. Weird. But respect.",
+   "Rematch when my legs stop being on fire."
+  ]
+ },
+ "q7_BYSTANDERS": {
+  "reactions": [
+   "Is that man carrying a lawn gnome? At a full sprint?",
+   "Only in this town, I swear.",
+   "Go on, champ, don't drop the little guy!",
+   "I think those two are running a smoothie race. On purpose.",
+   "Westchase gets weirder every single day."
+  ]
+ },
+
+ "q8_CONCIERGE": {
+  "recruit": [
+   "You escaped clean. That is a rare and marketable talent.",
+   "We are not criminals. We are a service. We solve problems.",
+   "This black card admits you to a very exclusive employer.",
+   "Midnight. The dumpster behind the Publix. Come hungry to work."
+  ],
+  "contracts": [
+   "The first contract is a lesson. Clean, quiet, no witnesses.",
+   "A stealth kill raises no alarm. No stars. This is the Ghost way.",
+   "The dead-drop is the hollow oak. Take only the envelope meant for you.",
+   "The second target does not die. He is merely followed. For now.",
+   "The third name will trouble you. That is rather the point."
+  ],
+  "reveal": [
+   "Yes, I sit on the board. Someone must keep the town tidy.",
+   "The eviction notices, the party, the red house, all one signature.",
+   "Refuse me and the next contract has your name on the folder.",
+   "Under the lake, literally, is where all our loose threads go.",
+   "Choose well. The chair remembers who was useful."
+  ]
+ },
+ "q8_SILAS": {
+  "tutorial": [
+   "(sighing) New blood. Great. Let me show you how not to die.",
+   "Stay behind them. One clean hit. Nobody hears, nobody looks.",
+   "You raise a star, you did it wrong. Ghosts don't leave a trace.",
+   "The oak's got a hole. Envelopes go in, envelopes come out. Don't be curious.",
+   "Some envelopes are rigged. Use the loupe. I've seen guys lose a hand.",
+   "I've done this fifteen years. It doesn't get lighter.",
+   "The Concierge always collects. On the job, or on you.",
+   "(sighing) Do the work. Take the pistol. Try to sleep after."
+  ]
+ },
+ "q8_TARGET": {
+  "warning": [
+   "(scared) You? They sent you? After everything?",
+   "The board owns you now. Same as they owned me.",
+   "(sighing) Tell my family it was quick. Lie to them.",
+   "You don't have to do this. You can still walk away clean.",
+   "Under the lake, they'll do to you what you did to me."
+  ]
+ },
+
+ "q9_DYLAN": {
+  "plea": [
+   "(crying) Have you seen my dog? Biscuit ran off and I can't find him.",
+   "He's brown and scruffy and he has the biggest ears ever.",
+   "Dad's too busy on the phone. He's always on the phone now.",
+   "The hide-and-seek champ knows every hiding spot. Ask her.",
+   "Biscuit likes the water. Maybe he went to the lake?"
+  ],
+  "joy": [
+   "(happy) Biscuit! You found him! You found my Biscuit!",
+   "(happy) You're the best. Here, take his whistle. He'll always come for you."
+  ]
+ },
+ "q9_CHAMPION": {
+  "hints": [
+   "I'm the hide-and-seek champion. I know every nook in Westchase.",
+   "There's a hole in the old oak nobody knows about but me.",
+   "And a way up to the strip-mall roof. And a cellar behind the Dunkin.",
+   "Follow the paw prints. Biscuit always leaves paw prints.",
+   "The prints go down to the storm drain by the lake.",
+   "Don't tell the grown-ups I told you the secret spots."
+  ]
+ },
+ "q9_DON": {
+  "barbs": [
+   "(nervous) Dylan, not now, Daddy's on a call. It's important.",
+   "The dog's fine. Everything's fine. It's all being handled.",
+   "(sighing) I do this for you kids. You'll understand one day.",
+   "Don't go near that lake, son. Promise me you won't."
+  ]
+ },
+ "q9_BISCUIT": {
+  "barks": [
+   "(happy) Arf! Arf arf!",
+   "Rrrruff!",
+   "(scared) Awoooo. Whimper, whimper.",
+   "Grrrr. Arf!",
+   "(happy) Bark bark bark!"
+  ]
+ },
+
+ "q10_THORNE": {
+  "offer": [
+   "So. The curious one, at last, beneath my town.",
+   "You've been very busy. Loupe, lantern, ledger, key. Impressive collection.",
+   "Sit. We are, all of us, reasonable people down here.",
+   "Two generations of perfect weather and perfect lawns. You're welcome.",
+   "It asks so little. To be fed. To be kept. To watch.",
+   "Gloria asked questions. Agatha's boy asked questions. Do you see a pattern?",
+   "I am not offering you a fight. I am offering you a chair."
+  ],
+  "menace": [
+   "Run the town. The lights will love you as they've loved me.",
+   "(angry) Or expose it, and watch Westchase rot without its keeper.",
+   "(angry) Burn it, and drown with everyone you failed to save.",
+   "The board always has a seat open. There's always a vacancy.",
+   "Choose. The thing under the water is already awake.",
+   "Whatever you decide, you are one of us now. You always were."
+  ]
+ },
+ "q10_ENTITY": {
+  "assessment": [
+   "As-sess-ment com-plete.",
+   "New money. New lights. I came to see what you are worth.",
+   "You have opened every door. Only the last one remains.",
+   "(angry) Feed me or free me. The pact must hold.",
+   "The lake keeps everything. It will keep you too."
+  ]
+ },
+ "q10_DONRED": {
+  "defection": [
+   "(whispering) Psst. Over here. It's Don. I'm getting you in.",
+   "I'm done being their errand boy. My kids deserve better than this town.",
+   "I know the tunnels. Gains Cave, the manhole, the storm drain, all one road.",
+   "Thorne signs the evictions. I just looked the other way. Too long.",
+   "That thing in the tank? It's why I never questioned a paycheck.",
+   "Whatever you choose up there, I've got your back down here.",
+   "(happy) For Dylan. For all of them. Let's finish it.",
+   "If we don't walk out of here, tell my boys their dad did one good thing."
+  ]
+ },
+ "q10_CAST": {
+  "payoff": [
+   "(happy) You brought the whole thing into the light. Bless you, dear.",
+   "The house can finally rest. My boy can rest.",
+   "You did it without skipping leg day. Legend.",
+   "I told them. I told them all. And you proved it.",
+   "You opened the door under the water. I'll be damned.",
+   "(happy) You found Biscuit and saved the whole town? Best day ever!",
+   "Never touching a cartridge again, but thanks, bro.",
+   "The scanner's quiet tonight. First time in years.",
+   "Prices are fair now. Cops nod instead of chase. Feels strange.",
+   "Whatever you became down there, Westchase remembers."
+  ]
+ }
+}
