@@ -270,7 +270,14 @@
     <div class="joinRow"><input id="playerName" maxlength="12" placeholder="your display name (shown in multiplayer)"></div>
     <div class="joinRow"><input id="playerPin" maxlength="8" inputmode="numeric" autocomplete="off"
       placeholder="PIN (4-8 digits) — saves your progress; blank = guest"></div>
-    <div id="acctStatus">&nbsp;</div>
+    <div class="joinRow"><input id="playerEmail" maxlength="254" autocomplete="email"
+      placeholder="email (optional — for PIN recovery)"></div>
+    <div class="joinRow hidden" id="acctCodeRow">
+      <input id="acctCode" maxlength="6" inputmode="numeric" autocomplete="off" placeholder="6-digit code from your email">
+      <input id="acctNewPin" maxlength="8" inputmode="numeric" autocomplete="off" placeholder="new PIN" class="hidden">
+      <button id="acctCodeGo">OK</button>
+    </div>
+    <div id="acctStatus">&nbsp;<span id="acctForgot" style="color:#5ad6ff;cursor:pointer;text-decoration:underline"></span></div>
     <button class="menuBtn" id="btnChar">CHARACTER</button>
     <button class="menuBtn" id="btnPlay">PLAY ONLINE</button>
     <div id="onlineCount">&nbsp;</div>

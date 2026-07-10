@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.63.0';
+var GAME_VERSION = 'v1.64.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -14452,23 +14452,86 @@ function acctPost(payload, cb) {
     .catch(function () { cb(new Error('server unreachable')); });
 }
 // sign in (or register) then run cb; wrong PIN blocks the join so it can be
-// retried, but an unreachable server degrades to guest play
+// retried, but an unreachable server degrades to guest play. A new email on
+// the account holds the join for code verification (pressing PLAY again skips)
+var acctUi = { mode: '', pendingCb: null };
+function acctShowCode(mode) {
+  acctUi.mode = mode;
+  var row = document.getElementById('acctCodeRow'), np = document.getElementById('acctNewPin');
+  if (row) row.classList.remove('hidden');
+  if (np) np.classList.toggle('hidden', mode !== 'recover');
+  var ci = document.getElementById('acctCode'); if (ci) { ci.value = ''; ci.focus(); }
+}
+function acctHideCode() {
+  acctUi.mode = '';
+  var row = document.getElementById('acctCodeRow');
+  if (row) row.classList.add('hidden');
+}
 function acctLoginThen(cb) {
   var pinEl = document.getElementById('playerPin');
   var pin = pinEl ? pinEl.value.trim() : '';
   if (!pin) { acct.token = null; acctStatus('playing as guest — progress not saved'); cb(); return; }
+  var emEl = document.getElementById('playerEmail');
+  var em = emEl ? emEl.value.trim() : '';
   acctStatus('signing in…');
-  acctPost({ action: 'auth', name: getPlayerName(), pin: pin }, function (err, o) {
+  acctPost({ action: 'auth', name: getPlayerName(), pin: pin, email: em }, function (err, o) {
     if (err && err.message === 'server unreachable') { acct.token = null; acctStatus('server unreachable — playing as guest', 'err'); cb(); return; }
     if (err) { acctStatus(err.message, 'err'); return; }
     acct.token = o.token; acct.name = o.name;
-    try { localStorage.setItem('wc_pin', pin); } catch (e) { }
+    try { localStorage.setItem('wc_pin', pin); if (em) localStorage.setItem('wc_email', em); } catch (e) { }
     acctApplySave(o.save);
     acct.lastSaved = JSON.stringify(acctBuildSave());
-    acctStatus('signed in as ' + o.name + (o.savedAt ? ' — progress loaded' : ' — new account created'), 'ok');
+    if (o.emailPending) {
+      // hold the join for the emailed code; PLAY again skips (email stays
+      // unverified, recovery disabled until a later sign-in verifies it)
+      acctUi.pendingCb = cb;
+      acctShowCode('verify');
+      acctStatus('code sent to ' + (o.email || 'your email') + ' — enter it below, or press PLAY again to skip', 'ok');
+      return;
+    }
+    acctStatus('signed in as ' + o.name + (o.savedAt ? ' — progress loaded' : ' — new account created') + (o.emailVerified ? ' ✓' : ''), 'ok');
+    acctHideCode();
     cb();
   });
 }
+// FORGOT PIN → emailed reset code → new PIN; same code row verifies new emails
+(function acctWireUi() {
+  var fg = document.getElementById('acctForgot');
+  if (fg) {
+    fg.textContent = ' forgot PIN?';
+    fg.addEventListener('click', function () {
+      var nm = getPlayerName();
+      if (!nm) { acctStatus('type your account name first', 'err'); return; }
+      acctPost({ action: 'recover', name: nm }, function (err, o) {
+        acctStatus(err ? err.message : (o.note || 'code sent'), err ? 'err' : 'ok');
+        if (!err) acctShowCode('recover');
+      });
+    });
+  }
+  var go = document.getElementById('acctCodeGo');
+  if (go) go.addEventListener('click', function () {
+    var code = ((document.getElementById('acctCode') || {}).value || '').trim();
+    if (acctUi.mode === 'verify') {
+      acctPost({ action: 'verifyEmail', token: acct.token, code: code }, function (err) {
+        if (err) { acctStatus(err.message, 'err'); return; }
+        acctStatus('email verified — signed in as ' + acct.name, 'ok');
+        acctHideCode();
+        var cb = acctUi.pendingCb; acctUi.pendingCb = null;
+        if (cb) cb();
+      });
+    } else if (acctUi.mode === 'recover') {
+      var np = ((document.getElementById('acctNewPin') || {}).value || '').trim();
+      acctPost({ action: 'resetPin', name: getPlayerName(), code: code, newPin: np }, function (err) {
+        if (err) { acctStatus(err.message, 'err'); return; }
+        var pe = document.getElementById('playerPin'); if (pe) pe.value = np;
+        try { localStorage.setItem('wc_pin', np); } catch (e) { }
+        acctStatus('PIN reset — press PLAY ONLINE to sign in', 'ok');
+        acctHideCode();
+      });
+    }
+  });
+  try { var se = localStorage.getItem('wc_email'), eel = document.getElementById('playerEmail'); if (eel && se) eel.value = se; } catch (e) { }
+})();
 function acctAutosave(force) {
   if (!acct.token || (!state.running && !force)) return;
   var j = JSON.stringify(acctBuildSave());

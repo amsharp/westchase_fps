@@ -48,7 +48,10 @@ pressing PLAY ONLINE and your progress — cash, guns, snacks, your item bag,
 your look, and your quest log — is saved to the server under that name+PIN
 and comes back on any browser or device. First sign-in creates the account;
 leave the PIN blank to play as a guest (nothing saved). Progress autosaves
-every few seconds while you play.
+every few seconds while you play. Add an **email** and you can recover a
+forgotten PIN: a 6-digit code is mailed on sign-up to verify the address,
+and the **forgot PIN?** link on the menu emails a reset code that lets you
+pick a new PIN on the spot.
 
 **Talk to your crew.** Press **ENTER** to open text chat (a fading on-screen
 log shows who said what, with join/leave notices); press **ESC** to cancel.

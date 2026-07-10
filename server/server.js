@@ -142,23 +142,106 @@ var acctTokens = {};      // token -> account key
 var acctSaveGate = {};    // account key -> last save ms (rate limit)
 function acctKey(name) { return String(name || '').toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 12); }
 function acctPath(key) { return path.join(ACCT_DIR, key + '.json'); }
-function acctAuth(body, cb) {
+// ---- outbound mail: Resend REST when RESEND_API_KEY is set; otherwise codes
+// are logged server-side (dev mode — delivery off until the key is configured)
+var RESEND_KEY = process.env.RESEND_API_KEY || '';
+var MAIL_FROM = process.env.MAIL_FROM || 'Westchase <onboarding@resend.dev>';
+function sendMail(to, subject, text, cb) {
+  if (!RESEND_KEY) { console.log('[MAIL:dev — no RESEND_API_KEY] to=' + to + ' subj=' + subject + ' body=' + text); return cb(null, { dev: true }); }
+  fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + RESEND_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: MAIL_FROM, to: [to], subject: subject, text: text })
+  }).then(function (r) { return r.json().then(function (j) { cb(r.ok ? null : new Error(j && j.message || 'mail failed'), j); }); })
+    .catch(function (e) { cb(e); });
+}
+function emailOk(e) { return typeof e === 'string' && e.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e); }
+function makeCode() { return ('' + (crypto.randomInt(0, 1000000))).padStart(6, '0'); }
+function codeFresh(c) { return c && c.exp > Date.now() && (c.tries || 0) < 5; }
+// per-IP limiter for code-sending + auth attempts (resets hourly)
+var acctIpGate = {};
+function ipAllowed(ip, budget) {
+  var now = Date.now(), g = acctIpGate[ip];
+  if (!g || now - g.t > 3600000) { g = acctIpGate[ip] = { n: 0, t: now }; }
+  g.n++;
+  return g.n <= budget;
+}
+function acctAuth(body, ip, cb) {
   var name = String(body.name || '').trim().slice(0, 12);
   var key = acctKey(name), pin = String(body.pin || '');
   if (key.length < 2) return cb(new Error('name must be 2-12 letters/numbers'));
   if (!/^[0-9]{4,8}$/.test(pin)) return cb(new Error('PIN must be 4-8 digits'));
+  if (!ipAllowed(ip, 60)) return cb(new Error('too many attempts — try later'));
   var rec = null;
   try { rec = JSON.parse(fs.readFileSync(acctPath(key), 'utf8')); } catch (e) { }
   if (!rec) {
     var salt = crypto.randomBytes(8).toString('hex');
     rec = { name: name, salt: salt, hash: crypto.createHash('sha256').update(salt + pin).digest('hex'), created: new Date().toISOString(), save: null };
-    fs.writeFileSync(acctPath(key), JSON.stringify(rec));
   } else if (crypto.createHash('sha256').update(rec.salt + pin).digest('hex') !== rec.hash) {
     return cb(new Error('wrong PIN for that name'));
   }
+  // attach an email on sign-in when the account has none yet — kicks off a
+  // 6-digit verification code; recovery only works once verified
+  var emailPending = false;
+  var em = String(body.email || '').trim().toLowerCase();
+  if (em && !rec.email && emailOk(em)) {
+    rec.email = em; rec.emailVerified = false;
+    rec.codes = rec.codes || {};
+    rec.codes.verify = { c: makeCode(), exp: Date.now() + 15 * 60000, tries: 0 };
+    emailPending = true;
+    sendMail(em, 'Westchase: verify your email',
+      'Your Westchase verification code is ' + rec.codes.verify.c + '\nIt expires in 15 minutes.', function () { });
+  }
+  fs.writeFileSync(acctPath(key), JSON.stringify(rec));
   var token = crypto.randomBytes(16).toString('hex');
   acctTokens[token] = key;
-  cb(null, { ok: true, token: token, name: rec.name, save: rec.save || null, savedAt: rec.savedAt || null });
+  cb(null, {
+    ok: true, token: token, name: rec.name, save: rec.save || null, savedAt: rec.savedAt || null,
+    email: rec.email || null, emailVerified: !!rec.emailVerified, emailPending: emailPending
+  });
+}
+function acctVerifyEmail(body, cb) {
+  var key = acctTokens[String(body.token || '')];
+  if (!key) return cb(new Error('bad session — sign in again'));
+  var rec; try { rec = JSON.parse(fs.readFileSync(acctPath(key), 'utf8')); } catch (e) { return cb(new Error('account vanished')); }
+  var vc = rec.codes && rec.codes.verify;
+  if (!codeFresh(vc)) return cb(new Error('code expired — sign in again to resend'));
+  vc.tries = (vc.tries || 0) + 1;
+  if (String(body.code || '') !== vc.c) { fs.writeFileSync(acctPath(key), JSON.stringify(rec)); return cb(new Error('wrong code')); }
+  rec.emailVerified = true; delete rec.codes.verify;
+  fs.writeFileSync(acctPath(key), JSON.stringify(rec));
+  cb(null, { ok: true, emailVerified: true });
+}
+function acctRecover(body, ip, cb) {
+  if (!ipAllowed(ip, 10)) return cb(new Error('too many attempts — try later'));
+  // response is IDENTICAL whether or not the account/email exists — no probing
+  var generic = { ok: true, sent: true, note: 'if that account has a verified email, a code is on its way' };
+  var key = acctKey(String(body.name || ''));
+  var rec = null; try { rec = JSON.parse(fs.readFileSync(acctPath(key), 'utf8')); } catch (e) { }
+  if (!rec || !rec.email || !rec.emailVerified) return cb(null, generic);
+  rec.codes = rec.codes || {};
+  rec.codes.recover = { c: makeCode(), exp: Date.now() + 15 * 60000, tries: 0 };
+  fs.writeFileSync(acctPath(key), JSON.stringify(rec));
+  sendMail(rec.email, 'Westchase: PIN reset code',
+    'Your Westchase PIN reset code is ' + rec.codes.recover.c + '\nIt expires in 15 minutes. If you did not ask for this, ignore it.', function () { });
+  cb(null, generic);
+}
+function acctResetPin(body, ip, cb) {
+  if (!ipAllowed(ip, 15)) return cb(new Error('too many attempts — try later'));
+  var key = acctKey(String(body.name || ''));
+  var newPin = String(body.newPin || '');
+  if (!/^[0-9]{4,8}$/.test(newPin)) return cb(new Error('new PIN must be 4-8 digits'));
+  var rec = null; try { rec = JSON.parse(fs.readFileSync(acctPath(key), 'utf8')); } catch (e) { }
+  var rc = rec && rec.codes && rec.codes.recover;
+  if (!rec || !codeFresh(rc)) return cb(new Error('no valid reset code — request a new one'));
+  rc.tries = (rc.tries || 0) + 1;
+  if (String(body.code || '') !== rc.c) { fs.writeFileSync(acctPath(key), JSON.stringify(rec)); return cb(new Error('wrong code')); }
+  rec.salt = crypto.randomBytes(8).toString('hex');
+  rec.hash = crypto.createHash('sha256').update(rec.salt + newPin).digest('hex');
+  delete rec.codes.recover;
+  fs.writeFileSync(acctPath(key), JSON.stringify(rec));
+  for (var t in acctTokens) if (acctTokens[t] === key) delete acctTokens[t];   // old sessions die with the old PIN
+  cb(null, { ok: true, reset: true });
 }
 function acctSave(body, cb) {
   var key = acctTokens[String(body.token || '')];
@@ -185,8 +268,12 @@ var httpServer = http.createServer(function (req, res) {
       if (err) return fail(err.message);
       var b; try { b = JSON.parse(body); } catch (e) { return fail('bad json'); }
       var done = function (e2, out) { if (e2) return fail(e2.message); corsHead(res, 200, 'application/json'); res.end(JSON.stringify(out)); };
-      if (b.action === 'auth') acctAuth(b, done);
+      var ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || '?';
+      if (b.action === 'auth') acctAuth(b, ip, done);
       else if (b.action === 'save') acctSave(b, done);
+      else if (b.action === 'verifyEmail') acctVerifyEmail(b, done);
+      else if (b.action === 'recover') acctRecover(b, ip, done);
+      else if (b.action === 'resetPin') acctResetPin(b, ip, done);
       else fail('unknown action');
     });
     return;
