@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.12';
+var GAME_VERSION = 'v1.66.13';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2346,6 +2346,17 @@ function remapPointClear(x, z, pad) {
       if (px * px + pz * pz < lim * lim) return false;
     }
   }
+  // junction pads (built after RM exists): a disc of asphalt filling the
+  // intersection throat. Props/trees/grass placed on the pad overhang read as
+  // sitting on the road, so treat the pad like asphalt too. Guarded — this
+  // helper is also called at load before RM is built (raw REMAP_ROADS only).
+  if (typeof RM !== 'undefined' && RM && RM.pads) {
+    var pm = pad > 0 ? pad : 0;
+    for (var pi = 0; pi < RM.pads.length; pi++) {
+      var pd = RM.pads[pi], pdx = x - pd.x, pdz = z - pd.z, plim = pd.r + pm;
+      if (pdx * pdx + pdz * pdz < plim * plim) return false;
+    }
+  }
   return true;
 }
 // true when the axis rect keeps `pad` clearance from every true road
@@ -2514,9 +2525,9 @@ function buildRemapRoads() {
     for (j = 0; j < RM.pads.length; j++) {
       var pd = RM.pads[j];
       var ddx = pd.x - st.x, ddz = pd.z - st.z;
-      if (ddx * ddx + ddz * ddz < 64) { pd.r = Math.max(pd.r, st.hw * 1.8); merged = true; break; }
+      if (ddx * ddx + ddz * ddz < 64) { pd.r = Math.max(pd.r, st.hw * 1.5); merged = true; break; }
     }
-    if (!merged) RM.pads.push({ x: st.x, z: st.z, r: st.hw * 1.8 });
+    if (!merged) RM.pads.push({ x: st.x, z: st.z, r: st.hw * 1.5 });
   }
   // ---- render ribbons + registers ----
   for (i = 0; i < RM.roads.length; i++) {
@@ -7614,7 +7625,10 @@ if (WC_REMAP) (function densityLayer() {
         if (hr.cls === 0 && lenH > 120) {
           var pbs = rmAt(hr.pts, hr.cum, lenH * 0.5), ofb = hr.hw + 3.4;
           var bsx = pbs.x - pbs.uz * ofb, bsz = pbs.z + pbs.ux * ofb;
-          if (spotClear(bsx, bsz)) spFull('busshelter', bsx, bsz, Math.atan2(pbs.ux, pbs.uz));
+          // shelter sits on the LEFT sidewalk (offset by (-uz,+ux)); its opening
+          // (front = (-cos,sin)) must face BACK toward the road, so add PI —
+          // Math.atan2(ux,uz) alone points the opening away from the street.
+          if (spotClear(bsx, bsz)) spFull('busshelter', bsx, bsz, Math.atan2(pbs.ux, pbs.uz) + Math.PI);
         }
       }
     }

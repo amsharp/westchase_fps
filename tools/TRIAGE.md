@@ -138,3 +138,17 @@ Clusters:
 ## Batch 9
 - mregrr51 (-46,-2) directional damage indicators — SHIPPED@v1.66.8 (red chevrons around screen center pointing at the source: cop shots, PvP, NPC jabs, explosions, car hits, alien beam)
 - mreguavi (-68,9) WALKER NPC still broken (backwards, hands off, not hunched) — escalated: reclaiming from round2-anim if no report this cycle
+
+## Round 5 — IN-AGENT (round5-roads) — roads/junctions/sidewalks/bus-stops/no-road-homes
+Slice: mreeqqbh, mreetig1, mref0zmv, mreexjvh, mreexz4c, mref1n8n (road/junction/sidewalk quality);
+mref0pwi, mref3wds (bus stops backwards); mredxzx6, mreenqoe (no-road homes).
+- mref0pwi (205,272) bus stop facing wrong way — FIXED@v1.66.13 (runtime arterial-midpoint shelters faced AWAY from the road; the yaw Math.atan2(ux,uz) points the opening (front=(-cos,sin)) to the same side as the sidewalk offset. +PI so it opens toward the street. Fixes all 3 arterial shelters.)
+- mref3wds (391,191) backwards bus stop — FIXED@v1.66.13 (same +PI shelter-yaw fix)
+- mreetig1 (233,306) secondary intersection — FIXED@v1.66.13 (countryway/citrus Y-junction: oaks/shrubs/grass were planting on the junction-pad asphalt overhang — remapPointClear now excludes RM.pads; pad radius mult 1.8->1.5 shrinks the grass bulge + reduces sidewalk fragmentation. No throat gaps at 4-ways/Y/residential — verified top-down.)
+- mref0zmv (205,272) ugly road junction — FIXED@v1.66.13 (same junction-pad clearance + radius fix; same Y-junction)
+- mref1n8n (321,186) sidewalk looks bad — FIXED@v1.66.13 (same pad-radius fix tightens the sv_66/citrus junction pad so sidewalks are less chopped; props off the pad)
+- mreeqqbh (298,235) road looks awful — IN-AGENT (citrus_park_dr centerline wiggle — smoothing next)
+- mreexjvh (-178,170) road/tile seam — IN-AGENT
+- mreexz4c (-163,120) road area bad — IN-AGENT
+- mredxzx6 (140,-89) no-road homes — IN-AGENT (add minimal residential lane to REMAP_ROADS)
+- mreenqoe (-25,-347) no-road homes — IN-AGENT (same)
