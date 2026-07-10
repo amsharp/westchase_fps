@@ -61,6 +61,17 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mree9kv6 (-477,355) umbrella grip pose
 - mreed9ar (-194,21)  smoke/fire: redo as AI sprite sheets (research game VFX)
 
+## Round 5 — IN-AGENT (round5-vegetation) — trees/palms/bushes/sidewalk-greenery/flies/pizza-sign + task#51 landscaping
+- mreelboe (-70,-115) big green blob shrub — IN-AGENT (round5-vegetation)
+- mredw3ho (237,-175) palm canopy too sparse; want variants — IN-AGENT (round5-vegetation)
+- mree6ten (-276,261) crepe myrtle looks unnatural — IN-AGENT (round5-vegetation)
+- mredt4y2 (151,-143) sidewalk trees need pavement cutouts — IN-AGENT (round5-vegetation)
+- mredxgss (180,-125) bushes on sidewalk (skinnier-sidewalk part logged larger) — IN-AGENT (round5-vegetation)
+- mredznws (98,12) flies smaller + 2-3x count — IN-AGENT (round5-vegetation)
+- mredr84j (52,-120) 2D trashbags look bad — IN-AGENT (round5-vegetation)
+- mree4o24 (-82,148) pizza sign rotates on wrong axis — IN-AGENT (round5-vegetation)
+- task#51 finish landscaping: parking-lot islands + residential foundation shrubs + house-front bed placement — IN-AGENT (round5-vegetation)
+
 ## Round 5 — IN-AGENT (round5-features) — quirky vendor/fence/traffic slice
 - mreehkm9 (-142,-9) lemonade stand wants KID VENDOR + dialogue — IN-AGENT (round5-features)
 - mreeipmy (-161,-76) ice cream truck wants VENDOR — IN-AGENT (round5-features)
