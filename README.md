@@ -390,9 +390,11 @@ spawn) to walk inside a full grocery interior: stocked gondola aisles with
 end-caps, a glowing dairy-and-frozen cooler wall, a colorful produce section,
 a deli counter, and a row of checkout lanes with conveyor belts and registers.
 Green-aproned Publix staff — a cashier, a bagger, a stocker, a deli worker and
-the manager — hold their posts. Walk the aisles, **E** to chat with the staff,
-grab a **free sample** near produce for **+20 hp**, and **E** at the door to
-leave. (Like the gas station, interiors are personal — they aren't shared in
+the manager — hold their posts. Walk the aisles, **E** to chat with the staff
+(they **answer out loud** now — every role has its own voice, and the shop
+tills, baristas, tellers and sushi chef all talk when you buy or chat), grab a
+**free sample** near produce for **+20 hp**, and **E** at the door to leave.
+(Like the gas station, interiors are personal — they aren't shared in
 multiplayer.)
 
 ## More shop interiors
@@ -545,8 +547,10 @@ Most of it answers to your E key:
 - **Sit** on any bench, bus bench or cafe chair (E again, or just walk, to
   stand back up).
 - **Drink** from a park fountain for a small top-up.
-- **Buy** from the hot-dog cart, ice-cream truck, food truck or a kid's
-  lemonade stand — a few bucks for a quick heal.
+- **Buy** from the hot-dog cart, food truck, or now a staffed **lemonade
+  stand** (a kid tends it — $2 for **+10 hp**) and the **ice-cream truck**
+  (an adult at the window — $3 for **+15 hp**). Both vendors call out their
+  wares and thank you for the sale in their own voice.
 - **Soda & gumball machines** vend for $2 / $1; the gumball pops out a
   colored ball.
 - **Claw machine** ($2) usually teases you, but now and then it coughs up a

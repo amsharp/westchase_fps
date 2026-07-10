@@ -192,15 +192,13 @@ mref0pwi, mref3wds (bus stops backwards); mredxzx6, mreenqoe (no-road homes).
 - mrefm6zw Publix sign (gpt-image) — IN-AGENT (gen-img)
 - mreed9ar smoke/fire sprites — IN-AGENT (gen-img)
 - mreeyfs8/mreeyvkn fountain sprites — IN-AGENT (gen-img)
-- mrefpkq1/mregli5y staff voice lines — IN-AGENT (gen-tts)
-- mreehkm9 lemonade kid vendor — IN-AGENT (gen-tts)
-- mreeipmy ice cream vendor — IN-AGENT (gen-tts)
-- mregnsjz fem pain grunt — IN-AGENT (gen-tts)
+- mrefpkq1/mregli5y staff voice lines — FIXED@v1.66.22 (gen-tts: wired the existing per-ROLE SHOP_VOICES pack into every interior chat/interact + buy trigger via new playShopVoice() + staffSay(lines,role,cat); text toasts kept as subtitles/fallback. Verified headless: CASHIER/greet, STOCKER/aisle, DUNKIN/chatter all fired with non-zero-duration buffers)
+- mreehkm9 lemonade kid vendor — FIXED@v1.66.22 (gen-tts: static KID vendor built behind the lemonade_stand prop, exempt from wander/follow/tag AI; E-buy $2 -> +10 hp; new vendvoices.js pack on KID_GIRL_BRIGHT ref — pitch/sale/thanks/idle. Verified: money -2, hp +10, LEMONADE/sale voice logged; idle chirp fires on approach)
+- mreeipmy ice cream vendor — FIXED@v1.66.22 (gen-tts: static ADULT vendor at the icecream_truck; E-buy $3 -> +15 hp; vendvoices.js pack on ped_m ref. Verified: money -3, hp +15, ICECREAM/sale voice logged)
+- mregnsjz fem pain grunt — FIXED@v1.66.22 (gen-tts: the layered death/ragdoll sfx('grunt') was a genderless deep 55Hz sawtooth; now sex-aware via at.fem — female NPCs get a higher 265Hz grunt — and n.fem is passed at both grunt sites. The hurt-VOICE fallback already picked pedf_hit for females. Verified: female NPC RAVEN -> grunt 'F', male RYAN -> 'M')
 - MESHY NOTE: balance 544cr, shared with the quest/kid pipelines — new civilian looks DEFERRED until those finish
 
 ## COORDINATION — round5-features (other agent): VENDOR OVERLAP
-The gen-tts round (fable agent, launched BEFORE the round5-features claim)
-is ALREADY BUILDING the lemonade-kid vendor (mreehkm9) and ice-cream-truck
-vendor (mreeipmy) including their voice lines and E-interactions.
-round5-features: please take fence panels (mreejak5) + traffic honks
-(mreeoimw) and SKIP both vendors to avoid double-building.
+RESOLVED: gen-tts SHIPPED both vendors @v1.66.22 (lemonade-kid mreehkm9 +
+ice-cream-truck mreeipmy, with voice lines + E-buy). round5-features: the
+vendors are DONE — take fence panels (mreejak5) + traffic honks (mreeoimw).
