@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.62.0';
+var GAME_VERSION = 'v1.62.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -12053,12 +12053,12 @@ function finishQuest(id) {
 // Capability status (gated on state.unlocks[...]):
 //   lockpick (q4) / hotwire (q5)  — WORKING: skip the car break-in timer.
 //   sprint   (q7)                 — WORKING: faster run + double jump.
-//   loupe    (q1)                 — TODO: clue highlight / trap reveal (flag only).
+//   loupe    (q1)                 — WORKING: L toggles amber clue-highlight + trap warnings.
 //   scanner  (q2)                 — WORKING: rings the nearest patrol on the minimap while wanted.
-//   lantern  (q3)                 — TODO: dark-vision / hidden-door reveal (flag only).
-//   reflexes (q6)                 — TODO: ADS bullet-time (flag only).
-//   ghost    (q8)                 — TODO: silent stealth kills + dealer discount (flag only).
-//   dogwhistle (q9)               — TODO: summon Biscuit companion (flag only).
+//   lantern  (q3)                 — WORKING: G toggles the green dark-vision light + parts apparitions.
+//   reflexes (q6)                 — WORKING: ADS (right-click) slows the sim on a drainable meter.
+//   ghost    (q8)                 — WORKING: silenced-pistol kills don't raise wanted + dealer discount.
+//   dogwhistle (q9)               — WORKING: B summons/dismisses Biscuit the follow companion.
 //   ending   (q10)               — sets the finale flag; town-wide perk is future work.
 function grantReward(id) {
   var d = questDef(id); if (!d || !d.reward) return;
@@ -12192,6 +12192,7 @@ function buildRoom(id) {
 // interiors the collider goes to the room's own list (blocks only in-room);
 // for surface props it goes to the world colliders. Flat floor hatches
 // (trapdoor/manhole_cover) skip colliders so the player can stand + press E.
+var qClueMeshes = [];   // #78: quest props the Detective's Loupe can highlight
 function qProp(name, x, z, ry, y, opts) {
   if (typeof getEnvProp !== 'function' || typeof ENV_BY_NAME === 'undefined') return null;
   var e = ENV_BY_NAME[name]; if (!e) return null;
@@ -12200,6 +12201,7 @@ function qProp(name, x, z, ry, y, opts) {
   var sc = opts.scale || 1;
   g.position.set(x, y || 0, z); g.rotation.y = ry; if (sc !== 1) g.scale.set(sc, sc, sc);
   scene.add(g);
+  if (opts.clue !== false) qClueMeshes.push({ mesh: g, x: x, z: z });
   if (e.solid && !opts.noCol) {
     solidMeshes.push(g);
     var hw = e.dims[0] / 2 * sc, hd = e.dims[2] / 2 * sc;
@@ -12457,6 +12459,151 @@ function questHatchUnlocked(id) {
 loadQuests();
 questRegisterItems();
 placeQuestSurfaceProps();   // #78: quest set-dressing props at the POI entrances
+
+// ================= #78 QUEST REWARD CAPABILITIES =================
+// The five stubbed rewards, made real. Each gated on its state.unlocks flag;
+// grant still fires the item + toast. Toggles bind to keys and __wc hooks.
+
+// ---- Detective's Loupe (Q1): highlight clues / reveal trapped containers ----
+var loupeOn = false, _loupeTinted = [];
+// known "trap"/false-bottom spots the Loupe warns about before you open them
+var qTraps = [{ x: -40, z: -70, name: 'false-bottom dumpster' }, { x: -132, z: 44, name: 'rigged liquor cabinet' }];
+var _loupeTrapT = 0;
+function tintClue(obj, hex) {
+  obj.traverse(function (o) {
+    if (o.isMesh && o.material && o.material.emissive) {
+      if (o.userData._emSaved === undefined) { o.userData._emSaved = o.material.emissive.getHex(); o.userData._emiSaved = o.material.emissiveIntensity || 0; }
+      o.material.emissive.setHex(hex); o.material.emissiveIntensity = 0.55 + 0.35 * Math.sin(T * 4);
+      _loupeTinted.push(o);
+    }
+  });
+}
+function clearLoupeTint() {
+  for (var i = 0; i < _loupeTinted.length; i++) { var o = _loupeTinted[i]; if (o.userData._emSaved !== undefined) { o.material.emissive.setHex(o.userData._emSaved); o.material.emissiveIntensity = o.userData._emiSaved; } }
+  _loupeTinted.length = 0;
+}
+function toggleLoupe(v) {
+  if (!hasUnlock('loupe')) { toast('You don\'t have the <b>Detective\'s Loupe</b> yet (Quest 1).', 2000); return false; }
+  loupeOn = (v == null) ? !loupeOn : !!v;
+  if (!loupeOn) clearLoupeTint();
+  toast(loupeOn ? '<b style="color:#ffcf6a">LOUPE UP</b> — clues glow amber; traps flagged.' : 'Loupe stowed.', 1600);
+  sfx(loupeOn ? 'buy' : 'whoosh');
+  return loupeOn;
+}
+function updateLoupe(dt) {
+  clearLoupeTint();
+  if (!loupeOn || !hasUnlock('loupe')) return;
+  var R2 = 26 * 26;
+  for (var i = 0; i < drops.length; i++) {
+    var d = drops[i]; if (!d.item) continue; var def = itemDef(d.itemId); if (!(def && def.quest)) continue;
+    var dx = d.mesh.position.x - player.x, dz = d.mesh.position.z - player.z; if (dx * dx + dz * dz > R2) continue;
+    tintClue(d.mesh, 0xffb020);
+  }
+  for (i = 0; i < qClueMeshes.length; i++) {
+    var c = qClueMeshes[i], cx = c.x - player.x, cz = c.z - player.z; if (cx * cx + cz * cz > R2) continue;
+    tintClue(c.mesh, 0xffb020);
+  }
+  // trap warning: within 5u of a flagged container, ping once every few sec
+  if (T - _loupeTrapT > 4) for (i = 0; i < qTraps.length; i++) {
+    var tp = qTraps[i], tx = tp.x - player.x, tz = tp.z - player.z;
+    if (tx * tx + tz * tz < 25) { toast('<b style="color:#e5533d">TRAP:</b> ' + tp.name + ' is rigged — the Loupe makes it safe to open.', 2600); _loupeTrapT = T; break; }
+  }
+}
+
+// ---- Spirit Lantern (Q3): dark-vision + reveal hidden doors/apparitions ----
+var lanternOn = false, lanternLight = null;
+function toggleLantern(v) {
+  if (!hasUnlock('lantern')) { toast('You don\'t have the <b>Spirit Lantern</b> yet (Quest 3).', 2000); return false; }
+  lanternOn = (v == null) ? !lanternOn : !!v;
+  if (lanternOn && !lanternLight) { lanternLight = new THREE.PointLight(0x9dffbe, 0, 40); scene.add(lanternLight); }
+  toast(lanternOn ? '<b style="color:#8effc0">SPIRIT LANTERN</b> — the dark parts before you; sealed doors reveal.' : 'The green flame gutters out.', 1800);
+  sfx(lanternOn ? 'buy' : 'whoosh');
+  return lanternOn;
+}
+function updateLantern(dt) {
+  if (!lanternLight) return;
+  var tgt = lanternOn && hasUnlock('lantern') ? 2.6 : 0;
+  lanternLight.intensity += (tgt - lanternLight.intensity) * Math.min(1, dt * 6);
+  lanternLight.position.set(player.x, player.y + 0.5, player.z);
+  lanternLight.visible = lanternLight.intensity > 0.03;
+  // part scripted apparitions: nudge quest foes back + stagger them while lit
+  if (lanternLight.intensity > 1.5) for (var i = 0; i < npcs.length; i++) {
+    var n = npcs[i]; if (!n.qfoe) continue;
+    var dx = n.x - player.x, dz = n.z - player.z, d2 = dx * dx + dz * dz;
+    if (d2 < 25 && d2 > 0.01) { var d = Math.sqrt(d2); n.x += (dx / d) * dt * 2.4; n.z += (dz / d) * dt * 2.4; n.jabT = Math.max(n.jabT, 0.5); }
+  }
+}
+
+// ---- 8-Bit Reflexes (Q6): ADS bullet-time on a drainable meter/cooldown ----
+var reflex = { active: false, meter: 1, cd: 0 };
+function reflexScale() { return reflex.active ? 0.34 : 1; }
+function setBulletTime(on) { reflex.forced = !!on; }   // debug/manual override
+function updateReflex(dt) {
+  var want = reflex.forced || (hasUnlock('reflexes') && zoomed && reflex.meter > 0.03 && reflex.cd <= 0);
+  reflex.active = want;
+  if (want) { reflex.meter = Math.max(0, reflex.meter - dt * 0.55); if (reflex.meter <= 0) { reflex.cd = 3.5; reflex.active = false; } }
+  else { if (reflex.cd > 0) reflex.cd -= dt; reflex.meter = Math.min(1, reflex.meter + dt * 0.4); }
+}
+
+// ---- Biscuit the dog companion (Q9 Dog Whistle) ----
+var biscuit = null;   // { mesh, x, z, ... } — a following, non-harmable dog
+function summonBiscuit() {
+  if (!hasUnlock('dogwhistle')) { toast('You don\'t have the <b>Dog Whistle</b> yet (Quest 9).', 2000); return false; }
+  if (biscuit) { toast('Biscuit is already at your heel. <b>(B)</b> again to send him home.', 1800); return biscuit; }
+  var mesh = null;
+  try { if (typeof getAccessory === 'function') { var acc = getAccessory('dog'); if (acc && acc.mesh) mesh = acc.mesh; } } catch (e) { }
+  if (!mesh) { try { mesh = box(0.5, 0.4, 0.9, lamb({ color: 0x6b4a2e }), 0, 0.2, 0); } catch (e2) { mesh = new THREE.Group(); } }
+  var bx = player.x - Math.sin(yaw) * 2, bz = player.z - Math.cos(yaw) * 2;
+  mesh.position.set(bx, 0, bz); scene.add(mesh);
+  biscuit = { mesh: mesh, x: bx, z: bz, yaw: yaw, phase: 0, bark: 0 };
+  try { playQuestVoice('q9_BISCUIT', 'barks', 0, 0.8, 0.4); } catch (e3) { }
+  toast('<b style="color:#ffd98a">You whistle.</b> Biscuit bounds to your side! Good boy.', 2600);
+  sfx('cash');
+  return biscuit;
+}
+function dismissBiscuit() {
+  if (!biscuit) return false;
+  try { scene.remove(biscuit.mesh); } catch (e) { }
+  biscuit = null; toast('Biscuit trots off home. Blow the whistle to call him back.', 2200);
+  return true;
+}
+function toggleBiscuit() { return biscuit ? dismissBiscuit() : summonBiscuit(); }
+function updateBiscuit(dt) {
+  if (!biscuit) return;
+  var b = biscuit;
+  // heel target: just behind-left of the player (combat-exempt; never harmed)
+  var tx = player.x - Math.sin(yaw) * 2.1 - Math.cos(yaw) * 1.0;
+  var tz = player.z - Math.cos(yaw) * 2.1 + Math.sin(yaw) * 1.0;
+  var dx = tx - b.x, dz = tz - b.z, d = Math.sqrt(dx * dx + dz * dz);
+  var spd = d > 6 ? 7.5 : (d > 1.2 ? 4.2 : 0);   // sprint to catch up, trot near
+  if (spd > 0 && d > 0.01) { b.x += (dx / d) * spd * dt; b.z += (dz / d) * spd * dt; b.yaw = Math.atan2(dx, dz); }
+  b.phase += dt * (spd > 0 ? 9 : 2);
+  var y = qLoc && qRoom ? qRoom.y : (inside && curInterior ? curInterior.box.y : 0);
+  b.mesh.position.set(b.x, y + Math.abs(Math.sin(b.phase)) * (spd > 4 ? 0.12 : 0.03), b.z);
+  b.mesh.rotation.y = b.yaw;
+  // fetch nearby dropped cash toward the player (best-boy utility)
+  for (var i = 0; i < cashes.length; i++) {
+    var cs = cashes[i]; if (!cs || cs.taken) continue;
+    var cp = cs.mesh ? cs.mesh.position : cs;
+    var cdx = cp.x - b.x, cdz = cp.z - b.z, cd2 = cdx * cdx + cdz * cdz;
+    if (cd2 < 4 && cd2 > 0.01) { var cd = Math.sqrt(cd2); cp.x -= (cdx / cd) * dt * 3; cp.z -= (cdz / cd) * dt * 3; if (cs.x !== undefined) { cs.x = cp.x; cs.z = cp.z; } }
+  }
+}
+
+// ---- ghost (Q8): stealth kills via the silenced pistol don't raise wanted ----
+function ghostActive() { return hasUnlock('ghost') && state.equipped === 'silenced'; }
+
+// ---- master capability update (called from the loop + __wc.tick) ----
+function updateQuestCaps(dt) {
+  updateLoupe(dt); updateLantern(dt); updateReflex(dt); updateBiscuit(dt);
+}
+// debug: force-grant a capability (and its item) without playing the quest
+function giveUnlock(flag) {
+  state.unlocks[flag] = true;
+  var ITMAP = { silenced: 'silenced', reflexes: 'neon_blaster', ghost: 'silenced' };
+  saveQuests();
+  return state.unlocks;
+}
 
 // ================= END QUEST SYSTEM =================
 
@@ -13656,6 +13803,12 @@ document.addEventListener('keydown', function (e) {
   if (e.code === 'Tab') { e.preventDefault(); if (!state.running || state.dead) return; if (state.menu === 'inv') closeMenus(); else { closeMenus(false); openMenu('inv'); } }
   if (e.code === 'KeyJ' && !e.repeat) { e.preventDefault(); if (!state.running || state.dead) return; if (state.menu === 'quest') closeMenus(); else if (!state.menu) openMenu('quest'); return; }
   if (e.code === 'KeyQ' && state.menu === 'inv') { e.preventDefault(); if (bagSel >= 0 && state.bag[bagSel]) bagDrop(bagSel); return; }
+  // #78 quest-reward capability toggles (only while playing, no menu)
+  if (!e.repeat && state.running && !state.menu && !state.dead) {
+    if (e.code === 'KeyL' && hasUnlock('loupe')) { toggleLoupe(); return; }
+    if (e.code === 'KeyG' && hasUnlock('lantern')) { toggleLantern(); return; }
+    if (e.code === 'KeyB' && hasUnlock('dogwhistle')) { toggleBiscuit(); return; }
+  }
   if (e.code === 'KeyE') {
     // dead-guard matters: E during the 2.6s death window could enterStore
     // (respawn then never cleared `inside` → wrong floor/colliders forever),
@@ -14067,7 +14220,9 @@ function loop(now) {
   var dt = Math.min(0.05, (now - last) / 1000); last = now;
   if (!state.running) { renderer.render(scene, camera); renderCreatorFrame(dt); return; }
   T += dt;
-  updatePlayer(dt); updateNPCs(dt); updateKids(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateUfo(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); updateNpcTags(); updateHUD(); drawMinimap();
+  updateReflex(dt);                       // 8-Bit Reflexes: sets the slow-mo factor
+  var sdt = dt * reflexScale();           // world sim dt (bullet-time scales it)
+  updatePlayer(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); updateQuestCaps(dt); updateNpcTags(); updateHUD(); drawMinimap();
   renderer.render(scene, camera);
 }
 setEquipped('fists');
@@ -14241,13 +14396,21 @@ window.__wc = {
   registerQuestPOI: registerQuestPOI, questPOIById: questPOIById, registerAmbush: registerAmbush, triggerAmbush: triggerAmbush,
   enterPOI: enterPOI, exitPOI: exitPOI, questLoc: function () { return qLoc; },
   qProp: qProp, placeQuestSurfaceProps: placeQuestSurfaceProps, buildRoom: buildRoom,
+  // #78 reward capabilities
+  giveUnlock: giveUnlock,
+  toggleLoupe: toggleLoupe, loupeState: function () { return { on: loupeOn, tinted: _loupeTinted.length, clues: qClueMeshes.length }; },
+  toggleLantern: toggleLantern, lanternState: function () { return { on: lanternOn, intensity: lanternLight ? Math.round(lanternLight.intensity * 100) / 100 : 0 }; },
+  setBulletTime: setBulletTime, reflexState: function () { return { active: reflex.active, meter: Math.round(reflex.meter * 100) / 100, cd: Math.round(reflex.cd * 100) / 100, scale: reflexScale() }; },
+  summonBiscuit: summonBiscuit, dismissBiscuit: dismissBiscuit, toggleBiscuit: toggleBiscuit,
+  biscuitState: function () { return biscuit ? { x: Math.round(biscuit.x * 10) / 10, z: Math.round(biscuit.z * 10) / 10, dist: Math.round(Math.sqrt((biscuit.x - player.x) * (biscuit.x - player.x) + (biscuit.z - player.z) * (biscuit.z - player.z)) * 10) / 10 } : null; },
+  ghostActive: ghostActive,
   questGiverNear: questGiverNear, questGiverTalk: questGiverTalk, refreshQuestPanel: refreshQuestPanel,
   openQuestLog: function () { openMenu('quest'); }, saveQuests: saveQuests, loadQuests: loadQuests,
   // --- #77 quest-asset wiring test hooks ---
   buildQuestChar: buildQuestChar, playQuestVoice: playQuestVoice, getEnvProp: getEnvProp,
   questRegisterItems: questRegisterItems, itemDef: itemDef, itemTex: itemTex, bagAdd: bagAdd, bagCount: bagCount,
   questAssets: function () { return { chars: Object.keys(QUEST_IDX), reskins: Object.keys(QUEST_RESKIN_IDX), props: (typeof QUEST_PROPS !== 'undefined') ? QUEST_PROPS.map(function (p) { return p.n; }) : [], items: (typeof QUEST_ITEM_DEFS !== 'undefined') ? QUEST_ITEM_DEFS.length : 0, voices: (typeof QUEST_VOICES !== 'undefined') ? Object.keys(QUEST_VOICES).length : 0 }; },
-  tick: function (dt) { T += dt; updatePlayer(dt); updateNPCs(dt); updateKids(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateUfo(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); renderer.render(scene, camera); }
+  tick: function (dt) { T += dt; updateReflex(dt); var sdt = dt * reflexScale(); updatePlayer(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); updateQuestCaps(dt); renderer.render(scene, camera); }
 };
 
 // ---------------- boot screen handoff + menu cover art ----------------
