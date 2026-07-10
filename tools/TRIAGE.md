@@ -85,7 +85,7 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mreeccpr/mreebnfk (-226,152) prop set jarring in front of office tower (placement only) — FIXED@v1.66.25 (red_house's whimsical yard trio — a spinning garden windmill + gnome + birdbath — was dumped across the FRONT-CENTRE of the 5-storey building's plaza frontage. Windmill dropped (the lake already has one; a windmill before a tall building read as jarring); gnome+birdbath+a raised_bed now form a tidy planting bed tucked to the front corner off the entrance axis. ANIM sub-issue left to round2-anim per scope.)
 - mreegamp (-140,43)  placement bad — FIXED@v1.66.25 (same townhouse-strip declutter as mreei0of: the redundant per-townhouse homemailbox pair stamped a mailbox at both front ends; at th_d's -end (-150,41) it clipped the yard raised_bed and doubled the mailbox_cluster. Loop removed -> the strip frontage reads clean.)
 - mreei0of (-142,-30) flower bed out of place — FIXED@v1.66.25 (the flower bed = townhouse yard raised_bed; a redundant homemailbox street prop (placed at BOTH front ends of every townhouse venue, line 7664) landed exactly on the -end bed at th_a (-141,-32) and jammed into it. Removed the homemailbox pair — every townhouse already gets ONE rummageable mailbox_cluster — so the bed now sits alone + intentional.)
-- mreeuu2g (-136,230) unclear props — OPEN (round5-props investigated: this is strip_a's large, nearly-empty tiled frontage plaza — a lone low utility box, a couple of backless benches, a small-bush hedge row + trees around a big blank slab. No single clearly-misfired prop isolable; the "confusing" read is the barren plaza itself, which needs a curated storefront prop SET added (benches/planters/bike-racks spaced along the frontage) — a content pass, not a surgical reposition. Deferred to avoid a speculative change colliding with the density/env storefront passes.)
+- mreeuu2g (-136,230) unclear props — IN-AGENT (round5-tail) (strip_a barren plaza — curated storefront prop set pass)
 - mreelboe (-70,-115) big green blob shrub — REASSIGNED→round5-vegetation (shrub geometry/look, not placement; round5-props not touching it)
 - mreds4nw (90,-131) + mref3ibd (535,126) AC props: big rooftop industrial HVAC — FIXED@v1.66.28 (1) rewrote vAC() — the rooftop AC used on EVERY commercial venue (publix/school/banks/strips/shops incl. Sakura Sushi) — from a plain 2-box gray lump into a proper industrial packaged RTU: big ribbed galvanized cabinet + galvanized top deck + TWIN radial fan-guard grilles + an end control panel, all canvas-textured (acRibTex condenser louvers/seams/rivets/weather + fanGrilleTex concentric-ring/spoke guards). (2) upsized the ground ac_condenser density prop 2.4x (0.75m residential cube -> ~1.8m commercial condenser) via a new dBoxAsset scale arg. Verified on the sushi roof + pharmacy side wall.)
 
@@ -114,7 +114,7 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mreenqoe (-25,-347) homes with no road/walkway — DEFER-LARGER-PASS (round5-structure): same class as mredxzx6 — the S pocket west of nine_eagles_dr has a house cluster (~-42,-360 / -62,-360 …) sitting in open field with no street/walkway; the eastern homes front nine_eagles but the western cluster is roadless. Needs a residential street added to REMAP_ROADS (road-network pass), not a surgical fix.
 - mreeoimw (-1,-517) traffic too uniform; want occasional honks — R5 feature
 - mreeosgw (-10,-492) lamp post + tree clipping — FIXED@v1.66.10 (street-tree pass now rejects spots within 4u of a streetlight base via nearStreetlight; lamp colliders are only 0.22r so spotClear alone let a canopy swallow the pole)
-- mreepojo (157,-74) 'half ass gas station' — R5
+- mreepojo (157,-74) 'half ass gas station' — IN-AGENT (round5-tail)
 - mreeq7nj (150,193) random barrier — stale@v1.66.16 (re-probed: the point is open; blockers are a correct house OBB SW at (137,205) + one tiny prop point-collider at (157,192). No phantom wall)
 - mreeqqbh (298,235) road looks awful — R5
 - mreer5b4 (419,172) houses riding the sidewalk — FIXED@v1.66.5 (same houseSidewalkNudge shared fix)
@@ -163,7 +163,7 @@ Clusters:
 - mreggwii (42,0)   wendel glitchy in MP — FIXED@v1.66.5 (world-snapshot interpolation for NPC/car/cop mirrors; was 8Hz exp-chase)
 - mregi4tl (128,-5) stuttery walking NPC in MP — FIXED@v1.66.5 (same)
 - mreghm0l (92,-48) floating idle anim — R2-anim extras
-- mregiwcv (-47,17) unidentifiable thing — R5
+- mregiwcv (-47,17) unidentifiable thing — IN-AGENT (round5-tail)
 - mregjcuz (-27,-4) should be lit at night — R5 lighting
 - mregk7im/mregkhdi/mregli5y/mregma9f (Dunkin interior: workers not facing, stretched counter, room-bounds wall, menu clipping, voice ask) — other agent interiors
 - mregn84n (-45,11) held-item grip botched — R2-anim extras
