@@ -124,3 +124,13 @@ Clusters:
 - INTERIOR cluster (other agent's shop systems): mrefpkq1 cashier voicelines; mrefq2w5 npcs stuck on shelves; mrefqf7b warped texture; mrefwcmm $1.25 sign floating/one-sided + boring shelves; mrefv6f6 interior 'invisible wall' (room bounds, needs visible walls)
 - CONTENT/GEN requests: mrefm6zw real Publix logo (AI gen + tile); mrefogw8 avoid duplicate NPC looks + 5x NPC density; mrefucxb NPCs voice not text; mrefsp85 varied car engine sounds; mrefts2d ugly palms (with mredw3ho variants)
 - QUICK FIXES: mrefti0d flowers mid-road — FIXED@v1.66.4 (shrub/grass road-clearance guard at source); mreg8mld post not breakable; mrefrgtb pistol should be one-handed (viewmodel); mreft54h unnatural U-turns at junction; mregdctj sign post clipping
+
+## Batch 8
+- mreggwii (42,0)   wendel glitchy in MP — FIXED@v1.66.5 (world-snapshot interpolation for NPC/car/cop mirrors; was 8Hz exp-chase)
+- mregi4tl (128,-5) stuttery walking NPC in MP — FIXED@v1.66.5 (same)
+- mreghm0l (92,-48) floating idle anim — R2-anim extras
+- mregiwcv (-47,17) unidentifiable thing — R5
+- mregjcuz (-27,-4) should be lit at night — R5 lighting
+- mregk7im/mregkhdi/mregli5y/mregma9f (Dunkin interior: workers not facing, stretched counter, room-bounds wall, menu clipping, voice ask) — other agent interiors
+- mregn84n (-45,11) held-item grip botched — R2-anim extras
+- mregnsjz (-28,-6) female NPC used male pain grunt — R5 audio (sex-check the pain voice pick)

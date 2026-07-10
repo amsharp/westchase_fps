@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.4';
+var GAME_VERSION = 'v1.66.5';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -4625,8 +4625,25 @@ function meshyPose(sk, clipKey, cycles, oneshot) {
     b.quaternion.slerp(_poseQ, a);
     if (c.post) { _poseQ.set(c.post[i * 4], c.post[i * 4 + 1], c.post[i * 4 + 2], c.post[i * 4 + 3]); b.quaternion.multiply(_poseQ); }
   }
+  // per-character leg-yaw retarget correction (item: "walk animation really off").
+  // A few Meshy skeletons (e.g. HECTOR) were authored with their upper-leg bones
+  // yaw-rotated vs the shared walk clip's source rig, so the delta retarget
+  // redirects the fore-aft stride into a wide lateral splay (near side-split).
+  // Un-yaw both UpLeg bones in the Hips-local frame (parallel Y premultiply) to
+  // restore a normal gait. Value measured per character via tools/_animtuneY.js.
+  if (sk.legFix) {
+    if (!_legFixQ) { _legFixQ = new THREE.Quaternion(); _legFixAx = new THREE.Vector3(0, 1, 0); }
+    var _lb = sk.bones[sk.legLi], _rb = sk.bones[sk.legRi];
+    if (_lb && _rb) { _legFixQ.setFromAxisAngle(_legFixAx, sk.legFix); _lb.quaternion.premultiply(_legFixQ); _rb.quaternion.premultiply(_legFixQ); }
+  }
   sk.bones[d.rootI].position.y = sk.rootBindY + (c.gy || 0) + (c.y[f0] / 2000) * (1 - a) + (c.y[f1] / 2000) * a;
 }
+// Per-character upper-leg yaw correction (radians), keyed by MESHY_LIST name.
+// Only characters whose bind-pose legs splay under the shared-clip retarget need
+// an entry; everyone else stays at 0 (untouched). Measured lateral foot spread
+// for HECTOR drops 0.854u -> 0.31u (roster norm ~0.28u) at 1.2 rad.
+var _legFixQ = null, _legFixAx = null;
+var MESHY_LEG_FIX = { HECTOR: 1.2 };
 function buildMeshySkinned(cfg, mi) {
   var d = getMeshySkin(mi);
   var g = new THREE.Group();
@@ -4647,9 +4664,12 @@ function buildMeshySkinned(cfg, mi) {
   var names = MESHY_LIST[mi].skel.names, bi = {};
   for (i = 0; i < nj; i++) bi[names[i]] = i;
   var sk = { d: d, bones: bones, rootBindY: bones[d.rootI].position.y };
+  sk.legLi = bi.LeftUpLeg; sk.legRi = bi.RightUpLeg;
+  sk.legFix = MESHY_LEG_FIX[MESHY_LIST[mi].n] || 0;   // leg-yaw retarget fix (see meshyPose)
   g.userData.skin = sk;
   meshyPose(sk, 'walk', 0);   // natural stance instead of T-pose
   g.userData.limbs = { armL: bones[bi.LeftArm], armR: bones[bi.RightArm], legL: bones[bi.LeftUpLeg], legR: bones[bi.RightUpLeg] };
+  g.userData.spine = bones[bi.Spine] || bones[bi.Spine01] || null;   // slouch pivot (walker accessory)
   g.userData.handR = bones[bi.RightHand] || bones[bi.RightForeArm] || bones[bi.RightArm];
   var shadow = blobShadow(0.42, 0.42, 0.16); g.add(shadow);
   g.userData.shadow = shadow;
@@ -5236,6 +5256,9 @@ function attachAccessory(n, name, variant) {
     n.mesh.add(g);
   }
   n.acc = rec; accessories.push(rec);
+  // walker users are elderly: shuffle slowly (updateAccessories also poses them
+  // gripping the handles + slouched forward each frame).
+  if (name === 'walker') n.speed = 0.6 + Math.random() * 0.25;
   accStats.attached++; accStats.byMode[mode] = (accStats.byMode[mode] || 0) + 1;
   return rec;
 }
@@ -5290,11 +5313,29 @@ function updateAccessories(dt) {
     if (a.leash && !a.leash.visible) a.leash.visible = true;
     if (a.mode === 'leash') updateLeashDog(a, n, dt);
     else if (a.mode === 'hand') updateHandAcc(a, n, dt);
-    // push & side items ride their parent group transform (no per-frame work).
+    else if (a.name === 'walker') poseWalkerGrip(n);
+    // stroller & side items ride their parent group transform (no per-frame work).
     // NOTE: an earlier build nudged the owner's arms onto the push bar, but
     // writing .rotation.x onto a skinned arm bone wipes the walk-clip quaternion
-    // and splays the arms — the natural swing behind the stroller reads better.
+    // and splays the arms — for the STROLLER the natural swing behind it reads
+    // better; the WALKER, however, must be gripped (see poseWalkerGrip), so we
+    // MULTIPLY a grip rotation onto the posed arm bones (keeps the clip base).
   }
+}
+// Pose a walker user gripping the handles + hunched forward. Runs AFTER
+// animPerson has posed the skeleton this frame, so we post-multiply the arm and
+// spine bones (like the clerk's hands-up) instead of overwriting the clip.
+var _walkerQ = null, _walkerAx = null;
+function poseWalkerGrip(n) {
+  var m = n.mesh; if (!m) return;
+  if (n.state !== 'walk' && n.state !== 'stand') return;   // fleeing/downed: let the clip play
+  var L = m.userData.limbs; if (!L || !L.armL || !L.armR) return;
+  if (!_walkerQ) { _walkerQ = new THREE.Quaternion(); _walkerAx = new THREE.Vector3(1, 0, 0); }
+  var sp = m.userData.spine;
+  if (sp) { _walkerQ.setFromAxisAngle(_walkerAx, 0.3); sp.quaternion.multiply(_walkerQ); }   // hunch forward over the frame
+  _walkerQ.setFromAxisAngle(_walkerAx, -1.3);   // reach both arms forward+down onto the grips
+  L.armL.quaternion.multiply(_walkerQ);
+  L.armR.quaternion.multiply(_walkerQ);
 }
 var _accEuler = new THREE.Euler(0, 0, 0, 'YXZ');
 var _accHandQ = new THREE.Quaternion(), _accHandP = new THREE.Vector3();
@@ -10775,6 +10816,13 @@ function breakNpcChat(n) {
 }
 // speak a conversation line, falling back to plain small talk when the
 // character's pack lacks the category; true only when `cat` itself played
+// true when this character actually has a conversational voice pack entry
+// loaded (chatQ/chatA/chat). Used to gate sidewalk pairings so two voiceless
+// NPCs never start a chat they can only MIME (bug: "gesturing but saying
+// nothing"). Many Meshy civs (RYAN/NIA/GARY/HECTOR…) ship no NPC_VOICES entry.
+function npcCanVoice(name) {
+  return !!(name && typeof NPC_VOICES !== 'undefined' && NPC_VOICES[name] && (NPC_VOICES[name].chatQ || NPC_VOICES[name].chatA || NPC_VOICES[name].chat));
+}
 function npcChatLine(n, cat) {
   if (!n || !n.vname) return false;
   // net:1 — sidewalk conversations are shared-world ambient chatter: the host
@@ -10808,16 +10856,19 @@ function updateNPCs(dt) {
           if (b2.state !== 'walk') continue;
           var cdx = a.x - b2.x, cdz = a.z - b2.z;
           if (cdx * cdx + cdz * cdz < 12) {
+            // pick an opener that can actually SPEAK; if neither NPC has a voice
+            // pack, skip the pair entirely so we never start a silent mimed chat.
+            var op = npcCanVoice(a.vname) ? a : (npcCanVoice(b2.vname) ? b2 : null);
+            if (!op) continue;
             a.state = 'chat'; b2.state = 'chat';
             a.partner = cj; b2.partner = ci;
             a.chatRole = 0; b2.chatRole = 1;
-            a.stateT = b2.stateT = (a.vname || b2.vname) ? 8 + Math.random() * 6 : 5 + Math.random() * 6;
+            a.stateT = b2.stateT = 8 + Math.random() * 6;
             a.animT = 0; b2.animT = 1.1;
             // alternating conversation: the pair owner (chatRole 0) drives the
-            // turn timer. A named opener asks a question (chatQ), then the
+            // turn timer. The voiced opener asks a question (chatQ), then the
             // other side reacts (chatA/story) every few seconds — see the
             // 'chat' state block below.
-            var op = a.vname ? a : b2;
             npcChatLine(op, 'chatQ');
             a.convTurn = op === a ? 1 : 0;   // who speaks NEXT (0 = a, 1 = partner)
             a.convT = 3 + Math.random() * 1.5;
@@ -14687,7 +14738,17 @@ function handleNet(m, conn) {
     netRelay(m, conn);
   } else if (m.t === 'world') {
     // unordered channel: never apply a snapshot older than the current one
-    if (net.mode === 'client' && !(m.q && net.lastWorldQ && m.q <= net.lastWorldQ)) { net.lastWorldQ = m.q || 0; net.worldSnap = m; }
+    if (net.mode === 'client' && !(m.q && net.lastWorldQ && m.q <= net.lastWorldQ)) {
+      net.lastWorldQ = m.q || 0;
+      // keep the previous snapshot + arrival timing: applyWorldSnap
+      // INTERPOLATES every mirrored entity between the two full world states
+      // (8Hz exp-chasing made NPCs/cars visibly stutter — reports mreggwii,
+      // mregi4tl), same treatment the remote players got
+      var nowW = performance.now() / 1000;
+      net.worldPrev = net.worldSnap; net.worldSnap = m;
+      net.worldDt = Math.max(0.06, Math.min(0.35, nowW - (net.worldAt || nowW - 0.125)));
+      net.worldAt = nowW;
+    }
   } else if (m.t === 'env') {
     if (net.mode === 'client') {
       envT = m.envT; raining = m.raining; rainLeft = m.rainLeft;
@@ -15184,6 +15245,17 @@ function applyWorldSnap(dt) {
   var s = net.worldSnap;
   if (!s) return;
   var k = Math.min(1, dt * 10);
+  // interpolation factor between the previous and current world snapshots
+  var sp = net.worldPrev, alpha = 1;
+  if (sp) {
+    alpha = (performance.now() / 1000 - net.worldAt) / (net.worldDt || 0.125);
+    if (alpha < 0) alpha = 0; if (alpha > 1.15) alpha = 1.15;   // tiny extrapolation over jitter
+  }
+  function ilerp(prevArr, i2, ci, cur) {
+    if (!sp || !prevArr || i2 >= prevArr.length) return cur;
+    var pv = prevArr[i2][ci];
+    return pv + (cur - pv) * alpha;
+  }
   // the wire carries INTEGERS (positions x10, angles x100) — decode here
   for (var i = 0; i < cars.length && i < s.cars.length; i++) {
     var c = cars[i], a = s.cars[i], m = c.car.group;
@@ -15199,8 +15271,8 @@ function applyWorldSnap(dt) {
       if (c.eng) c.eng.g.gain.value = 0; continue;
     }
     removeHusk(c);
-    m.position.x += (a[0] / 10 - m.position.x) * k;
-    m.position.z += (a[1] / 10 - m.position.z) * k;
+    m.position.x = ilerp(sp && sp.cars, i, 0, a[0]) / 10;
+    m.position.z = ilerp(sp && sp.cars, i, 1, a[1]) / 10;
     m.rotation.y = a[2] / 100;
     if (c.berserk || c.burning) {
       c.smokeT = (c.smokeT || 0) - dt;
@@ -15230,7 +15302,7 @@ function applyWorldSnap(dt) {
     // the way in/out — teleports through doors must not glide across the map
     var isHid = st === 4;
     if (isHid !== !!n.hiddenM) { n.x = b[0] / 10; n.z = b[1] / 10; nox = n.x; noz = n.z; }
-    else { n.x += (b[0] / 10 - n.x) * k; n.z += (b[1] / 10 - n.z) * k; }
+    else { n.x = ilerp(sp && sp.npcs, i, 0, b[0]) / 10; n.z = ilerp(sp && sp.npcs, i, 1, b[1]) / 10; }
     n.hiddenM = isHid;
     nm.visible = !isHid;
     n.state = st === 2 ? 'down' : (st === 3 ? 'ragdoll' : (isHid ? 'hidden' : 'walk'));
@@ -15259,7 +15331,7 @@ function applyWorldSnap(dt) {
     var cp = copsM[i], cs = s.cops[i];
     if (!cp.down && cp.mesh.userData.handR && (cp.mesh.userData.heldKind || null) !== wantGunM) attachHeldGun(cp.mesh, wantGunM);
     var cox = cp.x, coz = cp.z;
-    cp.x += (cs[0] / 10 - cp.x) * k; cp.z += (cs[1] / 10 - cp.z) * k;
+    cp.x = ilerp(sp && sp.cops, i, 0, cs[0]) / 10; cp.z = ilerp(sp && sp.cops, i, 1, cs[1]) / 10;
     cp.nid = cs[4];   // stable host-side id, so dmgCop can't mistarget after a despawn
     if (cs[3] === 2) cp.hit = false;   // kill confirmed: free the run-over latch (slots get reused)
     cp.down = cs[3] === 2;
