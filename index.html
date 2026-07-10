@@ -363,6 +363,14 @@ function wcTick(w, nextLabel) {
      typeof KID_CHARS / KID_VOICES so it still boots if these are absent -->
 <script src="kidchars.js" onload="wcTick(2.0,'rounding up the kids…')"></script>
 <script src="kidvoices1.js" onload="wcTick(0.8,'loading playground chatter…')"></script>
+<!-- quest content pack (#77): 11 quest NPCs + 6 reskins, 36 item icons, 8 props,
+     279 dialogue lines. questchars.js loads AFTER meshychars.js + kidchars.js
+     (reskins clone those bases). game.js guards typeof QUEST_CHARS / QUEST_ITEMS
+     / QUEST_PROPS / QUEST_VOICES so it still boots if any pack is absent. -->
+<script src="questchars.js" onload="wcTick(4.0,'briefing the cast…')"></script>
+<script src="questprops.js" onload="wcTick(2.5,'digging the tunnels…')"></script>
+<script src="questitems.js" onload="wcTick(0.4,'sealing the evidence…')"></script>
+<script src="questvoices1.js" onload="wcTick(11.0,'recording the dialogue…')"></script>
 <script src="voicelines.js" onload="wcTick(1.0,'loading decals…')"></script>
 <script src="blooddecals.js" onload="wcTick(0.2,'loading street furniture…')"></script>
 <script src="streetprops.js" onload="wcTick(0.5,'loading the map…')"></script>

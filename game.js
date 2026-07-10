@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.59.1';
+var GAME_VERSION = 'v1.60.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -4260,6 +4260,54 @@ function buildStaff(name, cfg) {
   if (i === undefined) return buildPerson('#1c7e3a', '#e8e4da', CSKIN[2], { hairColor: 0x2a1c10 });   // fallback if staffchars.js absent
   return buildMeshySkinned(cfg || randomCharConfig(), i);
 }
+// ---- quest NPC models (questchars.js #77): 10 skinned quest cast + BISCUIT
+// (animal, built elsewhere) + 6 texture-only reskins. Skinned entries share the
+// MESHY_CHARS schema, so append them to MESHY_LIST (AFTER the civ/cop/role
+// classification so they stay out of the random street pools) and index by name.
+var QUEST_SRC = (typeof QUEST_CHARS !== 'undefined') ? QUEST_CHARS : [];
+var QUEST_IDX = {};   // quest char name -> MESHY_LIST index (skinned only)
+for (var qci = 0; qci < QUEST_SRC.length; qci++) {
+  if (!QUEST_SRC[qci].skel) continue;   // BISCUIT (animal) — no skeleton, built via the dog prop
+  QUEST_IDX[QUEST_SRC[qci].n] = MESHY_LIST.length;
+  MESHY_LIST.push(QUEST_SRC[qci]);
+}
+var MESHY_NAME_IDX = {};   // any MESHY_LIST name -> index (quest names win, pushed last)
+for (var mni = 0; mni < MESHY_LIST.length; mni++) MESHY_NAME_IDX[MESHY_LIST[mni].n] = mni;
+var QUEST_RESKIN_SRC = (typeof QUEST_RESKINS !== 'undefined') ? QUEST_RESKINS : [];
+var QUEST_RESKIN_IDX = {};
+for (var qri = 0; qri < QUEST_RESKIN_SRC.length; qri++) QUEST_RESKIN_IDX[QUEST_RESKIN_SRC[qri].n] = qri;
+var questReskinTexCache = {};
+function questReskinTex(name) {
+  if (questReskinTexCache[name]) return questReskinTexCache[name];
+  var r = QUEST_RESKIN_SRC[QUEST_RESKIN_IDX[name]]; if (!r) return null;
+  var im = new Image(), tx = new THREE.Texture(im);
+  tx.magFilter = THREE.NearestFilter; tx.minFilter = THREE.NearestFilter; tx.generateMipmaps = false;
+  im.onload = function () { tx.needsUpdate = true; }; im.src = r.tex;
+  return (questReskinTexCache[name] = tx);
+}
+function meshSwapMap(g, tx) {   // repaint a built skinned group's SkinnedMesh
+  if (!g || !tx) return g;
+  for (var i = 0; i < g.children.length; i++) { var c = g.children[i]; if (c.isSkinnedMesh || c.isMesh) { c.material = c.material.clone(); c.material.map = tx; c.material.needsUpdate = true; break; } }
+  return g;
+}
+// build any quest actor by name: a QUEST_CHARS skinned char, or a QUEST_RESKINS
+// texture-swap over a base (Meshy/quest/kid) char. Returns a Group with the
+// same limbs/skin/shadow contract as buildMeshySkinned (animPerson-compatible).
+function buildQuestChar(name, cfg) {
+  cfg = cfg || randomCharConfig();
+  if (QUEST_IDX[name] !== undefined) return buildMeshySkinned(cfg, QUEST_IDX[name]);
+  var r = QUEST_RESKIN_SRC[QUEST_RESKIN_IDX[name]];
+  if (r) {
+    // kid-based reskin (e.g. GRAY_BOY <- LEO): build the kid then swap the map
+    if (typeof KID_LOOKS !== 'undefined') {
+      for (var ki = 0; ki < KID_LOOKS.length; ki++) if (KID_LOOKS[ki].n === r.base) return meshSwapMap(buildKid(ki), questReskinTex(name));
+    }
+    var bi = MESHY_NAME_IDX[r.base];
+    if (bi !== undefined && MESHY_LIST[bi].skel) return meshSwapMap(buildMeshySkinned(cfg, bi), questReskinTex(name));
+  }
+  // last resort: a generic body so a quest never crashes for a missing look
+  return buildPerson('#555', '#333', CSKIN[2], {});
+}
 var meshyPartsCache = [], meshyTexCache = [];
 function getMeshyParts(mi) {
   if (meshyPartsCache[mi]) return meshyPartsCache[mi];
@@ -6521,6 +6569,11 @@ var envPropInteractables = [];  // subset with an interact flag (STEP 3 E-hooks)
 var envStats = { placed: 0, merged: 0, colliders: 0, batches: 0, byCat: {} };
 var ENV_BY_NAME = {};
 if (typeof ENV_PROPS !== 'undefined') for (var epi = 0; epi < ENV_PROPS.length; epi++) ENV_BY_NAME[ENV_PROPS[epi].n] = ENV_PROPS[epi];
+// quest props (questprops.js #77) share the ENV_PROPS schema — register them in
+// the lookup so getEnvProp()/envDecodeGeo()/envTex() build them. They are NOT
+// auto-placed by the env layer (that only bakes named venue props); quests place
+// them explicitly via getEnvProp('trapdoor'|'hollow_oak'|…).
+if (typeof QUEST_PROPS !== 'undefined') for (var qpi = 0; qpi < QUEST_PROPS.length; qpi++) ENV_BY_NAME[QUEST_PROPS[qpi].n] = QUEST_PROPS[qpi];
 // townhouse mailbox clusters become E-rummageable (junk mail / stray package)
 if (ENV_BY_NAME.mailbox_cluster) ENV_BY_NAME.mailbox_cluster.interact = 'mailbox';
 
@@ -11201,6 +11254,30 @@ function playVoiceAny(ids, gain, cdKey, cd, at) {
   voiceGroupT[cdKey] = T;
   playVoice(ids[(Math.random() * ids.length) | 0], gain, 0, at);
 }
+// ---- quest dialogue (questvoices1.js #77): QUEST_VOICES[npcKey][cat][idx] is a
+// data-URL WAV. playQuestVoice plays one line at the player's ear (2D UI VO — no
+// spatialization/earshot gate, since quest lines are directed narration). idx
+// omitted -> round-robins that category. Returns the line text-less; silently
+// no-ops if the pack/line is absent, so callers can toast a text fallback.
+var qVoiceBufs = {}, qVoiceCycle = {}, qVoiceLastT = {};
+function questVoiceUrl(npcKey, cat, idx) {
+  if (typeof QUEST_VOICES === 'undefined' || !QUEST_VOICES[npcKey]) return null;
+  var c = QUEST_VOICES[npcKey][cat]; if (!c || !c.length) return null;
+  if (idx == null) { var ck = npcKey + '.' + cat; qVoiceCycle[ck] = (qVoiceCycle[ck] == null) ? 0 : (qVoiceCycle[ck] + 1) % c.length; idx = qVoiceCycle[ck]; }
+  idx = Math.max(0, Math.min(c.length - 1, idx));
+  return c[idx] || null;
+}
+function playQuestVoice(npcKey, cat, idx, gain, cd) {
+  var url = questVoiceUrl(npcKey, cat, idx); if (!url) return false;
+  var key = npcKey + '.' + cat + '.' + (idx == null ? 'rr' : idx);
+  if (qVoiceLastT[key] !== undefined && T - qVoiceLastT[key] < (cd || 1.2)) return true;
+  qVoiceLastT[key] = T;
+  if (!ac) return true;
+  function playBuf(buf) { var s = ac.createBufferSource(); s.buffer = buf; var g = ac.createGain(); g.gain.value = gain || 0.7; s.connect(g); g.connect(ac.destination); s.start(); }
+  if (qVoiceBufs[url]) { playBuf(qVoiceBufs[url]); return true; }
+  try { var bytes = b64Bytes(url.split(',')[1]); ac.decodeAudioData(bytes.buffer, function (buf) { qVoiceBufs[url] = buf; playBuf(buf); }, function () { }); } catch (e) { }
+  return true;
+}
 // per-NPC voice lines (optional npcvoices1..N.js chunks) — returns false when
 // the character has no pack entry (or its chunk hasn't late-loaded yet) so
 // callers can fall back to the generic barks
@@ -11637,20 +11714,32 @@ var QUEST_ITEM_INFO = {   // minimal defs so itemDef()/bagAdd()/itemTex() work
   eviction_notice: { name: 'Eviction Notice', cat: 'quirky', use: 'fun' },
   seating_chart: { name: 'Scratched Seating Chart', cat: 'quirky', use: 'fun' }
 };
+var questItemsRegistered = false;
 function questRegisterItems() {
-  if (!ITEM_BANK_OK) return;
-  // prefer a real wired bank if present
+  if (!ITEM_BANK_OK || questItemsRegistered) return;
+  questItemsRegistered = true;
+  // Real wired bank: questitems.js ships QUEST_ITEM_DEFS (id/name/quest/use/notes)
+  // + QUEST_ITEMS (id -> 64px alpha-PNG data URL). Register defs + icons.
   if (typeof QUEST_ITEM_DEFS !== 'undefined' && QUEST_ITEM_DEFS) {
-    for (var i = 0; i < QUEST_ITEM_DEFS.length; i++) { var qd = QUEST_ITEM_DEFS[i]; if (!ITEM_BY_ID[qd.id]) { ITEM_DEFS.push(qd); ITEM_BY_ID[qd.id] = qd; } }
-    if (typeof QUEST_ITEM_ICONS !== 'undefined' && QUEST_ITEM_ICONS) for (var k in QUEST_ITEM_ICONS) if (!ITEM_ICONS[k]) ITEM_ICONS[k] = QUEST_ITEM_ICONS[k];
+    for (var i = 0; i < QUEST_ITEM_DEFS.length; i++) {
+      var qd = QUEST_ITEM_DEFS[i]; if (ITEM_BY_ID[qd.id]) continue;
+      // map the quest-semantic `use` (reward/clue/key/tool/thread/entry) onto a
+      // game bag verb: rewards/tools feel 'useful'; everything else is inert flavor.
+      var gv = (qd.use === 'reward' || qd.use === 'tool') ? 'tool' : 'fun';
+      var d = { id: qd.id, name: qd.name, cat: 'quest', stackMax: 4, use: gv, hp: 0, value: 0, rarity: 2, quest: true, qUse: qd.use, notes: qd.notes };
+      ITEM_DEFS.push(d); ITEM_BY_ID[qd.id] = d;
+    }
   }
+  if (typeof QUEST_ITEMS !== 'undefined' && QUEST_ITEMS) for (var k in QUEST_ITEMS) if (!ITEM_ICONS[k]) ITEM_ICONS[k] = QUEST_ITEMS[k];
+  // safety net: any quest id referenced by a reward/beat that the pack missed
+  // still resolves to a name + fallback icon so the bag never shows a blank.
   for (var id in QUEST_ITEM_INFO) {
     if (ITEM_BY_ID[id]) continue;
     var inf = QUEST_ITEM_INFO[id];
-    var d = { id: id, name: inf.name, cat: inf.cat, stackMax: inf.stackMax || 4, use: inf.use, hp: 0, value: inf.value || 0, rarity: 1, quest: true };
-    ITEM_DEFS.push(d); ITEM_BY_ID[id] = d;
-    if (!ITEM_ICONS[id] && QUEST_ITEM_FALLBACK[id] && ITEM_ICONS[QUEST_ITEM_FALLBACK[id]]) ITEM_ICONS[id] = ITEM_ICONS[QUEST_ITEM_FALLBACK[id]];
+    var d2 = { id: id, name: inf.name, cat: inf.cat, stackMax: inf.stackMax || 4, use: inf.use, hp: 0, value: inf.value || 0, rarity: 1, quest: true };
+    ITEM_DEFS.push(d2); ITEM_BY_ID[id] = d2;
   }
+  for (var id2 in QUEST_ITEM_FALLBACK) if (!ITEM_ICONS[id2] && ITEM_ICONS[QUEST_ITEM_FALLBACK[id2]]) ITEM_ICONS[id2] = ITEM_ICONS[QUEST_ITEM_FALLBACK[id2]];
 }
 
 // ---- QUESTS registry: each quest is pure data. beats[] drive advancement.
@@ -13818,6 +13907,10 @@ window.__wc = {
   enterPOI: enterPOI, exitPOI: exitPOI, questLoc: function () { return qLoc; },
   questGiverNear: questGiverNear, questGiverTalk: questGiverTalk, refreshQuestPanel: refreshQuestPanel,
   openQuestLog: function () { openMenu('quest'); }, saveQuests: saveQuests, loadQuests: loadQuests,
+  // --- #77 quest-asset wiring test hooks ---
+  buildQuestChar: buildQuestChar, playQuestVoice: playQuestVoice, getEnvProp: getEnvProp,
+  questRegisterItems: questRegisterItems, itemDef: itemDef, itemTex: itemTex, bagAdd: bagAdd, bagCount: bagCount,
+  questAssets: function () { return { chars: Object.keys(QUEST_IDX), reskins: Object.keys(QUEST_RESKIN_IDX), props: (typeof QUEST_PROPS !== 'undefined') ? QUEST_PROPS.map(function (p) { return p.n; }) : [], items: (typeof QUEST_ITEM_DEFS !== 'undefined') ? QUEST_ITEM_DEFS.length : 0, voices: (typeof QUEST_VOICES !== 'undefined') ? Object.keys(QUEST_VOICES).length : 0 }; },
   tick: function (dt) { T += dt; updatePlayer(dt); updateNPCs(dt); updateKids(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateUfo(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); renderer.render(scene, camera); }
 };
 
