@@ -360,6 +360,28 @@ grab a **free sample** near produce for **+20 hp**, and **E** at the door to
 leave. (Like the gas station, interiors are personal — they aren't shared in
 multiplayer.)
 
+## More shop interiors
+
+Five more storefronts open the same way — press **E** at the door:
+
+- **Dunkin'** (SW strip): an orange-and-pink counter with a glass donut case,
+  coffee machines and a menu board. Order a **coffee ($3)** or **donut ($2)**
+  into your bag, or chat with the baristas.
+- **Starbucks** (across the main road from Dunkin'): a wood café bar with a
+  pastry case, espresso machine and lounge armchairs. Order a **latte ($4)** or
+  **croissant ($3)**, or chat.
+- **Sakura Sushi** (NE corner): a lacquer sushi bar with a nigiri display,
+  sake shelf, booth seating and hanging red lanterns. The chef will make you a
+  **sushi platter ($8, +40 hp)** or pour **sake ($4, +16 hp)**.
+- **Dollar Tree** (SW corner): packed dollar-store aisles and a checkout. Buy a
+  **random cheap item ($1.25)** into your bag, browse, or chat with the cashier.
+- **Bank of America** (its BofA branch): a teller line behind glass, a vault
+  door, an ATM lobby and velvet-rope queues. **Use the ATM** to check your
+  balance or **see a teller**.
+
+Each has its own themed staff and props. Like the others, these interiors are
+personal (never shared in multiplayer).
+
 ## Wanted system
 
 Crimes earn GTA-style stars (max 5, shown top-center), and each star costs

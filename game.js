@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.62.7';
+var GAME_VERSION = 'v1.62.8';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -6018,6 +6018,85 @@ function buildDollarTree(spec) {
   });
   spec.zones.push({ x: cx + 3, z: -603, r2: 9, prompt: '[E] BROWSE THE AISLE', fn: function () { staffSay(['"Party supplies are on aisle three."', '"We got balloons, candy, gift bags — all a buck twenty-five."', '"Seasonal is fully stocked!"']); } });
   spec.zones.push({ x: cx - 8, z: -594.5, r2: 4, prompt: '[E] CHAT WITH CASHIER', fn: function () { staffSay(['"Did you find everything okay?"', '"Need a bag for a nickel?"', '"Next in line!"']); } });
+}
+
+// ---------------- BANK OF AMERICA lobby (venue boa) ---------------------------
+var BANK = registerInterior({
+  id: 'bank',
+  box: { x0: -16, x1: 16, z0: 588, z1: 612, y: -420 },       // 32 x 24 lobby, y=-420 (within the ±600 render envelope)
+  doorZone: { x: 24, z: -82, r2: 40 },                       // world front-face (boa, rot 180)
+  doorIn: { x: 0, z: 607, yaw: 0 },
+  doorOut: { x: 24, z: -85.5, yaw: 3.14159 },
+  exitZone: { x: 0, z: 609, r2: 11 },
+  label: 'BANK OF AMERICA',
+  build: buildBank
+});
+function buildBank(spec) {
+  var floorT = tex(64, function (g, s) {
+    g.fillStyle = '#d8d4cc'; g.fillRect(0, 0, s, s);           // polished stone
+    g.fillStyle = '#c8c4ba'; for (var i = 0; i < 6; i++) g.fillRect(0, (Math.random() * s) | 0, s, 2);
+    g.strokeStyle = '#b0aca0'; g.lineWidth = 2; g.strokeRect(0, 0, s, s);
+    noise(g, s, 60, 0.03, 0.03);
+  }, 8, 6);
+  var wallT = tex(64, function (g, s) {
+    g.fillStyle = '#eceadf'; g.fillRect(0, 0, s, s);
+    g.fillStyle = '#012169'; g.fillRect(0, s * 0.18, s, 8);       // BofA navy band
+    g.fillStyle = '#c8102e'; g.fillRect(0, s * 0.18 + 8, s, 4);   // BofA red
+    noise(g, s, 45, 0.03, 0.03);
+  }, 9, 1);
+  var counterT = tex(64, function (g, s) {
+    g.fillStyle = '#5a4432'; g.fillRect(0, 0, s, s);
+    for (var y = 0; y < s; y += 6) { g.fillStyle = 'rgba(30,18,8,' + (0.15 + Math.random() * 0.2) + ')'; g.fillRect(0, y, s, 2); }
+  }, 4, 1);
+  var floorM = lamb2(floorT), wallM = lamb2(wallT), counterM = lamb2(counterT);
+  var glassM = new THREE.MeshPhongMaterial({ color: 0xcfe6ea, transparent: true, opacity: 0.24, shininess: 90, side: THREE.DoubleSide });
+  var steelM = lamb({ color: 0xb2b6ba }), darkSteelM = lamb({ color: 0x6a6e72 }), whiteM = lamb({ color: 0xe8e6dc }), navyM = lamb({ color: 0x012169 }), brassM = lamb({ color: 0xb89838 }), ropeM = lamb({ color: 0x8a1e2c });
+  var s = intShell(spec, { floorM: floorM, wallM: wallM, ceilColor: 0xe0ded4, bannerLines: ['BANK OF AMERICA'], bannerBg: '#012169', bannerFg: '#ffffff' });
+  var Y = s.Y, cx = s.cx, cz = s.cz;
+
+  // teller counter across the back (north), glass divider windows, tellers behind
+  var counter = box(20, 1.2, 1.4, [counterM, counterM, whiteM, counterM, counterM, counterM], cx, Y + 0.6, cz - 8); scene.add(counter); solidMeshes.push(counter); intCol(spec, cx, cz - 8, 20, 1.4);
+  scene.add(box(20, 0.12, 1.5, navyM, cx, Y + 1.2, cz - 8));                                        // counter cap
+  scene.add(box(20, 1.4, 0.12, glassM, cx, Y + 2.0, cz - 7.5));                                     // full glass screen above the counter
+  for (var wx = -8; wx <= 8; wx += 4) scene.add(box(0.1, 1.4, 0.6, darkSteelM, cx + wx, Y + 2.0, cz - 7.5));   // window mullions
+  for (var tx = -6; tx <= 6; tx += 4) scene.add(box(0.9, 0.06, 0.4, darkSteelM, cx + tx, Y + 1.24, cz - 7.2)); // transaction trays
+  // vault door backdrop on the west wall (big steel disc + wheel handle)
+  var vault = cyl(2.6, 2.6, 0.5, 28, steelM, cx - 15.4, Y + 2.2, cz - 6); vault.rotation.z = Math.PI / 2; scene.add(vault);
+  scene.add(cyl(2.9, 2.9, 0.25, 28, darkSteelM, cx - 15.7, Y + 2.2, cz - 6)); // frame ring (behind)
+  var hub = cyl(0.7, 0.7, 0.6, 16, darkSteelM, cx - 15.0, Y + 2.2, cz - 6); hub.rotation.z = Math.PI / 2; scene.add(hub);
+  for (var sp = 0; sp < 4; sp++) { var spoke = box(0.16, 0.16, 2.6, brassM, cx - 14.9, Y + 2.2, cz - 6); spoke.rotation.x = sp * Math.PI / 4; scene.add(spoke); }   // wheel spokes
+  for (var bolt = 0; bolt < 12; bolt++) { var ba = bolt * Math.PI / 6; scene.add(cyl(0.09, 0.09, 0.15, 6, brassM, cx - 15.0, Y + 2.2 + Math.sin(ba) * 2.3, cz - 6 + Math.cos(ba) * 2.3)); }   // rim bolts
+  // ATM lobby along the east wall
+  for (var ai = 0; ai < 3; ai++) {
+    var az = cz - 6 + ai * 4;
+    scene.add(box(1.4, 2.2, 0.9, navyM, cx + 15.0, Y + 1.1, az)); intCol(spec, cx + 15.0, az, 1.4, 0.9);
+    scene.add(box(1.0, 0.7, 0.05, new THREE.MeshBasicMaterial({ color: 0x2a6ad8 }), cx + 14.5, Y + 1.6, az));   // screen
+    scene.add(box(0.9, 0.4, 0.1, darkSteelM, cx + 14.5, Y + 1.05, az));                                          // keypad shelf
+  }
+  intSign(cx + 15.6, Y + 3.0, cz, -Math.PI / 2, 5, 1.0, ['ATM'], '#012169', '#ffffff');
+  // velvet-rope queue lane leading up to the tellers (brass stanchions + ropes)
+  var laneZ = [cz - 2, cz + 2, cz + 6];
+  for (var lz = 0; lz < laneZ.length; lz++) {
+    for (var sside = -1; sside <= 1; sside += 2) {
+      var stx = cx + sside * 3;
+      scene.add(cyl(0.09, 0.09, 1.1, 10, brassM, stx, Y + 0.55, laneZ[lz]));            // post
+      scene.add(cyl(0.16, 0.16, 0.16, 10, brassM, stx, Y + 1.15, laneZ[lz]));           // ball top
+      if (lz < laneZ.length - 1) scene.add(box(0.06, 0.08, 4, ropeM, stx, Y + 0.95, laneZ[lz] + 2));  // rope span
+    }
+  }
+  // waiting bench near the entrance
+  scene.add(box(3.4, 0.4, 0.9, counterM, cx - 8, Y + 0.4, cz + 8)); intCol(spec, cx - 8, cz + 8, 3.4, 0.9);
+  scene.add(box(3.4, 0.7, 0.15, counterM, cx - 8, Y + 0.75, cz + 8.4));
+
+  placeStaffIn(spec, 'TELLER_MARCUS', cx - 5, cz - 9, Math.PI);
+  placeStaffIn(spec, 'TELLER_BRENDA', cx + 5, cz - 9, Math.PI);
+
+  spec.zones.push({
+    x: cx + 13.5, z: cz, r2: 8, prompt: '[E] USE THE ATM',
+    fn: function () { sfx('buy'); toast('ATM — Available balance: <span style="color:#8ee87f">$' + state.money + '</span>', 3200); }
+  });
+  spec.zones.push({ x: cx - 5, z: cz - 6, r2: 7, prompt: '[E] SEE A TELLER', fn: function () { staffSay(['"Welcome to Bank of America, how can I help?"', '"Would you like to open a checking account?"', '"Your balance is looking healthy today."']); } });
+  spec.zones.push({ x: cx + 5, z: cz - 6, r2: 7, prompt: '[E] SEE A TELLER', fn: function () { staffSay(['"Next, please!"', '"Cash or deposit today?"', '"Careful carrying that much around town."']); } });
 }
 
 // ---------------- street props (AI PSX props: streetprops.js) ----------------
