@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.56.4';
+var GAME_VERSION = 'v1.56.5';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -8962,6 +8962,13 @@ function updateKids(dt) {
   for (var i = 0; i < kids.length; i++) {
     var k = kids[i], m = k.mesh, p = k.parent;
     if (!p || p.state === 'down' || p.state === 'ragdoll' || (p.hp !== undefined && p.hp <= 0)) { repairKid(k); p = k.parent; }
+    // kids have no whisker steering: one stuck on a prop collider while the
+    // parent walks off would chase a point it can never reach — a parent far
+    // out of hand-hold range (and not on a door errand) means re-pair local
+    if (p && p.state !== 'hidden') {
+      var pdx = p.x - k.x, pdz = p.z - k.z;
+      if (pdx * pdx + pdz * pdz > 45 * 45) { repairKid(k); p = k.parent; }
+    }
     var spd = 0, vx = 0, vz = 0;
     if (k.state === 'flee') {
       k.stateT -= dt; spd = k.fleeSpd || 5.4; vx = k.fleeDX; vz = k.fleeDZ;
@@ -11215,6 +11222,19 @@ function becomeHost(oldHostId) {
     else if (n.state === 'down') { if (!(n.downT > 0)) n.downT = 3; }
     else { n.state = 'walk'; n.wayX = undefined; n.wayZ = undefined; n.doorSeek = undefined; n.pause = 0; setNpcTarget(n); }
   }
+  // kid mirrors are bare {mesh,look,x,z,phase,persona} husks — rebuild the sim
+  // fields the host branch of updateKids reads, or timers go NaN and the kid
+  // degrades to a frozen yo-yo (no hand-hold offset, no dialogue). repairKid
+  // re-pairs each one to a nearby adult on the first host frame.
+  if (typeof kids !== 'undefined') for (i = 0; i < kids.length; i++) {
+    var kd = kids[i], klook = KID_LOOKS[kd.look] || {};
+    kd.parent = null; kd.state = 'follow'; kd.stateT = 0;
+    kd.h = kd.h || klook.h; kd.race = kd.race || klook.race; kd.sex = kd.sex || klook.sex;
+    kd.speed = kd.speed || (1.5 + Math.random() * 0.5); kd.vx = 0; kd.vz = 0; kd.dodgeCD = 0;
+    kd.offA = Math.random() * 6.28; kd.hold = 2.0 + Math.random() * 1.6;
+    kd.lagT = 4 + Math.random() * 8; kd.voiceT = 6 + Math.random() * 12;
+    kd.dialogT = 10 + Math.random() * 22; kd.replyT = 0;
+  }
   // traffic resumes from each car's internal lane state (a one-time reshuffle;
   // parked/exploded cars keep their mirrored flags)
   chatNotice('the previous host left — you now run the town');
@@ -11275,7 +11295,10 @@ function updateNet(dt) {
       var cashArr = [];
       for (i = 0; i < cashes.length; i++) { var kp = cashes[i].mesh.position; cashArr.push([Math.round(kp.x * 10), Math.round(kp.z * 10)]); }
       var dropArr = [];
-      for (i = 0; i < drops.length; i++) { var dq = drops[i].mesh.position; dropArr.push([Math.round(dq.x * 10), Math.round(dq.z * 10), GUN_LIST.indexOf(drops[i].kind)]); }
+      // guns only: item/litter drops aren't in GUN_LIST (indexOf -1 decoded
+      // as a phantom pistol on clients, and takeDrop let them vacuum the
+      // host's item economy for nothing) — items stay host-local
+      for (i = 0; i < drops.length; i++) { var dgi = GUN_LIST.indexOf(drops[i].kind); if (dgi < 0) continue; var dq = drops[i].mesh.position; dropArr.push([Math.round(dq.x * 10), Math.round(dq.z * 10), dgi]); }
       var ufoArr = null;
       if (ufo) ufoArr = [Math.round(ufo.group.position.x * 10), Math.round(ufo.group.position.y * 10), Math.round(ufo.group.position.z * 10),
         ufo.mode === 'fly' ? 1 : (ufo.mode === 'falling' ? 2 : 3), Math.round(ufo.group.rotation.y * 100)];
