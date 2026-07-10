@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.24';
+var GAME_VERSION = 'v1.66.25';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -7736,12 +7736,11 @@ if (WC_REMAP) (function densityLayer() {
         }
       }
     }
-    // mailboxes at townhouse rows
-    for (var mp = 0; mp < VENUES.length; mp++) {
-      var vv6 = VENUES[mp]; if (vv6.type !== 'townhouse') continue;
-      var f7 = vFront(vv6), mfx = vv6.x + f7.fx * (vv6.d / 2 + 1.2), mfz = vv6.z + f7.fz * (vv6.d / 2 + 1.2);
-      for (var me = -1; me <= 1; me += 2) { var mx = mfx + f7.rx * (vv6.w / 2 - 4) * me, mz = mfz + f7.rz * (vv6.w / 2 - 4) * me; spFull('homemailbox', mx, mz, Math.atan2(f7.fx, f7.fz), 0.02); }
-    }
+    // (removed: per-townhouse-venue homemailbox pair. It stamped a mailbox at
+    //  BOTH front ends of every townhouse — the -end collided with the yard
+    //  raised_bed flower bed (mreei0of @-141,-32) and the +end doubled up with
+    //  the mailbox_cluster env decor. Each townhouse already gets ONE
+    //  rummageable mailbox_cluster, so these were pure clutter/clips.)
   }
 
   flush();
@@ -8833,8 +8832,19 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
     if (th === 0) { var _lx = fx + tf.rx * 5, _lz = fz + tf.rz * 5; place('lemonade_stand', _lx, _lz, tout, { instance: true }); pendingVendors.push({ voice: 'LEMONADE', build: 'kid', prop: 'lemonade_stand', x: _lx, z: _lz, ry: tout, side: -1 }); place('fire_pit', tv.x - tf.fx * 4, tv.z - tf.fz * 4, 0, { instance: true }); }
     if (th === 2) place('bbq_grill', tv.x - tf.fx * 4, tv.z - tf.fz * 4, tout, { instance: true });
   }
-  // red-house ornamental yard
-  if (byId.red_house) { var rh = byId.red_house, rf = vFront(rh); place('windmill', rh.x + rf.fx * (rh.d / 2 + 4), rh.z + rf.fz * (rh.d / 2 + 4), 0, { instance: true }); place('garden_gnome', rh.x + rf.fx * (rh.d / 2 + 3) + rf.rx * 3, rh.z + rf.fz * (rh.d / 2 + 3) + rf.rz * 3, rnd(0, 6.28)); place('bird_bath', rh.x + rf.fx * (rh.d / 2 + 3) - rf.rx * 3, rh.z + rf.fz * (rh.d / 2 + 3) - rf.rz * 3, 0); }
+  // red-house ornamental yard — a tidy planting bed tucked against the front
+  // corner (off the entrance axis) reads as intentional landscaping instead of
+  // whimsical ornaments scattered across the tall building's plaza frontage.
+  // The spinning garden windmill is dropped here (the lake already has one; a
+  // windmill in front of the 5-storey building read as jarring). mreeccpr/mreebnfk
+  if (byId.red_house) {
+    var rh = byId.red_house, rf = vFront(rh), rout = faceDir(rf.fx, rf.fz);
+    var bx = rh.x + rf.fx * (rh.d / 2 + 1.8) + rf.rx * (rh.w / 2 - 3.5);
+    var bz = rh.z + rf.fz * (rh.d / 2 + 1.8) + rf.rz * (rh.w / 2 - 3.5);
+    place('raised_bed', bx, bz, rout);
+    place('bird_bath', bx - rf.rx * 2.4, bz - rf.rz * 2.4, 0);
+    place('garden_gnome', bx - rf.rx * 4.0, bz - rf.rz * 4.0, rnd(0, 6.28));
+  }
 
   // ---------- 8. FOOD TRUCKS / CARTS / TUBE-MAN in lots + forecourts ----------
   var lots = surfById('parking', 900);
