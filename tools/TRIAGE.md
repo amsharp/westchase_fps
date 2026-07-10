@@ -147,7 +147,7 @@ mref0pwi, mref3wds (bus stops backwards); mredxzx6, mreenqoe (no-road homes).
 - mreetig1 (233,306) secondary intersection — FIXED@v1.66.13 (countryway/citrus Y-junction: oaks/shrubs/grass were planting on the junction-pad asphalt overhang — remapPointClear now excludes RM.pads; pad radius mult 1.8->1.5 shrinks the grass bulge + reduces sidewalk fragmentation. No throat gaps at 4-ways/Y/residential — verified top-down.)
 - mref0zmv (205,272) ugly road junction — FIXED@v1.66.13 (same junction-pad clearance + radius fix; same Y-junction)
 - mref1n8n (321,186) sidewalk looks bad — FIXED@v1.66.13 (same pad-radius fix tightens the sv_66/citrus junction pad so sidewalks are less chopped; props off the pad)
-- mreeqqbh (298,235) road looks awful — IN-AGENT (citrus_park_dr centerline wiggle — smoothing next)
+- mreeqqbh (298,235) road looks awful — FIXED@v1.66.14 (citrus_park_dr centerline had an S-kink: 4 authored points reversed in z (218.9->219.7->220.3 then dived to 209), so the hw=14 ribbon mitred into a lumpy widening + the double-yellow zigzagged. Replaced with 3 monotone-curvature points [302,219.4],[307,217.6],[312,214.6] — smooth ease from 220.6 to 209. Verified top-down.)
 - mreexjvh (-178,170) road/tile seam — IN-AGENT
 - mreexz4c (-163,120) road area bad — IN-AGENT
 - mredxzx6 (140,-89) no-road homes — IN-AGENT (add minimal residential lane to REMAP_ROADS)
