@@ -4032,6 +4032,60 @@ function streetlight(x, z, ax, az) {
   }
 })();
 
+// ---- terminal curbs at true-road dead-ends (WC_REMAP) ----
+// Several surveyed street stubs just stop in open ground — the raw asphalt
+// edge reads as unfinished (report mreea4we, the SW industrial stub). Cap each
+// genuine dead-end with a low concrete curb bar (+ short returns) so the road
+// visibly terminates. Non-colliding, deterministic; skips loops, junctions,
+// intersection approaches, map exits, and stubs that end at a venue/lot.
+(function remapDeadEndCurbs() {
+  if (!WC_REMAP || typeof REMAP_ROADS === 'undefined') return;
+  function nearOtherVert(x, z, selfId) {
+    var best = 1e9;
+    for (var i = 0; i < REMAP_ROADS.length; i++) {
+      var r = REMAP_ROADS[i]; if (r.id === selfId) continue;
+      for (var j = 0; j < r.pts.length; j++) {
+        var d = Math.hypot(r.pts[j][0] - x, r.pts[j][1] - z); if (d < best) best = d;
+      }
+    }
+    return best;
+  }
+  function nearExit(x, z) {
+    if (typeof REMAP_EXITS === 'undefined') return false;
+    for (var i = 0; i < REMAP_EXITS.length; i++) if (Math.hypot(REMAP_EXITS[i].x - x, REMAP_EXITS[i].z - z) < 10) return true;
+    return false;
+  }
+  for (var ri = 0; ri < REMAP_ROADS.length; ri++) {
+    var r = REMAP_ROADS[ri];
+    if (r.cls > 2 || r.dirt) continue;
+    var pts = r.pts, n = pts.length;
+    var e0 = pts[0], e1 = pts[n - 1];
+    if (Math.hypot(e0[0] - e1[0], e0[1] - e1[1]) < 15) continue;   // loop / cul-de-sac ring
+    var ends = [[e0, pts[1]], [e1, pts[n - 2]]];
+    for (var ei = 0; ei < 2; ei++) {
+      var p = ends[ei][0], q = ends[ei][1];
+      if (Math.max(Math.abs(p[0]), Math.abs(p[1])) > 594) continue;   // runs to a map exit
+      if (nearExit(p[0], p[1])) continue;
+      if (Math.hypot(p[0], p[1]) < 40) continue;                      // main-intersection approach
+      if (nearOtherVert(p[0], p[1], r.id) < 12) continue;             // joins another road
+      if (remapInClear(p[0], p[1], 2)) continue;                      // ends at a venue/lot clearance
+      var dx = p[0] - q[0], dz = p[1] - q[1], L = Math.hypot(dx, dz) || 1;
+      dx /= L; dz /= L;                                               // outward unit dir
+      var perpX = -dz, perpZ = dx;
+      var ang = Math.atan2(-perpZ, perpX);                            // align box +X with perp
+      var bx = p[0] - dx * 0.35, bz = p[1] - dz * 0.35;
+      var bar = box(r.hw * 2 + 1.4, 0.36, 0.7, curbM, bx, 0.18, bz);
+      bar.rotation.y = ang; scene.add(bar);
+      // short side returns along the last stretch of each curb edge
+      for (var s = -1; s <= 1; s += 2) {
+        var sx = p[0] + perpX * s * r.hw, sz = p[1] + perpZ * s * r.hw;
+        var ret = box(0.6, 0.34, 3, curbM, sx - dx * 1.7, 0.17, sz - dz * 1.7);
+        ret.rotation.y = ang; scene.add(ret);
+      }
+    }
+  }
+})();
+
 // ---------------- power distribution (WC_REMAP): poles + sagging wires ----------------
 // Runs AFTER the roads (buildRemapRoads → RM) and the streetlights are placed,
 // so poles yield to lamp colliders via spotClear. Poles are individual
