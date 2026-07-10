@@ -113,3 +113,6 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mref3ibd (535,126) AC unit 3x size wanted — R5 (with mreds4nw rooftop AC)
 - mref3wds (391,191) backwards bus stop — R5 (with mref0pwi)
 - mref48hy (374,195) sign clipping post — R5
+
+## Batch 6
+- mrefkx0p (-49,17) pavement lines shimmer with camera motion — FIXED@v1.66.3 (logarithmicDepthBuffer on the main renderer; near-plane raise was rejected — viewmodels hug the camera)

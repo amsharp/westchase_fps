@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.2';
+var GAME_VERSION = 'v1.66.3';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -99,7 +99,12 @@ var mapDrives = [];      // {x,z,w,d} access roads / driveways
 // ---------------- renderer / scene ----------------
 // preserveDrawingBuffer lets the bug-report tool read the framebuffer back with
 // toDataURL after a render (negligible perf cost for this game)
-var renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+// logarithmicDepthBuffer: the ground-paint stack rides on ~1.6mm y-ladders,
+// beyond 24-bit depth precision at ~50u with near=0.1 — road/sidewalk lines
+// shimmered as the camera moved (report mrefkx0p). Log depth spreads the
+// precision uniformly; raising the near plane instead clipped the viewmodels
+// (they hug the camera at z<0.22).
+var renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, logarithmicDepthBuffer: true });
 renderer.setPixelRatio(1);
 document.getElementById('game').appendChild(renderer.domElement);
 var MAXANISO = renderer.capabilities.getMaxAnisotropy ? Math.min(4, renderer.capabilities.getMaxAnisotropy()) : 1;
