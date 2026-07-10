@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.61.1';
+var GAME_VERSION = 'v1.62.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -12173,7 +12173,65 @@ function buildRoom(id) {
   // a couple of cheap prop hints per room
   scene.add(box(1.4, 0.5, 0.6, lamb({ color: 0x33373f }), cx - W / 4, Y + 0.25, cz + 1.5));
   scene.add(box(0.9, 0.9, 0.9, lamb({ color: 0x6b5a3a }), cx + W / 4, Y + 0.45, cz - 1.5));
+  qDressRoom(id, s);   // #78: place the quest set-dressing props for this room
   return s;
+}
+// ---- #78 quest 3D prop placement (questprops.js meshes as set-dressing) ----
+// getEnvProp() builds a QUEST_PROPS mesh exactly like a street/env prop. We
+// ground it (base at y=0), face it, optionally add a collider. For POI-room
+// interiors the collider goes to the room's own list (blocks only in-room);
+// for surface props it goes to the world colliders. Flat floor hatches
+// (trapdoor/manhole_cover) skip colliders so the player can stand + press E.
+function qProp(name, x, z, ry, y, opts) {
+  if (typeof getEnvProp !== 'function' || typeof ENV_BY_NAME === 'undefined') return null;
+  var e = ENV_BY_NAME[name]; if (!e) return null;
+  var g = getEnvProp(name); if (!g) return null;
+  opts = opts || {}; ry = ry || 0;
+  var sc = opts.scale || 1;
+  g.position.set(x, y || 0, z); g.rotation.y = ry; if (sc !== 1) g.scale.set(sc, sc, sc);
+  scene.add(g);
+  if (e.solid && !opts.noCol) {
+    solidMeshes.push(g);
+    var hw = e.dims[0] / 2 * sc, hd = e.dims[2] / 2 * sc;
+    if (opts.roomCols) {
+      var c = Math.abs(Math.cos(ry)), s = Math.abs(Math.sin(ry));
+      var ax = hw * c + hd * s, az = hw * s + hd * c;
+      opts.roomCols.push({ x0: x - ax, x1: x + ax, z0: z - az, z1: z + az });
+    } else if (typeof addColliderOBB === 'function') addColliderOBB(x, z, hw, hd, ry);
+  }
+  return g;
+}
+// interior set-dressing per POI room (called at the end of buildRoom)
+function qDressRoom(id, s) {
+  if (!s || typeof getEnvProp !== 'function') return;
+  var cx = s.cx, cz = s.cz, Y = s.y, W = s.w, D = s.d, RC = s.colliders;
+  try {
+    if (id === 'boardroom') {
+      // the sealed vault-style door on the back wall + the cage-lift shaft down
+      qProp('vault_door', cx, cz - D / 2 + 0.7, 0, Y, { roomCols: RC });
+      qProp('cage_lift', cx + W / 2 - 1.2, cz + D / 2 - 2, Math.PI / 2, Y, { roomCols: RC });
+      qProp('seance_table', cx, cz, 0, Y, { roomCols: RC });   // long board table
+    } else if (id === 'facility') {
+      // sub-lake facility: tile the interior module along the back + a lift out
+      qProp('facility_module', cx - 4.2, cz - D / 2 + 1.2, 0, Y, { roomCols: RC });
+      qProp('facility_module', cx + 4.2, cz - D / 2 + 1.2, 0, Y, { roomCols: RC });
+      qProp('cage_lift', cx, cz + D / 2 - 2.2, 0, Y, { roomCols: RC });
+    } else if (id === 'arcade') {
+      qProp('arcade_portal', cx, cz - D / 2 + 1, 0, Y, { roomCols: RC });
+    }
+  } catch (e2) { }
+}
+// surface set-dressing at the POI entrances / quest sites (placed once at load)
+function placeQuestSurfaceProps() {
+  if (typeof QUEST_PROPS === 'undefined' || typeof getEnvProp !== 'function') return;
+  try {
+    qProp('trapdoor', QPOI.cellar.x, QPOI.cellar.z, 0, 0, { noCol: true });          // Gains Cave hatch
+    qProp('trapdoor', -40, -70, 0.6, 0, { noCol: true });                             // false-bottom dumpster (Q4/Q8)
+    qProp('manhole_cover', QPOI.manhole.x, QPOI.manhole.z, 0, 0.02, { noCol: true }); // Manhole Room entrance
+    qProp('hollow_oak', QPOI.hollow_oak.x, QPOI.hollow_oak.z, 0.4, 0);                // Hollow Oak exterior
+    qProp('arcade_portal', QPOI.arcade.x, QPOI.arcade.z, Math.PI, 0);                 // Wrong-Westchase portal
+    qProp('seance_table', -191, -211, 0, 0);                                          // Q1 murder-dinner set
+  } catch (e) { }
 }
 function colHex(n) { return '#' + ('000000' + (n >>> 0).toString(16)).slice(-6); }
 function enterPOI(id) {
@@ -12388,6 +12446,7 @@ function questHatchUnlocked(id) {
 
 loadQuests();
 questRegisterItems();
+placeQuestSurfaceProps();   // #78: quest set-dressing props at the POI entrances
 
 // ================= END QUEST SYSTEM =================
 
@@ -14171,6 +14230,7 @@ window.__wc = {
   questTalk: questTalk, questInteract: questInteract, questKillTag: questKillTag, questFollowArrive: questFollowArrive, questTimedSub: questTimedSub,
   registerQuestPOI: registerQuestPOI, questPOIById: questPOIById, registerAmbush: registerAmbush, triggerAmbush: triggerAmbush,
   enterPOI: enterPOI, exitPOI: exitPOI, questLoc: function () { return qLoc; },
+  qProp: qProp, placeQuestSurfaceProps: placeQuestSurfaceProps, buildRoom: buildRoom,
   questGiverNear: questGiverNear, questGiverTalk: questGiverTalk, refreshQuestPanel: refreshQuestPanel,
   openQuestLog: function () { openMenu('quest'); }, saveQuests: saveQuests, loadQuests: loadQuests,
   // --- #77 quest-asset wiring test hooks ---
