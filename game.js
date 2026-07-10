@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.16';
+var GAME_VERSION = 'v1.66.18';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -8693,8 +8693,9 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
   placeBank('fountain', -0.02, 1.24, { instance: true });   // set back from the water
   placeBank('windmill', 0.55, 1.16, { instance: true });
   placeBank('flamingo', 0.12, 1.04); placeBank('flamingo', 0.16, 1.045);
-  // decorative pond-fence arc on the road-facing (E/NE) bank
-  for (var pf = 0; pf < 8; pf++) { var a = bankPt(-0.7 + 0.9 * (pf + 0.05) / 8, 1.0), b = bankPt(-0.7 + 0.9 * (pf + 0.95) / 8, 1.0); place('pond_fence', (a[0] + b[0]) / 2, (a[1] + b[1]) / 2, faceLake((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)); }
+  // (removed: decorative pond-fence arc — its 8 solid panels tiled at ~8u
+  //  spacing read as isolated unidentifiable dark frames stranded in the lawn
+  //  ~30-50u from the water, and each carried a stray collider. mreedozu)
 
   // ---------- 7. TOWNHOUSE YARDS: mailboxes, beds, quirky décor ----------
   var ths = byType.townhouse || [];
@@ -14423,11 +14424,16 @@ function refreshQuestPanel() {
 // eyeball-able before the real quest NPCs/props exist)
 (function questBeacons() {
   function beacon(x, z, col) {
+    // FLOATS above head height so a quest-giver ped never stands "inside" the
+    // marker (mree10qu: worried-spouse giver clipped through the ground pole).
     var g = new THREE.Group();
-    var pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 3.2, 6), new THREE.MeshBasicMaterial({ color: col }));
-    pole.position.y = 1.6; g.add(pole);
-    var orb = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 6), new THREE.MeshBasicMaterial({ color: col }));
-    orb.position.y = 3.4; g.add(orb);
+    var mat = new THREE.MeshBasicMaterial({ color: col });
+    var pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 2.2, 6), mat);
+    pole.position.y = 4.4; g.add(pole);   // spans y 3.3 .. 5.5, clear of any NPC
+    var orb = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 6), mat);
+    orb.position.y = 5.7; g.add(orb);
+    var ptr = new THREE.Mesh(new THREE.ConeGeometry(0.36, 0.8, 6), mat);
+    ptr.position.y = 2.9; ptr.rotation.x = Math.PI; g.add(ptr);   // tip points down at the giver
     g.position.set(x, 0, z); scene.add(g); return g;
   }
   for (var i = 0; i < QUEST_ORDER.length; i++) { var d = QUESTS[QUEST_ORDER[i]]; if (d && d.giver) beacon(d.giver.x, d.giver.z, 0xffcf4a); }
