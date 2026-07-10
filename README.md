@@ -204,6 +204,24 @@ pedestrians** sometimes drop an item along with their cash, and there's
 Publix — mostly junk, but keep an eye out for a dropped wallet or phone. Your
 bag is yours alone — in multiplayer, items you knock loose aren't shared yet.
 
+### Dumpster diving & scavenging
+
+Press **E** on any **dumpster** to roll up your sleeves and dig in. A short
+rummage (head down in the bin, trash flying) turns up… something — usually
+junk, often food (gross, but hey, it heals — *still warm?*), sometimes a
+tossed-out wallet or phone, and once in a blue moon a **gold watch, chain or
+cash wad** somebody threw away. Every so often a **startled rat** shoots out,
+or a **grumpy sleeper** erupts to shove you off his bed. Each dumpster needs
+~90 seconds to refill (the buzzing flies tell you it's ready again).
+
+The whole town is scavengeable, in fact: **newspaper boxes** hand out today's
+paper, **kick over a trash can or wheelie bin** (E) to spill its junk, the
+**claw machine** grabs a real toy for your bag, the **mailboxes** at the
+townhouses hold junk mail (and, rarely, a mis-delivered package — pocket it,
+but not while a cop's watching), and you can **rummage the bushes** for the odd
+lost trinket (mind the birds). All of it drops straight into your bag; a full
+bag spills the overflow at your feet.
+
 ## The gas station
 
 Press **E** at the RaceTrac door to walk inside (a real interior with

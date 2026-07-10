@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.58.1';
+var GAME_VERSION = 'v1.58.2';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -3419,8 +3419,10 @@ if (!WC_REMAP) {
 // ---------------- street furniture & landscaping ----------------
 var bushMats = [lamb({ color: 0x3f6f2e }), lamb({ color: 0x4a7d34 }), lamb({ color: 0x355f28 })];
 var bushGeo = new THREE.SphereGeometry(1, 7, 5);
+var bushSpots = [];   // E-rummageable landmark/frontage bushes (STEP 2 scavenge)
 function bush(x, z, scale) {
   scale = scale || (0.8 + Math.random() * 0.6);
+  bushSpots.push({ x: x, z: z, cd: -99 });
   var pb = getPackProp(Math.random() < 0.5 ? 'bush1' : 'bush2');
   if (pb) {
     var gb = new THREE.Group();
@@ -5091,7 +5093,7 @@ var SP_SNAP = { stopsign: 'light', yieldsign: 'light', speedsign: 'light', onewa
 // base/pole collider handed to registerBreakable (deactivates while toppled).
 // Cones / barricades / shopping carts stay pass-through — steppable clutter.
 var SP_BLOCKR = { hydrant: 0.24, parkingmeter: 0.15, payphone: 0.3, stopsign: 0.14, yieldsign: 0.14, speedsign: 0.14, onewaysign: 0.14, newsbox: 0.24, trashcan: 0.36, wheeliebin: 0.35 };
-var SP_INTERACT = { vendingmachine: 'vend', payphone: 'phone', atm: 'atm', newsbox: 'news', dumpster: 'dumpster' };
+var SP_INTERACT = { vendingmachine: 'vend', payphone: 'phone', atm: 'atm', newsbox: 'news', dumpster: 'dumpster', trashcan: 'kick', wheeliebin: 'kick', mailbox: 'mailbox', homemailbox: 'mailbox' };
 // authored front is -x; face = direction the front should point in the world
 var SP_FACE = { W: 0, E: Math.PI, N: -Math.PI / 2, S: Math.PI / 2 };
 
@@ -5198,10 +5200,12 @@ function spOverlapsBuilding(x, z, hx, hz) {
       var bb = breakables[breakables.length - 1];
       if (name === 'parkingmeter') bb.kind = 'meter';
       if (name === 'hydrant') bb.kind = 'hydrant';
+      if (name === 'trashcan' || name === 'wheeliebin') bb.kind = 'trash';   // spills junk on any break
     }
     if (SP_INTERACT[name]) {
       var it = { kind: SP_INTERACT[name], x: x, z: z, fx: -Math.cos(ry), fz: Math.sin(ry), g: g, cd: -99, robbed: false };
       if (it.kind === 'atm') { g.userData.atm = it; if (!SP_SOLID[name]) solidMeshes.push(g); }
+      if (it.kind === 'kick' && SP_SNAP[name]) it.bb = breakables[breakables.length - 1];   // topple target for a boot
       streetPropInteractables.push(it);
     }
   }
@@ -5564,8 +5568,8 @@ if (WC_REMAP) (function densityLayer() {
     if (spOverlapsBuilding(x, z, hx, hz)) return;
     g.position.set(x, y === undefined ? 0.13 : y, z); g.rotation.y = ry; scene.add(g);
     if (SP_SOLID[name]) { addCollider(x, z, hx * 2, hz * 2); solidMeshes.push(g); }
-    if (SP_SNAP[name]) { registerBreakable(g, x, z, Math.max(hx, hz) + 0.15, SP_SNAP[name], null, SP_BLOCKR[name] || 0); var bb = breakables[breakables.length - 1]; if (name === 'parkingmeter') bb.kind = 'meter'; if (name === 'hydrant') bb.kind = 'hydrant'; }
-    if (SP_INTERACT[name]) { var it = { kind: SP_INTERACT[name], x: x, z: z, fx: -Math.cos(ry), fz: Math.sin(ry), g: g, cd: -99, robbed: false }; if (it.kind === 'atm') { g.userData.atm = it; if (!SP_SOLID[name]) solidMeshes.push(g); } streetPropInteractables.push(it); }
+    if (SP_SNAP[name]) { registerBreakable(g, x, z, Math.max(hx, hz) + 0.15, SP_SNAP[name], null, SP_BLOCKR[name] || 0); var bb = breakables[breakables.length - 1]; if (name === 'parkingmeter') bb.kind = 'meter'; if (name === 'hydrant') bb.kind = 'hydrant'; if (name === 'trashcan' || name === 'wheeliebin') bb.kind = 'trash'; }
+    if (SP_INTERACT[name]) { var it = { kind: SP_INTERACT[name], x: x, z: z, fx: -Math.cos(ry), fz: Math.sin(ry), g: g, cd: -99, robbed: false }; if (it.kind === 'atm') { g.userData.atm = it; if (!SP_SOLID[name]) solidMeshes.push(g); } if (it.kind === 'kick' && SP_SNAP[name]) it.bb = breakables[breakables.length - 1]; streetPropInteractables.push(it); }
     densityStats.props++;
   }
   if (typeof STREET_PROPS !== 'undefined') {
@@ -5577,6 +5581,8 @@ if (WC_REMAP) (function densityLayer() {
       var lat = Math.min(vv5.w / 2 - 2, 5);
       spFull('bench', fpx2 + f6.rx * lat, fpz2 + f6.rz * lat, frontYaw);
       spFull('trashcan', fpx2 - f6.rx * lat, fpz2 - f6.rz * lat, frontYaw);
+      spFull('newsbox', fpx2 - f6.rx * (lat * 0.5), fpz2 - f6.rz * (lat * 0.5), frontYaw);   // free daily paper
+      if (vv5.type === 'publix' || vv5.type === 'dollar_tree') spFull('wheeliebin', fpx2 + f6.rx * (lat * 0.75), fpz2 + f6.rz * (lat * 0.75), frontYaw);
       if (vv5.type === 'publix' || vv5.type === 'dollar_tree') spFull('vendingmachine', fpx2 + f6.rx * (lat * 0.4), fpz2 + f6.rz * (lat * 0.4), frontYaw);
       if (vv5.type === 'bank') spFull('atm', fpx2, fpz2, frontYaw);
       if (vv5.type === 'farnell' || vv5.type === 'publix') spFull('bikerack', fpx2 + f6.rx * (lat * 0.7), fpz2 + f6.rz * (lat * 0.7), frontYaw);
@@ -5856,6 +5862,8 @@ function streetPropPrompt() {
   if (p.kind === 'atm') return '[E] USE ATM';
   if (p.kind === 'news') return T < p.cd ? '' : '[E] NEWSPAPER BOX';
   if (p.kind === 'dumpster') return T < p.cd ? '' : '[E] DUMPSTER DIVE';
+  if (p.kind === 'kick') return (p.bb && p.bb.broken) ? '' : '[E] KICK IT OVER';
+  if (p.kind === 'mailbox') return T < p.cd ? '' : '[E] CHECK MAIL';
   return '';
 }
 function streetPropInteract() {
@@ -5899,12 +5907,20 @@ function streetPropInteract() {
     p.cd = T + 30;
     noiseBurst(0.07, 1100, 0.35);
     setTimeout(function () { noiseBurst(0.06, 900, 0.3); beep(320, 0.05, 0.1, 'square'); }, 100);
-    if (Math.random() < 1 / 6) { spawnCash(p.x + p.fx * 0.7, p.z + p.fz * 0.7, 5); sfx('cash'); popup('Someone left change!'); }
+    var nr = Math.random();
+    if (nr < 1 / 6) { spawnCash(p.x + p.fx * 0.7, p.z + p.fz * 0.7, 5); sfx('cash'); popup('Someone left change!'); }
+    else if (nr < 0.55) { giveItem('newspaper', 1, true); toast(itemIconHtml('newspaper') + ' You grab today\'s <b>paper</b>.', 2400); }
     else popup('Just old news.');
   } else if (p.kind === 'dumpster') {
     if (diveState) return true;
     if (T < p.cd) { sfx('deny'); popup2('picked clean — try later'); return true; }
     startDive(p);
+  } else if (p.kind === 'kick') {
+    if (p.bb && !p.bb.broken) { breakProp(p.bb, p.x - player.x, p.z - player.z); popup('you boot it over'); }   // spills 0-2 junk via onStreetPropBreak('trash')
+    else { sfx('deny'); }
+  } else if (p.kind === 'mailbox') {
+    if (T < p.cd) return true;
+    checkMail(p);
   }
   return true;
 }
@@ -5926,6 +5942,9 @@ function onStreetPropBreak(b) {
   if (b.kind === 'meter') {
     spawnCashNet(b.x, b.z, 5 + ((Math.random() * 11) | 0));
     sfx('cash', { x: b.x, z: b.z, range: 50 });
+  } else if (b.kind === 'trash') {   // kicked/rammed bins spill 0-2 pieces of junk
+    var tn = (Math.random() * 3) | 0;
+    for (var ti = 0; ti < tn; ti++) { var tid = Math.random() < 0.85 ? pick(DIVE_JUNK) : pick(DIVE_FOOD); spawnItemDrop(tid, b.x + (Math.random() - 0.5) * 1.6, b.z + (Math.random() - 0.5) * 1.6, 120); }
   } else if (b.kind === 'hydrant') {
     var parts = [];
     var jm = new THREE.MeshBasicMaterial({ color: 0xcfeaff, transparent: true, opacity: 0.85 });
@@ -6024,6 +6043,8 @@ var envPropInteractables = [];  // subset with an interact flag (STEP 3 E-hooks)
 var envStats = { placed: 0, merged: 0, colliders: 0, batches: 0, byCat: {} };
 var ENV_BY_NAME = {};
 if (typeof ENV_PROPS !== 'undefined') for (var epi = 0; epi < ENV_PROPS.length; epi++) ENV_BY_NAME[ENV_PROPS[epi].n] = ENV_PROPS[epi];
+// townhouse mailbox clusters become E-rummageable (junk mail / stray package)
+if (ENV_BY_NAME.mailbox_cluster) ENV_BY_NAME.mailbox_cluster.interact = 'mailbox';
 
 var envGeoCache = {}, envTexCache = {};
 // shared water-droplet particle (fountain / drinking-fountain flow anim)
@@ -6435,6 +6456,7 @@ function envPropPrompt() {
   if (k === 'vend') return p.name === 'gumball_machine' ? '[E] GUMBALL — $1' : '[E] SODA — $2';
   if (k === 'buy') { var b = ENV_BUY[p.name]; return b ? '[E] BUY ' + b.item + ' — $' + b.price : '[E] BUY'; }
   if (k === 'play') return p.name === 'claw_machine' ? '[E] CLAW — $2' : (p.name === 'jukebox' || p.name === 'arcade_cabinet' || p.name === 'boombox' ? '[E] PLAY MUSIC' : '[E] PLAY');
+  if (k === 'mailbox') return T < p.cd ? '' : '[E] CHECK MAIL';
   return '';
 }
 function envPropInteract() {
@@ -6489,7 +6511,12 @@ function envPropInteract() {
       if (T < p.cd) return true; p.cd = T + 0.4;
       if (state.money < 2) { sfx('deny'); popup2('Need $2'); return true; }
       state.money -= 2; beep(700, 0.06, 0.1, 'square'); noiseBurst(0.3, 400, 0.12);
-      if (Math.random() < 0.28) { spawnEnvToy(p.x + p.fx * 0.7, 1.0, p.z + p.fz * 0.7, GUMBALL_COLS[(Math.random() * GUMBALL_COLS.length) | 0]); spawnCash(p.x + p.fx * 0.9, p.z + p.fz * 0.9, 5 + ((Math.random() * 16) | 0)); sfx('cash'); popup('A PRIZE!'); }
+      if (Math.random() < 0.28) {
+        spawnEnvToy(p.x + p.fx * 0.7, 1.0, p.z + p.fz * 0.7, GUMBALL_COLS[(Math.random() * GUMBALL_COLS.length) | 0]);
+        var cid = pick(['rubberduck', 'actionfig', 'magic8', 'vhs', 'cassette', 'gnome']);   // real quirky bag prize
+        giveItem(cid, 1, true); sfx('cash');
+        toast(itemIconHtml(cid) + ' The claw actually grabs a <b>' + itemDef(cid).name + '</b>!', 3000);
+      }
       else popup2('so close…');
       return true;
     }
@@ -6498,6 +6525,11 @@ function envPropInteract() {
     if (T < p.cd) return true; p.cd = T + 0.8;
     beep(700, 0.08, 0.06, 'square', 1000); setTimeout(function () { beep(1000, 0.08, 0.06, 'square', 700); }, 110);
     popup('wheee!');
+    return true;
+  }
+  if (k === 'mailbox') {
+    if (T < p.cd) return true;
+    checkMail(p);
     return true;
   }
   return false;
@@ -8110,6 +8142,47 @@ function resolveDive(p) {
   else if (s < 0.11) spawnDumpsterBum(p);     // grumpy sleeper shoves you off
   p.cd = T + 90;                              // per-dumpster cooldown
   return res;
+}
+// mailbox rummage (shared by street mailboxes + townhouse env clusters):
+// 15% junk mail (a newspaper), 2% mis-delivered package (a random common
+// item, but a cop who can SEE you get suspicious — witnessed-crime pattern).
+function checkMail(p) {
+  p.cd = T + 40;
+  noiseBurst(0.06, 1000, 0.3); beep(300, 0.05, 0.09, 'square', 220);
+  var r = Math.random();
+  if (r < 0.02) {
+    var id = randomCommonItem() || 'wallet';
+    giveItem(id, 1, true);
+    toast(itemIconHtml(id) + ' A mis-delivered <b>package</b>… finders keepers? (you feel a little guilty)', 3200);
+    for (var i = 0; i < cops.length; i++) {
+      var c = cops[i]; if (c.state === 'down') continue;
+      var dx = c.x - p.x, dz = c.z - p.z; if (dx * dx + dz * dz > 1600) continue;
+      if (copHasLOS({ x: c.x, z: c.z }, { x: p.x, z: p.z, y: 1.2 })) { if (state.wanted < 1) setWanted(1); popup2('a cop saw that!'); break; }
+    }
+  } else if (r < 0.17) {
+    giveItem('newspaper', 1, true);
+    toast(itemIconHtml('newspaper') + ' Just <b>junk mail</b> and flyers.', 2400);
+  } else popup('Bills, bills, bills…');
+}
+// ---- bush / hedge rummage (registered as bush() props are built) ----
+// bushSpots is declared up by the bush() builder (load-order). E to rummage:
+// ~10% a lost item, otherwise a rustle of leaves + an occasional startled bird.
+function bushNear() {
+  if (!state.running || state.dead || driving || inside) return null;
+  var best = null, bd = 2.0 * 2.0;
+  for (var i = 0; i < bushSpots.length; i++) { var b = bushSpots[i]; var dx = player.x - b.x, dz = player.z - b.z, d2 = dx * dx + dz * dz; if (d2 < bd) { best = b; bd = d2; } }
+  return best;
+}
+function bushPrompt() { var b = bushNear(); return b ? (T < b.cd ? '' : '[E] RUMMAGE BUSH') : ''; }
+function bushRummage() {
+  var b = bushNear(); if (!b || T < b.cd) return false;
+  b.cd = T + 25;
+  noiseBurst(0.18, 700, 0.14); for (var i = 0; i < 5; i++) puff(new THREE.Vector3(b.x + (Math.random() - 0.5) * 1.1, 0.6 + Math.random() * 0.9, b.z + (Math.random() - 0.5) * 1.1), pick([0x3f6f2e, 0x4a7d34, 0x355f28]));
+  var r = Math.random();
+  if (r < 0.10) { var id = Math.random() < 0.5 ? randomCommonItem() : pick(DIVE_QUIRK); if (id) { giveItem(id, 1, true); toast(itemIconHtml(id) + ' Lost in the hedge: a <b>' + itemDef(id).name + '</b>!', 2800); } }
+  else if (r < 0.30) { spawnCritter(b.x, b.z, 'bird', { x: player.x, z: player.z }); beep(2100, 0.04, 0.12, 'square', 2600); setTimeout(function () { beep(1800, 0.04, 0.1, 'square', 2400); }, 70); popup('a bird bursts out!'); }
+  else popup('just leaves…');
+  return true;
 }
 // ---- critters (rat scurry / bird flutter billboards) ----
 var critters = [], critTex = {};
@@ -12252,8 +12325,9 @@ document.addEventListener('keydown', function (e) {
     if (ddx * ddx + ddz * ddz < 36) { openMenu('shop'); return; }
     var gdx = player.x - gasRob.x, gdz = player.z - gasRob.z;
     if (gdx * gdx + gdz * gdz < 40) { enterStore(); return; }
-    if (streetPropInteract()) return;   // vending / payphone / ATM / newsbox
-    if (envPropInteract()) return;      // env props: sit / drink / buy / play / vend / read
+    if (streetPropInteract()) return;   // vending / payphone / ATM / newsbox / dumpster / kick / mailbox
+    if (envPropInteract()) return;      // env props: sit / drink / buy / play / vend / read / mailbox
+    if (bushRummage()) return;          // rummage a bush/hedge for lost items
     var sc = nearestStealableCar();
     if (sc) {
       if (sc.parked) startBreakIn(sc);   // empty lot car: 0.9s break-in first
@@ -12439,7 +12513,7 @@ function updatePlayer(dt) {
     if (ddx * ddx + ddz * ddz < 36) prompt.textContent = '[E] BUY GUNS';
     else if (gdx * gdx + gdz * gdz < 40) prompt.textContent = (T < gasClosedUntil) ? 'STORE CLOSED' : '[E] ENTER GAS STATION';
     else {
-      var spp = breakIn ? null : (streetPropPrompt() || envPropPrompt());   // street + env prop E-prompts
+      var spp = breakIn ? null : (streetPropPrompt() || envPropPrompt() || bushPrompt());   // street + env + bush E-prompts
       var nsc = spp || breakIn ? null : nearestStealableCar();
       if (breakIn) prompt.textContent = 'BREAKING IN…';
       else if (spp) prompt.textContent = spp;
@@ -12668,6 +12742,7 @@ window.__wc = {
   rollDive: rollDive, startDive: startDive, giveItem: giveItem, critters: function () { return critters; },
   diveActive: function () { return !!diveState; }, resolveDive: resolveDive,
   spawnDumpsterRat: spawnDumpsterRat, spawnDumpsterBum: spawnDumpsterBum,
+  bushSpots: function () { return bushSpots; }, bushRummage: bushRummage, checkMail: checkMail,
   envProps: envProps, envPropInteractables: envPropInteractables, envStats: envStats, getEnvProp: getEnvProp, envPropInteract: envPropInteract, envPropPrompt: envPropPrompt, envToys: envToys,
   solidMeshes: solidMeshes, nightEmis: nightEmis,
   houses: houseStats, houseBlocksSpot: houseBlocksSpot, houseMeshesRef: houseMeshesRef,
