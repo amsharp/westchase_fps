@@ -683,6 +683,34 @@ var skyDome = null;
   scene.add(skyDome);
 })();
 
+// horizon haze skirt (bug mrf7rtea): on the expanded map the perimeter can sit
+// 300-600u out, and the dome's PAINTED horizon band no longer matches the live
+// scene fog — the map edge read as a flat grey band "where the world stops".
+// A camera-following cylinder tinted to scene.fog.color every frame (updateEnv)
+// melts the fogged world into the sky at every azimuth: fully opaque at/below
+// the horizon, fading out by ~15 degrees up. The fogged forest walls stand in
+// FRONT of it, so their treeline reads as a hazy silhouette against matching
+// haze instead of a hard grey slab.
+var horizonSkirt = (function () {
+  var c = document.createElement('canvas'); c.width = 8; c.height = 128;
+  var g = c.getContext('2d');
+  var gr = g.createLinearGradient(0, 0, 0, 128);   // canvas top = skirt top (flipY)
+  gr.addColorStop(0, 'rgba(255,255,255,0)');
+  gr.addColorStop(0.28, 'rgba(255,255,255,0.4)');
+  gr.addColorStop(0.5, 'rgba(255,255,255,1)');
+  gr.addColorStop(1, 'rgba(255,255,255,1)');
+  g.fillStyle = gr; g.fillRect(0, 0, 8, 128);
+  var t = new THREE.CanvasTexture(c); t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter;
+  // radius just inside the dome; spans y -90..170 around the camera — opaque up
+  // to ~+40 (walls top out at 28), transparent well below the cloud band
+  var geo = new THREE.CylinderGeometry(505, 505, 260, 24, 1, true);
+  var m = new THREE.MeshBasicMaterial({ map: t, transparent: true, side: THREE.BackSide, fog: false, depthWrite: false });
+  var mesh = new THREE.Mesh(geo, m);
+  mesh.position.y = 40;
+  skyDome.add(mesh);   // follows the camera with the dome
+  return mesh;
+})();
+
 // ---------------- ground / roads / parking ----------------
 (function ground() {
   // circular hole under the lake — the flat grass otherwise sits between
@@ -1276,6 +1304,25 @@ var canopyGeo = new THREE.SphereGeometry(1, 8, 6);
 // impassable collider standing as an invisible wall (dense in-patch visuals
 // come from the instanced expForestFill, which does not count against this).
 var oakCount = 0, OAK_CAP = 1000;
+// mrf7rtum-class fix: minimum foliage clearance over walkable ground. Small
+// scale rolls (streetside oaks go down to 0.78) put the pack-oak canopy
+// underside at ~1.66u — a standing player's head (1.7) ends up inside the
+// leaves. Measure each pack prop's native canopy-bottom height once (lowest
+// vertex that is clearly foliage, i.e. wider than the trunk), then clamp the
+// per-tree scale so the scaled canopy bottom clears OAK_CANOPY_MIN. Only the
+// lowest rolls are lifted — big trees keep their authored silhouettes, and
+// the instanced forest-patch fill (behind colliders) is untouched.
+var OAK_CANOPY_MIN = 2.05;
+function packCanopyBotY(pp) {
+  if (pp._cbY !== undefined) return pp._cbY;
+  var pos = pp.geo.getAttribute('position'), cb = 1e9;
+  for (var i = 0; i < pos.count; i++) {
+    var x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    if (x * x + z * z > 1.0 && y < cb) cb = y;   // >1u from axis = foliage (trunks are ~0.6-0.7)
+  }
+  pp._cbY = (cb < 1e8 && cb > 0.05) ? cb : 0;   // 0 = couldn't tell, no clamp
+  return pp._cbY;
+}
 function oak(x, z, scale) {
   if (oakCount >= OAK_CAP) return;
   // v1.65.5 prop-placement fix: keep tree canopies out of building footprints
@@ -1287,6 +1334,11 @@ function oak(x, z, scale) {
   scale = scale || (0.85 + Math.random() * 0.5);
   var pp = getPackProp(['oak1', 'oak2', 'oak3'][(Math.random() * 3) | 0]);
   if (pp) {
+    var cbY = packCanopyBotY(pp);
+    if (cbY > 0) {
+      var minScale = OAK_CANOPY_MIN * pp.h / (8.5 * cbY);
+      if (scale < minScale) scale = minScale;
+    }
     var g2 = new THREE.Group();
     var tm = new THREE.Mesh(pp.geo, pp.mat);
     var ts = 8.5 * scale / pp.h;   // scale to oak height regardless of authoring units
@@ -1298,6 +1350,7 @@ function oak(x, z, scale) {
     registerBreakable(g2, x, z, 1.0, 'tree', null, 0.4 * scale);
     return;
   }
+  if (scale < 0.94) scale = 0.94;   // procedural blobs: worst-case canopy bottom is ~2.2*scale — keep it over OAK_CANOPY_MIN
   var g = new THREE.Group();
   var h = (4.5 + Math.random() * 2.5) * scale;
   g.add(cyl(0.28 * scale, 0.45 * scale, h, 7, oakTrunkM, 0, h / 2, 0));
@@ -4882,6 +4935,9 @@ function updateEnv(dt) {
   else fogTmp.copy(C_NIGHT_FOG).lerp(C_DAY_FOG, f);
   if (overcast > 0.01) fogTmp.lerp(C_HAZE, 0.4 * overcast * f);
   scene.fog.color.lerp(fogTmp, k);
+  // horizon haze skirt tracks the LIVE fog color exactly (mrf7rtea) so the
+  // fogged world always meets a matching sky band at the horizon
+  if (horizonSkirt) horizonSkirt.material.color.copy(scene.fog.color);
   // fog draw distance: heavier rain AND overcast/haze both thicken it
   var rainFar = 135 - 55 * Math.max(0, Math.min(1, rainIntensity));   // drizzle ~118 .. heavy ~80
   var farT = (raining ? rainFar : (120 + 400 * f)) * viewDistScale * (1 - 0.32 * overcast);
@@ -8953,8 +9009,12 @@ var FENCE_RUNS = [
   // --- wood privacy (townhome back/side yards, SW cluster) ---
   { type: 'wood', h: 1.8, pts: [[-206, -90], [-158, -90]] },   // behind e281 row
   { type: 'wood', h: 1.8, pts: [[-182, -148], [-150, -148]] }, // NW of e285
-  { type: 'wood', h: 1.8, pts: [[-220, -135], [-220, -165]] }, // W of e283/e285
-  { type: 'wood', h: 1.8, pts: [[-215, -100], [-215, -140]] }, // W of e281
+  // mrf7rss6: the two W-side yard runs used to overlap z -135..-140 (5u x-stagger),
+  // sealing the whole z -100..-165 span — the lakeside quest NPCs (Vlad/Thorne,
+  // open lawn at x<=-240) read as "behind a backyard fence" with a 60u+ detour.
+  // Trimmed to leave an 11u property-line opening at z -133..-144.
+  { type: 'wood', h: 1.8, pts: [[-220, -144], [-220, -165]] }, // W of e283/e285
+  { type: 'wood', h: 1.8, pts: [[-215, -100], [-215, -133]] }, // W of e281
   { type: 'wood', h: 1.8, pts: [[-130, -210], [-75, -212]] },  // S of e287/e289
   { type: 'wood', h: 1.8, pts: [[-150, -178], [-115, -182]] }, // between e285/e287
   { type: 'wood', h: 1.8, pts: [[-180, -200], [-120, -205]] }, // S-far cluster edge
@@ -16558,24 +16618,8 @@ function refreshQuestPanel() {
   var startB = document.getElementById('qActStart'); if (startB) startB.onclick = function () { toast('Find <b>' + (d.giver ? d.giver.name : 'the quest giver') + '</b> on the map (amber beacon) and press E to begin.', 4000); };
 }
 
-// visible amber beacons at givers + the cellar hatch (so the framework is
-// eyeball-able before the real quest NPCs/props exist)
-(function questBeacons() {
-  function beacon(x, z, col) {
-    // FLOATS above head height so a quest-giver ped never stands "inside" the
-    // marker (mree10qu: worried-spouse giver clipped through the ground pole).
-    var g = new THREE.Group();
-    var mat = new THREE.MeshBasicMaterial({ color: col });
-    var pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 2.2, 6), mat);
-    pole.position.y = 4.4; g.add(pole);   // spans y 3.3 .. 5.5, clear of any NPC
-    var orb = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 6), mat);
-    orb.position.y = 5.7; g.add(orb);
-    var ptr = new THREE.Mesh(new THREE.ConeGeometry(0.36, 0.8, 6), mat);
-    ptr.position.y = 2.9; ptr.rotation.x = Math.PI; g.add(ptr);   // tip points down at the giver
-    g.position.set(x, 0, z); scene.add(g); return g;
-  }
-  for (var i = 0; i < QUEST_ORDER.length; i++) { var d = QUESTS[QUEST_ORDER[i]]; if (d && d.giver) beacon(d.giver.x, d.giver.z, 0xffcf4a); }
-})();
+// (questBeacons moved BELOW the quest-placement clearance pass — beacons must
+// read giver positions AFTER any road-clearance snap; see mrf7rsmq)
 
 // ---- #77 placed quest NPCs (visible, interactive bodies). Givers are talked to
 // via the giver path (checked first); non-giver actors (Marcus, the champion,
@@ -16596,6 +16640,87 @@ var QACTOR_DEFS = [
   { id: 'dylan', name: 'Dylan Sharp', look: { kid: true }, x: -72, z: -97, yaw: 0.5 },
   { id: 'thorne_in', name: 'Chairman Thorne', look: { char: 'THORNE' }, x: -255, z: -150, y: QPOI.facility.y, yaw: 1.0 }
 ];
+
+// ---- quest-placement road clearance (bug mrf7rsmq) ----
+// Quest NPC spots were authored against the LEGACY axis roads; on the remap
+// several land on the new diagonals' asphalt (the Worried Spouse stood in the
+// middle of Countryway Blvd with traffic swerving around her). At load, any
+// giver/actor standing on road asphalt (or a junction pad) snaps to the
+// nearest clear spot — outward ring search; sidewalks/lawns are fine, venue
+// footprints / the lake / house footprints are not. Beat waypoints that
+// pointed at a moved NPC follow it, and questBeacons (below) runs after this
+// pass so the beacon stays glued to the NPC.
+function questSpotClear(x, z) {
+  if (!remapPointClear(x, z, 0.8)) return false;
+  if (typeof inLake === 'function' && inLake(x, z)) return false;
+  if (typeof remapInClear === 'function' && remapInClear(x, z, 0.4)) return false;
+  if (typeof houseBlocksSpot === 'function' && houseBlocksSpot(x, z)) return false;
+  return true;
+}
+function questSnapClear(x, z) {
+  if (questSpotClear(x, z)) return null;   // already fine — don't move
+  for (var r = 2; r <= 30; r += 2) {
+    var n = Math.max(8, Math.round(r * 2.5));
+    for (var i = 0; i < n; i++) {
+      var a = i / n * Math.PI * 2;
+      var px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r;
+      if (questSpotClear(px, pz)) return [Math.round(px * 10) / 10, Math.round(pz * 10) / 10];
+    }
+  }
+  return null;   // no clear spot within 30u — leave authored position
+}
+(function questPlacementClearance() {
+  if (!WC_REMAP) return;   // legacy axis world matches the authored spots
+  var moved = [], k, d, i, m;
+  function movedFor(x, z) {
+    for (var j = 0; j < moved.length; j++) if (Math.abs(moved[j][0] - x) < 0.6 && Math.abs(moved[j][1] - z) < 0.6) return moved[j];
+    return null;
+  }
+  for (k in QUESTS) {
+    d = QUESTS[k];
+    if (!d.giver || d.giver.x == null) continue;
+    var s = questSnapClear(d.giver.x, d.giver.z);
+    if (s) { moved.push([d.giver.x, d.giver.z, s[0], s[1]]); d.giver.x = s[0]; d.giver.z = s[1]; }
+  }
+  for (i = 0; i < QACTOR_DEFS.length; i++) {
+    var q = QACTOR_DEFS[i];
+    if (q.y) continue;   // under-map interior actors — surface roads don't apply
+    var prev = movedFor(q.x, q.z);   // reuse the giver's snap so actor+beacon agree
+    var s2 = prev ? [prev[2], prev[3]] : questSnapClear(q.x, q.z);
+    if (s2) { if (!prev) moved.push([q.x, q.z, s2[0], s2[1]]); q.x = s2[0]; q.z = s2[1]; }
+  }
+  // retarget beat waypoints that pointed at a moved NPC spot (never QPOI rooms
+  // — those aren't NPC positions, so they can't match a moved entry)
+  for (k in QUESTS) {
+    d = QUESTS[k];
+    if (!d.beats) continue;
+    for (i = 0; i < d.beats.length; i++) {
+      var w = d.beats[i].waypoint;
+      if (!w || w.x == null) continue;
+      m = movedFor(w.x, w.z);
+      if (m) { w.x = m[2]; w.z = m[3]; }
+    }
+  }
+})();
+
+// visible amber beacons at givers + the cellar hatch (so the framework is
+// eyeball-able before the real quest NPCs/props exist)
+(function questBeacons() {
+  function beacon(x, z, col) {
+    // FLOATS above head height so a quest-giver ped never stands "inside" the
+    // marker (mree10qu: worried-spouse giver clipped through the ground pole).
+    var g = new THREE.Group();
+    var mat = new THREE.MeshBasicMaterial({ color: col });
+    var pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 2.2, 6), mat);
+    pole.position.y = 4.4; g.add(pole);   // spans y 3.3 .. 5.5, clear of any NPC
+    var orb = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 6), mat);
+    orb.position.y = 5.7; g.add(orb);
+    var ptr = new THREE.Mesh(new THREE.ConeGeometry(0.36, 0.8, 6), mat);
+    ptr.position.y = 2.9; ptr.rotation.x = Math.PI; g.add(ptr);   // tip points down at the giver
+    g.position.set(x, 0, z); scene.add(g); return g;
+  }
+  for (var i = 0; i < QUEST_ORDER.length; i++) { var d = QUESTS[QUEST_ORDER[i]]; if (d && d.giver) beacon(d.giver.x, d.giver.z, 0xffcf4a); }
+})();
 function qActorMesh(look) {
   try {
     if (look.char) return buildQuestChar(look.char);
