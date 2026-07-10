@@ -5492,8 +5492,18 @@ function buildPublix(spec) {
   wall(B.x0, cz, 0.5, D);         // west
   wall(B.x1, cz, 0.5, D);         // east
   // entrance door + exit sign (south wall, east portion)
-  var doorM = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 3.4), phong({ color: 0x33485a, shininess: 90, specular: 0xaaccdd }));
+  // real transparent sliding glass: bright "daylight" backing panel so it reads
+  // as looking OUT (was an opaque dark slab), tinted glass panes + metal frame.
+  var daylightM = new THREE.MeshBasicMaterial({ color: 0xcfe6f2 });   // backlit sky glow behind the glass
+  var glassDoorM = new THREE.MeshPhongMaterial({ color: 0xbfe0ea, transparent: true, opacity: 0.3, shininess: 110, specular: 0xffffff, side: THREE.DoubleSide });
+  var frameM = lamb({ color: 0x8a9096 });
+  var back = box(4.4, 3.4, 0.06, daylightM, 318, Y + 1.7, B.z1 - 0.18); scene.add(back);   // daylight card just behind
+  var doorM = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 3.4), glassDoorM);
   doorM.position.set(318, Y + 1.7, B.z1 - 0.28); doorM.rotation.y = Math.PI; scene.add(doorM);
+  scene.add(box(4.7, 0.16, 0.14, frameM, 318, Y + 3.42, B.z1 - 0.26));        // top rail
+  scene.add(box(0.16, 3.4, 0.14, frameM, 318, Y + 1.7, B.z1 - 0.26));         // center mullion
+  scene.add(box(0.1, 0.12, 0.14, frameM, 316.7, Y + 1.2, B.z1 - 0.32));       // L push bar
+  scene.add(box(0.1, 0.12, 0.14, frameM, 319.3, Y + 1.2, B.z1 - 0.32));       // R push bar
   var exitSign = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 0.5), new THREE.MeshBasicMaterial({ map: signTex(['EXIT'], '#103a18', '#4aff6a', 128, 40) }));
   exitSign.position.set(318, Y + 3.7, B.z1 - 0.28); exitSign.rotation.y = Math.PI; scene.add(exitSign);
   function sign(x, y, z, ry, w, h, lines, bg, fg) {
