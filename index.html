@@ -370,7 +370,7 @@
   <div id="bootLabel">warming up the engine…</div>
 </div>
 <script>
-var wcBootDone = 0, WC_BOOT_TOTAL = 69.6;   // = SUM of the wcTick weights below — re-sum when adding scripts (grep wcTick | add)
+var wcBootDone = 0, WC_BOOT_TOTAL = 72.45;   // = SUM of the wcTick weights below — re-sum when adding scripts (grep wcTick | add)
 function wcTick(w, nextLabel) {
   wcBootDone += w;
   var b = document.getElementById('bootBar');
@@ -388,7 +388,11 @@ function wcTick(w, nextLabel) {
 <script src="ggbotvehs.js" onload="wcTick(0.4,'loading the saucer…')"></script>
 <script src="meshyufo.js" onload="wcTick(0.2,'loading guns…')"></script>
 <script src="meshyguns.js" onload="wcTick(0.3,'loading fx…')"></script>
-<script src="muzzleflash.js" onload="wcTick(0.1,'loading street voices (the big one)…')"></script>
+<script src="muzzleflash.js" onload="wcTick(0.1,'loading signage…')"></script>
+<!-- AI storefront sign + VFX sprite sheets; game.js guards typeof PUBLIX_SIGN /
+     VFX_SMOKE / VFX_FIRE so it still boots (canvas sign + flat puffs) if absent -->
+<script src="publixsign.js" onload="wcTick(0.1,'loading fx sheets…')"></script>
+<script src="vfxsheets.js" onload="wcTick(0.6,'loading street voices (the big one)…')"></script>
 <script src="npcvoices1.js" onload="wcTick(29.9,'loading characters…')"></script><!-- chunks 2+ are late-loaded by game.js (loadNpcVoiceChunks) -->
 <script src="meshychars.js" onload="wcTick(4.4,'loading dialogue…')"></script>
 <!-- social groups (#67): XANDER civilian (Xander-Derik friend pair). Standalone
@@ -406,6 +410,9 @@ function wcTick(w, nextLabel) {
      typeof KID_CHARS / KID_VOICES so it still boots if these are absent -->
 <script src="kidchars.js" onload="wcTick(2.0,'rounding up the kids…')"></script>
 <script src="kidvoices1.js" onload="wcTick(0.8,'loading playground chatter…')"></script>
+<!-- street-vendor voiced dialogue (lemonade kid + ice-cream truck; reports
+     mreehkm9/mreeipmy); game.js guards with typeof/window.VEND_VOICES -->
+<script src="vendvoices.js" onload="wcTick(0.1,'stocking the freezer…')"></script>
 <!-- quest content pack (#77): 11 quest NPCs + 6 reskins, 36 item icons, 8 props,
      279 dialogue lines. questchars.js loads AFTER meshychars.js + kidchars.js
      (reskins clone those bases). game.js guards typeof QUEST_CHARS / QUEST_ITEMS

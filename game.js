@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.19';
+var GAME_VERSION = 'v1.66.20';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -738,6 +738,21 @@ function signPlane(x, y, z, ry, w, h, lines, bg, fg) {
     new THREE.MeshBasicMaterial({ map: signTex(lines, bg, fg), side: THREE.DoubleSide }));
   m.position.set(x, y, z); m.rotation.y = ry; scene.add(m); return m;
 }
+// AI PUBLIX wordmark strip (publixsign.js), repeat-tiled so each instance keeps
+// its natural aspect on a wide banner instead of the old stretched/cut-off text
+// (report mrefm6zw). Falls back to signPlane text if the asset is absent.
+function publixSign(x, y, z, ry, w, h) {
+  if (typeof PUBLIX_SIGN === 'undefined') return signPlane(x, y, z, ry, w, h, ['PUBLIX'], '#1c7e3a', '#ffffff');
+  var im = new Image(), tx = new THREE.Texture(im);
+  tx.wrapS = THREE.RepeatWrapping; tx.wrapT = THREE.ClampToEdgeWrapping;
+  tx.magFilter = THREE.LinearFilter; tx.minFilter = THREE.LinearMipmapLinearFilter; tx.anisotropy = MAXANISO;
+  var aspect = (typeof PUBLIX_ASPECT !== 'undefined') ? PUBLIX_ASPECT : 2.36;
+  tx.repeat.set(Math.max(1, Math.round((w / h) / aspect)), 1);
+  im.onload = function () { tx.needsUpdate = true; };
+  im.src = PUBLIX_SIGN;
+  var m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: tx, side: THREE.DoubleSide }));
+  m.position.set(x, y, z); m.rotation.y = ry; scene.add(m); return m;
+}
 function parapetM(color) { return lamb({ color: new THREE.Color(color).multiplyScalar(0.85) }); }
 
 function bldg(x, z, w, d, h, color, o) {
@@ -888,7 +903,7 @@ function supermarket(x, z) {
   // arched entry portal: green metal canopy over glass entry doors
   vCanopy(x, fz, 1, 2 * EHW - 1, 4.2, 4.4, greenMetalM, terracottaM);
   vBay(x, 0.2, fz, 1, 2 * EHW - 3, 4.9, venCapM, bayGlassM);
-  signPlane(x, h + 0.4, fz + 0.35, 0, 30, 2.4, ['PUBLIX'], '#1c7e3a', '#ffffff');
+  publixSign(x, h + 0.6, fz + 0.35, 0, 20, 2.8);
   for (i = -1; i <= 1; i++) vAC(x + i * 22, z - 6, h + 0.1, venAcM);
   parkingLot(x, z + 44, 78, 40);
   for (i = -1; i <= 1; i++) scene.add(cyl(0.2, 0.2, 7, 6, lamb({ color: 0x8a8f94 }), x + i * 26, 3.5, z + 44));
@@ -6146,7 +6161,9 @@ function updateInterior(dt) {   // idle-animate the current room's staff in plac
   for (var i = 0; i < st.length; i++) animPerson(st[i], 0, dt, 0);
   updateCustomers(dt);   // #65: shop-life sim (per-player, local)
 }
-function staffSay(lines) { toast(lines[(Math.random() * lines.length) | 0], 2600); sfx('buy'); }
+// role/cat play a matching SHOP_VOICES line (per-ROLE pack); the text toast
+// stays as a readable subtitle + fallback when the pack is absent.
+function staffSay(lines, role, cat) { toast(lines[(Math.random() * lines.length) | 0], 2600); if (!(role && playShopVoice(role, cat, 0.7, 2.5))) sfx('buy'); }
 
 // ---- PUBLIX grocery interior (venue publix, NW corner storefront z=-12) ----
 var PUBLIX = registerInterior({
@@ -6295,10 +6312,10 @@ function buildPublix(spec) {
 
   // --- interact zones (talk / grab a free sample) ---
   spec.sampleCd = -999;
-  spec.zones.push({ x: 279, z: -271, r2: 8, prompt: '[E] CHAT WITH CASHIER', fn: function () { staffSay(['"Find everything okay today?"', '"Paper or plastic?"', '"Have a great one!"']); } });
-  spec.zones.push({ x: 289.5, z: -300, r2: 8, prompt: '[E] CHAT WITH STOCKER', fn: function () { staffSay(['"Fresh shipment just came in."', '"Aisle 4 is fully stocked."', '"Watch the wet floor, buddy."']); } });
-  spec.zones.push({ x: 314, z: -326, r2: 9, prompt: '[E] CHAT WITH DELI', fn: function () { staffSay(['"Number 42? You\'re up!"', '"The rotisserie is hot and ready."', '"Half pound of the honey ham?"']); } });
-  spec.zones.push({ x: 292, z: -278, r2: 8, prompt: '[E] TALK TO MANAGER', fn: function () { staffSay(['"Welcome to Publix — where shopping is a pleasure."', '"Let me know if you need anything."', '"BOGO deals in every aisle today."']); } });
+  spec.zones.push({ x: 279, z: -271, r2: 8, prompt: '[E] CHAT WITH CASHIER', fn: function () { staffSay(['"Find everything okay today?"', '"Paper or plastic?"', '"Have a great one!"'], 'CASHIER', 'greet'); } });
+  spec.zones.push({ x: 289.5, z: -300, r2: 8, prompt: '[E] CHAT WITH STOCKER', fn: function () { staffSay(['"Fresh shipment just came in."', '"Aisle 4 is fully stocked."', '"Watch the wet floor, buddy."'], 'STOCKER', 'aisle'); } });
+  spec.zones.push({ x: 314, z: -326, r2: 9, prompt: '[E] CHAT WITH DELI', fn: function () { staffSay(['"Number 42? You\'re up!"', '"The rotisserie is hot and ready."', '"Half pound of the honey ham?"'], 'DELI', 'call'); } });
+  spec.zones.push({ x: 292, z: -278, r2: 8, prompt: '[E] TALK TO MANAGER', fn: function () { staffSay(['"Welcome to Publix — where shopping is a pleasure."', '"Let me know if you need anything."', '"BOGO deals in every aisle today."'], 'MANAGER', 'pep'); } });
   spec.zones.push({
     x: 277, z: -300, r2: 10, prompt: '[E] GRAB A FREE SAMPLE',
     fn: function (s) {
@@ -6442,7 +6459,7 @@ function buildDunkin(spec) {
     fn: function () {
       if (state.money < 3) { sfx('deny'); popup2("You can't afford it"); return; }
       if (bagAdd('coffee', 1) > 0) { sfx('deny'); popup2('Your bag is full'); return; }
-      state.money -= 3; sfx('buy'); itemToast('coffee'); popup('+1 Coffee'); staffSay(['"America runs on Dunkin!"']);
+      state.money -= 3; sfx('buy'); itemToast('coffee'); popup('+1 Coffee'); staffSay(['"America runs on Dunkin!"'], 'DUNKIN', 'order');
     }
   });
   spec.zones.push({
@@ -6450,10 +6467,10 @@ function buildDunkin(spec) {
     fn: function () {
       if (state.money < 2) { sfx('deny'); popup2("You can't afford it"); return; }
       if (bagAdd('donut', 1) > 0) { sfx('deny'); popup2('Your bag is full'); return; }
-      state.money -= 2; sfx('buy'); itemToast('donut'); popup('+1 Donut'); staffSay(['"Time to make the donuts."']);
+      state.money -= 2; sfx('buy'); itemToast('donut'); popup('+1 Donut'); staffSay(['"Time to make the donuts."'], 'DUNKIN', 'quip');
     }
   });
-  spec.zones.push({ x: cx, z: 597.2, r2: 5, prompt: '[E] CHAT WITH BARISTA', fn: function () { staffSay(['"What can I get started for ya?"', '"The iced coffee is on point today."', '"Fresh pot brewing — two minutes!"']); } });
+  spec.zones.push({ x: cx, z: 597.2, r2: 5, prompt: '[E] CHAT WITH BARISTA', fn: function () { staffSay(['"What can I get started for ya?"', '"The iced coffee is on point today."', '"Fresh pot brewing — two minutes!"'], 'DUNKIN', 'chatter'); } });
 }
 
 // ---------------- STARBUCKS café (venue starbucks, across from Dunkin) --------
@@ -6542,7 +6559,7 @@ function buildStarbucks(spec) {
     fn: function () {
       if (state.money < 4) { sfx('deny'); popup2("You can't afford it"); return; }
       if (bagAdd('coffee', 1) > 0) { sfx('deny'); popup2('Your bag is full'); return; }
-      state.money -= 4; sfx('buy'); itemToast('coffee'); popup('+1 Latte'); staffSay(['"One caffe latte, coming up!"']);
+      state.money -= 4; sfx('buy'); itemToast('coffee'); popup('+1 Latte'); staffSay(['"One caffe latte, coming up!"'], 'BARISTA', 'order');
     }
   });
   spec.zones.push({
@@ -6550,10 +6567,10 @@ function buildStarbucks(spec) {
     fn: function () {
       if (state.money < 3) { sfx('deny'); popup2("You can't afford it"); return; }
       if (bagAdd('sandwich', 1) > 0) { sfx('deny'); popup2('Your bag is full'); return; }
-      state.money -= 3; sfx('buy'); itemToast('sandwich'); popup('+1 Croissant'); staffSay(['"Warmed up for ya!"']);
+      state.money -= 3; sfx('buy'); itemToast('sandwich'); popup('+1 Croissant'); staffSay(['"Warmed up for ya!"'], 'BARISTA', 'order');
     }
   });
-  spec.zones.push({ x: cx, z: 597.2, r2: 5, prompt: '[E] CHAT WITH BARISTA', fn: function () { staffSay(['"Can I get a name for the cup?"', '"Oat milk or two percent?"', '"That\'ll be right up at the hand-off."']); } });
+  spec.zones.push({ x: cx, z: 597.2, r2: 5, prompt: '[E] CHAT WITH BARISTA', fn: function () { staffSay(['"Can I get a name for the cup?"', '"Oat milk or two percent?"', '"That\'ll be right up at the hand-off."'], 'BARISTA', 'chatter'); } });
 }
 
 // ---------------- SAKURA SUSHI (venue sushi, NE corner) -----------------------
@@ -6634,7 +6651,7 @@ function buildSakura(spec) {
     fn: function (sp) {
       if (state.money < 8) { sfx('deny'); popup2("You can't afford it"); return; }
       state.money -= 8; state.hp = Math.min(100, state.hp + 40);
-      sfx('buy'); popup('+40 HP  fresh sushi'); staffSay(['"Omakase — enjoy!"', '"Freshest catch of the day."']);
+      sfx('buy'); popup('+40 HP  fresh sushi'); staffSay(['"Omakase — enjoy!"', '"Freshest catch of the day."'], 'SUSHI', 'phrase');
     }
   });
   spec.zones.push({
@@ -6642,10 +6659,10 @@ function buildSakura(spec) {
     fn: function () {
       if (state.money < 4) { sfx('deny'); popup2("You can't afford it"); return; }
       state.money -= 4; state.hp = Math.min(100, state.hp + 16);
-      sfx('buy'); popup('+16 HP  warm sake'); staffSay(['"Kanpai!"']);
+      sfx('buy'); popup('+16 HP  warm sake'); staffSay(['"Kanpai!"'], 'SUSHI', 'call');
     }
   });
-  spec.zones.push({ x: cx, z: -600.4, r2: 5, prompt: '[E] CHAT WITH THE CHEF', fn: function () { staffSay(['"Irasshaimase! Welcome!"', '"The toro is exceptional today."', '"Chef\'s choice? You will not regret it."']); } });
+  spec.zones.push({ x: cx, z: -600.4, r2: 5, prompt: '[E] CHAT WITH THE CHEF', fn: function () { staffSay(['"Irasshaimase! Welcome!"', '"The toro is exceptional today."', '"Chef\'s choice? You will not regret it."'], 'SUSHI', 'call'); } });
 }
 
 // ---------------- DOLLAR TREE (venue dollar_tree, SW corner) -------------------
@@ -6711,11 +6728,11 @@ function buildDollarTree(spec) {
       if (state.money < 2) { sfx('deny'); popup2("You can't afford it"); return; }
       var id = CHEAP[(Math.random() * CHEAP.length) | 0];
       if (bagAdd(id, 1) > 0) { sfx('deny'); popup2('Your bag is full'); return; }
-      state.money -= 2; sfx('buy'); itemToast(id); staffSay(['"Everything\'s a dollar twenty-five, hon."', '"Great find!"']);
+      state.money -= 2; sfx('buy'); itemToast(id); staffSay(['"Everything\'s a dollar twenty-five, hon."', '"Great find!"'], 'DOLLAR', 'joke');
     }
   });
-  spec.zones.push({ x: cx + 3, z: -603, r2: 9, prompt: '[E] BROWSE THE AISLE', fn: function () { staffSay(['"Party supplies are on aisle three."', '"We got balloons, candy, gift bags — all a buck twenty-five."', '"Seasonal is fully stocked!"']); } });
-  spec.zones.push({ x: cx - 8, z: -594.5, r2: 4, prompt: '[E] CHAT WITH CASHIER', fn: function () { staffSay(['"Did you find everything okay?"', '"Need a bag for a nickel?"', '"Next in line!"']); } });
+  spec.zones.push({ x: cx + 3, z: -603, r2: 9, prompt: '[E] BROWSE THE AISLE', fn: function () { staffSay(['"Party supplies are on aisle three."', '"We got balloons, candy, gift bags — all a buck twenty-five."', '"Seasonal is fully stocked!"'], 'DOLLAR', 'line'); } });
+  spec.zones.push({ x: cx - 8, z: -594.5, r2: 4, prompt: '[E] CHAT WITH CASHIER', fn: function () { staffSay(['"Did you find everything okay?"', '"Need a bag for a nickel?"', '"Next in line!"'], 'CASHIER', 'smalltalk'); } });
 }
 
 // ---------------- BANK OF AMERICA lobby (venue boa) ---------------------------
@@ -6793,8 +6810,8 @@ function buildBank(spec) {
     x: cx + 13.5, z: cz, r2: 8, prompt: '[E] USE THE ATM',
     fn: function () { sfx('buy'); toast('ATM — Available balance: <span style="color:#8ee87f">$' + state.money + '</span>', 3200); }
   });
-  spec.zones.push({ x: cx - 5, z: cz - 6, r2: 7, prompt: '[E] SEE A TELLER', fn: function () { staffSay(['"Welcome to Bank of America, how can I help?"', '"Would you like to open a checking account?"', '"Your balance is looking healthy today."']); } });
-  spec.zones.push({ x: cx + 5, z: cz - 6, r2: 7, prompt: '[E] SEE A TELLER', fn: function () { staffSay(['"Next, please!"', '"Cash or deposit today?"', '"Careful carrying that much around town."']); } });
+  spec.zones.push({ x: cx - 5, z: cz - 6, r2: 7, prompt: '[E] SEE A TELLER', fn: function () { staffSay(['"Welcome to Bank of America, how can I help?"', '"Would you like to open a checking account?"', '"Your balance is looking healthy today."'], 'TELLER', 'greet'); } });
+  spec.zones.push({ x: cx + 5, z: cz - 6, r2: 7, prompt: '[E] SEE A TELLER', fn: function () { staffSay(['"Next, please!"', '"Cash or deposit today?"', '"Careful carrying that much around town."'], 'TELLER', 'transaction'); } });
 }
 
 // ==================== SHOP-LIFE SIMULATION (#65) =============================
@@ -8419,6 +8436,10 @@ function updateStreetProps(dt) {
 // ============================================================
 var envProps = [];              // instanced (animated/interactive) records
 var envPropInteractables = [];  // subset with an interact flag (STEP 3 E-hooks)
+// street vendors (reports mreehkm9 lemonade kid, mreeipmy ice-cream truck):
+// the env-prop pass records spawn requests here (KID_LOOKS/characters aren't
+// built yet at IIFE time); spawnVendors() realizes them after spawnKids().
+var pendingVendors = [], envVendors = [];
 var envStats = { placed: 0, merged: 0, colliders: 0, batches: 0, byCat: {} };
 var ENV_BY_NAME = {};
 if (typeof ENV_PROPS !== 'undefined') for (var epi = 0; epi < ENV_PROPS.length; epi++) ENV_BY_NAME[ENV_PROPS[epi].n] = ENV_PROPS[epi];
@@ -8718,7 +8739,7 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
     if (th % 3 === 0) place('garden_gnome', fx + tf.rx * rnd(-3, 3), fz + tf.rz * rnd(-3, 3), rnd(0, 6.28));
     if (th % 3 === 1) place('flamingo', fx + tf.rx * rnd(-3, 3), fz + tf.rz * rnd(-3, 3), rnd(0, 6.28));
     if (th % 4 === 0) place('bird_bath', fx + tf.rx * rnd(-2, 2), fz + tf.rz * rnd(-2, 2), 0);
-    if (th === 0) { place('lemonade_stand', fx + tf.rx * 5, fz + tf.rz * 5, tout, { instance: true }); place('fire_pit', tv.x - tf.fx * 4, tv.z - tf.fz * 4, 0, { instance: true }); }
+    if (th === 0) { var _lx = fx + tf.rx * 5, _lz = fz + tf.rz * 5; place('lemonade_stand', _lx, _lz, tout, { instance: true }); pendingVendors.push({ voice: 'LEMONADE', build: 'kid', prop: 'lemonade_stand', x: _lx, z: _lz, ry: tout, side: -1 }); place('fire_pit', tv.x - tf.fx * 4, tv.z - tf.fz * 4, 0, { instance: true }); }
     if (th === 2) place('bbq_grill', tv.x - tf.fx * 4, tv.z - tf.fz * 4, tout, { instance: true });
   }
   // red-house ornamental yard
@@ -8727,7 +8748,7 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
   // ---------- 8. FOOD TRUCKS / CARTS / TUBE-MAN in lots + forecourts ----------
   var lots = surfById('parking', 900);
   if (lots[0]) place('food_truck', lots[0].x, lots[0].z, (lots[0].rot || 0) * deg + Math.PI / 2, { instance: true });
-  if (lots[1]) place('icecream_truck', lots[1].x, lots[1].z, (lots[1].rot || 0) * deg + Math.PI / 2, { instance: true });
+  if (lots[1]) { var _ir = (lots[1].rot || 0) * deg + Math.PI / 2; place('icecream_truck', lots[1].x, lots[1].z, _ir, { instance: true }); pendingVendors.push({ voice: 'ICECREAM', build: 'adult', prop: 'icecream_truck', x: lots[1].x, z: lots[1].z, ry: _ir, side: 1 }); }
   if (byId.racetrac) { var rt = byId.racetrac, rtf = vFront(rt); place('hotdog_cart', rt.x + rtf.fx * (rt.d / 2 + 5), rt.z + rtf.fz * (rt.d / 2 + 5), faceDir(rtf.fx, rtf.fz), { instance: true }); place('tube_man', rt.x + rtf.fx * (rt.d / 2 + 9), rt.z + rtf.fz * (rt.d / 2 + 9), 0, { instance: true }); }
   // tube-man promo at a strip mall too
   if (byType.strip && byType.strip[1]) { var sp1 = byType.strip[1], sf1 = vFront(sp1); place('tube_man', sp1.x + sf1.fx * (sp1.d / 2 + 6), sp1.z + sf1.fz * (sp1.d / 2 + 6), 0, { instance: true }); }
@@ -8799,8 +8820,10 @@ function updateEnvProps(dt) {
 }
 // fountain / drinking-fountain water spray (mirrors the lake fountainDrops loop)
 function updateEnvFlow(r, dt) {
+  var fSpr = fountainSprite();
   for (var i = 0; i < r.flow.length; i++) {
     var f = r.flow[i], p = f.mesh.position;
+    if (fSpr && f.mesh.geometry !== vfxDropGeo) { f.mesh.geometry = vfxDropGeo; f.mesh.material = fSpr; f.mesh.scale.setScalar(0.5); }
     if (f.delay > 0) { f.delay -= dt; f.mesh.visible = false; continue; }
     if (!f.mesh.visible || p.y < f.topY - 0.1) {
       f.mesh.visible = true; p.set(0, f.topY, 0);
@@ -8808,11 +8831,12 @@ function updateEnvFlow(r, dt) {
       f.vx = Math.cos(an) * sp; f.vz = Math.sin(an) * sp; f.vy = f.up * (0.7 + Math.random() * 0.5);
     }
     f.vy -= 9.5 * dt; p.x += f.vx * dt; p.y += f.vy * dt; p.z += f.vz * dt;
+    if (fSpr) f.mesh.lookAt(camera.position);
   }
 }
 // ---- STEP 3: env-prop E-interactions (singleplayer-local, like interiors) ----
 var envToyGeo = new THREE.SphereGeometry(0.09, 7, 6), envToys = [];
-var ENV_BUY = { hotdog_cart: { price: 3, heal: 15, item: 'HOT DOG' }, icecream_truck: { price: 2, heal: 10, item: 'ICE CREAM' }, food_truck: { price: 5, heal: 25, item: 'STREET TACO' }, lemonade_stand: { price: 1, heal: 8, item: 'LEMONADE' } };
+var ENV_BUY = { hotdog_cart: { price: 3, heal: 15, item: 'HOT DOG' }, icecream_truck: { price: 3, heal: 15, item: 'ICE CREAM' }, food_truck: { price: 5, heal: 25, item: 'STREET TACO' }, lemonade_stand: { price: 2, heal: 10, item: 'LEMONADE' } };
 var ENV_SIGNS = ['WESTCHASE', 'RACE TRACK RD', 'COUNTRYWAY BLVD', 'NOW LEASING', 'GRAND OPENING', 'SLOW — CHILDREN AT PLAY', 'GARAGE SALE SAT 8AM', 'HONK IF YOU LOVE TAMPA'];
 var GUMBALL_COLS = [0xff4d4d, 0x4da6ff, 0x5bd75b, 0xffd24d, 0xff7ad2, 0xa26bff, 0xff9a3d];
 function spawnEnvToy(x, y, z, color) { var m = new THREE.Mesh(envToyGeo, new THREE.MeshLambertMaterial({ color: color })); m.position.set(x, y, z); scene.add(m); envToys.push({ mesh: m, vy: 2 + Math.random() * 1.6, vx: (Math.random() - 0.5) * 1.7, vz: (Math.random() - 0.5) * 1.7, life: 8 }); }
@@ -10002,8 +10026,83 @@ function updateCash(dt) {
 var puffs = [];
 var puffM = new THREE.MeshBasicMaterial({ color: 0xcccccc, transparent: true, opacity: 0.9 });
 var puffGeo = new THREE.PlaneGeometry(0.35, 0.35);
-function puff(p, col) { var m = new THREE.Mesh(puffGeo, puffM.clone()); if (col) m.material.color.setHex(col); m.position.copy(p); scene.add(m); puffs.push({ mesh: m, life: 0.22 }); }
-function updatePuffs(dt) { for (var i = puffs.length - 1; i >= 0; i--) { var p = puffs[i]; p.life -= dt; p.mesh.lookAt(camera.position); p.mesh.scale.multiplyScalar(1 + dt * 6); p.mesh.material.opacity = Math.max(0, p.life / 0.22); if (p.life <= 0) { scene.remove(p.mesh); puffs.splice(i, 1); } } }
+// ---- AI VFX sprite sheets (vfxsheets.js): 4x4 grids sliced into 16 frame
+// textures. Smoke = normal-blend grey billow (frames 0-11; 12-15 empty=gone);
+// fire = additive flame licks on black. Callers keep passing a color hex to
+// puff(): warm hues route to fire, greys to smoke. Both fall back to the old
+// flat colored quad until the images finish decoding / if the files are absent.
+var VFX_GRID = 4, VFX_NF = 16, smokeFrames = null, fireFrames = null;
+function sliceVfxSheet(dataurl, pixelated) {
+  var frames = [], canv = [];
+  for (var k = 0; k < VFX_NF; k++) {
+    var cv = document.createElement('canvas'); cv.width = cv.height = 128;
+    var tx = new THREE.CanvasTexture(cv);
+    tx.magFilter = pixelated ? THREE.NearestFilter : THREE.LinearFilter;
+    tx.minFilter = THREE.LinearFilter; tx.generateMipmaps = false;
+    frames.push(tx); canv.push(cv);
+  }
+  var im = new Image();
+  im.onload = function () {
+    var fw = im.width / VFX_GRID, fh = im.height / VFX_GRID;
+    for (var r = 0; r < VFX_GRID; r++) for (var c = 0; c < VFX_GRID; c++) {
+      var idx = r * VFX_GRID + c, g = canv[idx].getContext('2d');
+      g.clearRect(0, 0, 128, 128);
+      g.drawImage(im, c * fw, r * fh, fw, fh, 0, 0, 128, 128);
+      frames[idx].needsUpdate = true;
+    }
+  };
+  im.src = dataurl;
+  return frames;
+}
+if (typeof VFX_SMOKE !== 'undefined') smokeFrames = sliceVfxSheet(VFX_SMOKE, false);
+if (typeof VFX_FIRE !== 'undefined') fireFrames = sliceVfxSheet(VFX_FIRE, true);
+function vfxIsFire(col) { if (col === undefined) return false; var r = (col >> 16) & 255, b = col & 255; return r > 140 && r > b + 60; }
+function puff(p, col) {
+  var fire = vfxIsFire(col);
+  if (fire && fireFrames) {
+    var fm = new THREE.Mesh(puffGeo, new THREE.MeshBasicMaterial({ map: fireFrames[(Math.random() * VFX_NF) | 0], transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+    fm.position.copy(p); fm.scale.setScalar(1.5 + Math.random() * 0.9); scene.add(fm);
+    puffs.push({ mesh: fm, life: 0.34, max: 0.34, fire: true, start: (Math.random() * VFX_NF) | 0, frames: fireFrames });
+    return;
+  }
+  if (!fire && smokeFrames) {
+    var sm = new THREE.Mesh(puffGeo, new THREE.MeshBasicMaterial({ map: smokeFrames[0], transparent: true, depthWrite: false, opacity: 0.9 }));
+    if (col) sm.material.color.setHex(col);
+    sm.position.copy(p); sm.scale.setScalar(1.3 + Math.random() * 0.8); scene.add(sm);
+    puffs.push({ mesh: sm, life: 0.7, max: 0.7, fire: false, frames: smokeFrames });
+    return;
+  }
+  var m = new THREE.Mesh(puffGeo, puffM.clone()); if (col) m.material.color.setHex(col); m.position.copy(p); scene.add(m); puffs.push({ mesh: m, life: 0.22, max: 0.22 });
+}
+function updatePuffs(dt) {
+  for (var i = puffs.length - 1; i >= 0; i--) {
+    var p = puffs[i]; p.life -= dt; var t = 1 - p.life / p.max;
+    p.mesh.lookAt(camera.position);
+    if (p.frames) {
+      var fr;
+      if (p.fire) { fr = (p.start + Math.floor(t * 10)) % VFX_NF; p.mesh.scale.multiplyScalar(1 + dt * 1.6); p.mesh.material.opacity = Math.max(0, 1 - t); }
+      else { fr = Math.min(11, Math.floor(t * 12)); p.mesh.scale.multiplyScalar(1 + dt * 3.2); p.mesh.material.opacity = Math.max(0, 0.9 * (1 - t * t)); }
+      if (p.mesh.material.map !== p.frames[fr]) p.mesh.material.map = p.frames[fr];
+    } else {
+      p.mesh.scale.multiplyScalar(1 + dt * 6); p.mesh.material.opacity = Math.max(0, p.life / p.max);
+    }
+    if (p.life <= 0) { scene.remove(p.mesh); if (p.mesh.material && p.mesh.material.dispose) p.mesh.material.dispose(); puffs.splice(i, 1); }
+  }
+}
+// Fountain/spray droplets (lake fountain + env plaza/drinking fountains) reuse
+// the smoke sheet, tinted white-blue, as soft billboards instead of hard little
+// spheres (reports mreeyfs8 / mreeyvkn). Built lazily once the sheet has decoded;
+// the drop-update loops swap each sphere to this shared billboard at runtime and
+// billboard it toward the camera. Returns null until ready → drops stay spheres.
+var vfxDropGeo = null, vfxDropMat = null;
+function fountainSprite() {
+  if (!smokeFrames) return null;
+  if (!vfxDropMat) {
+    vfxDropGeo = new THREE.PlaneGeometry(0.5, 0.5);
+    vfxDropMat = new THREE.MeshBasicMaterial({ map: smokeFrames[3], color: 0xbfe6ff, transparent: true, opacity: 0.82, depthWrite: false });
+  }
+  return vfxDropMat;
+}
 
 // ---------------- blood decals / scorch marks ----------------
 var decals = [];
@@ -13199,8 +13298,10 @@ function updateWorldFx(dt) {
     }
   }
   // fountain spray
+  var fSpr = fountainSprite();
   for (var fi = 0; fi < fountainDrops.length; fi++) {
     var fd = fountainDrops[fi];
+    if (fSpr && fd.mesh.geometry !== vfxDropGeo) { fd.mesh.geometry = vfxDropGeo; fd.mesh.material = fSpr; fd.mesh.scale.setScalar(0.7); }
     if (fd.delay > 0) { fd.delay -= dt; fd.mesh.visible = false; continue; }
     var fp = fd.mesh.position;
     if (!fd.mesh.visible || fp.y < WATER_Y) {
@@ -13212,6 +13313,7 @@ function updateWorldFx(dt) {
     }
     fd.vy -= 9.5 * dt;
     fp.x += fd.vx * dt; fp.y += fd.vy * dt; fp.z += fd.vz * dt;
+    if (fSpr) fd.mesh.lookAt(camera.position);
   }
   updateScavengeFx(dt);   // dumpster flies (cooldown tell) + rat/bird critter motion
   // head under the surface → blue filter + underwater loop
@@ -13330,6 +13432,54 @@ function playQuestVoice(npcKey, cat, idx, gain, cd) {
   function playBuf(buf) { var s = ac.createBufferSource(); s.buffer = buf; var g = ac.createGain(); g.gain.value = gain || 0.7; s.connect(g); g.connect(ac.destination); s.start(); }
   if (qVoiceBufs[url]) { playBuf(qVoiceBufs[url]); return true; }
   try { var bytes = b64Bytes(url.split(',')[1]); ac.decodeAudioData(bytes.buffer, function (buf) { qVoiceBufs[url] = buf; playBuf(buf); }, function () { }); } catch (e) { }
+  return true;
+}
+// voice-play instrumentation (headless verification: AudioContext is silent
+// without a user gesture, so log every dialogue CALL — role/cat + data-URL
+// byte length as a non-zero-duration proxy — for the test harness to assert).
+window.__voiceLog = window.__voiceLog || [];
+function voiceLog(kind, role, cat, url) { try { window.__voiceLog.push({ kind: kind, role: role, cat: cat, len: url ? url.length : 0, t: T }); if (window.__voiceLog.length > 240) window.__voiceLog.shift(); } catch (e) { } }
+// ---- shop-interior staff dialogue (optional shopvoices*.js). Per-ROLE packs
+// keyed SHOP_VOICES[ROLE][cat][i]; 2D local playback (interiors are per-player,
+// not net-synced). cat omitted/absent -> a random available category. Returns
+// false only when the pack/role is missing so callers keep their toast()
+// subtitle as a fallback; returns true (and logs) even when ac is null. ----
+var shopVoiceBufs = {}, shopVoiceLastT = {};
+function playShopVoice(role, cat, gain, cd) {
+  var SV = (typeof SHOP_VOICES !== 'undefined') ? SHOP_VOICES : (window.SHOP_VOICES || null);
+  if (!SV || !SV[role]) return false;
+  var pack = SV[role];
+  if (!cat || !pack[cat] || !pack[cat].length) {
+    var cats = []; for (var c in pack) if (pack[c] && pack[c].length) cats.push(c);
+    if (!cats.length) return false;
+    cat = cats[(Math.random() * cats.length) | 0];
+  }
+  if (shopVoiceLastT[role] !== undefined && T - shopVoiceLastT[role] < (cd || 3)) return true;
+  shopVoiceLastT[role] = T;
+  var arr = pack[cat], url = arr[(Math.random() * arr.length) | 0];
+  voiceLog('shop', role, cat, url);
+  if (!ac) return true;
+  function playBuf(buf) { var s = ac.createBufferSource(); s.buffer = buf; var g = ac.createGain(); g.gain.value = gain || 0.7; s.connect(g); g.connect(ac.destination); s.start(); }
+  if (shopVoiceBufs[url]) { playBuf(shopVoiceBufs[url]); return true; }
+  try { var bytes = b64Bytes(url.split(',')[1]); ac.decodeAudioData(bytes.buffer, function (buf) { shopVoiceBufs[url] = buf; playBuf(buf); }, function () { }); } catch (e) { }
+  return true;
+}
+// ---- street-vendor dialogue (optional vendvoices.js): VEND_VOICES[name][cat][i].
+// Distance-attenuated 2D playback (vendors are local props, not net-synced). ----
+var vendVoiceBufs = {}, vendVoiceLastT = {};
+function playVendVoice(name, cat, gain, cd, at) {
+  var VV = (typeof VEND_VOICES !== 'undefined') ? VEND_VOICES : (window.VEND_VOICES || null);
+  if (!VV || !VV[name] || !VV[name][cat] || !VV[name][cat].length) return false;
+  if (vendVoiceLastT[name] !== undefined && T - vendVoiceLastT[name] < (cd || 4)) return true;
+  vendVoiceLastT[name] = T;
+  var arr = VV[name][cat], url = arr[(Math.random() * arr.length) | 0];
+  voiceLog('vend', name, cat, url);
+  if (!ac) return true;
+  var g = gain || 0.7;
+  if (at) { var dx = at.x - player.x, dz = at.z - player.z; g *= Math.max(0, 1 - Math.sqrt(dx * dx + dz * dz) / 46); if (g <= 0.02) return true; }
+  function playBuf(buf) { var s = ac.createBufferSource(); s.buffer = buf; var gn = ac.createGain(); gn.gain.value = g; s.connect(gn); gn.connect(ac.destination); s.start(); }
+  if (vendVoiceBufs[url]) { playBuf(vendVoiceBufs[url]); return true; }
+  try { var b2 = b64Bytes(url.split(',')[1]); ac.decodeAudioData(b2.buffer, function (buf) { vendVoiceBufs[url] = buf; playBuf(buf); }, function () { }); } catch (e) { }
   return true;
 }
 // per-NPC voice lines (optional npcvoices1..N.js chunks) — returns false when

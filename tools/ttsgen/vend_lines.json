@@ -1,0 +1,19 @@
+{
+  "_comment": "Street-vendor dialogue for the lemonade-stand KID vendor and ice-cream-truck ADULT vendor (bug reports mreehkm9, mreeipmy). Per-NAME packs -> vendvoices.js -> window.VEND_VOICES[name][cat][i]. Cats: pitch (call-out), sale (on buy), thanks (post-buy), idle (ambient chirp). Reused refs only: LEMONADE = KID_GIRL_BRIGHT kid voice; ICECREAM = ped_m relaxed young man. All lines <=12 words.",
+  "_voices": {
+    "LEMONADE": "4e407b98cb034f74b3863ec33c567c83",
+    "ICECREAM": "95ba5325b3e04dc5ab75592f7d4710d5"
+  },
+  "LEMONADE": {
+    "pitch": ["Lemonade! Ice cold lemonade, just two dollars!", "Get your fresh lemonade right here!"],
+    "sale": ["One lemonade, coming right up!"],
+    "thanks": ["Thank you! Come back soon!"],
+    "idle": ["Best lemonade in all of Westchase!"]
+  },
+  "ICECREAM": {
+    "pitch": ["Ice cream! Get your ice cream right here!"],
+    "sale": ["One ice cream, my friend. Enjoy it!"],
+    "thanks": ["Thanks a lot! Stay cool out there."],
+    "idle": ["Nothing beats ice cream on a hot day."]
+  }
+}
