@@ -262,6 +262,18 @@ After a robbery (successful or botched), leaving locks the store for
 **3 minutes** — for everyone. In multiplayer one robbery closes the store
 server-wide until the lockout expires.
 
+## The Publix
+
+Press **E** at the **Publix** storefront (NW corner, across the lot from your
+spawn) to walk inside a full grocery interior: stocked gondola aisles with
+end-caps, a glowing dairy-and-frozen cooler wall, a colorful produce section,
+a deli counter, and a row of checkout lanes with conveyor belts and registers.
+Green-aproned Publix staff — a cashier, a bagger, a stocker, a deli worker and
+the manager — hold their posts. Walk the aisles, **E** to chat with the staff,
+grab a **free sample** near produce for **+20 hp**, and **E** at the door to
+leave. (Like the gas station, interiors are personal — they aren't shared in
+multiplayer.)
+
 ## Wanted system
 
 Crimes earn GTA-style stars (max 5, shown top-center), and each star costs
