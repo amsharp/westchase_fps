@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.4';
+var GAME_VERSION = 'v1.66.5';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -3267,6 +3267,48 @@ function houseOnRoad(x, z, w, d, rot, sc) {
   }
   return hit >= 2;
 }
+// WC_REMAP: the survey planner vetted instances against the true-road ASPHALT
+// only, so a house set just off the pavement can still sit on the SIDEWALK
+// ribbon (offset hw+0.6 .. hw+sw+0.6 from centerline — see the ribbon pass).
+// Players reported house corners/walls riding the walkway (mredwjpp, mreer5b4,
+// mreendej). Deterministic outward nudge: if the footprint intrudes the nearest
+// road's sidewalk band, push the whole instance directly away from that road so
+// the footprint clears the walk (same data every peer → no desync; small pushes
+// only, capped, so nothing teleports across a yard). Returns [dx,dz] or null.
+function houseSidewalkNudge(x, z, w, d, rot) {
+  if (typeof REMAP_ROADS === 'undefined') return null;
+  var a = rot * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a);
+  var hw2 = w / 2, hd2 = d / 2, samp = [];
+  for (var ix = -1; ix <= 1; ix++) for (var iz = -1; iz <= 1; iz++) {
+    var lx = ix * hw2, lz = iz * hd2;
+    samp.push([lx * ca + lz * sa + x, -lx * sa + lz * ca + z]);
+  }
+  var best = 1e9, bpx = 0, bpz = 0, bsx = 0, bsz = 0, bOuter = 0;
+  for (var ri = 0; ri < REMAP_ROADS.length; ri++) {
+    var r = REMAP_ROADS[ri];
+    if (r.cls > 2 || r.dirt) continue;
+    var sw = r.cls === 0 ? 5 : 3.4, outer = r.hw + sw + 0.6;
+    var pts = r.pts;
+    for (var si = 0; si < samp.length; si++) {
+      var qx = samp[si][0], qz = samp[si][1];
+      for (var j = 0; j < pts.length - 1; j++) {
+        var axp = pts[j][0], azp = pts[j][1], dxp = pts[j + 1][0] - axp, dzp = pts[j + 1][1] - azp;
+        var L2 = dxp * dxp + dzp * dzp || 1;
+        var t = ((qx - axp) * dxp + (qz - azp) * dzp) / L2; t = t < 0 ? 0 : (t > 1 ? 1 : t);
+        var cx = axp + dxp * t, cz = azp + dzp * t;
+        var dd = Math.hypot(qx - cx, qz - cz);
+        if (dd < best) { best = dd; bpx = cx; bpz = cz; bsx = qx; bsz = qz; bOuter = outer; }
+      }
+    }
+  }
+  if (best >= bOuter) return null;                 // footprint already clears the walk
+  var nx = bsx - bpx, nz = bsz - bpz, nl = Math.hypot(nx, nz);
+  if (nl < 0.05) return null;                       // dead-centre on a road — leave to houseOnRoad
+  nx /= nl; nz /= nl;
+  var push = (bOuter + 1) - best;                   // +1 so the ~0.6 roof overhang clears too
+  if (push > 6) return null;                         // too far in → not a shoulder graze; leave as-authored
+  return [nx * push, nz * push];
+}
 var houseStats = { instances: 0, meshes: 0, tris: 0, colliders: 0, skipped: 0 };
 var houseMeshesRef = [];   // merged house meshes (perf A/B toggle hook)
 (function buildSurveyHouses() {
@@ -3280,6 +3322,10 @@ var houseMeshesRef = [];   // merged house meshes (perf A/B toggle hook)
     var cl = HOUSE_CLUSTERS[ci];
     if (!cl) continue;
     if (WC_REMAP && houseOnRoad(x, z, cl.spec.dims[0], cl.spec.dims[1], rot, sc)) { houseStats.skipped++; continue; }
+    if (WC_REMAP && !cl.spec.canopy) {
+      var nud = houseSidewalkNudge(x, z, cl.spec.dims[0] * sc, cl.spec.dims[1] * sc, rot);
+      if (nud) { x += nud[0]; z += nud[1]; }
+    }
     var tpl = houseTemplate(ci);
     var key = ci + '|' + vi;
     var ch = chunks[key];

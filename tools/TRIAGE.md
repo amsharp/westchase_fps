@@ -49,7 +49,7 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mreeccpr/mreebnfk (-226,152) prop set jarring in front of office tower (+anim)
 - mreedozu (-199,33)  unidentifiable mesh
 - mreeelik (-118,75)  car placement weird
-- mredwjpp (213,-160) house clips sidewalk — IN-AGENT (round5-structure)
+- mredwjpp (213,-160) house clips sidewalk — FIXED@v1.66.5 (survey houses now nudged clear of the sidewalk ribbon: houseSidewalkNudge pushes any footprint intruding the walk band outward; 30 instances, ~4.5u max)
 - mredxzx6 (140,-89)  houses with no visible roads — IN-AGENT (round5-structure)
 - mredtppi (184,-172) missing raised curb divider — IN-AGENT (round5-structure)
 - mreduh7z (187,-178) "looks awful" (see screenshot)
@@ -83,7 +83,7 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mreepojo (157,-74) 'half ass gas station' — R5
 - mreeq7nj (150,193) random barrier — R3 (re-probe post-OBB fix)
 - mreeqqbh (298,235) road looks awful — R5
-- mreer5b4 (419,172) houses riding the sidewalk — R5 (same as mredwjpp) — IN-AGENT (round5-structure)
+- mreer5b4 (419,172) houses riding the sidewalk — FIXED@v1.66.5 (same houseSidewalkNudge shared fix)
 - mreesgtd (238,516) parked cars with lights on — R4
 - mreet1el (273,474) NPC pacing left-right loop — R3 (check whisker ping-pong)
 - mreetig1 (233,306) secondary intersection looks bad — R5
