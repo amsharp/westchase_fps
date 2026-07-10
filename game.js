@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.65.4';
+var GAME_VERSION = 'v1.65.5';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -1091,6 +1091,11 @@ var canopyGeo = new THREE.SphereGeometry(1, 8, 6);
 var oakCount = 0, OAK_CAP = 1000;
 function oak(x, z, scale) {
   if (oakCount >= OAK_CAP) return;
+  // v1.65.5 prop-placement fix: keep tree canopies out of building footprints
+  // (bug report: an oak grown through the BoA brick wall/roof). Reject any spot
+  // within a canopy margin of an authored venue rect. Perimeter/forest/house-
+  // yard trees sit far from these rects, so they're unaffected.
+  if (typeof WC_REMAP !== 'undefined' && WC_REMAP && typeof remapInClear === 'function' && remapInClear(x, z, 3.5)) return;
   oakCount++;
   scale = scale || (0.85 + Math.random() * 0.5);
   var pp = getPackProp(['oak1', 'oak2', 'oak3'][(Math.random() * 3) | 0]);
@@ -1151,6 +1156,8 @@ var frondGeo = (function () {
   g.computeVertexNormals(); return g;
 })();
 function palm(x, z) {
+  // v1.65.5 prop-placement fix: same building-clearance guard as oak().
+  if (typeof WC_REMAP !== 'undefined' && WC_REMAP && typeof remapInClear === 'function' && remapInClear(x, z, 3.0)) return;
   var g = new THREE.Group(); var h = 5.5 + Math.random() * 2.5;
   g.add(cyl(0.17, 0.26, h, 7, lamb2(barkT2), 0, h / 2, 0));
   var crown = new THREE.Group(); crown.position.y = h;
@@ -2102,18 +2109,23 @@ var expFillPts = [];   // [x,z] of every fill tree (debug/audit)
   for (var i = 0; i < fillRects.length; i++) {
     var f = fillRects[i], x0 = f[0], x1 = f[1], z0 = f[2], z1 = f[3];
     var w = x1 - x0, d = z1 - z0, pts = [], j;
-    // tree line along each collider edge (the wall the player actually hits)
-    var nx = Math.max(2, Math.round(w / 13)), nz = Math.max(2, Math.round(d / 13));
+    // tree line along each collider edge (the wall the player actually hits).
+    // 8u spacing with a tight inset — the old 13u line with 5u jitter left
+    // corner gaps that still read as open grass (report mref269d walked into
+    // a bare patch edge by the pond). Corners get explicit trees.
+    var nx = Math.max(2, Math.round(w / 8)), nz = Math.max(2, Math.round(d / 8));
     for (j = 0; j < nx; j++) {
-      var ex = x0 + (j + 0.5) / nx * w + (Math.random() - 0.5) * 4;
-      pts.push([ex, z0 + 1.5 + Math.random() * 5]);
-      pts.push([ex, z1 - 1.5 - Math.random() * 5]);
+      var ex = x0 + (j + 0.5) / nx * w + (Math.random() - 0.5) * 3;
+      pts.push([ex, z0 + 1.2 + Math.random() * 2.5]);
+      pts.push([ex, z1 - 1.2 - Math.random() * 2.5]);
     }
     for (j = 0; j < nz; j++) {
-      var ez = z0 + (j + 0.5) / nz * d + (Math.random() - 0.5) * 4;
-      pts.push([x0 + 1.5 + Math.random() * 5, ez]);
-      pts.push([x1 - 1.5 - Math.random() * 5, ez]);
+      var ez = z0 + (j + 0.5) / nz * d + (Math.random() - 0.5) * 3;
+      pts.push([x0 + 1.2 + Math.random() * 2.5, ez]);
+      pts.push([x1 - 1.2 - Math.random() * 2.5, ez]);
     }
+    pts.push([x0 + 2, z0 + 2]); pts.push([x1 - 2, z0 + 2]);
+    pts.push([x0 + 2, z1 - 2]); pts.push([x1 - 2, z1 - 2]);
     // interior scatter — dense Florida hammock: ~1 canopy tree per 300u^2,
     // loosely clustered so the floor reads covered, not a regular grid
     var ni = Math.round(w * d / 340);
@@ -6926,6 +6938,34 @@ function spOverlapsBuilding(x, z, hx, hz) {
 // colliders.
 // ============================================================
 var densityStats = { trees: 0, props: 0, decals: 0, signs: 0, clutter: 0, fence: 0, batches: 0 };
+// ---- v1.65.5 shared prop-placement guards (density + env layers) ----
+// Chunky ground props register here so later layers can enforce a de-cluster
+// rule: no more than 2 items inside a 3u radius (bug: gumball/vending/trash/etc.
+// jammed together at storefronts). Both the density storefront pass and the env
+// vending clusters read/write this list.
+var _propClutter = [];
+function propClutterReg(x, z) { _propClutter.push([x, z]); }
+// true if placing at (x,z) would make a 3rd prop inside `rad`
+function propClutterBusy(x, z, rad, maxN) {
+  var r2 = rad * rad, n = 0, lim = (maxN || 2);
+  for (var _i = 0; _i < _propClutter.length; _i++) {
+    var _dx = _propClutter[_i][0] - x, _dz = _propClutter[_i][1] - z;
+    if (_dx * _dx + _dz * _dz < r2 && ++n >= lim) return true;
+  }
+  return false;
+}
+// true if a tree/pole breakable sits within `r` of (x,z) — clutter must not clip
+// tree trunks / utility poles / hydrants.
+function breakablePoleNear(x, z, r) {
+  if (typeof breakables === 'undefined') return false;
+  var r2 = r * r;
+  for (var _b = 0; _b < breakables.length; _b++) {
+    var bk = breakables[_b]; if (!bk) continue;
+    var _dx = bk.x - x, _dz = bk.z - z;
+    if (_dx * _dx + _dz * _dz < r2) return true;
+  }
+  return false;
+}
 if (WC_REMAP) (function densityLayer() {
   var deg = Math.PI / 180;
   function rnd(a, b) { return a + Math.random() * (b - a); }
@@ -7213,10 +7253,27 @@ if (WC_REMAP) (function densityLayer() {
     var backx = vv3.x - f3.fx * (vv3.d / 2 + 2.6), backz = vv3.z - f3.fz * (vv3.d / 2 + 2.6);
     var byaw2 = Math.atan2(-f3.fx, -f3.fz);
     if (typeof getStreetProp !== 'undefined') spFull('dumpster', backx, backz, byaw2 + Math.PI / 2);
+    // v1.65.5 prop-placement fix: bug report — back-lot crates/pallets piled on
+    // top of each other and clipping the brick wall/columns + a tree trunk.
+    // Place them clear of the building footprint, spaced apart, and off any
+    // tree/pole breakable. Push them a touch further off the wall than before.
+    var jcPlaced = [];
     for (var jc = 0; jc < 4; jc++) {
-      var jx = backx + f3.rx * rnd(-vv3.w * 0.3, vv3.w * 0.3) + f3.fx * rnd(-1, 1);
-      var jz = backz + f3.rz * rnd(-vv3.w * 0.3, vv3.w * 0.3) + f3.fz * rnd(-1, 1);
       var cn = pick(BACK_CLUTTER), ca = dAsset[cn]; if (!ca) continue;
+      var chx = ca.dims[0] / 2, chz = ca.dims[2] / 2, jx, jz, jok = false;
+      for (var jt = 0; jt < 10 && !jok; jt++) {
+        var latJ = rnd(-vv3.w * 0.32, vv3.w * 0.32), backJ = 1.3 + Math.random() * 1.9;   // 1.3..3.2u off the back wall
+        jx = backx - f3.fx * backJ + f3.rx * latJ;
+        jz = backz - f3.fz * backJ + f3.rz * latJ;
+        if (spOverlapsBuilding(jx, jz, chx + 0.3, chz + 0.3)) continue;   // off the wall/columns
+        if (breakablePoleNear(jx, jz, Math.max(chx, chz) + 1.2)) continue; // off trees/poles
+        var jclash = false;
+        for (var jp = 0; jp < jcPlaced.length; jp++) { var jdx = jcPlaced[jp][0] - jx, jdz = jcPlaced[jp][1] - jz; if (jdx * jdx + jdz * jdz < 2.4 * 2.4) { jclash = true; break; } }
+        if (jclash) continue;
+        jok = true;
+      }
+      if (!jok) continue;
+      jcPlaced.push([jx, jz]);
       if (cn === 'bucket') dCylAsset(cn, jx, ca.dims[1] / 2 + 0.02, jz);
       else dBoxAsset(cn, jx, ca.dims[1] / 2 + 0.02, jz, rnd(0, 6.28));
     }
@@ -7251,10 +7308,19 @@ if (WC_REMAP) (function densityLayer() {
       var f4 = vFront(vv4), hw2 = vv4.w / 2 - 1, bx2 = vv4.x - f4.fx * (vv4.d / 2 + 1.2), bz2 = vv4.z - f4.fz * (vv4.d / 2 + 1.2);
       fenceRun(bx2 - f4.rx * hw2, bz2 - f4.rz * hw2, bx2 + f4.rx * hw2, bz2 + f4.rz * hw2, treeRnd() < 0.5 ? 'hedge_row' : 'privacy_fence', true);
     }
-    // low brick wall along the street edge of Publix / BofA lots
+    // low brick planter wall along the Publix / BofA storefront frontage.
+    // v1.65.5 prop-placement fix: bug report — the wall used to sit 6u out at
+    // v.d/2+6, i.e. mid parking-lot, so parked/driving cars clipped straight
+    // through it. Move it in to the pedestrian frontage (just outside the
+    // storefront props, where cars don't drive — proven by the co-located
+    // benches/vending never being clipped) and split it around the central
+    // entrance so the drive aisle stays open.
     if (vv4.id === 'publix' || vv4.id === 'boa') {
-      var f5 = vFront(vv4), ew2 = vv4.w / 2 + 2, fx5 = vv4.x + f5.fx * (vv4.d / 2 + 6), fz5 = vv4.z + f5.fz * (vv4.d / 2 + 6);
-      fenceRun(fx5 - f5.rx * ew2, fz5 - f5.rz * ew2, fx5 + f5.rx * ew2, fz5 + f5.rz * ew2, 'brick_low_wall', false);
+      var f5 = vFront(vv4);
+      var wox = vv4.x + f5.fx * (vv4.d / 2 + 1.9), woz = vv4.z + f5.fz * (vv4.d / 2 + 1.9);
+      var ew2 = Math.min(vv4.w / 2 - 1, 20), doorG = Math.min(3.4, ew2 * 0.32);
+      fenceRun(wox - f5.rx * ew2, woz - f5.rz * ew2, wox - f5.rx * doorG, woz - f5.rz * doorG, 'brick_low_wall', false);
+      fenceRun(wox + f5.rx * doorG, woz + f5.rz * doorG, wox + f5.rx * ew2, woz + f5.rz * ew2, 'brick_low_wall', false);
     }
   }
 
@@ -7275,19 +7341,27 @@ if (WC_REMAP) (function densityLayer() {
     densityStats.props++;
   }
   if (typeof STREET_PROPS !== 'undefined') {
-    // storefront benches / trashcans / bike racks / a vending machine per commercial venue
+    // storefront benches / trashcans / bike racks / a vending machine per commercial venue.
+    // v1.65.5 prop-placement fix: bug report — gumball/vending/trash/bins jammed
+    // together at the Publix front. spGate de-clutters (max 2 props inside a 3u
+    // radius) and records positions in the shared list so the env vending pass
+    // downstream won't pile more machines on the same walkway. The redundant
+    // wheeliebin (duplicate of the trashcan) is dropped.
+    function spGate(name, x, z, ry, y) {
+      if (propClutterBusy(x, z, 3.0, 2)) return;   // keep the frontage from crowding
+      spFull(name, x, z, ry, y); propClutterReg(x, z);
+    }
     for (var vp = 0; vp < VENUES.length; vp++) {
       var vv5 = VENUES[vp]; if (!COMM[vv5.type]) continue;
       var f6 = vFront(vv5), fpx2 = vv5.x + f6.fx * (vv5.d / 2 + 1.4), fpz2 = vv5.z + f6.fz * (vv5.d / 2 + 1.4);
       var frontYaw = Math.atan2(f6.fx, f6.fz);   // prop front (-x authored) faces outward
       var lat = Math.min(vv5.w / 2 - 2, 5);
-      spFull('bench', fpx2 + f6.rx * lat, fpz2 + f6.rz * lat, frontYaw);
-      spFull('trashcan', fpx2 - f6.rx * lat, fpz2 - f6.rz * lat, frontYaw);
-      spFull('newsbox', fpx2 - f6.rx * (lat * 0.5), fpz2 - f6.rz * (lat * 0.5), frontYaw);   // free daily paper
-      if (vv5.type === 'publix' || vv5.type === 'dollar_tree') spFull('wheeliebin', fpx2 + f6.rx * (lat * 0.75), fpz2 + f6.rz * (lat * 0.75), frontYaw);
-      if (vv5.type === 'publix' || vv5.type === 'dollar_tree') spFull('vendingmachine', fpx2 + f6.rx * (lat * 0.4), fpz2 + f6.rz * (lat * 0.4), frontYaw);
-      if (vv5.type === 'bank') spFull('atm', fpx2, fpz2, frontYaw);
-      if (vv5.type === 'farnell' || vv5.type === 'publix') spFull('bikerack', fpx2 + f6.rx * (lat * 0.7), fpz2 + f6.rz * (lat * 0.7), frontYaw);
+      spGate('bench', fpx2 + f6.rx * lat, fpz2 + f6.rz * lat, frontYaw);
+      spGate('trashcan', fpx2 - f6.rx * lat, fpz2 - f6.rz * lat, frontYaw);
+      spGate('newsbox', fpx2 - f6.rx * (lat * 0.5), fpz2 - f6.rz * (lat * 0.5), frontYaw);   // free daily paper
+      if (vv5.type === 'publix' || vv5.type === 'dollar_tree') spGate('vendingmachine', fpx2 + f6.rx * (lat * 0.4), fpz2 + f6.rz * (lat * 0.4), frontYaw);
+      if (vv5.type === 'bank') spGate('atm', fpx2, fpz2, frontYaw);
+      if (vv5.type === 'farnell' || vv5.type === 'publix') spGate('bikerack', fpx2 + f6.rx * (lat * 0.7), fpz2 + f6.rz * (lat * 0.7), frontYaw);
     }
     // hydrants ~ every 90u + occasional bus shelter along arterials/collectors
     if (RM) {
@@ -8278,18 +8352,26 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
   }
 
   // ---------- 3. VENDING / ARCADE cluster near shopfronts (exterior) ----------
+  // v1.65.5 prop-placement fix: bug report — a gumball machine + a cluster of
+  // vending/trash/bins randomly jammed at the Publix walkway. These machines are
+  // wall-mounted-style props: keep them tight against the front wall and honour
+  // the shared de-cluster budget (skip if 2+ props already sit within 3u, which
+  // the storefront street-prop pass has already registered). Publix / Dollar
+  // Tree already get a street vending machine, so they no longer also get a
+  // redundant gumball/soda cluster on top of it.
   function vendCluster(v, list) {
     if (!v) return; var f = vFront(v);
     var bx = v.x + f.fx * (v.d / 2 + 1.3), bz = v.z + f.fz * (v.d / 2 + 1.3), out = faceDir(f.fx, f.fz);
     var lat = Math.min(v.w / 2 - 2, 6);
     for (var i = 0; i < list.length; i++) {
       var t = (i / Math.max(1, list.length - 1) - 0.5) * 2 * lat;
-      place(list[i], bx + f.rx * t, bz + f.rz * t, out, { instance: true });
+      var vx = bx + f.rx * t, vz = bz + f.rz * t;
+      if (typeof propClutterBusy === 'function' && propClutterBusy(vx, vz, 3.0, 2)) continue;
+      place(list[i], vx, vz, out, { instance: true });
+      if (typeof propClutterReg === 'function') propClutterReg(vx, vz);
     }
   }
   vendCluster(byId.racetrac, ['soda_machine', 'gumball_machine', 'claw_machine']);
-  vendCluster(byId.dollar_tree, ['soda_machine', 'gumball_machine']);
-  vendCluster(byId.publix, ['gumball_machine', 'soda_machine']);
   // arcade + jukebox on a strip storefront (pizza unit) + boombox on a bench
   if (byType.strip && byType.strip[0]) { var sp0 = byType.strip[0], sf0 = vFront(sp0), o0 = faceDir(sf0.fx, sf0.fz); var ax0 = sp0.x + sf0.fx * (sp0.d / 2 + 1.2), az0 = sp0.z + sf0.fz * (sp0.d / 2 + 1.2); place('arcade_cabinet', ax0 + sf0.rx * 4, az0 + sf0.rz * 4, o0, { instance: true }); place('jukebox', ax0 - sf0.rx * 4, az0 - sf0.rz * 4, o0, { instance: true }); place('pizza_sign', ax0 + sf0.rx * 10, az0 + sf0.rz * 10, o0, { instance: true }); place('barber_pole', ax0 - sf0.rx * 10, az0 - sf0.rz * 10, o0, { instance: true }); }
 
@@ -13360,7 +13442,13 @@ var QPOI = {   // id -> { x, z (surface hatch), y (under-map floor), w, d, tint,
   stormdrain: { name: 'the Storm Drain', x: -238, z: -176, y: -132, w: 14, d: 8, tint: 0x3c4a52, ceil: 0x1a2228, enterMsg: 'You crawl into the box culvert. Water trickles; something was dug up in the mud.' },
   boardroom:  { name: 'the Board Room', x: -278, z: -70, y: -150, w: 12, d: 10, tint: 0x7a2a24, ceil: 0x2a1010, enterMsg: 'The sealed door parts. A long table, five chairs, and a nameplate: A. THORNE. A cage-lift shaft drops away into the dark.' },
   facility:   { name: 'the Sub-Lake Facility', x: -255, z: -150, y: -170, w: 24, d: 18, tint: 0x2a3a44, ceil: 0x0e1a22, enterMsg: 'Past the three locks, the facility opens: humming machines, and a tank where something enormous stirs.' },
-  arcade:     { name: 'Wrong Westchase', x: -150, z: 20, y: -160, w: 22, d: 22, tint: 0x2a1050, ceil: 0x120626, enterMsg: 'INSERT COIN. The world flattens into fog and neon — a low-poly memory of the town, rendered wrong.' }
+  // v1.65.5 prop-placement fix: bug report — the Wrong-Westchase arcade portal
+  // (a dark cabinet on a pedestal) stood mid-sidewalk, side-on, in front of the
+  // th_c row (front wall at z=23). Nudged the surface hatch back to z=22.3 so the
+  // portal sits flush against that wall (back to the wall, face to the road)
+  // instead of blocking the walkway. The under-map room + q6 beats reference this
+  // same record, so they move with it.
+  arcade:     { name: 'Wrong Westchase', x: -150, z: 22.3, y: -160, w: 22, d: 22, tint: 0x2a1050, ceil: 0x120626, enterMsg: 'INSERT COIN. The world flattens into fog and neon — a low-poly memory of the town, rendered wrong.' }
 };
 // ---- #77 quest content helpers (used by beat onEnter/onComplete hooks) ----
 function qv(npcKey, cat, idx, gain) { return playQuestVoice(npcKey, cat, idx, gain || 0.75, 0.4); }

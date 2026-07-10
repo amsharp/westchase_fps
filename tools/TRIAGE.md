@@ -103,3 +103,13 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mref0pwi (205,272)  bus stop facing wrong way — R5
 - mref0zmv (205,272)  ugly road junction — R5 roads
 - mref1n8n (321,186)  sidewalk looks bad — R5
+
+## Batch 5 (east-side sweep)
+- mref269d (287,85)  invis wall at forest patch edge — FIXED@v1.65.5 (edge tree line 13u->8u spacing, tight inset, corner trees)
+- mref2fm0 (315,171) invis wall — probed post-OBB: 10% edge block from a correct house OBB; likely stale v1.64.0 session. RE-CHECK if refiled
+- mref2zey (534,-29) invis wall — probed post-OBB: healthy house colliders. RE-CHECK if refiled
+- mref1z9y (298,80)  invis wall — probed: pond collider is player-passable (lake flag). RE-CHECK if refiled
+- mreeuf0c (-97,338) random wall — same class, RE-CHECK on current build
+- mref3ibd (535,126) AC unit 3x size wanted — R5 (with mreds4nw rooftop AC)
+- mref3wds (391,191) backwards bus stop — R5 (with mref0pwi)
+- mref48hy (374,195) sign clipping post — R5
