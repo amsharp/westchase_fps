@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.27';
+var GAME_VERSION = 'v1.66.28';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -532,6 +532,35 @@ var venCapM = lamb({ color: 0xcfc7b4 });                  // parapet capstone
 var venAcM = lamb({ color: 0x9a9a94 });                   // rooftop AC
 var orangeMetalM = lamb2(seamMetalTex('#e8862e'));        // Dunkin orange metal awning
 var grayBlockM = lamb2(stuccoTex('#bcbab4'));             // Dunkin gray split-face block
+// ---- industrial rooftop HVAC (mreds4nw / mref3ibd: businesses want big
+// commercial condensers, not the tiny 0.9m residential unit). Canvas-textured
+// galvanized panels + radial fan-guard grilles. ----
+var acRibTex = tex(128, function (g, s) {                 // ribbed condenser-coil side panels
+  g.fillStyle = '#9a9d99'; g.fillRect(0, 0, s, s);
+  for (var x = 0; x < s; x += 6) { g.fillStyle = 'rgba(255,255,255,0.10)'; g.fillRect(x, 0, 1, s); g.fillStyle = 'rgba(0,0,0,0.22)'; g.fillRect(x + 3, 0, 2, s); }
+  g.fillStyle = 'rgba(0,0,0,0.30)'; for (var y = 0; y < s; y += 42) g.fillRect(0, y, s, 2);
+  g.fillStyle = 'rgba(255,255,255,0.13)'; for (var y2 = 3; y2 < s; y2 += 42) g.fillRect(0, y2, s, 1);
+  g.fillStyle = 'rgba(0,0,0,0.35)'; for (var yy = 0; yy < s; yy += 42) for (var xx = 5; xx < s; xx += 15) g.fillRect(xx, yy + 1, 2, 2);
+  for (var r = 0; r < 7; r++) { g.fillStyle = 'rgba(115,80,52,' + (0.03 + Math.random() * 0.05) + ')'; g.fillRect(Math.random() * s, Math.random() * s * 0.5, 2, s * 0.5); }
+  noise(g, s, 120, 0.05, 0.04);
+}, 2, 1);
+var venAcRibM = lamb2(acRibTex);
+var acTopTex = tex(64, function (g, s) {                  // galvanized top deck / curb
+  g.fillStyle = '#8f938f'; g.fillRect(0, 0, s, s);
+  g.strokeStyle = 'rgba(0,0,0,0.22)'; g.lineWidth = 2; g.strokeRect(3, 3, s - 6, s - 6);
+  noise(g, s, 90, 0.06, 0.05);
+});
+var venAcTopM = lamb2(acTopTex);
+var fanGrilleTex = tex(64, function (g, s) {              // radial fan-guard over a dark shroud
+  var c = s / 2;
+  g.fillStyle = '#33352f'; g.fillRect(0, 0, s, s);
+  g.strokeStyle = '#b9bdb8'; g.lineWidth = 2;
+  for (var rr = 4; rr < c - 1; rr += 5) { g.beginPath(); g.arc(c, c, rr, 0, 6.29); g.stroke(); }
+  g.strokeStyle = '#c7cbc6'; g.lineWidth = 2;
+  for (var a = 0; a < 6.28; a += Math.PI / 4) { g.beginPath(); g.moveTo(c, c); g.lineTo(c + Math.cos(a) * c, c + Math.sin(a) * c); g.stroke(); }
+  g.fillStyle = '#1c1e1a'; g.beginPath(); g.arc(c, c, 5, 0, 6.29); g.fill();
+});
+var fanGrilleM = lamb2(fanGrilleTex);
 var stuccoMatCache = {};
 function stuccoMat(color) { if (!stuccoMatCache[color]) stuccoMatCache[color] = lamb2(stuccoTex(color)); return stuccoMatCache[color]; }
 
@@ -573,10 +602,23 @@ function vCanopy(x, wallZ, dir, w, out, y, mat, postM) {
 function vParapet(cx, cz, w, d, topY, mat) {
   scene.add(box(w + 0.6, 0.7, d + 0.6, mat || venCapM, cx, topY + 0.35, cz));
 }
-// rooftop AC unit on a curb
+// big commercial rooftop HVAC unit (packaged RTU / condenser) on a curb:
+// ribbed galvanized cabinet + galvanized top deck + twin radial fan-guard
+// grilles + an end control panel. Reads as real industrial HVAC (mreds4nw).
 function vAC(x, cz, topY, mat) {
-  scene.add(box(2.4, 0.22, 1.8, venCapM, x, topY + 0.11, cz));
-  scene.add(box(2.1, 0.9, 1.5, mat || venAcM, x, topY + 0.57, cz));
+  var body = mat || venAcRibM;
+  scene.add(box(3.3, 0.28, 2.5, venAcTopM, x, topY + 0.14, cz));       // curb pad
+  var bh = 1.5, by = topY + 0.28;
+  scene.add(box(3.0, bh, 2.2, body, x, by + bh / 2, cz));              // ribbed cabinet
+  var ty = by + bh;
+  scene.add(box(3.02, 0.14, 2.22, venAcTopM, x, ty + 0.07, cz));       // top deck cap
+  for (var i = -1; i <= 1; i += 2) {                                   // twin fans
+    var fx = x + i * 0.72;
+    scene.add(cyl(0.64, 0.64, 0.2, 14, venAcTopM, fx, ty + 0.14 + 0.10, cz));   // shroud lip
+    var gr = new THREE.Mesh(new THREE.CircleGeometry(0.6, 18), fanGrilleM);
+    gr.rotation.x = -Math.PI / 2; gr.position.set(fx, ty + 0.26, cz); scene.add(gr);
+  }
+  scene.add(box(0.7, 1.05, 0.3, venAcTopM, x + 1.28, by + 0.55, cz + 1.02));   // end control panel
 }
 // eave soffit + fascia band for a hip/pitched roof
 function vEave(cx, cz, w, d, y, mat) {
@@ -7457,7 +7499,7 @@ if (WC_REMAP) (function densityLayer() {
   // helpers to place one asset instance into the right batch
   function dDecal(name, x, z, y, ry, scale) { if (!dAsset[name]) return; var a = dAsset[name]; var w = a.dims[0] * (scale || 1), d = a.dims[1] * (scale || 1); bake('d_' + name, { texName: name, decal: true }, UDECAL, mtx(x, y, z, ry || 0, w, 1, d)); densityStats.decals++; }
   function dSign(name, x, y, z, ry, scale) { if (!dAsset[name]) return; var a = dAsset[name]; bake('d_' + name, { texName: name, double: true }, USIGN, mtx(x, y, z, ry, a.dims[0] * (scale || 1), a.dims[1] * (scale || 1), 1)); densityStats.signs++; }
-  function dBoxAsset(name, x, y, z, ry) { if (!dAsset[name]) return; var a = dAsset[name]; bake('d_' + name, { texName: name }, UBOX, mtx(x, y, z, ry || 0, a.dims[0], a.dims[1], a.dims[2])); densityStats.clutter++; }
+  function dBoxAsset(name, x, y, z, ry, sc) { if (!dAsset[name]) return; sc = sc || 1; var a = dAsset[name]; bake('d_' + name, { texName: name }, UBOX, mtx(x, y, z, ry || 0, a.dims[0] * sc, a.dims[1] * sc, a.dims[2] * sc)); densityStats.clutter++; }
   // a flat textured box read as "2D trash" (report mredr84j); pile 3-4 lumpy,
   // squashed blobs instead so it reads as bulging plastic bags. Reuses the
   // trash_bags texture on the shared 'd_trash_bags' batch (still one draw call).
@@ -7722,9 +7764,11 @@ if (WC_REMAP) (function densityLayer() {
       else if (cn === 'trash_bags') dTrashPile(jx, jz);
       else dBoxAsset(cn, jx, ca.dims[1] / 2 + 0.02, jz, rnd(0, 6.28));
     }
-    // AC condenser + utility box against a side wall
-    var sidex = vv3.x + f3.rx * (vv3.w / 2 + 0.6), sidez = vv3.z + f3.rz * (vv3.w / 2 + 0.6);
-    dBoxAsset('ac_condenser', sidex, 0.4, sidez, f3.yaw);
+    // AC condenser + utility box against a side wall. The base ac_condenser
+    // asset is a tiny 0.75m residential cube; businesses want a big commercial
+    // ground condenser (mref3ibd), so upsize it ~2.4x (-> ~1.8m).
+    var sidex = vv3.x + f3.rx * (vv3.w / 2 + 1.0), sidez = vv3.z + f3.rz * (vv3.w / 2 + 1.0);
+    dBoxAsset('ac_condenser', sidex, 0.9, sidez, f3.yaw, 2.4);
     dBoxAsset('utility_box', sidex + f3.fx * 2, 0.5, sidez + f3.fz * 2, f3.yaw);
     if (Math.random() < 0.6) dCylAsset('propane_tank', sidex - f3.fx * 2, 0.6, sidez - f3.fz * 2);
     // potted plants + mulch bed flanking the entrance
