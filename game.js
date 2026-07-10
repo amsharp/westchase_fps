@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.34';
+var GAME_VERSION = 'v1.66.35';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -8092,8 +8092,12 @@ var landscapeStats = { hedge: 0, shrub: 0, mulch: 0, grass: 0, myrtle: 0, palm: 
 var landscapeMeshes = [];
 if (WC_REMAP) (function landscapePass() {
   var deg = Math.PI / 180;
-  function rnd(a, b) { return a + Math.random() * (b - a); }
-  function pick(a) { return a[(Math.random() * a.length) | 0]; }
+  // Placement RNG MUST be the shared seeded stream (treeRnd) so tree/collider/
+  // breakable COUNTS are identical every load (MP host/client consistency —
+  // task #73 / Sweep #2 determinism). Only the canvas texture builders below
+  // stay on bare Math.random (cosmetic pixels, don't affect any count).
+  function rnd(a, b) { return a + treeRnd() * (b - a); }
+  function pick(a) { return a[(treeRnd() * a.length) | 0]; }
   var VENUES = (typeof REMAP_VENUES !== 'undefined') ? REMAP_VENUES : [];
   var SURF = (typeof REMAP_SURFACES !== 'undefined') ? REMAP_SURFACES : [];
   // front-face + rotated-rect helpers (mirror densityLayer — keyed off rot alone)
@@ -8195,7 +8199,7 @@ if (WC_REMAP) (function landscapePass() {
     // planting-strip greenery, not obstacles blocking the walk.
     if (WC_REMAP && (!remapPointClear(x, z, 1.0) || onSidewalk(x, z))) return;
     scale = scale || rnd(0.75, 1.25); key = key || pick(SHRUB_KEYS);
-    var n = lite ? 2 + (Math.random() * 2 | 0) : 3 + (Math.random() * 3 | 0);   // lite: 2-3, else 3-5 blobs
+    var n = lite ? 2 + (treeRnd() * 2 | 0) : 3 + (treeRnd() * 3 | 0);   // lite: 2-3, else 3-5 blobs
     for (var i = 0; i < n; i++) {
       var lead = i === 0;
       var r = scale * (lead ? rnd(0.62, 0.84) : rnd(0.38, 0.62));
@@ -8271,7 +8275,7 @@ if (WC_REMAP) (function landscapePass() {
       for (var t = la + 0.6; t < lb - 0.4 && okShrub(); t += stp) {
         var jit = rnd(-0.35, 0.35);
         var sx = fcx + f.fx * foff + f.rx * (t + jit), sz = fcz + f.fz * foff + f.rz * (t + jit);
-        if (Math.random() < 0.78) shrub(sx, sz, rnd(0.6, 1.0), pick(SHRUB_KEYS));
+        if (treeRnd() < 0.78) shrub(sx, sz, rnd(0.6, 1.0), pick(SHRUB_KEYS));
         else grass(sx, sz, rnd(0.7, 1.0));
       }
     }
@@ -8313,8 +8317,8 @@ if (WC_REMAP) (function landscapePass() {
     var iw = rnd(3.2, 4.6), id = rnd(2.6, 3.6);
     curbRing(x, z, iw, id, ry);
     mulchBed(x, z, iw - 0.3, id - 0.3, ry);
-    if (Math.random() < 0.42) myrtle(x, z); else ipalm(x, z);
-    var ns = 3 + (Math.random() * 2 | 0);
+    if (treeRnd() < 0.42) myrtle(x, z); else ipalm(x, z);
+    var ns = 3 + (treeRnd() * 2 | 0);
     for (var i = 0; i < ns; i++) {
       var a = i / ns * Math.PI * 2 + rnd(-0.3, 0.3), rr = Math.min(iw, id) * 0.32;
       shrub(x + Math.cos(a) * rr, z + Math.sin(a) * rr, rnd(0.5, 0.8), pick(SHRUB_KEYS));
@@ -8350,7 +8354,7 @@ if (WC_REMAP) (function landscapePass() {
   // corners.
   function grassCluster(x, z, ry) {
     mulchBed(x, z, rnd(2.0, 2.6), rnd(1.5, 2.0), ry);
-    var n = 3 + (Math.random() * 3 | 0);
+    var n = 3 + (treeRnd() * 3 | 0);
     for (var i = 0; i < n; i++) grass(x + rnd(-0.9, 0.9), z + rnd(-0.7, 0.7), rnd(0.7, 1.05));
   }
   if (RM) {
@@ -8363,14 +8367,14 @@ if (WC_REMAP) (function landscapePass() {
         if (!spotClear(fx3, fz3) || inLake(fx3, fz3)) continue;
         if (typeof remapInClear !== 'undefined' && remapInClear(fx3, fz3, 1)) continue;
         if (typeof houseBlocksSpot !== 'undefined' && houseBlocksSpot(fx3, fz3)) continue;
-        var roll = Math.random();
+        var roll = treeRnd();
         if (roll < 0.42) {
           grassCluster(fx3, fz3, Math.atan2(pf.ux, pf.uz));
         } else if (roll < 0.72) {
           var hl = rnd(1.6, 2.4);   // low hedge parallel to the road
           hedge(fx3 - pf.ux * hl, fz3 - pf.uz * hl, fx3 + pf.ux * hl, fz3 + pf.uz * hl, rnd(0.55, 0.72), 0.6);
           mulchBed(fx3, fz3, hl * 2 + 0.5, 1.4, Math.atan2(pf.ux, pf.uz));
-          if (Math.random() < 0.5) shrub(fx3, fz3, rnd(0.5, 0.75), pick(SHRUB_KEYS));
+          if (treeRnd() < 0.5) shrub(fx3, fz3, rnd(0.5, 0.75), pick(SHRUB_KEYS));
         } else {
           myrtle(fx3, fz3);
           if (okShrub()) shrub(fx3 + rnd(-1.2, 1.2), fz3 + rnd(-1.2, 1.2), rnd(0.55, 0.8), pick(SHRUB_KEYS));
@@ -8389,10 +8393,10 @@ if (WC_REMAP) (function landscapePass() {
         if (!openClear(cx, cz)) continue;
         mulchBed(cx, cz, rnd(3.4, 4.4), rnd(2.8, 3.6), rnd(0, 3.14));
         myrtle(cx, cz);
-        var nb = 4 + (Math.random() * 2 | 0);
+        var nb = 4 + (treeRnd() * 2 | 0);
         for (var bi = 0; bi < nb; bi++) {
           var ba = bi / nb * Math.PI * 2, brr = rnd(1.0, 1.6);
-          shrub(cx + Math.cos(ba) * brr, cz + Math.sin(ba) * brr, rnd(0.55, 0.85), Math.random() < 0.4 ? 'bloom' : pick(SHRUB_KEYS));
+          shrub(cx + Math.cos(ba) * brr, cz + Math.sin(ba) * brr, rnd(0.55, 0.85), treeRnd() < 0.4 ? 'bloom' : pick(SHRUB_KEYS));
         }
         grass(cx + rnd(-1.5, 1.5), cz + rnd(-1.5, 1.5), rnd(0.8, 1.1));
         grass(cx + rnd(-1.5, 1.5), cz + rnd(-1.5, 1.5), rnd(0.8, 1.1));
@@ -8418,12 +8422,12 @@ if (WC_REMAP) (function landscapePass() {
       for (var tt = -halfW; tt <= halfW + 0.01 && hfDone < HF_CAP; tt += 1.85) {
         if (Math.abs(tt - hf.doorX) < doorHalf) continue;   // keep the entry walk clear
         var sx = cxF + hf.rgx * tt + hf.nx * rnd(-0.15, 0.2), sz = czF + hf.rgz * tt + hf.nz * rnd(-0.15, 0.2);
-        if (Math.random() < 0.82) shrub(sx, sz, rnd(0.45, 0.72), pick(SHRUB_KEYS), true);   // lite foundation shrub
+        if (treeRnd() < 0.82) shrub(sx, sz, rnd(0.45, 0.72), pick(SHRUB_KEYS), true);   // lite foundation shrub
         else grass(sx, sz, rnd(0.55, 0.8));
         hfDone++;
       }
       // a flowering accent shrub flanking one side of the door
-      var da = hf.doorX + (Math.random() < 0.5 ? 1 : -1) * (doorHalf + 0.5);
+      var da = hf.doorX + (treeRnd() < 0.5 ? 1 : -1) * (doorHalf + 0.5);
       if (Math.abs(da) <= halfW + 0.5) { shrub(cxF + hf.rgx * da, czF + hf.rgz * da, rnd(0.55, 0.8), 'bloom', true); hfDone++; }
     }
     landscapeStats.foundation = hfDone;
