@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.57.5';
+var GAME_VERSION = 'v1.58.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -5091,7 +5091,7 @@ var SP_SNAP = { stopsign: 'light', yieldsign: 'light', speedsign: 'light', onewa
 // base/pole collider handed to registerBreakable (deactivates while toppled).
 // Cones / barricades / shopping carts stay pass-through — steppable clutter.
 var SP_BLOCKR = { hydrant: 0.24, parkingmeter: 0.15, payphone: 0.3, stopsign: 0.14, yieldsign: 0.14, speedsign: 0.14, onewaysign: 0.14, newsbox: 0.24, trashcan: 0.36, wheeliebin: 0.35 };
-var SP_INTERACT = { vendingmachine: 'vend', payphone: 'phone', atm: 'atm', newsbox: 'news' };
+var SP_INTERACT = { vendingmachine: 'vend', payphone: 'phone', atm: 'atm', newsbox: 'news', dumpster: 'dumpster' };
 // authored front is -x; face = direction the front should point in the world
 var SP_FACE = { W: 0, E: Math.PI, N: -Math.PI / 2, S: Math.PI / 2 };
 
@@ -5855,6 +5855,7 @@ function streetPropPrompt() {
   if (p.kind === 'phone') return T < p.cd ? '' : '[E] USE PAYPHONE';
   if (p.kind === 'atm') return '[E] USE ATM';
   if (p.kind === 'news') return T < p.cd ? '' : '[E] NEWSPAPER BOX';
+  if (p.kind === 'dumpster') return T < p.cd ? '' : '[E] DUMPSTER DIVE';
   return '';
 }
 function streetPropInteract() {
@@ -5900,6 +5901,10 @@ function streetPropInteract() {
     setTimeout(function () { noiseBurst(0.06, 900, 0.3); beep(320, 0.05, 0.1, 'square'); }, 100);
     if (Math.random() < 1 / 6) { spawnCash(p.x + p.fx * 0.7, p.z + p.fz * 0.7, 5); sfx('cash'); popup('Someone left change!'); }
     else popup('Just old news.');
+  } else if (p.kind === 'dumpster') {
+    if (diveState) return true;
+    if (T < p.cd) { sfx('deny'); popup2('picked clean — try later'); return true; }
+    startDive(p);
   }
   return true;
 }
@@ -8039,6 +8044,141 @@ function seedLitter() {
     for (var k = 0; k < cnt; k++) {
       var id = (Math.random() < 0.12) ? vals[(Math.random() * vals.length) | 0] : junk[(Math.random() * junk.length) | 0];
       spawnItemDrop(id, spots[s].x + (Math.random() - 0.5) * 3.2, spots[s].z + (Math.random() - 0.5) * 3.2, 9999);
+    }
+  }
+}
+
+// ============================================================
+// DUMPSTER DIVING & SCAVENGING (v1.58) — all LOCAL-ONLY, like the
+// bag / litter / interiors. Nothing here touches the world snapshot:
+// each peer rolls its own loot, spawns its own rats/bums/flies.
+// ============================================================
+function pick(a) { return a[(Math.random() * a.length) | 0]; }
+// bag the item; if the bag is full the overflow drops as world pickups at
+// the player's feet (so a full bag never silently eats a jackpot).
+function giveItem(id, n, silent) {
+  n = n || 1;
+  if (!itemDef(id)) return 0;
+  var left = bagAdd(id, n), got = n - left;
+  for (var i = 0; i < left; i++) { var d = spawnItemDrop(id, player.x + (Math.random() - 0.5) * 1.7, player.z + (Math.random() - 0.5) * 1.7, 120); if (d) d.bagFull = true; }
+  if (!silent) itemToast(id, n);
+  return got;
+}
+// ---- dumpster loot table ----
+var DIVE_JUNK = ['tincan', 'glassbottle', 'newspaper', 'boot', 'bananapeel', 'cardboard'];
+var DIVE_QUIRK = ['rubberduck', 'cassette', 'vhs', 'actionfig', 'magic8', 'fish', 'brick', 'lottery'];
+var DIVE_FOOD = ['pizza', 'burger', 'hotdog', 'donut', 'banana', 'apple', 'chips', 'sandwich'];
+var DIVE_VAL = ['wallet', 'smartphone'];
+var DIVE_JACK = ['goldwatch', 'goldchain', 'cashwad', 'diamondring'];
+var DIVE_PUFF = [0x6b5a3a, 0x8a7a52, 0x9a9a88, 0x4a5a3a, 0xb0a070];
+// pure roll (also exported for headless distribution tests):
+//   45% junk (of which ~18% is a quirky novelty), 20% food, 12% valuable,
+//   3% jackpot, 20% nothing-but-flavor (a banana peel for the bag).
+function rollDive() {
+  var r = Math.random();
+  if (r < 0.45) return { cat: 'junk', id: Math.random() < 0.18 ? pick(DIVE_QUIRK) : pick(DIVE_JUNK) };
+  if (r < 0.65) return { cat: 'food', id: pick(DIVE_FOOD) };
+  if (r < 0.77) return { cat: 'valuable', id: pick(DIVE_VAL) };
+  if (r < 0.80) return { cat: 'jackpot', id: pick(DIVE_JACK) };
+  return { cat: 'nothing', id: 'bananapeel' };
+}
+// procedural rummage clatter (no assets): a soft thud + two filtered noise
+// rustles + a tinny can plink
+function dumpsterRustle(x, z) {
+  var at = { x: x, z: z, range: 30 };
+  sfx('thud', at);
+  noiseBurst(0.12, 850, 0.2);
+  setTimeout(function () { noiseBurst(0.1, 1500, 0.14); beep(170 + Math.random() * 90, 0.05, 0.08, 'square', 90); }, 150);
+}
+var diveState = null;   // {p, t0, dur, emT} while rummaging
+function startDive(p) {
+  diveState = { p: p, t0: T, dur: 2.0, emT: 0 };
+  popup('rummaging…');
+  dumpsterRustle(p.x, p.z);
+}
+// resolve loot + surprises at the end of the ~2s rummage
+function resolveDive(p) {
+  var res = rollDive(), def = itemDef(res.id);
+  giveItem(res.id, 1, true);
+  if (res.cat === 'food') toast(itemIconHtml(res.id) + ' A half-eaten <b>' + def.name + '</b> — still warm? Into the bag it goes.', 3000);
+  else if (res.cat === 'jackpot') { sfx('cash'); toast(itemIconHtml(res.id) + ' JACKPOT! Someone threw out a <b>' + def.name + '</b>?!', 3600); }
+  else if (res.cat === 'valuable') { sfx('cash'); toast(itemIconHtml(res.id) + ' Score — a perfectly good <b>' + def.name + '</b>!', 3000); }
+  else if (res.cat === 'nothing') toast('🍌 Just a banana peel… waste not.', 2600);
+  else itemToast(res.id);
+  var s = Math.random();
+  if (s < 0.07) spawnDumpsterRat(p);          // startled rat (jump-scare, no damage)
+  else if (s < 0.11) spawnDumpsterBum(p);     // grumpy sleeper shoves you off
+  p.cd = T + 90;                              // per-dumpster cooldown
+  return res;
+}
+// ---- critters (rat scurry / bird flutter billboards) ----
+var critters = [], critTex = {};
+function critterTex(kind) {
+  if (critTex[kind]) return critTex[kind];
+  var c = document.createElement('canvas'); c.width = c.height = 32; var g = c.getContext('2d');
+  if (kind === 'rat') {
+    g.fillStyle = '#3a3330'; g.beginPath(); g.ellipse(15, 20, 10, 6, 0, 0, 7); g.fill();          // body
+    g.beginPath(); g.ellipse(24, 17, 4, 3.5, 0, 0, 7); g.fill();                                    // head
+    g.strokeStyle = '#3a3330'; g.lineWidth = 1.6; g.beginPath(); g.moveTo(6, 21); g.quadraticCurveTo(0, 26, 3, 30); g.stroke();  // tail
+    g.fillStyle = '#d5b8b0'; g.beginPath(); g.arc(23, 12, 2.4, 0, 7); g.fill();                     // ear
+    g.fillStyle = '#000'; g.beginPath(); g.arc(27, 16, 1, 0, 7); g.fill();                          // eye
+  } else {
+    g.fillStyle = '#4a4640'; g.beginPath(); g.ellipse(16, 18, 6, 4, 0, 0, 7); g.fill();             // body
+    g.beginPath(); g.moveTo(16, 15); g.lineTo(4, 8); g.lineTo(14, 18); g.fill();                     // wing L
+    g.beginPath(); g.moveTo(16, 15); g.lineTo(28, 8); g.lineTo(18, 18); g.fill();                     // wing R
+  }
+  var t = new THREE.CanvasTexture(c); t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
+  critTex[kind] = t; return t;
+}
+function spawnCritter(x, z, kind, awayFrom) {
+  var sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: critterTex(kind), transparent: true, depthWrite: false }));
+  var sc = kind === 'rat' ? 0.62 : 0.5; sp.scale.set(sc, sc * 0.72, sc);
+  var ax = Math.atan2(z - (awayFrom ? awayFrom.z : player.z), x - (awayFrom ? awayFrom.x : player.x)) + (Math.random() - 0.5) * 1.3;
+  var spd = kind === 'rat' ? 6.5 : 3.2;
+  sp.position.set(x, kind === 'rat' ? 0.3 : 1.4, z); scene.add(sp);
+  critters.push({ mesh: sp, vx: Math.cos(ax) * spd, vz: Math.sin(ax) * spd, vy: kind === 'bird' ? 3.4 : 0, life: kind === 'rat' ? 1.4 : 1.7, kind: kind });
+}
+function spawnDumpsterRat(p) {
+  spawnCritter(p.x, p.z, 'rat', p);
+  beep(1500, 0.05, 0.2, 'square', 900); setTimeout(function () { beep(1150, 0.05, 0.13, 'square', 1700); }, 55);  // shriek
+  recoilPitch += 0.18;   // startle flinch
+  popup2('EEK! a rat!');
+}
+function spawnDumpsterBum(p) {
+  if (typeof WC_BOT !== 'undefined' && WC_BOT) return;
+  var n = (typeof spawnNPC === 'function') ? spawnNPC() : null;
+  if (n) {
+    n.x = p.x + p.fx * 0.6; n.z = p.z + p.fz * 0.6;
+    n.mesh.position.set(n.x, 0, n.z); n.mesh.updateMatrixWorld(true);
+    n.state = 'walk'; if (typeof setNpcTarget === 'function') setNpcTarget(n);
+  }
+  var dx = player.x - p.x, dz = player.z - p.z, d = Math.sqrt(dx * dx + dz * dz) || 1;
+  player.x += dx / d * 1.6; player.z += dz / d * 1.6;   // one shove
+  recoilPitch += 0.3;
+  toast('🧟 A grumpy man erupts from the trash: <b>"HEY! I\'m SLEEPING here!"</b>', 3400);
+  sfx('grunt', { x: p.x, z: p.z, range: 32 });
+}
+// ---- dumpster flies (cooldown "readiness" tell) + critter motion ----
+var flyGeo = new THREE.SphereGeometry(0.05, 4, 3), flyMat = new THREE.MeshBasicMaterial({ color: 0x1a1712 });
+function updateScavengeFx(dt) {
+  var i, c;
+  for (i = critters.length - 1; i >= 0; i--) {
+    c = critters[i]; c.life -= dt;
+    c.mesh.position.x += c.vx * dt; c.mesh.position.z += c.vz * dt;
+    if (c.kind === 'bird') { c.mesh.position.y += c.vy * dt; c.vy = Math.max(0.8, c.vy - 2.5 * dt); }
+    else { c.vx *= (1 - dt * 1.6); c.vz *= (1 - dt * 1.6); }   // rat decelerates as it hides
+    c.mesh.material.opacity = Math.max(0, Math.min(1, c.life * 1.6));
+    if (c.life <= 0) { scene.remove(c.mesh); c.mesh.material.dispose(); critters.splice(i, 1); }
+  }
+  var sp = streetPropInteractables;
+  for (i = 0; i < sp.length; i++) {
+    var p = sp[i]; if (p.kind !== 'dumpster') continue;
+    var dxp = p.x - player.x, dzp = p.z - player.z, near = dxp * dxp + dzp * dzp < 1600;   // within 40u
+    if (!p.flies) { if (!near) continue; p.flies = []; for (var k = 0; k < 3; k++) { var m = new THREE.Mesh(flyGeo, flyMat); m.visible = false; scene.add(m); p.flies.push(m); } }
+    var ready = T >= p.cd;
+    for (var k2 = 0; k2 < p.flies.length; k2++) {
+      var fm = p.flies[k2]; fm.visible = ready && near;
+      if (fm.visible) { var a = T * 6 + k2 * 2.1; fm.position.set(p.x + Math.cos(a) * 0.55, 1.75 + Math.sin(a * 1.7) * 0.22, p.z + Math.sin(a) * 0.55); }
     }
   }
 }
@@ -10435,6 +10575,7 @@ function updateWorldFx(dt) {
     fd.vy -= 9.5 * dt;
     fp.x += fd.vx * dt; fp.y += fd.vy * dt; fp.z += fd.vz * dt;
   }
+  updateScavengeFx(dt);   // dumpster flies (cooldown tell) + rat/bird critter motion
   // head under the surface → blue filter + underwater loop
   setUnderwater(state.running && !inside && !driving && !state.dead && player.y < WATER_Y - 0.05);
 }
@@ -12142,6 +12283,26 @@ function updatePlayer(dt) {
   var f = 0, s = 0;
   if (keys['KeyW']) f += 1; if (keys['KeyS']) f -= 1; if (keys['KeyD']) s += 1; if (keys['KeyA']) s -= 1;
   if (state.sitting) { if (f || s || keys['Space']) state.sitting = false; else { f = 0; s = 0; } }   // env sit: stand on any move input
+  // dumpster dive: rummage locks movement, dips the camera into the bin, spits
+  // trash puffs; resolves loot after ~2s. (any move input aborts it early)
+  var diveDip = 0, divePitch = 0;
+  if (diveState) {
+    if (f || s || keys['Space']) { diveState = null; }
+    else {
+      f = 0; s = 0;
+      var del = T - diveState.t0, prog = Math.min(1, del / diveState.dur);
+      var de = prog < 0.3 ? prog / 0.3 : (prog > 0.75 ? Math.max(0, (1 - prog) / 0.25) : 1);
+      diveDip = -0.8 * de; divePitch = -0.6 * de;
+      diveState.emT -= dt;
+      if (diveState.emT <= 0) {
+        diveState.emT = 0.17;
+        var dp = diveState.p;
+        puff(new THREE.Vector3(dp.x + (Math.random() - 0.5) * 1.2, 1.15 + Math.random() * 0.6, dp.z + (Math.random() - 0.5) * 1.2), DIVE_PUFF[(Math.random() * DIVE_PUFF.length) | 0]);
+        if (Math.random() < 0.5) dumpsterRustle(dp.x, dp.z);
+      }
+      if (prog >= 1) { resolveDive(diveState.p); diveState = null; }
+    }
+  }
   var spd = keys['ShiftLeft'] || keys['ShiftRight'] ? 8.4 : 5.2;
   if (f || s) { var inv = spd / Math.sqrt(f * f + s * s); var fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw); player.x += (fx * f + rx * s) * inv * dt; player.z += (fz * f + rz * s) * inv * dt; }
   if (keys['Space'] && player.grounded) { player.vy = 5.6; player.grounded = false; }
@@ -12186,9 +12347,10 @@ function updatePlayer(dt) {
   if (mouseDown && !WEAPONS[state.equipped].melee && WEAPONS[state.equipped].auto) tryAttack();
   if (state.hp < 100 && T - state.lastHurt > 5) state.hp = Math.min(100, state.hp + 5 * dt);
   recoilPitch += -recoilPitch * Math.min(1, dt * 5);   // recoil recovers back to the aim over ~0.4s (was: pitch climbed and stuck)
-  camera.position.set(player.x, player.y, player.z); camera.rotation.y = yaw; camera.rotation.x = Math.max(-1.45, Math.min(1.45, pitch + recoilPitch));
+  camera.position.set(player.x, player.y, player.z); camera.rotation.y = yaw; camera.rotation.x = Math.max(-1.45, Math.min(1.45, pitch + recoilPitch + divePitch));
   var moving = (f || s) && player.grounded; var bob = moving ? Math.sin(T * (spd > 6 ? 13 : 9)) * 0.035 : 0; camera.position.y += bob;
   if (state.sitting) camera.position.y -= 0.55;   // seated eye height
+  camera.position.y += diveDip;                    // dumpster-dive head dip
   recoil = Math.max(0, recoil - dt * 8); vm.position.z = recoil * 0.07; vm.position.y = bob * 0.5; vm.rotation.x = recoil * 0.06;
   gunBloom = Math.max(0, gunBloom - dt * 0.06);   // spread recovers ~0.7s after easing off
   // weapon draw + rocket reload animations (procedural, PS1-cheap)
@@ -12501,6 +12663,11 @@ window.__wc = {
   densityInfo: function () { return densityStats; },
   forestFillPts: expFillPts,
   streetProps: streetPropInteractables, streetPropInteract: streetPropInteract, getStreetProp: getStreetProp, hydrantJets: hydrantJets,
+  // dumpster diving / scavenging test hooks (all local-only)
+  dumpsters: function () { var o = []; for (var i = 0; i < streetPropInteractables.length; i++) if (streetPropInteractables[i].kind === 'dumpster') o.push(streetPropInteractables[i]); return o; },
+  rollDive: rollDive, startDive: startDive, giveItem: giveItem, critters: function () { return critters; },
+  diveActive: function () { return !!diveState; }, resolveDive: resolveDive,
+  spawnDumpsterRat: spawnDumpsterRat, spawnDumpsterBum: spawnDumpsterBum,
   envProps: envProps, envPropInteractables: envPropInteractables, envStats: envStats, getEnvProp: getEnvProp, envPropInteract: envPropInteract, envPropPrompt: envPropPrompt, envToys: envToys,
   solidMeshes: solidMeshes, nightEmis: nightEmis,
   houses: houseStats, houseBlocksSpot: houseBlocksSpot, houseMeshesRef: houseMeshesRef,
