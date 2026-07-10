@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.65.5';
+var GAME_VERSION = 'v1.65.6';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -1157,7 +1157,7 @@ var frondGeo = (function () {
 })();
 function palm(x, z) {
   // v1.65.5 prop-placement fix: same building-clearance guard as oak().
-  if (typeof WC_REMAP !== 'undefined' && WC_REMAP && typeof remapInClear === 'function' && remapInClear(x, z, 3.0)) return;
+  if (typeof WC_REMAP !== 'undefined' && WC_REMAP && typeof remapInClear === 'function' && remapInClear(x, z, 3.5)) return;
   var g = new THREE.Group(); var h = 5.5 + Math.random() * 2.5;
   g.add(cyl(0.17, 0.26, h, 7, lamb2(barkT2), 0, h / 2, 0));
   var crown = new THREE.Group(); crown.position.y = h;

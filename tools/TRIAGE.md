@@ -11,11 +11,11 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mredmh10b (nameplates in SP)         — FIXED@v1.64.1
 
 ## Round 2 — IN-AGENT (placement rules)
-- mredltkw (arcade mid-sidewalk + odd pedestal box) — IN-AGENT
-- mredo5nx (gumball cluster)                        — IN-AGENT
-- mrednis0 (cars through Publix lot wall)           — IN-AGENT
-- mredpkae (tree in building)                       — IN-AGENT
-- mredq7g0 (striped boards clip column)             — IN-AGENT
+- mredltkw (arcade mid-sidewalk) — FIXED@v1.65.6 (it was the quest-6 portal; moved flush to the townhouse wall)
+- mredo5nx (gumball cluster) — FIXED@v1.65.6 (shared clutter-spacing registry across density+env storefront passes)
+- mrednis0 (cars through lot wall) — FIXED@v1.65.6 (wall moved to pedestrian frontage, split around the entrance)
+- mredpkae (tree in building) — FIXED@v1.65.6 (canopy-margin building clearance in oak()/palm())
+- mredq7g0 (boards clip column) — FIXED@v1.65.6 (BACK_CLUTTER placed with clearance+spacing+retries)
 
 ## Round 2 — IN-AGENT (animation)
 - mredkjhs (splayed walk stride)     — IN-AGENT
