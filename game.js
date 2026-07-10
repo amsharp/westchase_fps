@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.0';
+var GAME_VERSION = 'v1.66.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -6993,26 +6993,53 @@ if (WC_REMAP) (function densityLayer() {
   var KEY = {};
   ['billboard_ad', 'storefront_sign', 'grand_opening_banner', 'flyer_sheet', 'for_sale_sign', 'menu_board', 'bus_route_sign', 'graffiti_panel', 'wall_mural', 'roadwork_sign', 'stop_sign', 'gas_price_sign', 'yard_sign', 'lost_pet_flyer', 'neon_bar_sign', 'parking_sign', 'speed_limit_sign', 'garage_sale_sign'].forEach(function (n) { KEY[n] = 40; });
   ['grass_tuft', 'leaves_scatter', 'litter_scatter', 'crosswalk', 'center_line', 'road_arrow', 'skid_marks', 'chainlink_fence', 'potted_plant'].forEach(function (n) { KEY[n] = 46; });
+  // Ground stain/crack/fixture decals are authored on a full asphalt/concrete
+  // tile: rendered as an opaque quad they show a hard rectangular "box/shadow
+  // patch" (bug reports mree7hy2/mree84pq/mree8hw2). BLEND-key them: the tile's
+  // dominant border (surface) colour fades to transparent so only the mark
+  // shows, plus a soft edge vignette so the quad boundary never reads as a box.
+  var GKEY = {};
+  ['oil_stain', 'asphalt_cracks', 'asphalt_patch', 'cracked_slab', 'sidewalk_gum', 'manhole', 'storm_drain', 'utility_plate', 'mud_patch', 'puddle'].forEach(function (n) { GKEY[n] = 1; });
   var dTexCache = {};
   function dTex(name) {
     if (dTexCache[name] !== undefined) return dTexCache[name];
     var a = dAsset[name]; if (!a) return (dTexCache[name] = null);
-    var keyed = KEY[name], cnv = document.createElement('canvas'); cnv.width = cnv.height = 256;
+    var keyed = KEY[name], blend = GKEY[name], cnv = document.createElement('canvas'); cnv.width = cnv.height = 256;
     var tx = new THREE.CanvasTexture(cnv);
     tx.wrapS = tx.wrapT = THREE.RepeatWrapping;
     tx.magFilter = THREE.LinearFilter; tx.minFilter = THREE.LinearMipmapLinearFilter;
     var im = new Image();
-    im.onload = (function (tx, cnv, keyed, im) { return function () {
+    im.onload = (function (tx, cnv, keyed, blend, im) { return function () {
       var g = cnv.getContext('2d'); g.drawImage(im, 0, 0, 256, 256);
       if (keyed) {
         var d = g.getImageData(0, 0, 256, 256), p = d.data;
         for (var k = 0; k < p.length; k += 4) { if (p[k] * 0.299 + p[k + 1] * 0.587 + p[k + 2] * 0.114 < keyed) p[k + 3] = 0; }
         g.putImageData(d, 0, 0);
+      } else if (blend) {
+        var d2 = g.getImageData(0, 0, 256, 256), q = d2.data, x, y, o, br = 0, bgc = 0, bb = 0, bn = 0;
+        // background colour = average of the outer 4px border ring (the tile's surface)
+        for (y = 0; y < 256; y++) for (x = 0; x < 256; x++) {
+          if (x > 3 && x < 252 && y > 3 && y < 252) continue;
+          o = (y * 256 + x) * 4; br += q[o]; bgc += q[o + 1]; bb += q[o + 2]; bn++;
+        }
+        br /= bn; bgc /= bn; bb /= bn;
+        for (y = 0; y < 256; y++) for (x = 0; x < 256; x++) {
+          o = (y * 256 + x) * 4;
+          var dr = q[o] - br, dg = q[o + 1] - bgc, db = q[o + 2] - bb;
+          var dist = Math.sqrt(dr * dr + dg * dg + db * db);
+          // surface (dist<18) barely visible, mark (dist>55) fully opaque
+          var al = dist < 18 ? 0.10 : (dist > 55 ? 1 : 0.10 + (dist - 18) / 37 * 0.90);
+          // soft edge vignette over the outer ~28px so the quad never reads as a box
+          var em = Math.min(Math.min(x, 255 - x), Math.min(y, 255 - y)) / 28;
+          if (em < 1) al *= em;
+          q[o + 3] = Math.round(al * 255);
+        }
+        g.putImageData(d2, 0, 0);
       }
       tx.needsUpdate = true;
-    }; })(tx, cnv, keyed, im);
+    }; })(tx, cnv, keyed, blend, im);
     im.src = a.tex;
-    return (dTexCache[name] = { tex: tx, keyed: !!keyed });
+    return (dTexCache[name] = { tex: tx, keyed: !!keyed, blend: !!blend });
   }
   // ---- merged batches: one draw call per key ----
   var BATCH = {}, _NM = new THREE.Matrix3(), _V = new THREE.Vector3(), _N = new THREE.Vector3();
@@ -7038,7 +7065,7 @@ if (WC_REMAP) (function densityLayer() {
       g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(e.norm), 3));
       g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(e.uv), 2));
       var o = e.meta, mo = {};
-      if (o.texName) { var t = dTex(o.texName); if (t) { mo.map = t.tex; if (t.keyed) { mo.transparent = true; mo.alphaTest = 0.5; mo.side = THREE.DoubleSide; } } }
+      if (o.texName) { var t = dTex(o.texName); if (t) { mo.map = t.tex; if (t.keyed) { mo.transparent = true; mo.alphaTest = 0.5; mo.side = THREE.DoubleSide; } else if (t.blend) { mo.transparent = true; mo.depthWrite = false; mo.alphaTest = 0.02; } } }
       if (o.color !== undefined) mo.color = o.color;
       if (o.double) mo.side = THREE.DoubleSide;
       var mat = lamb(mo);

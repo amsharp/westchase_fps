@@ -32,9 +32,9 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mree93m6 (-475,353) kid-merge during game — FIXED@v1.65.4 (same) — round3-collision: SKIP, already shipped
 
 ## Round 4 — IN-AGENT (round4-render)
-- mree7hy2 (-370,346) ground decal alpha broken — IN-AGENT (round4-render)
-- mree84pq (-465,416) pavement-crack decal alpha broken — IN-AGENT (round4-render)
-- mree8hw2 (-511,421) square shadow patches — IN-AGENT (round4-render)
+- mree7hy2 (-370,346) ground decal alpha broken — FIXED@v1.66.1 (ground stain/crack/fixture decals were opaque quads; added bg-colour blend-key + edge vignette in dTex/GKEY, transparent+depthWrite:false)
+- mree84pq (-465,416) pavement-crack decal alpha broken — FIXED@v1.66.1 (same root cause)
+- mree8hw2 (-511,421) square shadow patches — FIXED@v1.66.1 (same — asphalt/mud_patch hard rectangle now blends); ALSO covers Batch4 mreewls4 (-467,332) dark square under trees
 - mree2yur (11,127)   porto-potty black mesh artifacts — IN-AGENT (round4-render)
 - mree3tg7 (-70,133)  two props glowing oddly — IN-AGENT (round4-render)
 - mree59kf (-108,158) hair has transparent chunks — IN-AGENT (round4-render)
@@ -95,7 +95,7 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mref1z9y (298,80)   invis wall — R3 re-check post-OBB
 - mreez9lq (-148,-34) npcs walking into a light pole — R3 re-check post-whisker (thin-pole probe gap?)
 - mreeuu2g (-136,230) unclear props — R5
-- mreewls4 (-467,332) dark square under trees — R4 (same class as mree8hw2)
+- mreewls4 (-467,332) dark square under trees — FIXED@v1.66.1 (round4-render; same ground-decal blend-key fix as mree8hw2)
 - mreexjvh (-178,170) road/tile seam bad — R5 roads
 - mreexz4c (-163,120) road area bad — R5 roads
 - mreeyfs8 (-167,56)  fountain droplets -> sprite VFX — R5 VFX (with mreed9ar smoke/fire)
