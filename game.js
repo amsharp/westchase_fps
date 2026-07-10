@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.42';
+var GAME_VERSION = 'v1.66.43';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -17363,6 +17363,13 @@ function updatePlayer(dt) {
     stepPhase += dt * (runStep ? 3.5 : 2.5);
     if (stepPhase >= 1) { stepPhase -= 1; footStep(footSurface(player.x, player.z), runStep); }
   } else { stepPhase = 0.72; }   // primed so the first stride sounds promptly
+  // ---- sprint FOV (#47): ease the view a few degrees wider while running,
+  // ease back on stop. Relative to the settings baseFov; never while scoped. ----
+  if (!zoomed) {
+    var sprintFov = (keys['ShiftLeft'] || keys['ShiftRight']) && moving ? baseFov + 7 : baseFov;
+    if (Math.abs(camera.fov - sprintFov) > 0.03) { camera.fov += (sprintFov - camera.fov) * Math.min(1, dt * 8); camera.updateProjectionMatrix(); }
+    else if (camera.fov !== sprintFov) { camera.fov = sprintFov; camera.updateProjectionMatrix(); }
+  }
   if (state.sitting) camera.position.y -= 0.55;   // seated eye height
   camera.position.y += diveDip;                    // dumpster-dive head dip
   recoil = Math.max(0, recoil - dt * 8); vm.position.z = recoil * 0.07; vm.position.y = bob * 0.5; vm.rotation.x = recoil * 0.06;

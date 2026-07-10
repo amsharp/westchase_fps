@@ -665,7 +665,8 @@ to tune the game to your taste. Everything applies live and saves automatically
 (stored in your browser), so it's the way you left it next time:
 
 - **Mouse sensitivity** and **Invert Look Y** — dial in your aim.
-- **Field of view** — 70–100°, wider if you like more on screen.
+- **Field of view** — 70–100°, wider if you like more on screen. Sprinting
+  eases the view a few degrees wider for a sense of speed, then settles back.
 - **Master / SFX / Voice volume** — three sliders. Master scales everything;
   SFX covers world and UI sounds; Voice controls the characters' dialogue.
 - **Draw distance** — Low / Medium / High. Higher pushes the fog back for a
