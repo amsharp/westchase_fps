@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.7';
+var GAME_VERSION = 'v1.66.8';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -949,6 +949,12 @@ function bankBldg(x, z, name) {
   signPlane(x, h - 0.6, fz + 0.14, 0, 16, 1.4, [name], '#123a6a', '#ffe9a0');
 }
 
+var thDoorM = lamb({ color: 0x5a3a22 });
+var thStuccoCache = {};
+function thStuccoMat(col) {
+  if (thStuccoCache[col]) return thStuccoCache[col];
+  return thStuccoCache[col] = nightLit(lamb({ map: tex(64, function (g, s) { stucco(g, s, col); }) }));
+}
 function townhouseRow(x, z, units, ry) {
   ry = ry || 0;
   var g = new THREE.Group();
@@ -961,7 +967,15 @@ function townhouseRow(x, z, units, ry) {
     b.position.set(ux, 3.6, 0); g.add(b);
     var rt = roofTileT.clone(); rt.repeat.set(2, 2); rt.needsUpdate = true;
     var roof = new THREE.Mesh(hipGeo, lamb2(rt)); roof.scale.set(uw + 0.3, 2, 10.5); roof.position.set(ux, 8.1, 0); g.add(roof);
-    g.add(box(uw * 0.55, 2, 0.15, lamb({ map: garageT }), ux, 1.1, 5.05));
+    // ground floor = garage bay + entry door (NOT painted windows). The shared
+    // facade tex paints a window grid on all four walls, so on the FRONT the old
+    // narrow garage sat with window-halves poking out beside/above it ("garage
+    // between windows", mreemd0e). Cover the front ground floor with plain stucco
+    // and compose a proper garage + door on it; upper-floor windows stay.
+    g.add(box(uw - 0.2, 3.5, 0.06, thStuccoMat(col), ux, 1.75, 5.06));                       // plain ground-floor front
+    g.add(box(uw * 0.5, 2.5, 0.16, lamb({ map: garageT }), ux - uw * 0.17, 1.3, 5.17));      // 2-car garage, left
+    g.add(box(1.5, 2.7, 0.06, thStuccoMat(col), ux + uw * 0.3, 1.4, 5.12));                   // entry surround, right
+    g.add(box(1.05, 2.2, 0.1, thDoorM, ux + uw * 0.3, 1.15, 5.2));                            // entry door slab
   }
   g.position.set(x, 0.1, z); g.rotation.y = ry;
   scene.add(g);
