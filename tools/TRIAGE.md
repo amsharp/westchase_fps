@@ -63,8 +63,8 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 
 ## Round 5 — IN-AGENT (round5-vegetation) — trees/palms/bushes/sidewalk-greenery/flies/pizza-sign + task#51 landscaping
 - mreelboe (-70,-115) big green blob shrub — FIXED@v1.66.22 (landscape shrub() was a single flattened icosahedron dome = featureless blob; now a bushy mound of 3-5 overlapping size/rotation-jittered blobs, lead blob lower+wider with lifted satellites. Applies town-wide to every landscape shrub)
-- mredw3ho (237,-175) palm canopy too sparse; want variants — IN-AGENT (round5-vegetation)
-- mree6ten (-276,261) crepe myrtle looks unnatural — IN-AGENT (round5-vegetation)
+- mredw3ho (237,-175) palm canopy too sparse; want variants — FIXED@v1.66.23 (palm crown was 8 thin flat fronds as 8 separate meshes; now a DENSER 3-tier crown — up/mid/drooping fronds, 11-16 per palm — baked into ONE merged geo per variant = 1 draw call each (~660 fewer draws town-wide). 4 variants: standard / tall-full / young-short / leaning, per-palm height + trunk lean. Also covers mrefts2d "ugly palms")
+- mree6ten (-276,261) crepe myrtle looks unnatural — FIXED@v1.66.23 (was a single ball/card on one stick; now a multi-stem VASE — 3-4 slender leaning trunks fanning from the base + a rounded mound of overlapping pink/white bloom + green leaf blobs)
 - mredt4y2 (151,-143) sidewalk trees need pavement cutouts — IN-AGENT (round5-vegetation)
 - mredxgss (180,-125) bushes on sidewalk (skinnier-sidewalk part logged larger) — IN-AGENT (round5-vegetation)
 - mredznws (98,12) flies smaller + 2-3x count — FIXED@v1.66.22 (dumpster fly sprite radius 0.05->0.024, swarm 3->9 with per-fly orbit radius/height/speed/phase so it reads as a buzzing cloud, not a 3-dot ring)

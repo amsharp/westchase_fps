@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.22';
+var GAME_VERSION = 'v1.66.23';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -1195,15 +1195,67 @@ var frondGeo = (function () {
   for (i = 0; i < pos.count; i++) { var x2 = pos.getX(i), t2 = x2 / 3.2; pos.setY(i, pos.getY(i) - 1.35 * t2 * t2); }
   g.computeVertexNormals(); return g;
 })();
+// A palm canopy used to be 8 flat fronds (thin, sparse — report mredw3ho/
+// mrefts2d). Bake a DENSER 3-tier crown (up / mid / drooping fronds) into ONE
+// merged BufferGeometry per variant, so every palm draws its whole canopy in a
+// single call (fewer draws than the old 8 frond-meshes) while reading full.
+function bakePalmCrown(specs) {
+  var fg = frondGeo, pos = fg.attributes.position, uv = fg.attributes.uv, nm = fg.attributes.normal, idx = fg.index;
+  var cnt = idx ? idx.count : pos.count;
+  var P = [], U = [], N = [], m = new THREE.Matrix4(), v = new THREE.Vector3(), nn = new THREE.Vector3(), nmat = new THREE.Matrix3();
+  for (var f = 0; f < specs.length; f++) {
+    var ry = specs[f][0], rzA = specs[f][1], s = specs[f][2];
+    m.makeRotationFromEuler(new THREE.Euler(0, ry, rzA));   // match mesh.rotation.set(0,ry,rzA)
+    m.multiply(new THREE.Matrix4().makeScale(s, s, s));
+    nmat.getNormalMatrix(m);
+    for (var i = 0; i < cnt; i++) {
+      var vi = idx ? idx.getX(i) : i;
+      v.set(pos.getX(vi), pos.getY(vi), pos.getZ(vi)).applyMatrix4(m); P.push(v.x, v.y, v.z);
+      nn.set(nm.getX(vi), nm.getY(vi), nm.getZ(vi)).applyMatrix3(nmat).normalize(); N.push(nn.x, nn.y, nn.z);
+      U.push(uv.getX(vi), uv.getY(vi));
+    }
+  }
+  var g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(P), 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(U), 2));
+  g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(N), 3));
+  return g;
+}
+function makePalmCrown(counts, scl, droop) {
+  // counts = [nUp, nMid, nDroop]; three interleaved rings of fronds
+  var specs = [], tiers = [[0.2, 0.82], [-0.1, 1.0], [-droop, 1.07]];
+  for (var t = 0; t < 3; t++) {
+    for (var i = 0; i < counts[t]; i++) {
+      var ry = i / counts[t] * Math.PI * 2 + t * 0.55 + (Math.random() - 0.5) * 0.25;
+      specs.push([ry, tiers[t][0] + (Math.random() - 0.5) * 0.1, scl * tiers[t][1] * (0.93 + Math.random() * 0.14)]);
+    }
+  }
+  return bakePalmCrown(specs);
+}
+var PALM_CROWNS = [
+  makePalmCrown([5, 4, 4], 1.0, 0.5),    // standard, 13 fronds
+  makePalmCrown([6, 5, 5], 1.12, 0.55),  // tall/full, 16 fronds
+  makePalmCrown([4, 3, 4], 0.88, 0.42),  // young/short, 11 fronds
+  makePalmCrown([5, 5, 4], 1.05, 0.6)    // leaning, 14 fronds, deeper droop
+];
+var PALM_VARIANTS = [
+  { c: 0, hMin: 5.0, hMax: 6.5, lean: 0 },
+  { c: 1, hMin: 6.5, hMax: 8.6, lean: 0.045 },
+  { c: 2, hMin: 4.2, hMax: 5.5, lean: 0 },
+  { c: 3, hMin: 5.4, hMax: 7.4, lean: 0.13 }
+];
 function palm(x, z) {
   // v1.65.5 prop-placement fix: same building-clearance guard as oak().
   if (typeof WC_REMAP !== 'undefined' && WC_REMAP && typeof remapInClear === 'function' && remapInClear(x, z, 3.5)) return;
-  var g = new THREE.Group(); var h = 5.5 + Math.random() * 2.5;
+  var pv = PALM_VARIANTS[(Math.random() * PALM_VARIANTS.length) | 0];
+  var g = new THREE.Group(); var h = pv.hMin + Math.random() * (pv.hMax - pv.hMin);
   g.add(cyl(0.17, 0.26, h, 7, lamb2(barkT2), 0, h / 2, 0));
-  var crown = new THREE.Group(); crown.position.y = h;
-  for (var i = 0; i < 8; i++) { var f = new THREE.Mesh(frondGeo, frondMat); f.rotation.y = i / 8 * Math.PI * 2 + Math.random() * 0.4; f.rotation.z = (Math.random() - 0.5) * 0.2; crown.add(f); }
-  g.add(crown); g.add(blobShadow(1.1, 1.1, 0.05));
-  g.position.set(x, 0, z); g.rotation.y = Math.random() * Math.PI; scene.add(g);
+  var crownMesh = new THREE.Mesh(PALM_CROWNS[pv.c], frondMat);
+  crownMesh.position.y = h; crownMesh.rotation.y = Math.random() * Math.PI * 2;
+  g.add(crownMesh); g.add(blobShadow(1.1, 1.1, 0.05));
+  g.position.set(x, 0, z); g.rotation.y = Math.random() * Math.PI;
+  if (pv.lean) g.rotation.z = (Math.random() < 0.5 ? 1 : -1) * pv.lean * (0.7 + Math.random() * 0.5);   // some palms lean
+  scene.add(g);
   registerBreakable(g, x, z, 0.8, 'tree', null, 0.3);
 }
 
@@ -3590,23 +3642,33 @@ function bush(x, z, scale) {
   registerBreakable(g, x, z, 0.6, 'tree');
 }
 var thinTrunkM = lamb({ color: 0x7a5a3a });
+var crepeBloomMats = [lamb({ color: 0xd76a9e }), lamb({ color: 0xe08ab4 }), lamb({ color: 0xc85a86 }), lamb({ color: 0xf1efe4 })];  // pink/white crepe-myrtle blossom
+// A crepe myrtle is not a single ball on a stick (report mree6ten: "unnatural")
+// — it's a multi-stem VASE: several slender trunks fanning from the base into a
+// rounded, blossoming crown. Build 3-4 leaning trunks + a mound of overlapping
+// bloom/leaf blobs so the silhouette reads as the real ornamental.
 function crepeMyrtle(x, z) {
-  var g = new THREE.Group(); var h = 3 + Math.random() * 1.6;
-  g.add(cyl(0.11, 0.16, h, 6, thinTrunkM, 0, h / 2, 0));
-  var bn = Math.random() < 0.5 ? 'bush1' : 'bush2';
-  var pb = Math.random() < 0.4 ? getPackPropPink(bn) : getPackProp(bn);
-  if (pb) {
-    var cm = new THREE.Mesh(pb.geo, pb.mat);
-    var cs = 2.7 / pb.h;
-    cm.scale.set(cs, cs, cs);
-    cm.position.y = h - 1.0;   // canopy card cluster caps the trunk
-    cm.rotation.y = Math.random() * Math.PI * 2;
-    g.add(cm);
-  } else {
-    var lm = Math.random() < 0.4 ? lamb({ color: 0xd98fb0 }) : bushMats[(Math.random() * 3) | 0];
-    for (var i = 0; i < 4; i++) { var c = new THREE.Mesh(bushGeo, lm); var r = 0.8 + Math.random() * 0.5; c.scale.set(r, r * 0.9, r); c.position.set((Math.random() - 0.5) * 1.2, h + (Math.random() - 0.3), (Math.random() - 0.5) * 1.2); g.add(c); }
+  var g = new THREE.Group(); var h = 2.8 + Math.random() * 1.6;
+  var nt = 3 + (Math.random() * 2 | 0), baseA = Math.random() * 6.28;
+  for (var t = 0; t < nt; t++) {
+    var ta = baseA + t / nt * 6.28 + (Math.random() - 0.5) * 0.5, lean = 0.11 + Math.random() * 0.13;
+    var tg = new THREE.Group();
+    tg.add(cyl(0.045, 0.085, h, 5, thinTrunkM, 0, h / 2, 0));
+    tg.rotation.z = Math.cos(ta) * lean; tg.rotation.x = -Math.sin(ta) * lean;
+    g.add(tg);
   }
-  g.add(blobShadow(1, 1, 0.05)); g.position.set(x, 0, z); scene.add(g);
+  var pinkTree = Math.random() < 0.7, canY = h - 0.2, spread = 0.9 + Math.random() * 0.5;
+  var nb = 5 + (Math.random() * 3 | 0);
+  for (var i = 0; i < nb; i++) {
+    var lm = (pinkTree && Math.random() < 0.72) ? crepeBloomMats[(Math.random() * crepeBloomMats.length) | 0] : bushMats[(Math.random() * 3) | 0];
+    var c = new THREE.Mesh(bushGeo, lm);
+    var a2 = i / nb * 6.28, rad = i === 0 ? 0 : (0.45 + Math.random() * 0.7) * spread;
+    var rr = (i === 0 ? 0.95 : 0.6 + Math.random() * 0.45) * spread;
+    c.scale.set(rr, rr * 0.92, rr);
+    c.position.set(Math.cos(a2) * rad, canY + Math.cos(a2 * 1.3) * 0.35 + Math.random() * 0.5, Math.sin(a2) * rad);
+    g.add(c);
+  }
+  g.add(blobShadow(1.3, 1.3, 0.05)); g.position.set(x, 0, z); g.rotation.y = Math.random() * 6.28; scene.add(g);
   registerBreakable(g, x, z, 0.7, 'tree', null, 0.18);
 }
 
