@@ -5603,7 +5603,11 @@ var ACC_HAND = {
   coffee_cup:    { grip: [0.0, -0.06, 0.0], tilt: [0, 0, 0] },       // cup upright in the fist
   shopping_bags: { grip: [0.0, -0.36, 0.0], tilt: [0, 0, 0] },       // hangs from the handles
   skateboard:    { grip: [0.0, -0.18, 0.0], tilt: [0, 0, 1.45] },    // deck vertical, tucked under the arm
-  boombox:       { grip: [0.0, -0.12, 0.0], tilt: [0, 0, 0] },       // carried by the side handle
+  // boombox: fist on the TOP handle (geo is y 0..0.45, handle on top center —
+  // the old -0.12 left the hand at the box's bottom so it floated above the
+  // fist, bug mreg77qb), long axis fore-aft at the owner's side; the carrying
+  // arm is pinned straight down by poseCarryArm each frame.
+  boombox:       { grip: [0.0, -0.46, 0.0], tilt: [0, Math.PI / 2, 0] },
   balloon:       { grip: [0.0, 0.62, 0.0],  tilt: [0, 0, 0] }        // floats above the hand on a string
 };
 // pick an accessory name for a spawning NPC by rolling a category first, so dogs
