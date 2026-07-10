@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.58';
+var GAME_VERSION = 'v1.66.59';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -696,7 +696,8 @@ var horizonSkirt = (function () {
   var g = c.getContext('2d');
   var gr = g.createLinearGradient(0, 0, 0, 128);   // canvas top = skirt top (flipY)
   gr.addColorStop(0, 'rgba(255,255,255,0)');
-  gr.addColorStop(0.16, 'rgba(255,255,255,0.45)');
+  gr.addColorStop(0.08, 'rgba(255,255,255,0.04)');   // hold ~0 near the rim so the segmented top edge never shows
+  gr.addColorStop(0.2, 'rgba(255,255,255,0.5)');
   gr.addColorStop(0.32, 'rgba(255,255,255,1)');
   gr.addColorStop(1, 'rgba(255,255,255,1)');
   g.fillStyle = gr; g.fillRect(0, 0, 8, 128);
@@ -706,7 +707,7 @@ var horizonSkirt = (function () {
   // BELOW y~124: above that the 505 cylinder pokes outside the r=520 dome
   // (sqrt(520^2-505^2)) and the dome's low-poly triangles clip it into zigzag
   // wedges in the sky (seen in the first verification pass).
-  var geo = new THREE.CylinderGeometry(505, 505, 190, 24, 1, true);
+  var geo = new THREE.CylinderGeometry(505, 505, 190, 96, 1, true);   // 96 segs: a coarser rim sags between vertices and prints faint chevrons in the fade zone
   var m = new THREE.MeshBasicMaterial({ map: t, transparent: true, side: THREE.BackSide, fog: false, depthWrite: false });
   var mesh = new THREE.Mesh(geo, m);
   mesh.position.y = 5;
