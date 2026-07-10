@@ -196,13 +196,48 @@ pointing the way if it's far off).
 Objectives come in a few flavors — **talk** to someone, **reach** a spot,
 **find** an item, **search/interact** with a place, take out a **target**,
 **escort** someone, or beat a **timer**. Some quests send you into hidden
-places the town keeps quiet — a **cellar hatch** behind a building, for one.
-Finish a quest and you keep the **reward**: a new item in your bag and/or a
-lasting **capability** (the first one, the *Detective's Loupe*, helps you
-read a scene). Your progress is saved between sessions.
+places the town keeps quiet — a cellar hatch behind the Dunkin, a manhole in
+the road, a hollow oak, a storm drain, the top floor of the red house, and
+somewhere under the lake. Press **E** at a hatch to drop in, **E** again to
+climb out. Finish a quest and you keep the **reward**: a new item in your bag
+and/or a lasting **capability**. Your progress is saved between sessions.
 
-*(The full story campaign is being built out quest by quest; the framework
-and its first demo quest, "A Night to Dismember," are in now.)*
+### The Countryway Pact — 10 quests
+
+An old rumor at the Dunkin says people who get rich start seeing lights over
+the lake. They're right. Ten linked quests slowly uncover why — the secret
+HOA board that's run Westchase for two generations, and the thing they feed
+beneath the fountain. Each drops one tile of the story and grants a tool:
+
+1. **A Night to Dismember** *(Vivian, lakeside townhouse)* — a murder-mystery
+   dinner turns real. Name the killer. → **Detective's Loupe**.
+2. **Someone's Watching** *(Wendell, townhouse row)* — tail the "watchers,"
+   stake out the lake at night. He's not as crazy as he sounds. → **Police
+   Scanner** (rings the nearest patrol on your minimap while wanted).
+3. **Where the Red House Weeps** *(Agatha, the red house at night)* — climb
+   the 5-story house to the sealed Board Room. → **Spirit Lantern**.
+4. **The Countryway Job** *(Sal, Starbucks — needs a gun)* — a four-phase bank
+   heist on Regions. → **Lockpick Set** (skip car break-in timers) + the
+   **Etched Lake Key**.
+5. **Roadside Assistance** *(the worried spouse, RaceTrac)* — bust the Siren's
+   roadside-lure crew from their manhole stash. → **Bait Car keys** (instant
+   hotwire).
+6. **Insert Coin to Continue** *(Xander, the arcade)* — dive into a cursed
+   cartridge to pull Derik out of an 8-bit glitch world. → **Neon Blaster**.
+7. **Leg Day** *(Vlad, lakeside)* — absurd fitness dares that lead to the
+   Gains Cave, a Pact tunnel node. → **Sprint Shoes** (faster run + double
+   jump) + the **Tunnel Map Fragment**.
+8. **The Cleaners** *(the Concierge)* — recruited into the Pact's enforcers;
+   three contracts, then a choice. → **Silenced Pistol + "Ghost."**
+9. **Where's Biscuit?** *(Dylan, Publix lot)* — find a lost dog down at the
+   storm drain, where he's dug up something not from here. No combat, all
+   heart. → **Dog Whistle** + the **Alien Keycard**.
+10. **What Lies Beneath** *(the finale)* — with the Etched Lake Key, Tunnel
+    Fragment, and Alien Keycard — and having met the Concierge — descend under
+    the lake, face the board and the thing, and decide what Westchase becomes.
+
+Quests 1, 2, 5, 7 and 9 open early with no prerequisites; the finale only
+unlocks once you're holding all three keys.
 
 ## Items & your bag
 

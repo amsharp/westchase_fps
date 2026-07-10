@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.61.0';
+var GAME_VERSION = 'v1.61.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -11656,6 +11656,13 @@ function drawMinimap() {
   // cops (blue, slightly bigger)
   mg.fillStyle = '#3f8fe8'; for (var cop = 0; cop < cops.length; cop++) { if (cops[cop].state === 'down') continue; mg.fillRect(w2m(cops[cop].x) - 1.5, w2m(cops[cop].z) - 1.5, 3, 3); }
   for (var cop2 = 0; cop2 < copsM.length; cop2++) { mg.fillRect(w2m(copsM[cop2].x) - 1.5, w2m(copsM[cop2].z) - 1.5, 3, 3); }
+  // Police Scanner (q2): while wanted, ring the nearest patrol so you can route
+  // around it — turns the wanted system from surprise into strategy.
+  if (hasUnlock('scanner') && state.wanted > 0 && cops.length) {
+    var near = null, nd = 1e9;
+    for (var cs = 0; cs < cops.length; cs++) { var cc = cops[cs]; if (cc.state === 'down') continue; var ddx = cc.x - player.x, ddz = cc.z - player.z, dd = ddx * ddx + ddz * ddz; if (dd < nd) { nd = dd; near = cc; } }
+    if (near) { mg.strokeStyle = 'rgba(120,200,255,' + (0.5 + 0.4 * (Math.sin(T * 6) * 0.5 + 0.5)).toFixed(2) + ')'; mg.lineWidth = 1.4; mg.beginPath(); mg.arc(w2m(near.x), w2m(near.z), 5.5, 0, Math.PI * 2); mg.stroke(); }
+  }
   // other players (cyan)
   // real players as bright-green blips (match their name-tag color); dim the
   // dead, draw drivers as a slightly bigger square
@@ -12032,7 +12039,17 @@ function finishQuest(id) {
   sfx('cash');
   saveQuests();
 }
-// grant a quest's reward: item into the bag and/or a capability unlock flag
+// grant a quest's reward: item into the bag and/or a capability unlock flag.
+// Capability status (gated on state.unlocks[...]):
+//   lockpick (q4) / hotwire (q5)  — WORKING: skip the car break-in timer.
+//   sprint   (q7)                 — WORKING: faster run + double jump.
+//   loupe    (q1)                 — TODO: clue highlight / trap reveal (flag only).
+//   scanner  (q2)                 — WORKING: rings the nearest patrol on the minimap while wanted.
+//   lantern  (q3)                 — TODO: dark-vision / hidden-door reveal (flag only).
+//   reflexes (q6)                 — TODO: ADS bullet-time (flag only).
+//   ghost    (q8)                 — TODO: silent stealth kills + dealer discount (flag only).
+//   dogwhistle (q9)               — TODO: summon Biscuit companion (flag only).
+//   ending   (q10)               — sets the finale flag; town-wide perk is future work.
 function grantReward(id) {
   var d = questDef(id); if (!d || !d.reward) return;
   var r = d.reward;
@@ -12042,7 +12059,7 @@ function grantReward(id) {
     var left = bagAdd(r.item, r.n || 1);
     if (left > 0) { spawnItemDrop(r.item, player.x - Math.sin(yaw) * 2.2, player.z - Math.cos(yaw) * 2.2, 180); }   // bag full -> drop it at feet
     var def = itemDef(r.item);
-    if (def) toast(itemIconHtml(r.item) + ' <b>REWARD:</b> ' + def.name, 4200);
+    if (def) toast(itemIconHtml(r.item) + ' <b>REWARD:</b> ' + def.name + (r.text ? '<br><span style="opacity:.85">' + r.text + '</span>' : ''), 5200);
   } else if (r.text) toast('<b>REWARD:</b> ' + r.text, 4200);
   saveQuests();
 }
