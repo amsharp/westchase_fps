@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.36';
+var GAME_VERSION = 'v1.66.37';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -14367,8 +14367,84 @@ var mm = document.getElementById('mm');
 var mg = mm.getContext('2d');
 var MMS = mm.width / TOTAL;
 function w2m(v) { return (v + HALF) * MMS; }
+
+// ---- minimap zoom (#46): WIDE / NORMAL / CLOSE. Level 0 = the classic whole-
+// map fixed-north view; higher levels scale up and centre on the player,
+// clamped so the view never runs past the world edge. Persisted in localStorage.
+var MM_ZOOMS = [1, 2, 3.4];
+var MM_ZOOM_NAMES = ['WIDE', 'NORMAL', 'CLOSE'];
+var mmZoom = 0;
+(function () { try { var z = parseInt(localStorage.getItem('wc_mmzoom'), 10); if (z >= 0 && z < MM_ZOOMS.length) mmZoom = z; } catch (e) { } })();
+function setMinimapZoom(i) {
+  i = Math.max(0, Math.min(MM_ZOOMS.length - 1, i | 0));
+  if (i !== mmZoom) {
+    mmZoom = i;
+    try { localStorage.setItem('wc_mmzoom', String(mmZoom)); } catch (e) { }
+    if (typeof toast === 'function' && state.running && !state.menu) toast('MAP: ' + MM_ZOOM_NAMES[mmZoom], 900);
+  }
+  return mmZoom;
+}
+function cycleMinimapZoom(dir) { return setMinimapZoom(mmZoom + (dir > 0 ? 1 : -1)); }
+
+// ---- venue/landmark blips (#46): REMAP_VENUES is parsed ONCE into a compact
+// blip list (colour + short glyph per named venue) so drawMinimap never walks
+// the raw venue table per frame. Blips render at constant PIXEL size in screen
+// space, so they stay crisp and readable at every zoom level (no fuzzy upscaled
+// baked text). Townhouses/houses get no blip — they'd swamp the map.
+var MM_VENUE_STYLE = {
+  racetrac:    { c: '#ff5a3a', g: 'RT', major: 1 },
+  publix:      { c: '#4fae5a', g: 'PUB', major: 1 },
+  dunkin:      { c: '#ff8a2a', g: 'DD', major: 1 },
+  starbucks:   { c: '#1c9f6e', g: 'SB', major: 1 },
+  bank:        { c: '#ffd24a', g: 'BK', major: 1 },
+  pharmacy:    { c: '#4f9fe0', g: 'RX', major: 1 },
+  sushi:       { c: '#e0506a', g: 'SU', major: 1 },
+  farnell:     { c: '#f0c24a', g: 'SCH', major: 1 },
+  dollar_tree: { c: '#3fbf7a', g: 'DT', major: 1 },
+  offices:     { c: '#b0b6c0', g: 'OF', major: 0 },
+  yoga:        { c: '#c07ae0', g: 'YG', major: 0 },
+  storage:     { c: '#9a8a6a', g: 'ST', major: 0 },
+  strip:       { c: '#8fb0d0', g: '', major: 0 },
+  red_house:   { c: '#d05a4a', g: '', major: 0 },
+  shop:        { c: '#c0c0a0', g: '', major: 0 }
+};
+// landmark blips: world POIs that aren't in REMAP_VENUES (lake, intersection).
+var MM_LANDMARKS = [
+  { x: LAKE.x, z: LAKE.z, c: '#bfe6ff', g: 'LAKE', major: 1, land: 1 },
+  { x: 0, z: 0, c: '#ffffff', g: '+', major: 1, land: 1 }
+];
+var mmVenues = null;
+function buildMMVenues() {
+  mmVenues = [];
+  if (typeof REMAP_VENUES !== 'undefined') {
+    for (var i = 0; i < REMAP_VENUES.length; i++) {
+      var v = REMAP_VENUES[i], st = MM_VENUE_STYLE[v.type];
+      if (!st) continue;
+      mmVenues.push({ x: v.x, z: v.z, c: st.c, g: st.g, major: st.major, land: 0 });
+    }
+  }
+  for (var k = 0; k < MM_LANDMARKS.length; k++) mmVenues.push(MM_LANDMARKS[k]);
+}
+
 function drawMinimap() {
-  mg.fillStyle = '#5f8a45'; mg.fillRect(0, 0, mm.width, mm.height);
+  if (!mmVenues) buildMMVenues();
+  var cw = mm.width, ch = mm.height;
+  var Z = MM_ZOOMS[mmZoom];
+  // clamp the view centre (in minimap px) so a zoomed view never runs off the
+  // world; at Z=1 this forces the classic whole-map centre (sx/sz === w2m).
+  var halfW = cw / (2 * Z), halfH = ch / (2 * Z);
+  var bx = Math.max(halfW, Math.min(cw - halfW, w2m(player.x)));
+  var by = Math.max(halfH, Math.min(ch - halfH, w2m(player.z)));
+  var txp = cw / 2 - bx * Z, typ = ch / 2 - by * Z;
+  function sx(x) { return w2m(x) * Z + txp; }   // world x -> minimap px (pan+zoom)
+  function sz(z) { return w2m(z) * Z + typ; }
+
+  // ---------- STATIC WORLD LAYER: drawn under a pan/zoom transform so every
+  // existing w2m-based rect/line works unchanged. Background fills the whole
+  // canvas in identity space first (the world ground is grass everywhere).
+  mg.setTransform(1, 0, 0, 1, 0, 0);
+  mg.fillStyle = '#5f8a45'; mg.fillRect(0, 0, cw, ch);
+  mg.setTransform(Z, 0, 0, Z, txp, typ);
   // forest
   mg.fillStyle = '#33562c';
   for (var f = 0; f < mapForest.length; f++) { var z = mapForest[f]; mg.fillRect(w2m(z.x0), w2m(z.z0), (z.x1 - z.x0) * MMS, (z.z1 - z.z0) * MMS); }
@@ -14395,51 +14471,86 @@ function drawMinimap() {
   // buildings (survey houses come from a pre-rendered layer — ~600 rects)
   if (typeof HOUSE_CLUSTERS !== 'undefined') mg.drawImage(houseMMLayer(w2m, mm.width, MMS), 0, 0);
   for (var b = 0; b < mapBuildings.length; b++) { var m = mapBuildings[b]; if (m.hs) continue; mg.fillStyle = m.c; mg.fillRect(w2m(m.x - m.w / 2), w2m(m.z - m.d / 2), Math.max(2, m.w * MMS), Math.max(2, m.d * MMS)); }
+
+  // ---------- DYNAMIC OVERLAY: identity space, constant pixel sizes (crisp at
+  // every zoom). All world positions go through sx()/sz() for pan+zoom.
+  mg.setTransform(1, 0, 0, 1, 0, 0);
+  // venue + landmark blips (precomputed once; constant size + short glyphs).
+  // Labels only when zoomed in (or always for the two anchor venues) so the
+  // WIDE view stays a clean colour-coded map.
+  mg.textAlign = 'center'; mg.textBaseline = 'middle';
+  for (var vi = 0; vi < mmVenues.length; vi++) {
+    var vv = mmVenues[vi], vx = sx(vv.x), vy = sz(vv.z);
+    if (vx < -6 || vx > cw + 6 || vy < -6 || vy > ch + 6) continue;   // cull off-map
+    if (vv.land && vv.g === '+') {   // intersection crosshair
+      mg.strokeStyle = 'rgba(255,255,255,0.85)'; mg.lineWidth = 1;
+      mg.beginPath(); mg.moveTo(vx - 3, vy); mg.lineTo(vx + 3, vy); mg.moveTo(vx, vy - 3); mg.lineTo(vx, vy + 3); mg.stroke();
+    } else {
+      mg.fillStyle = '#000'; mg.fillRect(vx - 2.5, vy - 2.5, 5, 5);       // dark outline
+      mg.fillStyle = vv.c; mg.fillRect(vx - 1.5, vy - 1.5, 3, 3);         // colour blip
+    }
+    if (vv.g && vv.major && (Z >= 2 || vv.g === 'RT' || vv.g === 'PUB' || vv.land)) {
+      mg.font = 'bold 7px "Courier New",monospace';
+      mg.fillStyle = '#000'; mg.fillText(vv.g, vx + 0.6, vy - 5.4);
+      mg.fillStyle = '#fff'; mg.fillText(vv.g, vx, vy - 6);
+    }
+  }
   // cars
-  mg.fillStyle = '#e8a13a'; for (var c = 0; c < cars.length; c++) { var cm = cars[c].car.group.position; mg.fillRect(w2m(cm.x) - 1, w2m(cm.z) - 1, 2, 2); }
+  mg.fillStyle = '#e8a13a'; for (var c = 0; c < cars.length; c++) { var cm = cars[c].car.group.position; mg.fillRect(sx(cm.x) - 1, sz(cm.z) - 1, 2, 2); }
   // npcs
-  mg.fillStyle = '#eeeeee'; for (var n = 0; n < npcs.length; n++) { if (npcs[n].state === 'down' || npcs[n].state === 'hidden') continue; mg.fillRect(w2m(npcs[n].x) - 1, w2m(npcs[n].z) - 1, 2, 2); }
+  mg.fillStyle = '#eeeeee'; for (var n = 0; n < npcs.length; n++) { if (npcs[n].state === 'down' || npcs[n].state === 'hidden') continue; mg.fillRect(sx(npcs[n].x) - 1, sz(npcs[n].z) - 1, 2, 2); }
   // cops (blue, slightly bigger)
-  mg.fillStyle = '#3f8fe8'; for (var cop = 0; cop < cops.length; cop++) { if (cops[cop].state === 'down') continue; mg.fillRect(w2m(cops[cop].x) - 1.5, w2m(cops[cop].z) - 1.5, 3, 3); }
-  for (var cop2 = 0; cop2 < copsM.length; cop2++) { mg.fillRect(w2m(copsM[cop2].x) - 1.5, w2m(copsM[cop2].z) - 1.5, 3, 3); }
+  mg.fillStyle = '#3f8fe8'; for (var cop = 0; cop < cops.length; cop++) { if (cops[cop].state === 'down') continue; mg.fillRect(sx(cops[cop].x) - 1.5, sz(cops[cop].z) - 1.5, 3, 3); }
+  for (var cop2 = 0; cop2 < copsM.length; cop2++) { mg.fillRect(sx(copsM[cop2].x) - 1.5, sz(copsM[cop2].z) - 1.5, 3, 3); }
   // Police Scanner (q2): while wanted, ring the nearest patrol so you can route
   // around it — turns the wanted system from surprise into strategy.
   if (hasUnlock('scanner') && state.wanted > 0 && cops.length) {
     var near = null, nd = 1e9;
     for (var cs = 0; cs < cops.length; cs++) { var cc = cops[cs]; if (cc.state === 'down') continue; var ddx = cc.x - player.x, ddz = cc.z - player.z, dd = ddx * ddx + ddz * ddz; if (dd < nd) { nd = dd; near = cc; } }
-    if (near) { mg.strokeStyle = 'rgba(120,200,255,' + (0.5 + 0.4 * (Math.sin(T * 6) * 0.5 + 0.5)).toFixed(2) + ')'; mg.lineWidth = 1.4; mg.beginPath(); mg.arc(w2m(near.x), w2m(near.z), 5.5, 0, Math.PI * 2); mg.stroke(); }
+    if (near) { mg.strokeStyle = 'rgba(120,200,255,' + (0.5 + 0.4 * (Math.sin(T * 6) * 0.5 + 0.5)).toFixed(2) + ')'; mg.lineWidth = 1.4; mg.beginPath(); mg.arc(sx(near.x), sz(near.z), 5.5, 0, Math.PI * 2); mg.stroke(); }
   }
   // other players (cyan)
   // real players as bright-green blips (match their name-tag color); dim the
   // dead, draw drivers as a slightly bigger square
-  for (var rp in net.remotes) { var rpp = net.remotes[rp]; mg.fillStyle = rpp.dead ? '#2f7a3a' : '#6dff8b'; var sz = rpp.drv ? 6 : 4; mg.fillRect(w2m(rpp.x) - sz / 2, w2m(rpp.z) - sz / 2, sz, sz); }
+  for (var rp in net.remotes) { var rpp = net.remotes[rp]; mg.fillStyle = rpp.dead ? '#2f7a3a' : '#6dff8b'; var sz2 = rpp.drv ? 6 : 4; mg.fillRect(sx(rpp.x) - sz2 / 2, sz(rpp.z) - sz2 / 2, sz2, sz2); }
   // cash
-  mg.fillStyle = '#59e04a'; for (var k = 0; k < cashes.length; k++) { var cp = cashes[k].mesh.position; mg.fillRect(w2m(cp.x) - 1, w2m(cp.z) - 1, 2, 2); }
+  mg.fillStyle = '#59e04a'; for (var k = 0; k < cashes.length; k++) { var cp = cashes[k].mesh.position; mg.fillRect(sx(cp.x) - 1, sz(cp.z) - 1, 2, 2); }
   // dropped weapons
-  mg.fillStyle = '#d060e8'; for (var dw = 0; dw < drops.length; dw++) { var dp = drops[dw].mesh.position; mg.fillRect(w2m(dp.x) - 1.5, w2m(dp.z) - 1.5, 3, 3); }
+  mg.fillStyle = '#d060e8'; for (var dw = 0; dw < drops.length; dw++) { var dp = drops[dw].mesh.position; mg.fillRect(sx(dp.x) - 1.5, sz(dp.z) - 1.5, 3, 3); }
   // gas station marker
-  mg.fillStyle = '#e05a3a'; mg.font = 'bold 11px Courier New'; mg.textAlign = 'center'; mg.textBaseline = 'middle'; mg.fillText('G', w2m(gasRob.x), w2m(gasRob.z));
+  mg.fillStyle = '#e05a3a'; mg.font = 'bold 11px Courier New'; mg.textAlign = 'center'; mg.textBaseline = 'middle'; mg.fillText('G', sx(gasRob.x), sz(gasRob.z));
   // dealer marker
-  mg.fillStyle = '#ffd94a'; mg.font = 'bold 12px Courier New'; mg.fillText('$', w2m(dealerPos.x), w2m(dealerPos.z));
-  // player arrow
-  mg.save(); mg.translate(w2m(player.x), w2m(player.z)); mg.rotate(-yaw); mg.fillStyle = '#ffffff'; mg.strokeStyle = '#000'; mg.beginPath(); mg.moveTo(0, -5); mg.lineTo(3.6, 4); mg.lineTo(-3.6, 4); mg.closePath(); mg.fill(); mg.stroke(); mg.restore();
+  mg.fillStyle = '#ffd94a'; mg.font = 'bold 12px Courier New'; mg.fillText('$', sx(dealerPos.x), sz(dealerPos.z));
+  // player heading arrow (fixed-north map -> the arrow itself shows facing)
+  mg.save(); mg.translate(sx(player.x), sz(player.z)); mg.rotate(-yaw); mg.fillStyle = '#ffffff'; mg.strokeStyle = '#000'; mg.beginPath(); mg.moveTo(0, -5); mg.lineTo(3.6, 4); mg.lineTo(-3.6, 4); mg.closePath(); mg.fill(); mg.stroke(); mg.restore();
   // active-quest waypoint: amber diamond at the current beat's waypoint; if it
   // maps outside the minimap it clamps to the border as a pointing arrow
   var wp = questWaypoint();
   if (wp) {
-    var mx = w2m(wp.x), my = w2m(wp.z), inb = mx >= 5 && mx <= mm.width - 5 && my >= 5 && my <= mm.height - 5;
+    var mx = sx(wp.x), my = sz(wp.z), inb = mx >= 5 && mx <= cw - 5 && my >= 5 && my <= ch - 5;
     var blink = (Math.sin(T * 5) * 0.5 + 0.5);
     mg.fillStyle = 'rgba(255,190,40,' + (0.55 + 0.45 * blink).toFixed(2) + ')'; mg.strokeStyle = '#3a2600'; mg.lineWidth = 1;
     if (inb) {
       mg.save(); mg.translate(mx, my); mg.rotate(Math.PI / 4); var dd2 = 3.4; mg.fillRect(-dd2, -dd2, dd2 * 2, dd2 * 2); mg.strokeRect(-dd2, -dd2, dd2 * 2, dd2 * 2); mg.restore();
     } else {
       // off-map: clamp to the border and draw a chevron pointing toward it
-      var cx = mm.width / 2, cy = mm.height / 2, ang = Math.atan2(my - cy, mx - cx);
-      var ex = Math.max(7, Math.min(mm.width - 7, mx)), ey = Math.max(7, Math.min(mm.height - 7, my));
+      var cx = cw / 2, cy = ch / 2, ang = Math.atan2(my - cy, mx - cx);
+      var ex = Math.max(7, Math.min(cw - 7, mx)), ey = Math.max(7, Math.min(ch - 7, my));
       mg.save(); mg.translate(ex, ey); mg.rotate(ang); mg.beginPath(); mg.moveTo(6, 0); mg.lineTo(-4, 4); mg.lineTo(-4, -4); mg.closePath(); mg.fill(); mg.stroke(); mg.restore();
     }
   }
-  mg.strokeStyle = '#222'; mg.strokeRect(0.5, 0.5, mm.width - 1, mm.height - 1);
+  // north indicator: this minimap is fixed-north (top edge = -z = north), so an
+  // 'N' chip at the top centre makes orientation unambiguous.
+  mg.fillStyle = '#0a0e16'; mg.fillRect(cw / 2 - 7, 1, 14, 12);
+  mg.fillStyle = '#ffe08a'; mg.font = 'bold 9px "Courier New",monospace'; mg.textAlign = 'center'; mg.textBaseline = 'middle';
+  mg.fillText('N', cw / 2, 7);
+  // zoom badge (bottom-left) when zoomed past WIDE
+  if (mmZoom > 0) {
+    mg.fillStyle = '#0a0e16'; mg.fillRect(2, ch - 12, 22, 10);
+    mg.fillStyle = '#cfe0ff'; mg.font = 'bold 8px "Courier New",monospace'; mg.textAlign = 'left'; mg.textBaseline = 'middle';
+    mg.fillText('x' + Z.toFixed(1), 4, ch - 7);
+  }
+  mg.strokeStyle = '#222'; mg.strokeRect(0.5, 0.5, cw - 1, ch - 1);
 }
 
 // ================= QUEST SYSTEM (framework) =================
@@ -16634,6 +16745,7 @@ function cycleEquip(dir) {
 }
 document.addEventListener('wheel', function (e) {
   if (document.pointerLockElement !== canvas) return;
+  if (e.ctrlKey) { cycleMinimapZoom(e.deltaY < 0 ? 1 : -1); return; }   // #46 Ctrl+scroll = zoom minimap
   cycleEquip(e.deltaY > 0 ? 1 : -1);
 }, { passive: true });
 // ---------------- multiplayer text chat ----------------
@@ -16963,6 +17075,11 @@ document.addEventListener('keydown', function (e) {
   if (e.code === 'Tab') { e.preventDefault(); if (!state.running || state.dead) return; if (state.menu === 'inv') closeMenus(); else { closeMenus(false); openMenu('inv'); } }
   if (e.code === 'KeyJ' && !e.repeat) { e.preventDefault(); if (!state.running || state.dead) return; if (state.menu === 'quest') closeMenus(); else if (!state.menu) openMenu('quest'); return; }
   if (e.code === 'KeyQ' && state.menu === 'inv') { e.preventDefault(); if (bagSel >= 0 && state.bag[bagSel]) bagDrop(bagSel); return; }
+  // #46 minimap zoom: [ zooms out (wider), ] zooms in (closer)
+  if (!e.repeat && state.running && !state.menu) {
+    if (e.code === 'BracketRight') { e.preventDefault(); cycleMinimapZoom(1); return; }
+    if (e.code === 'BracketLeft') { e.preventDefault(); cycleMinimapZoom(-1); return; }
+  }
   // #78 quest-reward capability toggles (only while playing, no menu)
   if (!e.repeat && state.running && !state.menu && !state.dead) {
     if (e.code === 'KeyL' && hasUnlock('loupe')) { toggleLoupe(); return; }
@@ -17527,6 +17644,8 @@ window.__wc = {
   enterCar: enterCar, exitCar: exitCar, nearestStealableCar: nearestStealableCar,
   isDriving: function () { return !!driving; }, drivingCar: function () { return driving; },
   pressKey: function (code, down) { keys[code] = down; },
+  setMinimapZoom: setMinimapZoom, cycleMinimapZoom: cycleMinimapZoom,
+  minimapState: function () { if (!mmVenues) buildMMVenues(); return { zoom: mmZoom, scale: MM_ZOOMS[mmZoom], name: MM_ZOOM_NAMES[mmZoom], levels: MM_ZOOMS.length, venues: mmVenues.length }; },
   setRain: function (on) { raining = on; rainLeft = on ? 9999 : 0; },
   setClock: function (t2) { envT = t2; },
   envState: function () { return { envT: envT, raining: raining, dayFactor: dayFactor(), lampsOn: lampsOn, sun: sun.intensity, fogFar: scene.fog.far }; },
