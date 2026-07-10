@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.32';
+var GAME_VERSION = 'v1.66.33';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -6325,6 +6325,8 @@ function interiorInteractE() {   // inside a generalized interior: E resolves ex
     var t = spec.zones[i], dx = player.x - t.x, dz = player.z - t.z;
     if (dx * dx + dz * dz < t.r2 && t.fn) { t.fn(spec); return; }
   }
+  var cc = nearestShopCust(10);   // #65: chat with a nearby shopper for a flavor line
+  if (cc) barkAtCustomer(cc);
 }
 function interiorPrompt() {
   var spec = curInterior; if (!spec) return '';
@@ -6334,6 +6336,7 @@ function interiorPrompt() {
     var t = spec.zones[i], dx = player.x - t.x, dz = player.z - t.z;
     if (dx * dx + dz * dz < t.r2) return t.prompt || '[E] TALK';
   }
+  if (nearestShopCust(10)) return '[E] CHAT';   // #65
   return '';
 }
 function updateInterior(dt) {   // idle-animate the current room's staff in place
@@ -7008,6 +7011,16 @@ function buildBank(spec) {
 var shopCust = [];            // active customer objects for the CURRENT interior
 var SHOP_QGAP = 1.4;          // single-file queue spacing (metres)
 var SHOP_CUST_SPD = 1.55;
+// ---- shop conversation state (#65 step 2): a single in-flight exchange at a
+// time so voices/bubbles never pile up. shopTalk = {kind, a, b, phase, t} where
+// a asks first and b answers; kind 'qa' = customer->staff, 'banter' = staff pair.
+var shopTalk = null, shopPanic = false, shopQAcd = 8, shopBanterCd = 12;
+// readable bubble text (voices carry the audio flavor; text is the subtitle)
+var SHOP_ASK = ["Excuse me, where's the...?", "Do you have any more in back?", "Is this on sale?", "Which aisle is that in?", "Any recommendations?", "Do you carry oat milk?", "How fresh is this?"];
+var SHOP_ANS = ["Right over there!", "Let me check for you.", "Aisle four, hon.", "Sure — coming right up.", "Fresh batch just landed.", "Absolutely, follow me.", "Good choice!"];
+var SHOP_BQ = ["Slow shift today, huh?", "Did you restock the back?", "Break in ten?", "Catch the game last night?", "Register two's acting up again.", "Long day already."];
+var SHOP_BA = ["Tell me about it.", "Yep, all done.", "Finally!", "What a nail-biter.", "I'll take a look.", "You and me both."];
+var SHOP_CUSTLINE = ["This line's brutal...", "Almost my turn!", "So many choices today.", "Where'd I put my list?", "Try the new donuts, they're great.", "Just grabbing a few things.", "They restocked, nice."];
 // per-interior sim data: cap (population ceiling), spawn cadence, browse spots
 // (x,z stand point + fx,fz fixture the customer faces), checkout lanes
 // (sx,sz serve spot + face yaw + qx,qz queue-back unit vector), the door point
@@ -7137,14 +7150,26 @@ function custFace(c, tx, tz) { c.mesh.rotation.y = Math.atan2(tx - c.x, tz - c.z
 function pickBrowse(cfg, c) {
   var b = cfg.browse, pick;
   for (var t = 0; t < 6; t++) { pick = b[(Math.random() * b.length) | 0]; if (pick !== c.lastBrowse) break; }
-  c.lastBrowse = pick; c.tx = pick.x; c.tz = pick.z; c.fx = pick.fx; c.fz = pick.fz;
+  c.lastBrowse = pick; c.tx = pick.x; c.tz = pick.z; c.fx = pick.fx; c.fz = pick.fz; resetGoal(c);
+}
+// ---- stuck-progress watchdog: the browse-steering whisker can't fully path
+// through Publix's long aisles, so track best distance-to-goal and time-since-
+// progress. When a customer stops making headway past `limit` seconds it is
+// nudged onward (arrive early / force-serve / despawn) — this is what keeps a
+// checkout lane draining even if the front shopper can't physically reach the
+// register (the #65 "drain on a timer, never deadlock" requirement).
+function resetGoal(c) { c.bestD = 1e9; c.progT = 0; }
+function goalProgress(c, rem, dt, limit) {
+  if (rem < c.bestD - 0.04) { c.bestD = rem; c.progT = 0; return false; }
+  c.progT += dt;
+  return c.progT > limit;
 }
 // spawn one customer into the CURRENT interior. atDoor===false seeds an
 // already-present shopper straight at a fixture (store looks alive on entry).
 function spawnCustomer(atDoor) {
   var sc = shopCfg(); if (!sc || !curInterior || shopCust.length >= sc.cap) return null;
   var Y = curInterior.box.y;
-  var c = { mesh: buildCharacter(customerCfg()), state: 'enter', phase: Math.random() * 9, animT: Math.random() * 2, stateT: 0, beats: 2 + (Math.random() * 3 | 0), iy: Y, lane: -1, qi: -1, avoidT: 0 };
+  var c = { mesh: buildCharacter(customerCfg()), state: 'enter', phase: Math.random() * 9, animT: Math.random() * 2, stateT: 0, beats: 2 + (Math.random() * 3 | 0), iy: Y, lane: -1, qi: -1, avoidT: 0, progT: 0, bestD: 1e9 };
   if (atDoor === false) {
     var b0 = sc.browse[(Math.random() * sc.browse.length) | 0];
     c.x = b0.x; c.z = b0.z; c.state = 'look'; c.stateT = 1 + Math.random() * 3; c.lastBrowse = b0; c.fx = b0.fx; c.fz = b0.fz;
@@ -7160,7 +7185,37 @@ function spawnCustomer(atDoor) {
 function clearCustomers() {
   for (var i = 0; i < shopCust.length; i++) { if (shopCust[i].mesh) scene.remove(shopCust[i].mesh); }
   shopCust.length = 0;
+  shopTalk = null; shopPanic = false;
 }
+
+// ---- checkout queue helpers (single-file lines at the SHOP_CFG lanes) ----
+// A customer in a lane owns c.lane (index) + c.qi (0 = front / serve spot).
+// The slot world-position walks backward from the serve spot along the lane's
+// (qx,qz) unit vector at SHOP_QGAP spacing. No per-lane arrays are stored on the
+// shared SHOP_CFG — occupancy is derived from shopCust each time (n small).
+function laneOccupancy(li) {
+  var n = 0;
+  for (var j = 0; j < shopCust.length; j++) { var o = shopCust[j]; if (o.lane === li && (o.state === 'queue' || o.state === 'serve')) n++; }
+  return n;
+}
+function shortestLane(sc) {
+  var best = 0, bn = 1e9;
+  for (var i = 0; i < sc.lanes.length; i++) { var n = laneOccupancy(i); if (n < bn) { bn = n; best = i; } }
+  return best;
+}
+function queueSlot(sc, li, qi) {
+  var L = sc.lanes[li];
+  return { x: L.sx + L.qx * qi * SHOP_QGAP, z: L.sz + L.qz * qi * SHOP_QGAP };
+}
+// front customer left the lane — everyone behind shuffles one slot forward
+function shiftLaneForward(li) {
+  for (var j = 0; j < shopCust.length; j++) { var o = shopCust[j]; if (o.lane === li && o.qi > 0 && o.state === 'queue') { o.qi--; resetGoal(o); } }
+}
+function joinQueue(sc, c) {
+  if (!sc.lanes || !sc.lanes.length) { c.tx = sc.door.x; c.tz = sc.door.z; c.state = 'leave'; resetGoal(c); return; }
+  c.lane = shortestLane(sc); c.qi = laneOccupancy(c.lane); c.state = 'queue'; c.served = false; resetGoal(c);
+}
+
 var shopSpawnT = 6;
 function initCustomers(spec) {
   clearCustomers();
@@ -7168,20 +7223,41 @@ function initCustomers(spec) {
   var n = 2 + (Math.random() * (sc.cap - 2) | 0);
   for (var i = 0; i < n; i++) spawnCustomer(false);
   shopSpawnT = sc.spawn[0] + Math.random() * (sc.spawn[1] - sc.spawn[0]);
+  shopTalk = null; shopPanic = false;
+  shopQAcd = 5 + Math.random() * 6; shopBanterCd = 8 + Math.random() * 8;
 }
+// a real gun drawn (or fired) inside empties the store
+function shopThreat() { return typeof GUN_LIST !== 'undefined' && GUN_LIST.indexOf(state.equipped) >= 0; }
 function updateCustomers(dt) {
   var sc = shopCfg(); if (!sc) { if (shopCust.length) clearCustomers(); return; }
   var Y = curInterior.box.y;
+  // panic: a weapon is out — flee everyone to the door, kill conversations
+  if (shopThreat()) {
+    if (!shopPanic) {
+      shopPanic = true; shopTalk = null;
+      for (var pi = 0; pi < shopCust.length; pi++) {
+        var pc = shopCust[pi];
+        if (pc.state !== 'flee') { pc.state = 'flee'; pc.lane = -1; pc.qi = -1; pc.tx = sc.door.x + (Math.random() - 0.5) * 2; pc.tz = sc.door.z; }
+      }
+      playShopVoice('CUSTOMER', 'excuse', 0.75, 0.2);
+    }
+  } else if (shopPanic) shopPanic = false;
+
   shopSpawnT -= dt;
   if (shopSpawnT <= 0) {
     shopSpawnT = sc.spawn[0] + Math.random() * (sc.spawn[1] - sc.spawn[0]);
-    if (shopCust.length < sc.cap) spawnCustomer(true);
+    // don't trickle a new shopper in while two are still funneling through the
+    // doorway — keeps the entrance from clumping when steering is slow (Publix).
+    var entering = 0;
+    for (var e = 0; e < shopCust.length; e++) if (shopCust[e].state === 'enter') entering++;
+    if (!shopPanic && shopCust.length < sc.cap && entering < 2) spawnCustomer(true);
   }
   for (var i = shopCust.length - 1; i >= 0; i--) {
     var c = shopCust[i], m = c.mesh;
     if (c.state === 'enter' || c.state === 'browse') {
       var rem = moveCust(c, curInterior, dt, SHOP_CUST_SPD);
-      if (rem < 0.9) { c.state = 'look'; c.stateT = 2 + Math.random() * 3.5; c.animT = Math.random() * 2; custFace(c, c.fx, c.fz); }
+      // arrived, OR gave up trying to path there (whisker stuck > 6s)
+      if (rem < 0.9 || goalProgress(c, rem, dt, 6)) { c.state = 'look'; c.stateT = 2 + Math.random() * 3.5; c.animT = Math.random() * 2; custFace(c, c.fx, c.fz); }
     } else if (c.state === 'look') {
       c.stateT -= dt; c.animT += dt;
       animPersonClip(m, (c.beats & 1) ? 'idle2' : 'idle', c.animT);
@@ -7189,13 +7265,113 @@ function updateCustomers(dt) {
       if (c.stateT <= 0) {
         c.beats--;
         if (c.beats > 0) { pickBrowse(sc, c); c.state = 'browse'; }
-        else { c.tx = sc.door.x; c.tz = sc.door.z; c.state = 'leave'; }
+        else joinQueue(sc, c);   // #65: done browsing -> get in line
       }
-    } else if (c.state === 'leave') {
-      var rd = moveCust(c, curInterior, dt, SHOP_CUST_SPD * 1.1);
-      if (rd < 1.2) { scene.remove(m); shopCust.splice(i, 1); }
+    } else if (c.state === 'queue') {
+      var slot = queueSlot(sc, c.lane, c.qi);
+      c.tx = slot.x; c.tz = slot.z;
+      var dxq = slot.x - c.x, dzq = slot.z - c.z, dq = Math.sqrt(dxq * dxq + dzq * dzq);
+      // front-of-line gets a longer grace before force-serving (drain-on-timer,
+      // never deadlock); anyone behind just idles wherever they got stuck.
+      var stuck = goalProgress(c, dq, dt, c.qi === 0 ? 6 : 4);
+      if (dq > 0.55 && !stuck) moveCust(c, curInterior, dt, SHOP_CUST_SPD);
+      else {
+        c.animT += dt; animPersonClip(m, 'idle', c.animT);
+        m.rotation.y = sc.lanes[c.lane].face; m.position.set(c.x, Y, c.z);
+        if (c.qi === 0 && (dq <= 0.55 || stuck)) {   // at the register (or timed out) -> serve
+          c.state = 'serve'; c.serveT = 1.8 + Math.random() * 1.6; c.animT = 0;
+          if (!playShopVoice(sc.payRole, 'nextinline', 0.7, 3)) playShopVoice(sc.payRole, 'greet', 0.7, 3);
+        }
+      }
+    } else if (c.state === 'serve') {
+      c.serveT -= dt; c.animT += dt; animPersonClip(m, 'idle', c.animT);
+      m.rotation.y = sc.lanes[c.lane].face; m.position.set(c.x, Y, c.z);
+      if (c.serveT <= 0) {                      // ka-ching -> transaction done, leave
+        sfx('cash');   // register ka-ching
+        playShopVoice(sc.payRole, 'receipt', 0.7, 2.5);
+        var li = c.lane; c.lane = -1; c.qi = -1; c.served = true;
+        c.tx = sc.door.x + (Math.random() - 0.5) * 1.5; c.tz = sc.door.z; c.state = 'leave'; resetGoal(c);
+        shiftLaneForward(li);
+      }
+    } else if (c.state === 'leave' || c.state === 'flee') {
+      var rd = moveCust(c, curInterior, dt, SHOP_CUST_SPD * (c.state === 'flee' ? 1.9 : 1.1));
+      // despawn at the door, or if wedged on the way out (never leak a stuck NPC)
+      if (rd < 1.2 || goalProgress(c, rd, dt, c.state === 'flee' ? 6 : 9)) { scene.remove(m); shopCust.splice(i, 1); }
     }
   }
+  updateShopTalk(dt, sc);   // #65: Q&A + staff banter
+}
+
+// ---- shop dialogue: customer<->staff Q&A + idle staff banter + player barks --
+// One in-flight exchange at a time (shopTalk); voiced from shopvoices1.js where
+// a matching line exists, text bubble always shown as the readable subtitle.
+// Out-of-combat only (no chatter with heat/panic). All per-player + local.
+function staffRef(m) {   // stable bubble ref wrapper for a static staff mesh
+  if (!m) return null;
+  if (!m.userData._sref) m.userData._sref = { mesh: m, x: m.position.x, z: m.position.z, state: 'idle' };
+  return m.userData._sref;
+}
+function nearestStaff(c) {
+  var st = curInterior.staff, best = null, bd = 1e9;
+  for (var i = 0; i < st.length; i++) { var s = st[i], dx = s.position.x - c.x, dz = s.position.z - c.z, d = dx * dx + dz * dz; if (d < bd) { bd = d; best = s; } }
+  return best;
+}
+function faceTarget(mesh, x, z) { mesh.rotation.y = Math.atan2(x - mesh.position.x, z - mesh.position.z); }
+function updateShopTalk(dt, sc) {
+  var st = curInterior.staff;
+  if (shopTalk) {
+    shopTalk.t -= dt;
+    if (shopTalk.t <= 0) {
+      if (shopTalk.phase === 0) {                 // second speaker answers
+        speechBubble(shopTalk.b, shopTalk.ans);
+        if (shopTalk.kind === 'qa') { if (!playShopVoice(sc.ansRole, sc.ansCat, 0.7, 2)) playShopVoice(sc.payRole, 'answer', 0.7, 2); }
+        else playShopVoice('STAFF', 'chatA', 0.7, 2);
+        shopTalk.phase = 1; shopTalk.t = 1.9;
+      } else shopTalk = null;
+    }
+    return;                                       // strictly one exchange at a time
+  }
+  if (shopPanic || (typeof state !== 'undefined' && state.wanted > 0)) return;
+  shopQAcd -= dt; shopBanterCd -= dt;
+  // a browsing customer asks the nearest staffer a product question
+  if (shopQAcd <= 0 && st.length) {
+    shopQAcd = 9 + Math.random() * 8;
+    var cand = [];
+    for (var i = 0; i < shopCust.length; i++) if (shopCust[i].state === 'look') cand.push(shopCust[i]);
+    if (cand.length) {
+      var c = cand[(Math.random() * cand.length) | 0], s = nearestStaff(c);
+      if (s) {
+        faceTarget(c.mesh, s.position.x, s.position.z);
+        speechBubble(c, SHOP_ASK[(Math.random() * SHOP_ASK.length) | 0]);
+        playShopVoice('CUSTOMER', 'ask', 0.7, 2);
+        shopTalk = { kind: 'qa', a: c, b: staffRef(s), phase: 0, t: 1.7, ans: SHOP_ANS[(Math.random() * SHOP_ANS.length) | 0] };
+        return;
+      }
+    }
+  }
+  // two idle staffers trade work banter
+  if (shopBanterCd <= 0 && st.length >= 2) {
+    shopBanterCd = 12 + Math.random() * 10;
+    var ai = (Math.random() * st.length) | 0, bi = (ai + 1 + ((Math.random() * (st.length - 1)) | 0)) % st.length;
+    speechBubble(staffRef(st[ai]), SHOP_BQ[(Math.random() * SHOP_BQ.length) | 0]);
+    playShopVoice('STAFF', 'chatQ', 0.7, 2);
+    shopTalk = { kind: 'banter', a: staffRef(st[ai]), b: staffRef(st[bi]), phase: 0, t: 1.9, ans: SHOP_BA[(Math.random() * SHOP_BA.length) | 0] };
+  }
+}
+// player-facing bark: talk to a nearby browsing/queued customer for a flavor line
+function nearestShopCust(maxD2) {
+  var best = null, bd = maxD2 || 10;
+  for (var i = 0; i < shopCust.length; i++) {
+    var c = shopCust[i]; if (c.state === 'flee') continue;
+    var dx = c.x - player.x, dz = c.z - player.z, d = dx * dx + dz * dz;
+    if (d < bd) { bd = d; best = c; }
+  }
+  return best;
+}
+function barkAtCustomer(c) {
+  faceTarget(c.mesh, player.x, player.z);
+  speechBubble(c, SHOP_CUSTLINE[(Math.random() * SHOP_CUSTLINE.length) | 0]);
+  if (!playShopVoice('CUSTOMER', 'checkout', 0.75, 1.5)) playShopVoice('CUSTOMER', 'excuse', 0.75, 1.5);
 }
 
 // ---------------- street props (AI PSX props: streetprops.js) ----------------
@@ -17263,6 +17439,13 @@ window.__wc = {
   shopPopulation: function () { return shopCust.length; },
   spawnCustomer: function () { return !!spawnCustomer(true); },
   listShopNpcs: function () { return shopCust.map(function (c) { return { state: c.state, x: Math.round(c.x * 10) / 10, z: Math.round(c.z * 10) / 10, lane: c.lane, qi: c.qi, beats: c.beats }; }); },
+  queueState: function () {
+    var sc = shopCfg(); if (!sc) return null;
+    var lanes = sc.lanes.map(function () { return []; }), serving = 0, panic = shopPanic;
+    for (var i = 0; i < shopCust.length; i++) { var c = shopCust[i]; if (c.lane >= 0 && lanes[c.lane]) lanes[c.lane].push(c.qi); if (c.state === 'serve') serving++; }
+    for (var l = 0; l < lanes.length; l++) lanes[l].sort(function (a, b) { return a - b; });
+    return { lanes: lanes, serving: serving, panic: panic, talk: shopTalk ? shopTalk.kind : null };
+  },
   initAudio: initAudio, playNpcVoice: playNpcVoice, playVoiceAny: playVoiceAny,
   audioVoices: function () { return activeVoices; }, getAC: function () { return ac; },
   voiceDbg: function () { return { local: dbgVoiceLocal, net: dbgVoiceNet, bcast: dbgVoiceBcast }; },
