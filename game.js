@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.16';
+var GAME_VERSION = 'v1.66.17';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2541,7 +2541,12 @@ function buildRemapRoads() {
   // ---- render ribbons + registers ----
   for (i = 0; i < RM.roads.length; i++) {
     r = RM.roads[i];
-    var y = 0.14 + ((i * 7) % 11) * 0.0018;   // per-road y ladder: no coplanar overlaps
+    // per-road y ladder. The old ((i*7)%11) scheme only had 11 levels for 35+
+    // roads, so overlapping ribbons routinely shared a level and z-fought
+    // (report mreexjvh: user_e305 driveway coplanar with race_track_rd -> seam).
+    // Now: class band (arterials on top so their lane paint dominates junctions)
+    // + a unique per-road micro-offset so no two ribbons are ever coplanar.
+    var y = 0.14 + (3 - r.cls) * 0.008 + i * 0.00015;
     var mat = r.dirt ? dirtM : (r.cls === 0 ? expArtM : expResM);
     remapRibbon(r.pts, r.hw, y, mat, 1 / 16, 1);
     // minimap / walk-table / scatter-clearance register (decimated polyline)
@@ -9245,6 +9250,21 @@ function updateCops(dt) {
       else { vx = tdx / td; vz = tdz / td; spd = 1.6; moving = true; m.rotation.y = Math.atan2(vx, vz); }
     }
     if (moving) {
+      // route around buildings instead of beelining into them (cop-walks-into-
+      // building, bug mreelusq): the same whisker the pedestrians use — probe
+      // ahead, hold a clear side bearing briefly. Aim (m.rotation.y, set above)
+      // still faces the target, so the cop reads as flanking. Exterior only.
+      if (!c.interior) {
+        if (c.avoidT > 0) { c.avoidT -= dt; vx = c.avoidVX; vz = c.avoidVZ; }
+        else if (!pointFree(c.x + vx * 1.8, c.z + vz * 1.8, 0.5)) {
+          for (var caw = 0; caw < 6; caw++) {
+            var cang = (caw < 2 ? 0.66 : caw < 4 ? 1.25 : 1.95) * (caw % 2 === 0 ? 1 : -1);
+            var cca = Math.cos(cang), csa = Math.sin(cang);
+            var cwx = vx * cca - vz * csa, cwz = vx * csa + vz * cca;
+            if (pointFree(c.x + cwx * 1.8, c.z + cwz * 1.8, 0.5)) { c.avoidVX = cwx; c.avoidVZ = cwz; c.avoidT = 0.3; vx = cwx; vz = cwz; break; }
+          }
+        }
+      }
       c.x += vx * spd * dt; c.z += vz * spd * dt;
       c.x = Math.max(-HALF + 3, Math.min(HALF - 3, c.x));
       c.z = Math.max(-HALF + 3, Math.min(HALF - 3, c.z));
