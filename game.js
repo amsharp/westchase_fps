@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.64.0';
+var GAME_VERSION = 'v1.64.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -9942,7 +9942,11 @@ function updateNPCs(dt) {
       // frame; if blocked, hold the first clear side bearing for a beat instead
       // of grinding into the wall until pushOut + stuck-detection bail us out
       if (n.avoidT > 0) { n.avoidT -= dt; vx = n.avoidVX; vz = n.avoidVZ; }
-      else if ((npcAnimF + i) % 3 === 0 && d > 2.2 && n.doorSeek === undefined) {   // doorway targets sit ON a wall face — don't steer away from them
+      // whisker steering runs on door errands too now — the prop packs put
+      // ATMs/planters/mailboxes ON the door approaches and NPCs sailed
+      // straight into them (bug reports x4). Only the final wall approach
+      // (d<=6) keeps heading in, since the doorway target sits ON the face.
+      else if ((npcAnimF + i) % 3 === 0 && d > 2.2 && (n.doorSeek === undefined || d > 6)) {
         var lookA = 1.5 + spd * 0.22;
         if (!pointFree(n.x + vx * lookA, n.z + vz * lookA, 0.45)) {
           for (var aw = 0; aw < 4; aw++) {
@@ -13388,7 +13392,9 @@ var npcTagPool = [];
 var NPC_TAG_MAX = 10, NPC_TAG_RANGE = 26;
 function updateNpcTags() {
   var pool = npcTagPool, i;
-  if (!netActive() || !state.running || inside || state.dead) { for (i = 0; i < pool.length; i++) pool[i].visible = false; return; }
+  // singleplayer gets NPC tags too (bug report: "name plates only show in
+  // multiplayer") — only gameplay-state gates remain
+  if (!state.running || inside || state.dead) { for (i = 0; i < pool.length; i++) pool[i].visible = false; return; }
   var px = player.x, pz = player.z, R2 = NPC_TAG_RANGE * NPC_TAG_RANGE, cands = [];
   for (i = 0; i < npcs.length; i++) { var n = npcs[i]; if (n.state === 'down' || n.state === 'ragdoll' || n.state === 'hidden') continue; var d2 = (n.x - px) * (n.x - px) + (n.z - pz) * (n.z - pz); if (d2 < R2) cands.push({ e: n, d2: d2, kind: 'npc', by: 0 }); }
   for (i = 0; i < cops.length; i++) { var cp = cops[i]; if (cp.state === 'down' || cp.interior) continue; var cd2 = (cp.x - px) * (cp.x - px) + (cp.z - pz) * (cp.z - pz); if (cd2 < R2) cands.push({ e: cp, d2: cd2, kind: 'cop', by: cp.baseY || 0 }); }
