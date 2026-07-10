@@ -880,25 +880,86 @@ function stripMall(x, z, w, names) {
 }
 
 // ---------------- specific landmarks ----------------
+// RaceTrac (bug mreepojo "half ass gas station"): the town's signature gas
+// station. Built local-space (venue system rotates/places it); local -z faces
+// the road. A proper branded canopy over a curbed 3-island forecourt with
+// detailed dispensers + bollards, a monument price sign, and forecourt
+// amenities so it reads as a complete station, not a bare slab + two boxes.
+var RT_RED = 0xd0202f;
+var gasFasciaCache = null;
+function gasFasciaTex() {
+  if (gasFasciaCache) return gasFasciaCache;
+  return gasFasciaCache = tex(128, function (g, s) {
+    g.fillStyle = '#d0202f'; g.fillRect(0, 0, s, s);
+    g.fillStyle = 'rgba(0,0,0,0.14)'; g.fillRect(0, 0, s, s * 0.12); g.fillRect(0, s * 0.88, s, s * 0.12);
+    g.fillStyle = '#ffffff'; g.font = 'bold ' + (s * 0.34) + 'px sans-serif';
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText('RaceTrac', s / 2, s / 2);
+  }, 4, 1);
+}
 function gasStation(x, z) {
   // convenience store (robbable), front faces north (-z) toward the road
   shop(x + 6, z, 16, 13, 5, '#e8e4da', ['RACETRAC'], '#c0392b', '#ffd94a', { face: -1, mmColor: '#e05a3a' });
-  // fuel canopy toward road/west
-  var cw = 20, cd = 13, cy = 5.6;
-  scene.add(box(cw, 0.7, cd, lamb({ color: 0xe8e2d0 }), x - 8, cy, z));
-  scene.add(box(cw, 0.5, 0.6, lamb({ color: 0xc0392b }), x - 8, cy - 0.55, z - cd / 2));
-  scene.add(box(cw, 0.5, 0.6, lamb({ color: 0xc0392b }), x - 8, cy - 0.55, z + cd / 2));
-  var poleM = lamb({ color: 0xb8b2a4 });
-  [[x - 16, z - 4], [x, z - 4], [x - 16, z + 4], [x, z + 4]].forEach(function (p) { scene.add(cyl(0.25, 0.25, cy, 8, poleM, p[0], cy / 2, p[1])); });
-  // pump islands
-  [[x - 12, z], [x - 4, z]].forEach(function (p) {
-    scene.add(box(3.2, 0.3, 1.4, lamb({ color: 0x555b60 }), p[0], 0.25, p[1]));
-    scene.add(box(0.9, 1.3, 0.9, lamb({ color: 0xcc3b2b }), p[0] - 0.7, 0.95, p[1]));
-    scene.add(box(0.9, 1.3, 0.9, lamb({ color: 0xcc3b2b }), p[0] + 0.7, 0.95, p[1]));
+  var concM = lamb({ color: 0xcfccc2 }), curbM = lamb({ color: 0xdedbd2 });
+  var poleM = lamb({ color: 0xb8b2a4 }), redM = lamb({ color: RT_RED });
+  var dispM = lamb({ color: 0x3a3d42 }), faceM = lamb({ color: 0xd8dcde }), screenM = lamb({ color: 0x0d1418 });
+  var soffitM = lamb({ color: 0xf3f1ea }), hoseM = lamb({ color: 0x2a2a2a }), boltM = lamb({ color: 0xe6b800 });
+  var fasciaM = lamb({ map: gasFasciaTex() });
+  var cx = x - 8, cw = 22, cd = 14, cy = 6.0;                     // canopy centre/size
+  // light concrete forecourt pad under the canopy (reads as a real pump court)
+  scene.add(box(cw + 3, 0.09, cd + 2.5, concM, cx, 0.13, z));
+  // canopy: white soffit + roof slab + branded red fascia band on all 4 sides
+  scene.add(box(cw, 0.55, cd, soffitM, cx, cy, z));               // roof slab
+  scene.add(box(cw - 1.2, 0.12, cd - 1.2, soffitM, cx, cy - 0.34, z)); // bright soffit underside
+  scene.add(box(cw + 0.2, 0.78, 0.5, fasciaM, cx, cy - 0.25, z - cd / 2 - 0.02));
+  scene.add(box(cw + 0.2, 0.78, 0.5, fasciaM, cx, cy - 0.25, z + cd / 2 + 0.02));
+  var fsE = box(0.5, 0.78, cd + 0.2, fasciaM, cx - cw / 2 - 0.02, cy - 0.25, z); scene.add(fsE);
+  var fsW = box(0.5, 0.78, cd + 0.2, fasciaM, cx + cw / 2 + 0.02, cy - 0.25, z); scene.add(fsW);
+  // recessed light panels on the soffit
+  var litM = lamb({ color: 0xfffef2 });
+  for (var li = -1; li <= 1; li++) scene.add(box(cw - 3, 0.05, 0.7, litM, cx, cy - 0.41, z + li * 3.6));
+  // 4 sturdy canopy columns with red bases
+  [[cx - cw / 2 + 1.5, z - 5], [cx + cw / 2 - 1.5, z - 5], [cx - cw / 2 + 1.5, z + 5], [cx + cw / 2 - 1.5, z + 5]].forEach(function (p) {
+    scene.add(cyl(0.32, 0.32, cy - 0.3, 10, poleM, p[0], (cy - 0.3) / 2, p[1]));
+    scene.add(cyl(0.42, 0.5, 0.9, 10, redM, p[0], 0.45, p[1]));
   });
-  // tall price sign at road
-  scene.add(cyl(0.2, 0.2, 6, 6, poleM, x - 17, 3, z + 5));
-  signPlane(x - 17, 6.4, z + 5, 0, 3.2, 2, ['GAS', '$3.29'], '#12508f', '#ffd94a');
+  // one detailed fuel dispenser (body + display face + screen + red topper + hose)
+  function dispenser(dx, dz, ry) {
+    var g = new THREE.Group();
+    g.add(box(0.85, 1.55, 1.05, dispM, 0, 0.9, 0));
+    g.add(box(0.7, 1.15, 0.06, faceM, 0, 1.0, 0.56));            // display face front
+    g.add(box(0.7, 1.15, 0.06, faceM, 0, 1.0, -0.56));           // display face back
+    g.add(box(0.46, 0.34, 0.08, screenM, 0, 1.32, 0.58));        // price screen
+    g.add(box(0.46, 0.34, 0.08, screenM, 0, 1.32, -0.58));
+    g.add(box(0.95, 0.26, 1.12, redM, 0, 1.78, 0));              // red brand topper
+    g.add(cyl(0.05, 0.05, 0.55, 5, hoseM, 0.5, 1.0, 0.2));       // nozzle holster/hose
+    g.position.set(dx, 0, dz); g.rotation.y = ry || 0; scene.add(g);
+  }
+  // 3 curbed pump islands, 2 dispensers each, bollards at the ends
+  [cx - 6.5, cx, cx + 6.5].forEach(function (ix) {
+    scene.add(box(2.0, 0.22, 5.4, curbM, ix, 0.24, z));          // raised safety island
+    dispenser(ix, z - 1.4, 0); dispenser(ix, z + 1.4, Math.PI);
+    scene.add(cyl(0.12, 0.14, 0.85, 8, boltM, ix, 0.42, z - 2.5)); // end bollards
+    scene.add(cyl(0.12, 0.14, 0.85, 8, boltM, ix, 0.42, z + 2.5));
+  });
+  // monument price sign at the road corner (pole + red brand cabinet + prices)
+  var sx = cx - cw / 2 - 3, sz = z + cd / 2 + 1;
+  scene.add(box(0.9, 6.2, 0.5, poleM, sx, 3.1, sz));
+  scene.add(box(3.6, 1.7, 0.7, redM, sx, 6.3, sz));               // brand cabinet
+  signPlane(sx, 6.3, sz + 0.38, 0, 3.2, 1.4, ['RaceTrac'], '#d0202f', '#ffffff');
+  signPlane(sx, 6.3, sz - 0.38, Math.PI, 3.2, 1.4, ['RaceTrac'], '#d0202f', '#ffffff');
+  scene.add(box(3.4, 2.5, 0.5, lamb({ color: 0x14243a }), sx, 4.2, sz));  // price panel body
+  signPlane(sx, 4.2, sz + 0.28, 0, 3.0, 2.2, ['REG 3.29', 'PLUS 3.59', 'PREM 3.89'], '#14243a', '#ffd94a');
+  signPlane(sx, 4.2, sz - 0.28, Math.PI, 3.0, 2.2, ['REG 3.29', 'PLUS 3.59', 'PREM 3.89'], '#14243a', '#ffd94a');
+  addCollider(sx, sz, 1.2, 1.2);
+  // forecourt amenities against the store front: air/water, ice box, trash, propane
+  var afx = x + 6, afz = z - 7.2;                                 // store front line
+  var airM = lamb({ color: 0xe23b2e }), iceM = lamb({ color: 0xf2f2f2 }), binM = lamb({ color: 0x2e6b3a });
+  scene.add(box(0.7, 1.4, 0.8, airM, afx - 6, 0.7, afz)); scene.add(box(0.75, 0.4, 0.85, screenM, afx - 6, 1.5, afz)); // air machine
+  var iceB = box(1.6, 1.3, 1.0, iceM, afx - 3.6, 0.65, afz); scene.add(iceB); signPlane(afx - 3.6, 0.75, afz - 0.51, Math.PI, 1.3, 0.6, ['ICE'], '#2f6fb0', '#ffffff'); // ice merchandiser
+  scene.add(box(0.7, 0.9, 0.7, binM, afx + 3.6, 0.5, afz));       // trash can
+  scene.add(cyl(0.5, 0.5, 1.3, 8, lamb({ color: 0xd8b23a }), afx + 5.4, 0.75, afz)); // propane exchange cage
+  addCollider(afx - 6, afz, 1.0, 1.0); addCollider(afx - 3.6, afz, 1.8, 1.2);
 }
 
 // self-storage: rows of roll-up doors under low gray standing-seam metal gable
