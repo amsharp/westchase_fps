@@ -7576,6 +7576,66 @@ if (WC_REMAP) (function landscapePass() {
     }
   }
 
+  // ============ WAVE 3: FRONTAGE STRIPS + CORNER SIGNATURE PLANTINGS ============
+  // Ornamentals on the grass verge beyond each arterial/collector sidewalk —
+  // fountain-grass clusters, short low hedges, and crepe myrtles, alternating
+  // sides at a loose spacing. spotClear keeps them off poles/hydrants/signs and
+  // out of the road/forest; remapInClear/houseBlocksSpot keep them off
+  // buildings. Then denser signature beds anchor the four main-intersection
+  // corners.
+  function grassCluster(x, z, ry) {
+    mulchBed(x, z, rnd(2.0, 2.6), rnd(1.5, 2.0), ry);
+    var n = 3 + (Math.random() * 3 | 0);
+    for (var i = 0; i < n; i++) grass(x + rnd(-0.9, 0.9), z + rnd(-0.7, 0.7), rnd(0.7, 1.05));
+  }
+  if (RM) {
+    for (var rf = 0; rf < RM.roads.length; rf++) {
+      var rd = RM.roads[rf]; if (rd.cls > 1 || rd.dirt) continue;
+      var lenF = rd.cum[rd.cum.length - 1], fsd = 1;
+      for (var sf2 = 26; sf2 < lenF - 20; sf2 += rnd(15, 20)) {
+        var pf = rmAt(rd.pts, rd.cum, sf2), offF = rd.hw + rnd(5, 8);
+        var fx3 = pf.x - pf.uz * offF * fsd, fz3 = pf.z + pf.ux * offF * fsd; fsd = -fsd;
+        if (!spotClear(fx3, fz3) || inLake(fx3, fz3)) continue;
+        if (typeof remapInClear !== 'undefined' && remapInClear(fx3, fz3, 1)) continue;
+        if (typeof houseBlocksSpot !== 'undefined' && houseBlocksSpot(fx3, fz3)) continue;
+        var roll = Math.random();
+        if (roll < 0.42) {
+          grassCluster(fx3, fz3, Math.atan2(pf.ux, pf.uz));
+        } else if (roll < 0.72) {
+          var hl = rnd(1.6, 2.4);   // low hedge parallel to the road
+          hedge(fx3 - pf.ux * hl, fz3 - pf.uz * hl, fx3 + pf.ux * hl, fz3 + pf.uz * hl, rnd(0.55, 0.72), 0.6);
+          mulchBed(fx3, fz3, hl * 2 + 0.5, 1.4, Math.atan2(pf.ux, pf.uz));
+          if (Math.random() < 0.5) shrub(fx3, fz3, rnd(0.5, 0.75), pick(SHRUB_KEYS));
+        } else {
+          myrtle(fx3, fz3);
+          if (okShrub()) shrub(fx3 + rnd(-1.2, 1.2), fz3 + rnd(-1.2, 1.2), rnd(0.55, 0.8), pick(SHRUB_KEYS));
+        }
+      }
+    }
+  }
+  // signature corner beds — probe each intersection quadrant for a clear wedge
+  var quads = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
+  for (var qc = 0; qc < quads.length; qc++) {
+    var sqx = quads[qc][0], sqz = quads[qc][1], placed = false;
+    for (var rad = 24; rad <= 40 && !placed; rad += 6) {
+      for (var aa = 0; aa < 3 && !placed; aa++) {
+        var ang = Math.PI / 4 + (aa - 1) * 0.22;
+        var cx = sqx * Math.cos(ang) * rad, cz = sqz * Math.sin(ang) * rad;
+        if (!openClear(cx, cz)) continue;
+        mulchBed(cx, cz, rnd(3.4, 4.4), rnd(2.8, 3.6), rnd(0, 3.14));
+        myrtle(cx, cz);
+        var nb = 4 + (Math.random() * 2 | 0);
+        for (var bi = 0; bi < nb; bi++) {
+          var ba = bi / nb * Math.PI * 2, brr = rnd(1.0, 1.6);
+          shrub(cx + Math.cos(ba) * brr, cz + Math.sin(ba) * brr, rnd(0.55, 0.85), Math.random() < 0.4 ? 'bloom' : pick(SHRUB_KEYS));
+        }
+        grass(cx + rnd(-1.5, 1.5), cz + rnd(-1.5, 1.5), rnd(0.8, 1.1));
+        grass(cx + rnd(-1.5, 1.5), cz + rnd(-1.5, 1.5), rnd(0.8, 1.1));
+        placed = true;
+      }
+    }
+  }
+
   lflush();
 })();
 
