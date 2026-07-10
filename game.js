@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.62.1';
+var GAME_VERSION = 'v1.62.2';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -46,16 +46,19 @@ var WEAPONS = {
   auto:   { name: 'AK-47',  price: 1000, dmg: 34, rate: 0.11, auto: true, spread: 0.012, desc: 'Full auto, long range.', flashAt: [0.26, -0.255, -1.2] },
   rocket: { name: 'ROCKET LAUNCHER', price: 2000, rate: 5, rocket: true, desc: 'Danger close. 5s reload.', flashAt: [0.3, -0.28, -1.0] },
   raygun: { name: 'RAY GUN', price: 0, dmg: 70, rate: 0.22, auto: false, spread: 0, laser: true, desc: 'Alien tech. Semi-auto. Never misses.', flashAt: [0.26, -0.25, -0.95] },
+  // #78 quest-reward guns (not purchasable; granted by Q6 / Q8)
+  neon_blaster: { name: 'NEON BLASTER', price: 0, dmg: 68, rate: 0.19, auto: false, spread: 0.006, laser: true, quest: true, desc: '8-bit ray tech. ADS to bend time.', flashAt: [0.26, -0.25, -0.95] },
+  silenced: { name: 'SILENCED PISTOL', price: 0, dmg: 44, rate: 0.22, auto: false, spread: 0.012, silenced: true, quest: true, desc: 'Quiet work. Clean kills stay off the radar.', flashAt: [0.26, -0.265, -1.05] },
   snack:  { name: 'SNACK', snack: true, rate: 0.8 },
   soda:   { name: 'SODA', snack: true, rate: 0.6 }   // vending machines (streetprops)
 };
-var GUN_LIST = ['pistol', 'smg', 'rifle', 'auto', 'rocket', 'raygun'];
+var GUN_LIST = ['pistol', 'smg', 'rifle', 'auto', 'rocket', 'raygun', 'neon_blaster', 'silenced'];
 
 // ---------------- state ----------------
 var state = {
   running: false, menu: null,
   money: 400, hp: 100, dead: false,
-  owned: { pistol: false, smg: false, rifle: false, auto: false, rocket: false, raygun: false },
+  owned: { pistol: false, smg: false, rifle: false, auto: false, rocket: false, raygun: false, neon_blaster: false, silenced: false },
   equipped: 'fists',
   lastHurt: -99, lastCarHit: -99, lastRob: -99,
   wanted: 0, civKills: 0, copKills: 0, snacks: 0
@@ -7402,7 +7405,7 @@ function copAimArm(c, m, tgt) {
 // world-space muzzle tip of the cop's held gun (null while holstered)
 // front-of-barrel z for each held (dropMesh) gun = -halfDepth of its main body
 // box, so the world/cop muzzle flash sits ON the tip (not floating past it)
-var HELD_MUZZLE_Z = { pistol: -0.225, smg: -0.30, rifle: -0.475, auto: -0.425, rocket: -0.5, raygun: -0.30 };
+var HELD_MUZZLE_Z = { pistol: -0.225, smg: -0.30, rifle: -0.475, auto: -0.425, rocket: -0.5, raygun: -0.30, neon_blaster: -0.30, silenced: -0.42 };
 function copMuzzle(c) {
   var gun = c.mesh.userData.heldGun;
   if (!gun) return null;
@@ -8536,6 +8539,16 @@ function dropMesh(kind) {
     g.add(sph(0.09, new THREE.MeshBasicMaterial({ color: 0x66ff88 }), 0, 0, -0.3, 8, 6));
     g.add(box(0.03, 0.2, 0.16, lamb({ color: 0xb02030 }), 0, 0.12, 0.1));
     g.add(box(0.08, 0.2, 0.1, gripM, 0, -0.16, 0.16));
+  }
+  else if (kind === 'neon_blaster') {   // #78 tinted ray-gun body
+    var nb2 = cyl(0.07, 0.1, 0.5, 8, phong({ color: 0x1a2b3a, emissive: 0x1560a0, shininess: 120 }), 0, 0, 0); nb2.rotation.x = Math.PI / 2; g.add(nb2);
+    g.add(sph(0.09, new THREE.MeshBasicMaterial({ color: 0x33ffe0 }), 0, 0, -0.3, 8, 6));
+    g.add(box(0.03, 0.2, 0.16, new THREE.MeshBasicMaterial({ color: 0xff40d0 }), 0, 0.12, 0.1));
+    g.add(box(0.08, 0.2, 0.1, gripM, 0, -0.16, 0.16));
+  }
+  else if (kind === 'silenced') {   // #78 pistol + suppressor
+    g.add(box(0.1, 0.12, 0.45, darkMetalM, 0, 0, 0)); g.add(box(0.09, 0.24, 0.13, gripM, 0, -0.14, 0.14));
+    var sup = cyl(0.05, 0.05, 0.34, 10, darkMetalM, 0, 0, -0.36); sup.rotation.x = Math.PI / 2; g.add(sup);
   }
   else { var tb = cyl(0.09, 0.09, 1.0, 10, rocketBodyM, 0, 0, 0); tb.rotation.x = Math.PI / 2; g.add(tb); }
   return g;
@@ -10427,7 +10440,7 @@ var psxArms = null;
 // arms also hold the Meshy gun viewmodels: the root reparents into the
 // equipped gun group (so draw/reload anims carry the hands along) and is
 // posed each frame on a static frame of the 'grab' clip
-var GUNHOLD_GROUPS = { pistol: 1, smg: 1, rifle: 1, auto: 1, rocket: 1 };
+var GUNHOLD_GROUPS = { pistol: 1, smg: 1, rifle: 1, auto: 1, rocket: 1, silenced: 1 };   // #78: silenced reuses the pistol two-hand hold
 var gunHold = { clip: 'relax', t: 0.75 };   // relax mid-frame: right palm sits on the grips
 // The shared relax/grab clip leaves the LEFT (support) arm hanging at the side,
 // which reads as a detached floating hand for every gun. After posing, we swing
@@ -10442,7 +10455,8 @@ var SUPPORT_POSE = {
   smg:    [[-1.59, -0.01, -1.16], [1.2, 0.4, -2.9], [2.1, -0.82, 0.3], [0.15, 0.3, -0.4]],
   rifle:  [[-1.59, -0.01, -1.16], [0.98, 0.4, -2.6], [1.7, -0.82, 0.3], [0.1, 0.3, -0.4]],
   auto:   [[-1.59, -0.01, -1.16], [0.98, 0.4, -2.7], [1.85, -0.82, 0.3], [0.1, 0.3, -0.4]],
-  rocket: [[-1.59, -0.01, -1.16], [1.1, 0.4, -2.6], [1.7, -0.82, 0.3], [0.1, 0.3, -0.4]]
+  rocket: [[-1.59, -0.01, -1.16], [1.1, 0.4, -2.6], [1.7, -0.82, 0.3], [0.1, 0.3, -0.4]],
+  silenced: [[-1.59, 0.5, -1.5], [1.2, 0.4, -3.2], [2.5, -0.82, 0.3], [0.2, 0.3, -0.4]]
 };
 // per-weapon forward anchor offset in the gun-group (camera) frame:
 // x=right, y=up, z toward-camera(+)/forward(-). The shared idle/relax/grab
@@ -10459,7 +10473,8 @@ var ANCHOR_OFF = {
   smg:    [0.09, -0.05, -0.36],
   rifle:  [0.10, -0.05, -0.39],
   auto:   [0.11, -0.05, -0.39],
-  rocket: [0.10, -0.05, -0.36]
+  rocket: [0.10, -0.05, -0.36],
+  silenced: [0.06, -0.06, -0.32]
 };
 var dbgArmOv = null;                 // debug override for SUPPORT_POSE (via __wc.dbgArm)
 var _supEuler = new THREE.Euler();
@@ -10488,7 +10503,8 @@ var GRIP_TGT = {
   smg:    [0.28, -0.30, -0.56],
   rifle:  [0.18, -0.42, -0.84],
   auto:   [0.19, -0.42, -0.76],
-  rocket: [0.22, -0.44, -0.68]
+  rocket: [0.22, -0.44, -0.68],
+  silenced: [0.21, -0.40, -0.52]
 };
 var _ikEnd = new THREE.Vector3(), _ikJ = new THREE.Vector3(), _ikTV = new THREE.Vector3(),
     _ikA = new THREE.Vector3(), _ikB = new THREE.Vector3(),
@@ -10895,6 +10911,20 @@ var vmSoda = new THREE.Group();
   vmSoda.add(vmArm(0.27, -0.45, -0.32, 0.15));
 })();
 vmMap.soda = vmSoda;
+// #78 quest guns reuse existing viewmodels as skins (own groups for visibility):
+// Neon Blaster = neon-tinted ray gun; Silenced Pistol = pistol + suppressor.
+var vmNeon = vmRaygun.clone(true);
+vmNeon.traverse(function (o) {
+  if (o.isMesh && o.material) {
+    o.material = o.material.clone();
+    if (o.material.color) o.material.color.lerp(new THREE.Color(0x2a5fd0), 0.55);
+    if (o.material.emissive !== undefined) { o.material.emissive = new THREE.Color(0x28e0ff); o.material.emissiveIntensity = 0.5; }
+  }
+});
+vmMap.neon_blaster = vmNeon;
+var vmSilenced = vmPistol.clone(true);
+(function () { var supp = cyl(0.032, 0.032, 0.30, 10, darkMetalM, 0.26, -0.265, -1.02); supp.rotation.x = Math.PI / 2; vmSilenced.add(supp); })();
+vmMap.silenced = vmSilenced;
 Object.keys(vmMap).forEach(function (k) { vm.add(vmMap[k]); vmMap[k].visible = false; });
 vmFists.visible = true;
 var zoomed = false;
@@ -11059,7 +11089,7 @@ function tryAttack() {
       puff(h.point, 0xd93a2a);
       meleeHit = state.equipped === 'fists';
       if (isClient()) netToHost({ t: 'dmgNpc', i: npcs.indexOf(npcHit), dmg: w.dmg, kx: dir.x, kz: dir.z });
-      else damageNPC(npcHit, w.dmg, dir.x, dir.z);
+      else damageNPC(npcHit, w.dmg, dir.x, dir.z, ghostActive());   // #78 Ghost: silenced kills stay silent (no star)
     }
     else if (remoteHit) { netSendHit(remoteHit, w.dmg, true); puff(h.point, 0xd93a2a); }
     else if (copMHit >= 0) {
@@ -11643,6 +11673,8 @@ function sfx(kind, at) {
     case 'pistol': nb(0.14, 1700, 0.5); bp(220, 0.08, 0.12, 'square', 90); break;
     case 'smg': nb(0.09, 2100, 0.35); break;
     case 'raygun': bp(1750, 0.14, 0.22, 'square', 420); bp(880, 0.1, 0.1, 'sawtooth', 220); break;
+    case 'neon_blaster': bp(2100, 0.12, 0.2, 'square', 520); bp(1200, 0.1, 0.12, 'sawtooth', 320); break;
+    case 'silenced': nb(0.05, 2600, 0.12); bp(320, 0.05, 0.05, 'sine', 120); break;   // muffled pfft
     case 'laser': bp(1350, 0.2, 0.22, 'sawtooth', 240); nb(0.06, 3000, 0.12); break;
     case 'rifle': nb(0.3, 900, 0.8); bp(120, 0.18, 0.2, 'sawtooth', 45); break;
     case 'whoosh': bp(280, 0.1, 0.1, 'sine', 90); break;
@@ -11677,9 +11709,11 @@ function refreshShop() {
   GUN_LIST.forEach(function (k) {
     var w = WEAPONS[k], row = document.createElement('div'); row.className = 'row';
     if (!w.price) return;   // not for sale (ray gun drops from... something)
-    var left = document.createElement('div'); left.innerHTML = '<b>' + w.name + '</b> — <span class="cash">$' + w.price + '</span><small>' + w.desc + '</small>'; row.appendChild(left);
+    var price = ghostBuy(w.price);
+    var pl = price < w.price ? '<span class="cash">$' + price + '</span> <small style="opacity:.6;text-decoration:line-through">$' + w.price + '</small>' : '<span class="cash">$' + price + '</span>';
+    var left = document.createElement('div'); left.innerHTML = '<b>' + w.name + '</b> — ' + pl + '<small>' + w.desc + '</small>'; row.appendChild(left);
     if (state.owned[k]) { var sp = document.createElement('span'); sp.className = 'owned'; sp.textContent = 'OWNED'; row.appendChild(sp); }
-    else { var btn = document.createElement('button'); btn.textContent = 'BUY'; btn.disabled = state.money < w.price; btn.onclick = function () { if (state.dead) return; if (state.money < w.price) { playVoiceAny(['dealer_nocash_1', 'dealer_nocash_2'], 0.5, 'dealerNo', 5, { ref: dealer }); sfx('deny'); return; } state.money -= w.price; state.owned[k] = true; shopBought = true; playVoiceAny(['dealer_buy_1', 'dealer_buy_2'], 0.5, 'dealerBuy', 4, { ref: dealer }); sfx('buy'); popup(w.name + ' purchased!'); refreshShop(); }; row.appendChild(btn); }
+    else { var btn = document.createElement('button'); btn.textContent = 'BUY'; btn.disabled = state.money < price; btn.onclick = function () { if (state.dead) return; if (state.money < price) { playVoiceAny(['dealer_nocash_1', 'dealer_nocash_2'], 0.5, 'dealerNo', 5, { ref: dealer }); sfx('deny'); return; } state.money -= price; state.owned[k] = true; shopBought = true; playVoiceAny(['dealer_buy_1', 'dealer_buy_2'], 0.5, 'dealerBuy', 4, { ref: dealer }); sfx('buy'); popup(w.name + ' purchased!'); refreshShop(); }; row.appendChild(btn); }
     rows.appendChild(row);
   });
   refreshSellRows(rows);
@@ -11702,14 +11736,15 @@ function refreshSellRows(rows) {
   for (var k = 0; k < slots.length; k++) { var s = state.bag[slots[k]]; if (!agg[s.id]) { agg[s.id] = 0; order.push(s.id); } agg[s.id] += s.n; }
   var hdr = document.createElement('div'); hdr.className = 'row'; hdr.innerHTML = '<b style="color:#ffd98a; letter-spacing:2px;">— SELL JUNK &amp; VALUABLES —</b>'; rows.appendChild(hdr);
   order.forEach(function (id) {
-    var def = itemDef(id), n = agg[id], total = def.value * n;
+    var def = itemDef(id), n = agg[id], unit = ghostSell(def.value), total = unit * n;
     var row = document.createElement('div'); row.className = 'row';
-    var left = document.createElement('div'); left.innerHTML = itemIconHtml(id) + '<b>' + def.name + '</b> &times;' + n + ' — <span class="cash">$' + def.value + '</span> ea<small>sells for $' + total + '</small>'; row.appendChild(left);
+    var ea = unit > def.value ? '<span class="cash">$' + unit + '</span> <small style="color:#8ee87f">(+15%)</small>' : '<span class="cash">$' + unit + '</span>';
+    var left = document.createElement('div'); left.innerHTML = itemIconHtml(id) + '<b>' + def.name + '</b> &times;' + n + ' — ' + ea + ' ea<small>sells for $' + total + '</small>'; row.appendChild(left);
     var btn = document.createElement('button'); btn.textContent = 'SELL';
     btn.onclick = function () {
       var got = 0, rem = n;
       for (var i = 0; i < state.bag.length && rem > 0; i++) { var s = state.bag[i]; if (s && s.id === id) { var take = s.n; got += bagRemove(i, take); rem -= take; } }
-      state.money += got * def.value; sfx('cash'); popup('+$' + (got * def.value));
+      state.money += got * unit; sfx('cash'); popup('+$' + (got * unit));
       refreshShop();
     };
     row.appendChild(btn); rows.appendChild(row);
@@ -12207,10 +12242,15 @@ function finishQuest(id) {
 //   ghost    (q8)                 — WORKING: silenced-pistol kills don't raise wanted + dealer discount.
 //   dogwhistle (q9)               — WORKING: B summons/dismisses Biscuit the follow companion.
 //   ending   (q10)               — sets the finale flag; town-wide perk is future work.
+// unlock flag -> the weapon KIND it makes usable (owned + inventory-equippable)
+var UNLOCK_GUN = { reflexes: 'neon_blaster', ghost: 'silenced' };
 function grantReward(id) {
   var d = questDef(id); if (!d || !d.reward) return;
   var r = d.reward;
-  if (r.unlock) state.unlocks[r.unlock] = true;
+  if (r.unlock) {
+    state.unlocks[r.unlock] = true;
+    if (UNLOCK_GUN[r.unlock]) { state.owned[UNLOCK_GUN[r.unlock]] = true; toast('New weapon in your inventory: <b>' + WEAPONS[UNLOCK_GUN[r.unlock]].name + '</b> (TAB to equip).', 4200); }
+  }
   if (r.item) {
     questRegisterItems();   // make sure the reward item resolves
     var left = bagAdd(r.item, r.n || 1);
@@ -12683,10 +12723,11 @@ function updateLantern(dt) {
 
 // ---- 8-Bit Reflexes (Q6): ADS bullet-time on a drainable meter/cooldown ----
 var reflex = { active: false, meter: 1, cd: 0 };
+var adsDown = false;   // right-hold ADS (any weapon) for the reflexes bullet-time
 function reflexScale() { return reflex.active ? 0.34 : 1; }
 function setBulletTime(on) { reflex.forced = !!on; }   // debug/manual override
 function updateReflex(dt) {
-  var want = reflex.forced || (hasUnlock('reflexes') && zoomed && reflex.meter > 0.03 && reflex.cd <= 0);
+  var want = reflex.forced || (hasUnlock('reflexes') && (zoomed || adsDown) && reflex.meter > 0.03 && reflex.cd <= 0);
   reflex.active = want;
   if (want) { reflex.meter = Math.max(0, reflex.meter - dt * 0.55); if (reflex.meter <= 0) { reflex.cd = 3.5; reflex.active = false; } }
   else { if (reflex.cd > 0) reflex.cd -= dt; reflex.meter = Math.min(1, reflex.meter + dt * 0.4); }
@@ -12739,6 +12780,9 @@ function updateBiscuit(dt) {
 
 // ---- ghost (Q8): stealth kills via the silenced pistol don't raise wanted ----
 function ghostActive() { return hasUnlock('ghost') && state.equipped === 'silenced'; }
+// Cleaners fence connection: buy -10%, sell +15% once Ghost is unlocked
+function ghostBuy(p) { return hasUnlock('ghost') ? Math.max(0, Math.round(p * 0.9)) : p; }
+function ghostSell(v) { return hasUnlock('ghost') ? Math.round(v * 1.15) : v; }
 
 // ---- master capability update (called from the loop + __wc.tick) ----
 function updateQuestCaps(dt) {
@@ -12747,7 +12791,7 @@ function updateQuestCaps(dt) {
 // debug: force-grant a capability (and its item) without playing the quest
 function giveUnlock(flag) {
   state.unlocks[flag] = true;
-  var ITMAP = { silenced: 'silenced', reflexes: 'neon_blaster', ghost: 'silenced' };
+  if (UNLOCK_GUN[flag]) state.owned[UNLOCK_GUN[flag]] = true;
   saveQuests();
   return state.unlocks;
 }
@@ -13748,11 +13792,14 @@ document.addEventListener('mousemove', function (e) { if (document.pointerLockEl
 document.addEventListener('mousedown', function (e) {
   if (document.pointerLockElement !== canvas || state.menu) return;
   if (e.button === 0) { mouseDown = true; tryAttack(); }
-  else if (e.button === 2 && state.equipped === 'rifle' && !state.dead && !driving) setZoom(true);
+  else if (e.button === 2 && !state.dead && !driving) {
+    if (state.equipped === 'rifle') setZoom(true);
+    else adsDown = true;   // #78: right-hold = ADS (drives 8-Bit Reflexes bullet-time)
+  }
 });
 document.addEventListener('mouseup', function (e) {
   if (e.button === 0) mouseDown = false;
-  else if (e.button === 2) setZoom(false);
+  else if (e.button === 2) { setZoom(false); adsDown = false; }
 });
 function cycleEquip(dir) {
   // quick-swap through everything you own; TAB inventory still works too
@@ -14552,7 +14599,9 @@ window.__wc = {
   setBulletTime: setBulletTime, reflexState: function () { return { active: reflex.active, meter: Math.round(reflex.meter * 100) / 100, cd: Math.round(reflex.cd * 100) / 100, scale: reflexScale() }; },
   summonBiscuit: summonBiscuit, dismissBiscuit: dismissBiscuit, toggleBiscuit: toggleBiscuit,
   biscuitState: function () { return biscuit ? { x: Math.round(biscuit.x * 10) / 10, z: Math.round(biscuit.z * 10) / 10, dist: Math.round(Math.sqrt((biscuit.x - player.x) * (biscuit.x - player.x) + (biscuit.z - player.z) * (biscuit.z - player.z)) * 10) / 10 } : null; },
-  ghostActive: ghostActive,
+  ghostActive: ghostActive, ghostBuy: ghostBuy, ghostSell: ghostSell,
+  ownWeapon: function (k) { if (WEAPONS[k]) { state.owned[k] = true; return true; } return false; },
+  setAdsDown: function (v) { adsDown = !!v; },
   questGiverNear: questGiverNear, questGiverTalk: questGiverTalk, refreshQuestPanel: refreshQuestPanel,
   openQuestLog: function () { openMenu('quest'); }, saveQuests: saveQuests, loadQuests: loadQuests,
   // --- #77 quest-asset wiring test hooks ---
