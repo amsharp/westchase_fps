@@ -4991,7 +4991,33 @@ function meshyPose(sk, clipKey, cycles, oneshot) {
   if (sk.legFix) {
     if (!_legFixQ) { _legFixQ = new THREE.Quaternion(); _legFixAx = new THREE.Vector3(0, 1, 0); }
     var _lb = sk.bones[sk.legLi], _rb = sk.bones[sk.legRi];
-    if (_lb && _rb) { _legFixQ.setFromAxisAngle(_legFixAx, sk.legFix); _lb.quaternion.premultiply(_legFixQ); _rb.quaternion.premultiply(_legFixQ); }
+    if (_lb && _rb) {
+      if (typeof sk.legFix === 'number') {   // plain number = parallel Y yaw (HECTOR/NIA)
+        _legFixAx.set(0, 1, 0);
+        _legFixQ.setFromAxisAngle(_legFixAx, sk.legFix);
+        _lb.quaternion.premultiply(_legFixQ); _rb.quaternion.premultiply(_legFixQ);
+      } else {
+        // object form {y, z}: y = parallel Y yaw as above; z = MIRRORED Z-roll
+        // adduction (legL +z / legR -z) pulling both legs symmetrically inward.
+        // GARY's splay isn't a pure yaw retarget error — Y alone leaves the
+        // stance ~0.62u wide — his upper legs also sit abducted vs the shared
+        // clip's source rig, so the residual is closed with the Z pair.
+        // Swept in tools/_animtuneGary.js with a foot-height sanity term
+        // (large single-axis X/Z "optima" lift the legs can-can style).
+        if (sk.legFix.y) {
+          _legFixAx.set(0, 1, 0);
+          _legFixQ.setFromAxisAngle(_legFixAx, sk.legFix.y);
+          _lb.quaternion.premultiply(_legFixQ); _rb.quaternion.premultiply(_legFixQ);
+        }
+        if (sk.legFix.z) {
+          _legFixAx.set(0, 0, 1);
+          _legFixQ.setFromAxisAngle(_legFixAx, sk.legFix.z);
+          _lb.quaternion.premultiply(_legFixQ);
+          _legFixQ.setFromAxisAngle(_legFixAx, -sk.legFix.z);
+          _rb.quaternion.premultiply(_legFixQ);
+        }
+      }
+    }
   }
   sk.bones[d.rootI].position.y = sk.rootBindY + (c.gy || 0) + (c.y[f0] / 2000) * (1 - a) + (c.y[f1] / 2000) * a;
 }
@@ -5000,7 +5026,9 @@ function meshyPose(sk, clipKey, cycles, oneshot) {
 // an entry; everyone else stays at 0 (untouched). Measured lateral foot spread
 // for HECTOR drops 0.854u -> 0.31u (roster norm ~0.28u) at 1.2 rad.
 var _legFixQ = null, _legFixAx = null;
-var MESHY_LEG_FIX = { HECTOR: 1.2, NIA: 1.2 };   // GARY splays too but Y-yaw alone doesn't fix it (lat stuck ~0.62) — needs an axis sweep
+// Number = parallel Y yaw; {y,z} = Y yaw + mirrored Z adduction (see meshyPose).
+// GARY: lat 0.681u -> 0.327u (roster norm ~0.28-0.32u), feet stay planted.
+var MESHY_LEG_FIX = { HECTOR: 1.2, NIA: 1.2, GARY: { y: 0.2, z: 0.25 } };
 function buildMeshySkinned(cfg, mi) {
   var d = getMeshySkin(mi);
   var g = new THREE.Group();
@@ -5549,12 +5577,18 @@ function listAccessories() {
 }
 // group-local placement for push (front) / side (beside) modes. The owner group
 // is upright (yaw only), local +z is forward; authored front is -x so a yaw of
-// +PI/2 turns the prop's front to face the owner's forward.
+// +PI/2 turns the prop's front to face the owner's forward. Exceptions (from
+// probing the geometry, bug batch mreguavi/mregcwvd): the WALKER's hand rails
+// run along authored z at x +-0.24 (ry 0 keeps them fore-aft, ends toward the
+// user — +PI/2 turned the handles sideways so it read backwards/dragged); the
+// SUITCASE's telescoping handle is on the authored -z face (ry PI points it at
+// the owner's right hand; it also moves to the RIGHT side, x -0.36 — hands are
+// on -x in these rigs).
 var ACC_PLACE = {
   stroller:  { mode: 'push', x: 0,     z: 0.62,  ry: Math.PI / 2 },
-  walker:    { mode: 'push', x: 0,     z: 0.5,   ry: Math.PI / 2 },
+  walker:    { mode: 'push', x: 0,     z: 0.5,   ry: 0 },
   bicycle:   { mode: 'side', x: 0.5,   z: 0.05,  ry: Math.PI / 2 },
-  suitcase:  { mode: 'side', x: 0.34,  z: -0.42, ry: Math.PI / 2 },
+  suitcase:  { mode: 'side', x: -0.36, z: -0.34, ry: Math.PI },
   wagon:     { mode: 'side', x: 0.0,   z: 0.72,  ry: Math.PI / 2 }
 };
 // Held items parent to the right-hand bone for POSITION (so they ride the arm
