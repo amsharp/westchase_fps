@@ -4293,6 +4293,17 @@ var HATN = ['NONE', 'CAP', 'BEANIE', 'COWBOY', 'POLICE'];
 var GLASSN = ['NONE', 'SHADES', 'GLASSES'];
 var GEARN = ['NONE', 'PURSE', 'BACKPACK', 'CHAIN'];
 var CC_FIELDS = ['skin', 'hair', 'hairC', 'eyes', 'mouth', 'faceX', 'shirt', 'shirtC', 'shirtC2', 'pants', 'pantsC', 'shoeC', 'hat', 'hatC', 'glasses', 'extra', 'build', 'preset'];
+// social-groups (#67): XANDER ships as a standalone deliverable (xanderchar.js,
+// loaded before game.js). Merge his entry onto the END of the civ roster so he
+// spawns as a normal pedestrian AND is buildable by name — appending last keeps
+// every existing preset index (and saved wc_char) stable. Idempotent + guarded.
+if (typeof MESHY_CHARS !== 'undefined' && typeof XANDER_CHARS !== 'undefined') {
+  for (var xci = 0; xci < XANDER_CHARS.length; xci++) {
+    var xcHave = false;
+    for (var xcj = 0; xcj < MESHY_CHARS.length; xcj++) if (MESHY_CHARS[xcj].n === XANDER_CHARS[xci].n) { xcHave = true; break; }
+    if (!xcHave) MESHY_CHARS.push(XANDER_CHARS[xci]);
+  }
+}
 var CC_MAX = { skin: CSKIN.length, hair: HAIRN.length, hairC: CHAIRC.length, eyes: EYESN.length, mouth: MOUTHN.length, faceX: FACEXN.length, shirt: SHIRTN.length, shirtC: CSHIRT.length, shirtC2: CSHIRT.length, pants: LEGSN.length, pantsC: CPANTS.length, shoeC: CSHOE.length, hat: HATN.length, hatC: CHAT.length, glasses: GLASSN.length, extra: GEARN.length, build: 5, preset: 4 + ((typeof MESHY_CHARS !== 'undefined') ? MESHY_CHARS.filter(function (m) { return !m.role || m.role === 'civ'; }).length : 0) };
 function seededRng(seed) { var s = seed >>> 0; return function () { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
 function randomCharConfig(rng) {
@@ -5000,6 +5011,18 @@ function setNpcTarget(n) {
       }
     }
   }
+  // social-groups (#67): a group FOLLOWER always heads for a ring slot around
+  // its leader instead of a free wander target — reusing all the movement +
+  // obstacle steering below, this just biases WHERE it walks so the cluster
+  // stays together without stacking (pushOut keeps the ~1.8-3.6u spacing).
+  if (n.grp && !n.grpLead && n.grp.lead && n.grp.lead !== n) {
+    var Ld = n.grp.lead;
+    if (Ld.state !== 'down' && Ld.state !== 'ragdoll') {
+      var ga = Math.random() * 6.2832, gr = 1.8 + Math.random() * 1.8;
+      n.tx = Ld.x + Math.cos(ga) * gr; n.tz = Ld.z + Math.sin(ga) * gr;
+      n.wayX = undefined; n.wayZ = undefined; n.doorSeek = undefined;
+    }
+  }
 }
 // scan traffic for a car bearing down on this NPC; returns the unit
 // perpendicular (away from the car's path) to sprint along, or null
@@ -5334,6 +5357,272 @@ function spawnNPC() {
   scene.add(mesh); npcs.push(n); setNpcTarget(n); maybeAttachAccessory(n); return n;
 }
 for (var ni = 0; ni < NPC_COUNT; ni++) spawnNPC();
+
+// ============================ SOCIAL GROUPS (#67) ============================
+// A few NAMED civilians roam town as a cohesive GROUP: followers glue to a
+// leader (the Sharp father DON) with cheap ring-offset steering that reuses the
+// normal wander + obstacle avoidance, and the group periodically halts to run a
+// scripted CONVERSATION — alternating speakers, the right voice per line where a
+// voice pack exists, plus a readable speech bubble for the wholesome/funny
+// flavor. Two flavours: the SHARP FAMILY (DON + a subset of his sons DYLAN /
+// DERIK / ALEX, with dad-to-son and brother banter) and the XANDER-DERIK gamer
+// friend pair. Group members are ordinary civilians (targetable, mortal) — the
+// group + conversation state cleans up on death / flee / combat so nothing ever
+// paths to a dead anchor or orphans a half-finished chat. Host/singleplayer
+// only: the cohesion + chat sim rides inside updateNPCs (which early-returns for
+// clients), voices play local (net:0), and members stay ordinary `npcs` entries.
+var socialGroups = [];
+var SHARP_SONS = ['DYLAN', 'DERIK', 'ALEX'];
+var GRP_LEASH2 = 6 * 6;      // a follower re-aims at its leader beyond this (sq dist)
+var GRP_CLUSTER2 = 8 * 8;    // every member within this of the leader → a chat may start
+function grpPick(a) { return a[(Math.random() * a.length) | 0]; }
+function meshyCivIndexByName(name) {
+  for (var i = 0; i < MESHY_CIVS.length; i++) if (MESHY_LIST[MESHY_CIVS[i]].n === name) return i;
+  return -1;
+}
+// a randomCharConfig pinned to a specific roster look (scale/build stay random;
+// Meshy heads ignore hats/glasses so keep those clear)
+function cfgForName(name) {
+  var cfg = randomCharConfig();
+  var ci = meshyCivIndexByName(name);
+  if (ci >= 0) cfg.preset = 1 + PSX_SKINS.length + ci;
+  cfg.hat = 0; cfg.glasses = 0; cfg.extra = 0;
+  return cfg;
+}
+function nameInAnyGroup(name) {
+  for (var i = 0; i < socialGroups.length; i++) {
+    var mm = socialGroups[i].members;
+    for (var j = 0; j < mm.length; j++) if (mm[j].vname === name && mm[j].state !== 'down' && mm[j].state !== 'ragdoll') return true;
+  }
+  return false;
+}
+function hasGroupType(type) { for (var i = 0; i < socialGroups.length; i++) if (socialGroups[i].type === type) return true; return false; }
+function grpSummary(g) { return g ? { type: g.type, members: g.members.map(function (m) { return m.vname; }), lead: g.lead && g.lead.vname } : null; }
+function memberByName(grp, name) { for (var i = 0; i < grp.members.length; i++) if (grp.members[i].vname === name) return grp.members[i]; return null; }
+function groupCenter(grp) { var x = 0, z = 0, m = grp.members, i; if (!m.length) return [0, 0]; for (i = 0; i < m.length; i++) { x += m[i].x; z += m[i].z; } return [x / m.length, z / m.length]; }
+
+// build a named civilian NPC at (x,z); homes it locally so the group wanders as
+// a cluster instead of trekking cross-map. Mirrors spawnNPC's npc shape.
+function spawnNamedNPC(name, x, z) {
+  var mesh = buildCharacter(cfgForName(name));
+  var n = { mesh: mesh, x: x, z: z, tx: x, tz: z, hp: 100, state: 'walk', speed: 1.4 + Math.random() * 0.5, phase: Math.random() * 9, pause: 0, fleeT: 0, fleeDX: 0, fleeDZ: 0, downT: 0, hurtFlash: 0, vname: name, fem: MESHY_FEM.indexOf(name) >= 0 };
+  n.homeX = x; n.homeZ = z; n.zone = 0; n.turf = null;
+  mesh.position.set(x, 0, z); mesh.userData.npc = n;
+  scene.add(mesh); npcs.push(n); setNpcTarget(n);
+  return n;
+}
+function groupSpawnCenter() {
+  var s = sidewalkSpot();
+  for (var t = 0; t < 16 && !spotClear(s[0], s[1]); t++) s = sidewalkSpot();
+  return s;
+}
+function makeGroup(type, names, cx, cz) {
+  var members = [], i;
+  for (i = 0; i < names.length; i++) {
+    var ang = (i / names.length) * 6.2832, rad = i === 0 ? 0 : 2 + (i % 2) * 0.8;
+    var sp = pushOut(cx + Math.cos(ang) * rad, cz + Math.sin(ang) * rad, 0.45);
+    members.push(spawnNamedNPC(names[i], sp.x, sp.z));
+  }
+  var grp = { type: type, members: members, lead: members[0], talking: false, chatCD: 5 + Math.random() * 7, curSpeaker: null, beats: null, beatI: 0, beatT: 0 };
+  for (i = 0; i < members.length; i++) { members[i].grp = grp; members[i].grpLead = (i === 0); }
+  socialGroups.push(grp);
+  return grp;
+}
+// tear a group down and (optionally) remove its members from the world — used
+// when a fresh __wc spawn must replace a conflicting one. Safe BETWEEN frames.
+function disbandGroup(grp, removeMeshes) {
+  if (!grp) return;
+  endGroupChat(grp);
+  for (var i = 0; i < grp.members.length; i++) {
+    var m = grp.members[i]; m.grp = null; m.grpLead = false; m.grpTalk = false;
+    if (removeMeshes) { if (m.mesh) scene.remove(m.mesh); var k = npcs.indexOf(m); if (k >= 0) npcs.splice(k, 1); }
+  }
+  var gi = socialGroups.indexOf(grp); if (gi >= 0) socialGroups.splice(gi, 1);
+}
+// a member died / left: pull it from its group; promote a new leader or disband
+// the remainder (a lone member becomes a normal wanderer — never a dead anchor).
+function leaveGroup(n) {
+  var grp = n.grp; if (!grp) return;
+  endGroupChat(grp);
+  var mi = grp.members.indexOf(n); if (mi >= 0) grp.members.splice(mi, 1);
+  n.grp = null; n.grpLead = false; n.grpTalk = false;
+  if (!grp.members.length) { var gi = socialGroups.indexOf(grp); if (gi >= 0) socialGroups.splice(gi, 1); return; }
+  if (grp.lead === n) { grp.lead = grp.members[0]; grp.members[0].grpLead = true; }
+  if (grp.members.length < 2) {
+    var last = grp.members[0]; last.grp = null; last.grpLead = false;
+    var gj = socialGroups.indexOf(grp); if (gj >= 0) socialGroups.splice(gj, 1);
+  }
+}
+function spawnSharpGroup(sons) {
+  for (var i = socialGroups.length - 1; i >= 0; i--) if (socialGroups[i].type === 'sharp') disbandGroup(socialGroups[i], true);
+  if (!sons) {
+    var pool = SHARP_SONS.slice();
+    for (var s = pool.length - 1; s > 0; s--) { var j = Math.random() * (s + 1) | 0; var t = pool[s]; pool[s] = pool[j]; pool[j] = t; }
+    sons = pool.slice(0, 1 + (Math.random() * 3 | 0));   // 1..3 sons → group of 2..4
+  }
+  var names = ['DON'];
+  for (var k = 0; k < sons.length; k++) if (names.indexOf(sons[k]) < 0 && !nameInAnyGroup(sons[k])) names.push(sons[k]);
+  if (names.length < 2) names.push('DYLAN');
+  var c = groupSpawnCenter();
+  return makeGroup('sharp', names, c[0], c[1]);
+}
+function spawnXanderDerik() {
+  for (var i = socialGroups.length - 1; i >= 0; i--) if (socialGroups[i].type === 'friends') disbandGroup(socialGroups[i], true);
+  // DERIK belongs to whichever group exists: evict him from the family if he's there
+  for (var gi = 0; gi < socialGroups.length; gi++) {
+    var mm = socialGroups[gi].members, done = false;
+    for (var mj = 0; mj < mm.length; mj++) if (mm[mj].vname === 'DERIK') { var d = mm[mj]; leaveGroup(d); scene.remove(d.mesh); var ki = npcs.indexOf(d); if (ki >= 0) npcs.splice(ki, 1); done = true; break; }
+    if (done) break;
+  }
+  var c = groupSpawnCenter();
+  return makeGroup('friends', ['XANDER', 'DERIK'], c[0], c[1]);
+}
+
+// ---- conversation scripts (text always shown; `v` = voice category to play if
+// the speaker's pack has it — DON/DYLAN/DERIK/ALEX carry chatQ/chatA/story/quirk;
+// XANDER has no NPC voice pack, so his lines are text-only bubbles) ----
+var DAD_LINES = {
+  DYLAN: ["Dylan, you still dumping quarters in that arcade?", "How's the job hunt, Dylan? Your mother asks.", "Stand up straight, Dylan — you're a Sharp."],
+  DERIK: ["Derik, did you eat today? You're skin and bones.", "Off the games by midnight, Derik, you hear me?", "In my day, Derik, I had TWO paper routes."],
+  ALEX: ["Alex, my boy, help your old man with the gutters later.", "You're the sensible one, Alex — mind your brothers.", "That haircut cost more than my first car, Alex."]
+};
+var SON_REPLY = {
+  DYLAN: ["Dad, it's called an investment.", "I'm on it, Pop, relax."],
+  DERIK: ["I ate a whole pizza, Dad.", "One more level and I'm done, I swear."],
+  ALEX: ["Always do, Dad.", "You say that every Sunday, Pop."]
+};
+var BRO_BANTER = ["Bet I beat you to the RaceTrac.", "Mom's making meatloaf, losers.", "You still owe me twenty bucks.", "Quit hogging the controller.", "Dad likes me best, admit it."];
+var DON_WRAP = ["Alright, alright — love you boys.", "Good talk. Now who's driving?", "Your mother's holding dinner for us."];
+var XAN_LINES = ["Derik! I paused my game for this, better be good.", "New patch dropped — it's totally busted.", "You bringing your controller Friday?", "Hit Diamond last night. No big deal.", "RaceTrac's got the good energy drinks."];
+var DERIK_FRIEND = ["You're gonna get carpal tunnel, man.", "Let's grab snacks and grind.", "Diamond? Nah, you got carried.", "Friday's locked in, Xander.", "One more ranked and I'm out."];
+function sharpScript(grp) {
+  var sons = [], i;
+  for (i = 0; i < grp.members.length; i++) if (grp.members[i].vname !== 'DON') sons.push(grp.members[i].vname);
+  if (!sons.length) return null;
+  var beats = [], son = grpPick(sons);
+  beats.push({ who: 'DON', text: grpPick(DAD_LINES[son] || ['Come here, son.']), v: 'chatQ' });
+  beats.push({ who: son, text: grpPick(SON_REPLY[son] || ['Sure, Dad.']), v: 'chatA' });
+  if (sons.length >= 2 && Math.random() < 0.85) {
+    var a = grpPick(sons), b = a, guard = 0; while (b === a && guard++ < 6) b = grpPick(sons);
+    beats.push({ who: a, text: grpPick(BRO_BANTER), v: 'quirk' });
+    beats.push({ who: b, text: grpPick(BRO_BANTER), v: 'chatA' });
+  }
+  if (Math.random() < 0.55) beats.push({ who: 'DON', text: grpPick(DON_WRAP), v: 'story' });
+  return beats;
+}
+function friendsScript(grp) {
+  var beats = [], turn = Math.random() < 0.5 ? 'XANDER' : 'DERIK', n = 3 + (Math.random() * 2 | 0), i;
+  for (i = 0; i < n; i++) {
+    if (turn === 'XANDER') { beats.push({ who: 'XANDER', text: grpPick(XAN_LINES), v: null }); turn = 'DERIK'; }
+    else { beats.push({ who: 'DERIK', text: grpPick(DERIK_FRIEND), v: i % 2 ? 'chatA' : 'quirk' }); turn = 'XANDER'; }
+  }
+  return beats;
+}
+function groupClusteredIdle(grp) {
+  var L = grp.lead; if (!L) return false;
+  for (var i = 0; i < grp.members.length; i++) {
+    var m = grp.members[i];
+    if (m.state !== 'walk' && m.state !== 'stand') return false;
+    var dx = m.x - L.x, dz = m.z - L.z; if (dx * dx + dz * dz > GRP_CLUSTER2) return false;
+  }
+  return true;
+}
+function startGroupChat(grp) {
+  var beats = grp.type === 'sharp' ? sharpScript(grp) : friendsScript(grp);
+  if (!beats || !beats.length) { grp.chatCD = 4; return; }
+  grp.beats = beats; grp.beatI = 0; grp.beatT = 0.25; grp.talking = true; grp.curSpeaker = null;
+  var ctr = groupCenter(grp);
+  for (var i = 0; i < grp.members.length; i++) {
+    var m = grp.members[i];
+    m.state = 'chat'; m.grpTalk = true; m.animT = Math.random() * 2; m.stateT = 40;
+    m.mesh.rotation.y = Math.atan2(ctr[0] - m.x, ctr[1] - m.z);
+    m.wayX = undefined; m.wayZ = undefined; m.doorSeek = undefined;
+  }
+}
+function grpNextBeat(grp) {
+  if (!grp.beats || grp.beatI >= grp.beats.length) { endGroupChat(grp); return; }
+  var beat = grp.beats[grp.beatI++];
+  var sp = memberByName(grp, beat.who);
+  if (!sp || sp.state !== 'chat') { grpNextBeat(grp); return; }   // speaker gone — skip ahead
+  grp.curSpeaker = sp; sp.animT = 0;
+  if (beat.v) playNpcVoice(sp.vname, beat.v, 0.6, 1, { x: sp.x, z: sp.z, ref: sp });
+  speechBubble(sp, beat.text);
+  grp.beatT = 2.5 + Math.min(2.2, beat.text.length * 0.045) + Math.random() * 0.5;
+}
+function endGroupChat(grp) {
+  if (!grp) return;
+  for (var i = 0; i < grp.members.length; i++) {
+    var m = grp.members[i];
+    if (m.grpTalk) { m.grpTalk = false; if (m.state === 'chat') { m.state = 'walk'; m.stateT = 0; setNpcTarget(m); } stopNpcVoice(m.vname); }
+  }
+  grp.talking = false; grp.beats = null; grp.curSpeaker = null; grp.beatI = 0; grp.chatCD = 12 + Math.random() * 12;
+}
+function updateGroups(dt) {
+  for (var i = socialGroups.length - 1; i >= 0; i--) {
+    var grp = socialGroups[i];
+    for (var j = grp.members.length - 1; j >= 0; j--) {   // safety prune (death paths already detach)
+      var mb = grp.members[j];
+      if ((mb.state === 'down' || mb.state === 'ragdoll' || mb.state === 'hidden') && mb.grp === grp) leaveGroup(mb);
+    }
+    if (socialGroups.indexOf(grp) < 0) continue;
+    if (grp.talking) continue;   // beats advance in the chat-state handler (leader side)
+    grp.chatCD -= dt;
+    var L = grp.lead;
+    for (var k = 0; k < grp.members.length; k++) {   // cohesion: tug strayed followers back
+      var m = grp.members[k];
+      if (m === L || m.state !== 'walk') continue;
+      var dx = m.x - L.x, dz = m.z - L.z;
+      if (dx * dx + dz * dz > GRP_LEASH2) setNpcTarget(m);   // setNpcTarget tail re-aims at the leader
+    }
+    if (grp.chatCD <= 0) { if (!state.dead && groupClusteredIdle(grp)) startGroupChat(grp); else grp.chatCD = 2; }
+  }
+}
+// ---- speech bubbles (world-space text above a speaker; pooled, host-local) ----
+var speechBubbles = [];
+function makeSpeechSprite() {
+  var c = document.createElement('canvas'); c.width = 340; c.height = 64;
+  var t = new THREE.CanvasTexture(c); t.magFilter = THREE.LinearFilter;
+  var sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthTest: false, transparent: true }));
+  sp.scale.set(5.2, 0.98, 1); sp.renderOrder = 999; sp.visible = false; scene.add(sp);
+  sp.userData.canvas = c; sp.userData.tex = t;
+  return sp;
+}
+function drawSpeech(sp, text) {
+  var c = sp.userData.canvas, g = c.getContext('2d'), fs = 22;
+  g.clearRect(0, 0, c.width, c.height);
+  do { g.font = 'bold ' + fs + 'px Georgia'; fs -= 2; } while (fs > 11 && g.measureText(text).width > c.width - 26);
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  var w = Math.min(c.width - 4, g.measureText(text).width + 24), x0 = (c.width - w) / 2, y0 = c.height / 2 - 17;
+  g.fillStyle = 'rgba(16,14,20,0.85)'; g.fillRect(x0, y0, w, 34);
+  g.strokeStyle = 'rgba(255,255,255,0.16)'; g.lineWidth = 1; g.strokeRect(x0 + 0.5, y0 + 0.5, w - 1, 33);
+  g.fillStyle = '#f4efe6'; g.fillText(text, c.width / 2, c.height / 2 + 1);
+  sp.userData.tex.needsUpdate = true;
+}
+function speechBubble(n, text) {
+  if (!n || !n.mesh) return;
+  var b = null, i;
+  for (i = 0; i < speechBubbles.length; i++) if (speechBubbles[i].ref === n) { b = speechBubbles[i]; break; }
+  if (!b) for (i = 0; i < speechBubbles.length; i++) if (speechBubbles[i].t <= 0) { b = speechBubbles[i]; break; }
+  if (!b) { if (speechBubbles.length < 8) { b = { spr: makeSpeechSprite(), ref: null, t: 0 }; speechBubbles.push(b); } else { b = speechBubbles[0]; for (i = 1; i < speechBubbles.length; i++) if (speechBubbles[i].t < b.t) b = speechBubbles[i]; } }
+  b.ref = n; b.t = 2.6; drawSpeech(b.spr, text); b.spr.material.opacity = 1; b.spr.visible = true;
+}
+function updateSpeech(dt) {
+  for (var i = 0; i < speechBubbles.length; i++) {
+    var b = speechBubbles[i]; if (b.t <= 0) { if (b.spr.visible) b.spr.visible = false; continue; }
+    b.t -= dt;
+    var n = b.ref;
+    if (b.t <= 0 || !n || n.state === 'down' || n.state === 'ragdoll' || n.state === 'hidden' || !n.mesh.visible) { b.t = 0; b.spr.visible = false; continue; }
+    b.spr.position.set(n.x, 3.05, n.z);
+    b.spr.material.opacity = b.t < 0.5 ? b.t / 0.5 : 1;
+  }
+}
+// seed the town with one Sharp family (sons DYLAN+ALEX so DERIK stays free for
+// the friend pair) + the XANDER-DERIK gamer duo. Wrapped so a spawn hiccup can
+// never abort the load.
+(function seedSocialGroups() {
+  try { spawnSharpGroup(['DYLAN', 'ALEX']); spawnXanderDerik(); }
+  catch (e) { if (window.console && console.warn) console.warn('social-group seed failed', e); }
+})();
 
 // dealer
 var dealer = MESHY_ROLE.dealer !== undefined ? buildMeshySkinned(randomCharConfig(), MESHY_ROLE.dealer) : buildPerson('#1b1b1f', '#141418', 0xc98d5e, { shades: true, hairColor: 0x111111, chain: true });
@@ -8848,6 +9137,7 @@ function killNpcRagdoll(n, dx, dz, power) {
   if (n.qtag && typeof questKillTag === 'function') questKillTag(n.qtag);   // quest kill-beat credit
   breakNpcChat(n);   // free the chat partner before this one goes flying
   n.state = 'ragdoll'; n.hp = 0;
+  if (n.grp) leaveGroup(n);   // #67: detach from its social group before it goes flying
   stopNpcVoice(n.vname);
   if (n.mesh.userData.shadow) n.mesh.userData.shadow.visible = false;
   n.vx = dx * power + (Math.random() - 0.5) * 3;
@@ -9790,6 +10080,7 @@ function damageNPC(n, dmg, kx, kz, silent) {
   lastCrimeT = T;
   if (n.hp <= 0) {
     n.state = 'down'; n.downT = 8; if (n.mesh.userData.shadow) n.mesh.userData.shadow.visible = false;
+    if (n.grp) leaveGroup(n);   // #67: detach from its social group so no follower paths to a corpse
     stopNpcVoice(n.vname);
     spawnCash(n.x, n.z, 5 + ((Math.random() * 18) | 0)); sfx('ko', { x: n.x, z: n.z, range: 50 }); sfx('grunt', { x: n.x, z: n.z, range: 50 });
     maybeNpcItemDrop(n.x, n.z);
@@ -9817,7 +10108,9 @@ var npcSocialT = 0, npcBumpT = -99, meleeHit = false, npcAnimF = 0;
 // car): both sides go back to wandering, the turn timer dies with the pair
 // owner, and any in-flight chat/story line is cut short.
 function breakNpcChat(n) {
-  if (!n || n.state !== 'chat') return;
+  if (!n) return;
+  if (n.grpTalk && n.grp) { endGroupChat(n.grp); return; }   // #67: a hit/flee/car ends the whole GROUP conversation
+  if (n.state !== 'chat') return;
   n.state = 'walk'; n.convT = 0; stopNpcVoice(n.vname);
   var pr = npcs[n.partner];
   if (pr && pr.state === 'chat') { pr.state = 'walk'; pr.convT = 0; stopNpcVoice(pr.vname); }
@@ -9842,6 +10135,7 @@ function updateNPCs(dt) {
     if (vc._nx !== undefined) { vc._pvx = (vm.x - vc._nx) / dt; vc._pvz = (vm.z - vc._nz) / dt; }
     vc._nx = vm.x; vc._nz = vm.z;
   }
+  updateGroups(dt);   // #67: social-group cohesion + conversation triggers (before the NPC loop so new chat states animate this frame)
   npcSocialT -= dt;
   if (npcSocialT <= 0) {
     npcSocialT = 1.2;
@@ -9981,6 +10275,20 @@ function updateNPCs(dt) {
       continue;
     }
     if (n.state === 'chat') {
+      if (n.grpTalk) {
+        // #67: GROUP conversation member — face the huddle, talk/listen per beat;
+        // the leader drives the scripted beat timer. Cleanup lives in endGroupChat
+        // (called from breakNpcChat / leaveGroup on hit/flee/death).
+        var grp = n.grp;
+        if (!grp || !grp.talking) { n.grpTalk = false; n.state = 'walk'; setNpcTarget(n); m.position.set(n.x, 0, n.z); continue; }
+        n.animT += dt;
+        var gc = groupCenter(grp);
+        m.rotation.y = Math.atan2(gc[0] - n.x, gc[1] - n.z);
+        if (!animSkip) animPersonClip(m, grp.curSpeaker === n ? 'talk' : 'chat', n.animT);
+        if (n.grpLead) { grp.beatT -= dt; if (grp.beatT <= 0) grpNextBeat(grp); }
+        m.position.set(n.x, 0, n.z);
+        continue;
+      }
       n.stateT -= dt; n.animT += dt;
       var pr = npcs[n.partner];
       var prx = pr ? pr.x - n.x : 0, prz = pr ? pr.z - n.z : 0;
@@ -10061,7 +10369,8 @@ function updateNPCs(dt) {
           continue;
         }
         // errands: sometimes head into a nearby building instead of wandering on
-        if (Math.random() < 0.14 && npcDoors.length) {
+        // (#67: grouped members never wander off into a building — they stay with the group)
+        if (!n.grp && Math.random() < 0.14 && npcDoors.length) {
           var bestDoor = -1, bestDD = 32 * 32;
           for (var dsi = 0; dsi < npcDoors.length; dsi++) {
             var dsd = npcDoors[dsi];
@@ -10077,7 +10386,8 @@ function updateNPCs(dt) {
           }
         }
         setNpcTarget(n);
-        if (Math.random() < 0.3) { n.state = 'stand'; n.stateT = 2.5 + Math.random() * 6; n.animT = Math.random() * 3; n.idleVar = Math.random() < 0.4; }
+        // #67: group followers keep pace with the leader rather than randomly halting
+        if (!(n.grp && !n.grpLead) && Math.random() < 0.3) { n.state = 'stand'; n.stateT = 2.5 + Math.random() * 6; n.animT = Math.random() * 3; n.idleVar = Math.random() < 0.4; }
         continue;
       }
       vx = dx / d; vz = dz / d;
@@ -10152,6 +10462,7 @@ function updateNPCs(dt) {
   }
   updateNPCExtras();
   updateAccessories(dt);
+  updateSpeech(dt);   // #67: fade/position group speech bubbles
 }
 var handsUpQ = new THREE.Quaternion();
 var X_AXIS = new THREE.Vector3(1, 0, 0);
@@ -15249,6 +15560,28 @@ window.__wc = {
   listPowerlines: function () { return powerPoles; },
   powerlineStats: function () { return { poles: powerPoles.length, wires: powerWireCount, spans: powerSpanCount, serviceDrops: powerServiceDrops }; },
   cars: cars, boomAt: boomAt, killNpcRagdoll: killNpcRagdoll,
+  // ---- social groups (#67) ----
+  spawnSharpGroup: function (sons) { return grpSummary(spawnSharpGroup(sons)); },
+  spawnXanderDerik: function () { return grpSummary(spawnXanderDerik()); },
+  listGroups: function () { return socialGroups.map(function (g) { return { type: g.type, members: g.members.map(function (m) { return m.vname; }), talking: g.talking, chatCD: Math.round(g.chatCD * 10) / 10 }; }); },
+  groupState: function () {
+    return socialGroups.map(function (g) {
+      var L = g.lead;
+      return { type: g.type, lead: L && L.vname, talking: g.talking, beat: g.beatI, beats: g.beats ? g.beats.length : 0, speaker: g.curSpeaker && g.curSpeaker.vname,
+        members: g.members.map(function (m) { return { name: m.vname, state: m.state, x: Math.round(m.x), z: Math.round(m.z), d2lead: L ? Math.round((m.x - L.x) * (m.x - L.x) + (m.z - L.z) * (m.z - L.z)) : 0 }; }) };
+    });
+  },
+  forceGroupChat: function (type) {
+    for (var i = 0; i < socialGroups.length; i++) {
+      var g = socialGroups[i]; if (type && g.type !== type) continue;
+      if (g.talking) return g.type;
+      var L = g.lead;   // pull the members together so the cluster gate passes, then start now
+      for (var j = 1; j < g.members.length; j++) { var m = g.members[j]; m.x = L.x + Math.cos(j) * 2.2; m.z = L.z + Math.sin(j) * 2.2; m.state = 'walk'; }
+      g.chatCD = 0; startGroupChat(g); return g.type;
+    }
+    return null;
+  },
+  disbandGroups: function () { for (var i = socialGroups.length - 1; i >= 0; i--) disbandGroup(socialGroups[i], true); return true; },
   drops: drops, rockets: rockets, setZoom: setZoom, hurtPlayer: hurtPlayer,
   bag: function () { return state.bag; }, bagAdd: bagAdd, bagRemove: bagRemove, bagUse: bagUse,
   bagDrop: bagDrop, bagCount: bagCount, spawnItemDrop: spawnItemDrop, itemDef: itemDef,

@@ -369,6 +369,10 @@ function wcTick(w, nextLabel) {
 <script src="muzzleflash.js" onload="wcTick(0.1,'loading street voices (the big one)…')"></script>
 <script src="npcvoices1.js" onload="wcTick(29.9,'loading characters…')"></script><!-- chunks 2+ are late-loaded by game.js (loadNpcVoiceChunks) -->
 <script src="meshychars.js" onload="wcTick(4.4,'loading dialogue…')"></script>
+<!-- social groups (#67): XANDER civilian (Xander-Derik friend pair). Standalone
+     roster deliverable merged onto MESHY_CHARS by game.js; load AFTER meshychars.js.
+     game.js guards with typeof XANDER_CHARS so it still boots if absent. -->
+<script src="xanderchar.js" onload="wcTick(0.5,'paging Xander…')"></script>
 <!-- shop-interior staff models (Publix/Starbucks/… uniformed workers); loaded
      AFTER meshychars.js (references MESHY_CHARS + MESHY_SHARED_CLIPS). game.js
      guards with typeof STAFF_CHARS. shopvoices1.js is optional shop dialogue. -->
