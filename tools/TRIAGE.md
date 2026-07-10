@@ -25,11 +25,11 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 ## Round 3 — OPEN: collision/gameplay (next up, high priority)
 - mree5z0n (-223,225) invisible barrier — FIXED@v1.65.3 (rotated houses now use ORIENTED colliders; the axis-aligned AABB was swallowing driveways)
 - mreealh2 (-415,262) invisible wall — FIXED@v1.65.3 (same OBB fix — the gap between two houses is drivable again)
-- mreee1df (-207,31)  invisible wall — likely the lakeside chain-post row (visible but thin); re-check in-game after the OBB fix ships
-- mree6h2d (-260,271) walk through tree
-- mree1rcg (55,79)    chainlink: NPCs stuck + links comically large
-- mredz61g (91,-18)   kids merged into each other spamming tag lines
-- mree93m6 (-475,353) another kid-merge during a game
+- mreee1df (-207,31)  invisible wall — IN-AGENT (round3-collision)
+- mree6h2d (-260,271) walk through tree — IN-AGENT (round3-collision)
+- mree1rcg (55,79)    chainlink: NPCs stuck + links comically large — IN-AGENT (round3-collision)
+- mredz61g (91,-18)   kids merged into each other spamming tag lines — IN-AGENT (round3-collision)
+- mree93m6 (-475,353) another kid-merge during a game — IN-AGENT (round3-collision)
 
 ## Round 4 — OPEN: rendering/materials
 - mree7hy2 (-370,346) ground decal alpha broken
