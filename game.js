@@ -12337,9 +12337,13 @@ function drawHudCanvas() {
   var hp = Math.max(0, Math.min(100, state.hp)) / 100;
   var hpcol = hp > 0.5 ? '#d94f3d' : (hp > 0.25 ? '#e0902e' : '#e5533d');
   hudBar(M, M + 34, 176, 16, hp, hpcol, 10);
-  // wanted stars (top-center)
-  var sw = state.wanted | 0, gap = 32, sx = W / 2 - gap * 2;
-  for (var i = 0; i < 5; i++) hudText('★', sx + i * gap, M + 28, 30, i < sw ? '#ffd94a' : '#39404d', 'center');
+  // wanted stars — under the minimap (GTA-style; top-center belongs to toasts)
+  var sw = state.wanted | 0, gap = 30;
+  var k = H / Math.max(1, window.innerHeight);                 // screen px → canvas px
+  var msPx = parseFloat(mm.style.width) || 200;                // minimap CSS size
+  var scx = W - (18 + msPx / 2) * k, scy = (18 + msPx) * k + 34;
+  scx = Math.min(scx, W - M - gap * 2 - 16);   // keep the 5th star inside the safe margin
+  for (var i = 0; i < 5; i++) hudText('★', scx + (i - 2) * gap, scy, 28, i < sw ? '#ffd94a' : '#39404d', 'center');
   // weapon box (bottom-right) — mirror the hidden DOM readout (keeps DRIVING/reload subtext)
   var wb = document.getElementById('weaponBox'), main = '', sub = '';
   if (wb) {
