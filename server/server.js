@@ -132,9 +132,65 @@ function startWorldBot() {
 function newRoomCode() { var c; do { c = rid(4); } while (rooms[c]); return c; }
 function send(ws, obj) { if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify(obj)); } catch (e) {} } }
 
+// ---- accounts: name + PIN progress saves on the volume (BUG_DIR sibling) ----
+// register-on-first-auth; PIN stored as sha256(salt+pin); session tokens live
+// in memory (relay restart = clients silently re-auth on next boot).
+var crypto = require('crypto');
+var ACCT_DIR = path.join(BUG_DIR, 'accounts');
+try { fs.mkdirSync(ACCT_DIR, { recursive: true }); } catch (e) { console.error('acctdir', e && e.message); }
+var acctTokens = {};      // token -> account key
+var acctSaveGate = {};    // account key -> last save ms (rate limit)
+function acctKey(name) { return String(name || '').toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 12); }
+function acctPath(key) { return path.join(ACCT_DIR, key + '.json'); }
+function acctAuth(body, cb) {
+  var name = String(body.name || '').trim().slice(0, 12);
+  var key = acctKey(name), pin = String(body.pin || '');
+  if (key.length < 2) return cb(new Error('name must be 2-12 letters/numbers'));
+  if (!/^[0-9]{4,8}$/.test(pin)) return cb(new Error('PIN must be 4-8 digits'));
+  var rec = null;
+  try { rec = JSON.parse(fs.readFileSync(acctPath(key), 'utf8')); } catch (e) { }
+  if (!rec) {
+    var salt = crypto.randomBytes(8).toString('hex');
+    rec = { name: name, salt: salt, hash: crypto.createHash('sha256').update(salt + pin).digest('hex'), created: new Date().toISOString(), save: null };
+    fs.writeFileSync(acctPath(key), JSON.stringify(rec));
+  } else if (crypto.createHash('sha256').update(rec.salt + pin).digest('hex') !== rec.hash) {
+    return cb(new Error('wrong PIN for that name'));
+  }
+  var token = crypto.randomBytes(16).toString('hex');
+  acctTokens[token] = key;
+  cb(null, { ok: true, token: token, name: rec.name, save: rec.save || null, savedAt: rec.savedAt || null });
+}
+function acctSave(body, cb) {
+  var key = acctTokens[String(body.token || '')];
+  if (!key) return cb(new Error('bad session — sign in again'));
+  var now = Date.now();
+  if (acctSaveGate[key] && now - acctSaveGate[key] < 2000) return cb(null, { ok: true, throttled: true });
+  var save = body.save;
+  if (!save || typeof save !== 'object' || JSON.stringify(save).length > 32768) return cb(new Error('bad save payload'));
+  var rec;
+  try { rec = JSON.parse(fs.readFileSync(acctPath(key), 'utf8')); } catch (e) { return cb(new Error('account vanished')); }
+  rec.save = save; rec.savedAt = new Date().toISOString();
+  fs.writeFileSync(acctPath(key), JSON.stringify(rec));
+  acctSaveGate[key] = now;
+  cb(null, { ok: true, savedAt: rec.savedAt });
+}
+
 var httpServer = http.createServer(function (req, res) {
   var u = req.url.split('?'), pathname = u[0], qs = u[1] || '';
   if (req.method === 'OPTIONS') { corsHead(res, 204, 'text/plain'); res.end(); return; }
+  // accounts: auth (register-on-first-login) + save
+  if (pathname === '/acct' && req.method === 'POST') {
+    readBody(req, 64 * 1024, function (err, body) {
+      var fail = function (msg) { corsHead(res, 400, 'application/json'); res.end(JSON.stringify({ ok: false, error: msg })); };
+      if (err) return fail(err.message);
+      var b; try { b = JSON.parse(body); } catch (e) { return fail('bad json'); }
+      var done = function (e2, out) { if (e2) return fail(e2.message); corsHead(res, 200, 'application/json'); res.end(JSON.stringify(out)); };
+      if (b.action === 'auth') acctAuth(b, done);
+      else if (b.action === 'save') acctSave(b, done);
+      else fail('unknown action');
+    });
+    return;
+  }
   if (pathname === '/health') {
     var n = 0, players = 0;
     for (var k in rooms) { n++; var pr = rooms[k].peers; for (var pk in pr) if (!pr[pk].bot) players++; }   // humans only — the world bot isn't a player

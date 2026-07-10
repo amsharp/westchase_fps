@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.60.1';
+var GAME_VERSION = 'v1.60.2';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -12347,6 +12347,13 @@ function handleNet(m, conn) {
     if (m.q) { if (r.lastQ && m.q <= r.lastQ) return; r.lastQ = m.q; }
     r.lastSeen = T;
     r.tx = m.x / 10; r.tz = m.z / 10; r.ty = (m.y || 0) / 10; r.tyaw = (m.yaw || 0) / 100;
+    // snapshot buffer for interpolation (see updateNet): timestamped on arrival
+    if (!r.buf) r.buf = [];
+    var bl = r.buf[r.buf.length - 1];
+    // a respawn/teleport (>30u jump) must SNAP, not glide across the map
+    if (bl && ((bl.x - r.tx) * (bl.x - r.tx) + (bl.z - r.tz) * (bl.z - r.tz) > 900)) r.buf.length = 0;
+    r.buf.push({ t: performance.now() / 1000, x: r.tx, z: r.tz, y: r.ty, yaw: r.tyaw });
+    if (r.buf.length > 20) r.buf.shift();
     r.drv = m.drv || 0; r.h = (m.h || 0) / 100; r.dead = m.dead || 0; r.w = m.w || 0;
     if (m.n) { r.name = m.n; if (!r.namedOnce) { r.namedOnce = true; chatNotice(r.name + ' joined'); } }
     if (m.hp !== undefined) r.hp = m.hp;
@@ -12823,10 +12830,36 @@ function updateNet(dt) {
     // but NEVER reap a peer whose socket the host still holds (a backgrounded
     // tab stops sending 's' yet is still connected) — let WS close / 'bye' end it
     if (r.lastSeen !== undefined && T - r.lastSeen > 6 && !(net.mode === 'host' && vconnFor(id))) { removeRemote(id); if (net.mode === 'host') netBroadcast({ t: 'bye', id: id }); continue; }
-    var k = Math.min(1, dt * 12);
-    r.x += (r.tx - r.x) * k; r.z += (r.tz - r.z) * k; r.y += (r.ty - r.y) * k;
-    var dy = r.tyaw - r.yaw; while (dy > Math.PI) dy -= Math.PI * 2; while (dy < -Math.PI) dy += Math.PI * 2;
-    r.yaw += dy * k;
+    // snapshot interpolation: render this remote ~150ms in the past and lerp
+    // BETWEEN buffered states — constant-velocity motion instead of the old
+    // exp-chase toward the newest packet (surge-then-stall = visible chop at
+    // the 14Hz send rate). Extrapolates ≤200ms across a lost packet.
+    var b = r.buf;
+    if (b && b.length) {
+      var rt = performance.now() / 1000 - 0.15;
+      while (b.length > 2 && b[1].t <= rt) b.shift();
+      var A = b[0], Bn = b.length > 1 ? b[1] : null;
+      if (Bn && Bn.t > A.t) {
+        var f = (rt - A.t) / (Bn.t - A.t);
+        if (f < 0) f = 0; if (f > 1) f = 1;
+        r.x = A.x + (Bn.x - A.x) * f; r.z = A.z + (Bn.z - A.z) * f; r.y = A.y + (Bn.y - A.y) * f;
+        var dyw = Bn.yaw - A.yaw; while (dyw > Math.PI) dyw -= Math.PI * 2; while (dyw < -Math.PI) dyw += Math.PI * 2;
+        r.yaw = A.yaw + dyw * f;
+      } else {
+        // only one usable snapshot: hold it, drifting on the last measured
+        // velocity for at most 0.2s so a dropped packet doesn't freeze them
+        var age = rt - A.t;
+        var ext = Math.min(Math.max(age, 0), 0.2);
+        r.x = A.x + (r.vx || 0) * ext; r.z = A.z + (r.vz || 0) * ext; r.y = A.y;
+        r.yaw = A.yaw;
+      }
+    } else {
+      // no buffer yet (pre-first-packet): legacy exp-lerp toward the target
+      var k = Math.min(1, dt * 12);
+      r.x += (r.tx - r.x) * k; r.z += (r.tz - r.z) * k; r.y += (r.ty - r.y) * k;
+      var dy = r.tyaw - r.yaw; while (dy > Math.PI) dy -= Math.PI * 2; while (dy < -Math.PI) dy += Math.PI * 2;
+      r.yaw += dy * k;
+    }
     var moved = Math.sqrt((r.x - r.lx) * (r.x - r.lx) + (r.z - r.lz) * (r.z - r.lz));
     r.phase += moved * 3.4;
     // smoothed world velocity of this remote — the host's only handle on a
@@ -13082,7 +13115,7 @@ document.getElementById('btnCharRandom').addEventListener('click', function () {
   savePlayerChar(); renderCreatorRows(); refreshCreatorChar();
 });
 document.getElementById('btnSP').addEventListener('click', startGame);
-document.getElementById('btnPlay').addEventListener('click', playOnline);
+document.getElementById('btnPlay').addEventListener('click', function () { acctLoginThen(playOnline); });
 // players-online ticker on the home screen: poll the relay's /health while at
 // the menu (silently blank when offline / file:// with no reachable server)
 (function () {
@@ -13268,6 +13301,90 @@ function playVoiceFrame(id, rate, b64) {
 // relay server (/bug) for Claude to triage later. works in SP and MP.
 var bugOpen = false;
 function bugServerUrl() { return (WC_SERVER_URL || '').replace(/^ws/, 'http').replace(/\/$/, ''); }
+
+// ---------------- accounts: name+PIN progress saves on the relay ----------------
+// Register-on-first-login. Progress = money, guns, snacks/sodas, bag, look,
+// quest log. Autosaves every 10s while signed in and playing, plus a
+// sendBeacon on tab close. Blank PIN = guest, nothing saved.
+var acct = { token: null, name: null, lastSaved: '' };
+function acctStatus(msg, cls) {
+  var el = document.getElementById('acctStatus');
+  if (el) { el.textContent = msg || ' '; el.className = cls || ''; }
+}
+function acctBuildSave() {
+  var cc = null; try { cc = localStorage.getItem('wc_char'); } catch (e) { }
+  return {
+    money: state.money | 0, owned: state.owned,
+    snacks: state.snacks | 0, sodas: state.sodas | 0,
+    bag: state.bag, cc: cc,
+    quests: { log: state.questLog, active: state.activeQuest, unlocks: state.unlocks }
+  };
+}
+function acctApplySave(s) {
+  if (!s) return;
+  if (typeof s.money === 'number') state.money = Math.max(0, s.money | 0);
+  if (s.owned) for (var k in state.owned) state.owned[k] = !!s.owned[k];
+  if (typeof s.snacks === 'number') state.snacks = Math.max(0, s.snacks | 0);
+  if (typeof s.sodas === 'number') state.sodas = Math.max(0, s.sodas | 0);
+  if (s.bag && s.bag.length === BAG_SLOTS) for (var i = 0; i < BAG_SLOTS; i++) {
+    var it = s.bag[i];
+    state.bag[i] = (it && it.id && itemDef(it.id) && (it.n | 0) > 0) ? { id: it.id, n: Math.min(99, it.n | 0) } : null;
+  }
+  if (s.cc) {
+    try { localStorage.setItem('wc_char', s.cc); } catch (e) { }
+    var pc = decodeCC(s.cc); if (pc) playerChar = pc;
+  }
+  if (s.quests) {
+    if (s.quests.log) state.questLog = s.quests.log;
+    if (s.quests.active !== undefined) state.activeQuest = s.quests.active;
+    if (s.quests.unlocks) state.unlocks = s.quests.unlocks;
+    saveQuests();
+  }
+  updateHUD();
+}
+function acctPost(payload, cb) {
+  var base = bugServerUrl(); if (!base) { cb(new Error('no server')); return; }
+  fetch(base + '/acct', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+    .then(function (r) { return r.json(); })
+    .then(function (o) { cb(o.ok ? null : new Error(o.error || 'server error'), o); })
+    .catch(function () { cb(new Error('server unreachable')); });
+}
+// sign in (or register) then run cb; wrong PIN blocks the join so it can be
+// retried, but an unreachable server degrades to guest play
+function acctLoginThen(cb) {
+  var pinEl = document.getElementById('playerPin');
+  var pin = pinEl ? pinEl.value.trim() : '';
+  if (!pin) { acct.token = null; acctStatus('playing as guest — progress not saved'); cb(); return; }
+  acctStatus('signing in…');
+  acctPost({ action: 'auth', name: getPlayerName(), pin: pin }, function (err, o) {
+    if (err && err.message === 'server unreachable') { acct.token = null; acctStatus('server unreachable — playing as guest', 'err'); cb(); return; }
+    if (err) { acctStatus(err.message, 'err'); return; }
+    acct.token = o.token; acct.name = o.name;
+    try { localStorage.setItem('wc_pin', pin); } catch (e) { }
+    acctApplySave(o.save);
+    acct.lastSaved = JSON.stringify(acctBuildSave());
+    acctStatus('signed in as ' + o.name + (o.savedAt ? ' — progress loaded' : ' — new account created'), 'ok');
+    cb();
+  });
+}
+function acctAutosave(force) {
+  if (!acct.token || (!state.running && !force)) return;
+  var j = JSON.stringify(acctBuildSave());
+  if (!force && j === acct.lastSaved) return;
+  acctPost({ action: 'save', token: acct.token, save: JSON.parse(j) }, function (err) {
+    if (!err) acct.lastSaved = j;
+  });
+}
+setInterval(function () { acctAutosave(false); }, 10000);
+window.addEventListener('beforeunload', function () {
+  if (!acct.token) return;
+  try {
+    navigator.sendBeacon(bugServerUrl() + '/acct',
+      new Blob([JSON.stringify({ action: 'save', token: acct.token, save: acctBuildSave() })], { type: 'application/json' }));
+  } catch (e) { }
+});
+// prefill the saved PIN next to the saved name
+try { var sp2 = localStorage.getItem('wc_pin'), pel2 = document.getElementById('playerPin'); if (pel2 && sp2) pel2.value = sp2; } catch (e) { }
 function openBug() {
   if (bugOpen) return;
   bugOpen = true;
@@ -13662,14 +13779,13 @@ function drawSprite(rows, x, y, px, color) {
 function drawHudCanvas() {
   var W = hudW, H = hudH, M = 14;
   hudCx.clearRect(0, 0, W, H);
-  // ---- money: GTA-style zero-padded counter, top-right under the minimap ----
+  // ---- money: GTA-style counter, top-right under the minimap ----
   var my = hudMmB + 8;
-  var mstr = '$' + ('00000000' + Math.max(0, state.money | 0)).slice(-8);
-  drawPix(mstr, W - M, my, 3, '#46e05e', 'right', '#1d5c30');
-  // ---- wanted stars under the money (lit gold, unlit dark silhouettes) ----
-  var sw = state.wanted | 0, sy = my + 27, spx = 2, sgap = 9 * spx + 5;
+  drawPix('$' + Math.max(0, state.money | 0), W - M, my, 3, '#46e05e', 'right');
+  // ---- wanted stars: top-center (lit gold, unlit dark silhouettes) ----
+  var sw = state.wanted | 0, spx = 2, sgap = 9 * spx + 6;
   for (var i = 0; i < 5; i++)
-    drawSprite(SPR_STAR, W - M - (5 - i) * sgap + 5, sy, spx, i < sw ? '#ffd200' : '#242b38');
+    drawSprite(SPR_STAR, W / 2 + (i - 2.5) * sgap + 3, M, spx, i < sw ? '#ffd200' : '#242b38');
   // ---- health: big retro numerals + heart, bottom-left ----
   var hp = Math.max(0, Math.min(100, Math.round(state.hp)));
   var hcol = hp > 60 ? '#46e05e' : (hp > 30 ? '#ffd200' : '#ff3b28');
