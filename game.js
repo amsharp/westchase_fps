@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.19';
+var GAME_VERSION = 'v1.66.20';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -9364,7 +9364,11 @@ function buildRemapParkedRows() {
     var th = s.rot * Math.PI / 180;
     var ux = Math.cos(th), uz = Math.sin(th);     // local +x (row runs this way)
     var vx = -Math.sin(th), vz = Math.cos(th);    // local +z (rows stack across)
-    var pitch = 3.4, rowGap = 6.6;
+    // pitch must clear the LARGEST vehicle footprint (vans/trucks run ~5.5x2.6
+    // and, in the diagonally-authored lots, present a wider profile along the
+    // row) — 3.4 packed diagonal stalls so cars clipped (mreeelik). 5.2 spacing
+    // + a wider aisle reads as clean, believable parking.
+    var pitch = 5.2, rowGap = 8.0;
     var wUse = s.w - 5, dUse = s.d - 5;
     if (wUse < 6 || dUse < 3) continue;
     var nSlots = Math.floor(wUse / pitch);
