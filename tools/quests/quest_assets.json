@@ -1,0 +1,323 @@
+{
+  "_comment": "Machine-readable manifest for the 10 Westchase quests. Consumed by the generation agents. NEW Meshy chars are budgeted <=12 (11 used); reskins/existing are free. Item icons 20-40. 3D props <=8 (8 used). See QUESTS.md for full design.",
+  "budget": {
+    "new_meshy_chars_max": 12,
+    "new_meshy_chars_used": 11,
+    "item_icons_target": "20-40",
+    "item_icons_used": 30,
+    "props_max": 8,
+    "props_used": 8
+  },
+  "overarching_thread": {
+    "name": "The Countryway Pact",
+    "summary": "A secret HOA board has run Westchase for two generations by feeding and hiding a crashed entity beneath the lake; every quest reveals one tile, paying off in Q10 beneath the fountain.",
+    "recurring": ["Don Sharp", "Chairman Thorne", "The Cleaners / eviction seal", "the lake / UFO entity", "the connected underground POIs"]
+  },
+  "new_meshy_roster": [
+    {"name": "Vivian Crestwood", "quest": "q1_dismember", "look": "silver bob, emerald evening gown, pearls; theatrical grande-dame"},
+    {"name": "Wendell Pike", "quest": "q2_watching", "look": "wiry man, robe over track pants, tinfoil-lined ballcap, binoculars"},
+    {"name": "Agatha Holloway", "quest": "q3_redhouse", "look": "stooped elderly caretaker, black shawl, milky eye, holds a lantern"},
+    {"name": "Sal Marino", "quest": "q4_heist", "look": "old sharp-dressed wiseguy, fedora, cane, pinky ring"},
+    {"name": "Desiree the Siren", "quest": "q5_siren", "look": "red dress, roadside hazard triangle, sweet smile, hidden blade"},
+    {"name": "Brick", "quest": "q5_siren", "look": "huge bruiser, tank top, tire iron, neck tattoo"},
+    {"name": "The Arcade Warden", "quest": "q6_arcade", "look": "towering flat-shaded glitch amalgam guardian, single glowing eye, corrupted textures"},
+    {"name": "Vlad", "quest": "q7_legday", "look": "mountainous oiled bodybuilder, tiny shorts, sweatband, tiny dumbbell"},
+    {"name": "The Concierge", "quest": "q8_cleaners", "look": "immaculate charcoal suit, gloves, single Countryway lapel pin, never a hair loose"},
+    {"name": "Biscuit", "quest": "q9_biscuit", "look": "small scruffy brown mutt, big ears, wagging tail (non-humanoid animal mesh)"},
+    {"name": "Chairman Augustus Thorne", "quest": "q10_beneath", "look": "tall patrician man, red-and-gold blazer, HOA lapel pin, unnaturally calm"}
+  ],
+  "quests": [
+    {
+      "id": "q1_dismember",
+      "name": "A Night to Dismember",
+      "oblivion_dna": "Whodunit?",
+      "giver": "Vivian Crestwood",
+      "discovery": "overheard scream at a lit lakeside townhouse at night",
+      "waypoints": ["-200,-215 townhouse", "dining room", "kitchen/study/upstairs", "fireplace reveal"],
+      "npcs": [
+        {"name": "Vivian Crestwood", "kind": "new", "look": "silver bob, emerald gown, pearls; theatrical fearful hostess"},
+        {"name": "Chet the caterer", "kind": "reskin", "base": "staff/waiter", "look": "white service jacket, slick hair, too-calm; unmasks as a Cleaner"},
+        {"name": "Gloria", "kind": "existing", "base": "customer cast", "look": "party guest victim who 'asked about the board'"}
+      ],
+      "items": [
+        {"id": "loupe", "name": "Detective's Loupe", "icon": "brass magnifier with cracked lens", "questUse": "REWARD: highlight clues + reveal trapped/false-bottom containers"},
+        {"id": "guest_list", "name": "Guest List", "icon": "engraved place-card list", "questUse": "names the suspects"},
+        {"id": "almond_vial", "name": "Bitter Almond Vial", "icon": "tiny brown poison vial", "questUse": "murder-weapon clue"},
+        {"id": "eviction_notice", "name": "Eviction Notice", "icon": "torn letter with a red wax seal", "questUse": "first Countryway-seal thread tile"},
+        {"id": "seating_chart", "name": "Scratched Seating Chart", "icon": "smudged diagram with a struck-out name", "questUse": "points to the killer"}
+      ],
+      "props": ["seance/dinner-table murder set (prop #8)", "rigged liquor cabinet (container trap)"],
+      "triggers": ["timed blackout that kills a guest", "liquor-cabinet mousetrap container trap", "Chet draws a blade on correct accusation (proximity ambush)"],
+      "secret_poi": [],
+      "reward": {"id": "loupe", "type": "capability", "effect": "clue highlight + reveal trapped/false containers"},
+      "connections": ["Thorne cameo -> q3/q10", "eviction seal -> q3/q8", "Gloria's questions = core mystery"],
+      "dialogue": [
+        {"npc": "Vivian Crestwood", "category": "intro/panic/reveal", "lines": 18},
+        {"npc": "Chet the caterer", "category": "oily-polite/unmasked-cold", "lines": 10},
+        {"npc": "Gloria", "category": "guest banter/last words", "lines": 5},
+        {"npc": "party guests (existing)", "category": "ambient bicker/accusations", "lines": 12}
+      ]
+    },
+    {
+      "id": "q2_watching",
+      "name": "Someone's Watching",
+      "oblivion_dna": "Paranoia",
+      "giver": "Wendell Pike",
+      "discovery": "approach the pacing man on the townhouse lawn",
+      "waypoints": ["-210,-245 Wendell's lawn", "pharmacy NE", "payphone (dusk)", "evidence wall", "-255,-150 lake stakeout (night)"],
+      "npcs": [
+        {"name": "Wendell Pike", "kind": "new", "look": "wiry, robe over track pants, tinfoil ballcap, binoculars"},
+        {"name": "Don Sharp", "kind": "existing", "base": "Sharp family preset", "look": "striving dad, first hint he's compromised"},
+        {"name": "The Meter Reader", "kind": "reskin", "base": "utility ped", "look": "utility vest, clipboard, dead-eyed; doubles as a Cleaner"}
+      ],
+      "items": [
+        {"id": "scanner", "name": "Police Scanner", "icon": "cracked handheld radio, bent antenna", "questUse": "REWARD: dispatch audio + patrol/spawn minimap marks"},
+        {"id": "binoculars", "name": "Wendell's Binoculars", "icon": "battered field binoculars", "questUse": "tailing/spotting"},
+        {"id": "birdhouse_cam", "name": "Birdhouse Camera", "icon": "birdhouse with a lens poking out", "questUse": "proof the watching is real"},
+        {"id": "lake_photo", "name": "Photo of the Lights", "icon": "polaroid of a glow over water", "questUse": "UFO/lake thread tile"}
+      ],
+      "props": [],
+      "triggers": ["dusk/night time-of-day gated tails", "Don fake-out threat if tailed too close", "surveillance van proximity spawn + Cleaner chase at the lake"],
+      "secret_poi": [],
+      "reward": {"id": "scanner", "type": "capability", "effect": "hear cop dispatch + see patrols/next spawn on minimap while wanted"},
+      "connections": ["Don's 'assessment' call -> q9/q10", "reskin Cleaners -> q8", "lake lights -> q10"],
+      "dialogue": [
+        {"npc": "Wendell Pike", "category": "paranoid intro/comms-narration/vindicated", "lines": 22},
+        {"npc": "Don Sharp", "category": "nervous phone call/fake-out threat", "lines": 6},
+        {"npc": "The Meter Reader", "category": "mundane cover/hostile turn", "lines": 5}
+      ]
+    },
+    {
+      "id": "q3_redhouse",
+      "name": "Where the Red House Weeps",
+      "oblivion_dna": "Where Spirits Have Lease",
+      "giver": "Agatha Holloway",
+      "discovery": "the caretaker sweeping the red-roof house porch at night",
+      "waypoints": ["-278,-78 porch", "floor 1 parlor", "floor 2 nursery", "floor 3 flooded floor", "floor 4 study", "floor 5 board room"],
+      "npcs": [
+        {"name": "Agatha Holloway", "kind": "new", "look": "stooped, black shawl, milky eye, lantern"},
+        {"name": "The Gray Boy", "kind": "reskin", "base": "kid cast", "look": "desaturated glowing child apparition; kid-safe, unharmable"},
+        {"name": "The Historian", "kind": "existing", "base": "pharmacy/records staff", "look": "consultable for the house's backstory"}
+      ],
+      "items": [
+        {"id": "lantern", "name": "Spirit Lantern", "icon": "green-flamed brass lantern", "questUse": "REWARD: see in dark, reveal hidden doors, part apparitions"},
+        {"id": "welcome_packet", "name": "Association Welcome Packet", "icon": "faded 1980s HOA folder with a seal", "questUse": "eviction-seal thread tile"},
+        {"id": "matchbook", "name": "Ghost Child's Matchbook", "icon": "old matchbook", "questUse": "lights the lantern"},
+        {"id": "elevator_key", "name": "Brass Elevator Key", "icon": "ornate brass key", "questUse": "board-room lift"},
+        {"id": "caretaker_ledger", "name": "Caretaker's Ledger", "icon": "leather ledger of removed families", "questUse": "'reclaimed by the lake' thread reveal"}
+      ],
+      "props": ["cage-lift/dumbwaiter shaft (prop #3)", "sealed board-room door", "poltergeist FX", "widow's-walk roof hatch (roof stash)"],
+      "triggers": ["poltergeist ambush if lantern unlit on flooded floor", "Cleaner-rigged wall safe (Loupe-flagged container trap)", "ambiguous ghost-or-real Cleaner in the board room"],
+      "secret_poi": ["Board Room (top floor) + down-shaft -> q10", "Roof Stash / widow's walk -> q4"],
+      "reward": {"id": "lantern", "type": "capability", "effect": "dark-vision, reveal hidden/sealed doors, stun/part apparitions"},
+      "connections": ["names the board + Thorne", "'reclaimed by the lake' = q10 thesis", "Agatha's son <-> Gloria(q1) <-> Don(q2)", "lantern required for q10 descent"],
+      "dialogue": [
+        {"npc": "Agatha Holloway", "category": "grave intro/floor-by-floor reveals/farewell", "lines": 24},
+        {"npc": "The Gray Boy", "category": "hide-and-seek giggles (child VO)", "lines": 6},
+        {"npc": "The Historian", "category": "house-history exposition", "lines": 8},
+        {"npc": "ghost echoes", "category": "replayed last-nights per floor", "lines": 15}
+      ]
+    },
+    {
+      "id": "q4_heist",
+      "name": "The Countryway Job",
+      "oblivion_dna": "The Ultimate Heist",
+      "giver": "Sal Marino",
+      "discovery": "talk to the old planner at Starbucks (requires owning a gun)",
+      "waypoints": ["-116,-30 Starbucks", "Regions lobby NE", "Dunkin (guard)", "-40,-70 Publix dumpster", "strip-mall roof", "Regions vault"],
+      "npcs": [
+        {"name": "Sal Marino", "kind": "new", "look": "old sharp-dressed wiseguy, fedora, cane, ring"},
+        {"name": "Marcus", "kind": "existing", "base": "Regions teller staff", "look": "indebted inside man"},
+        {"name": "Duke the wheelman", "kind": "reskin", "base": "driver/ped", "look": "jumpsuit, aviators, gum; optional getaway driver"}
+      ],
+      "items": [
+        {"id": "lockpick_set", "name": "Lockpick Set", "icon": "leather roll of picks + tension wrench", "questUse": "REWARD: silent-open locked doors/containers/ATMs/cars"},
+        {"id": "guard_key", "name": "Guard's Key", "icon": "keyring with a badge fob", "questUse": "vault access key 1"},
+        {"id": "manager_key", "name": "Manager's Key", "icon": "brass office key", "questUse": "vault access key 2 (from false-bottom dumpster)"},
+        {"id": "timer_key", "name": "Timer Key", "icon": "small red keyed switch", "questUse": "vault access key 3 (from roof stash)"},
+        {"id": "assoc_ledger", "name": "Association Ledger", "icon": "black accounts book with the seal", "questUse": "names Thorne + the board -> q10"},
+        {"id": "etched_lake_key", "name": "Etched Lake Key", "icon": "key etched with wave/lake glyphs", "questUse": "q10 sub-lake door key 1/3"}
+      ],
+      "props": ["bank vault door + safety-deposit boxes (prop #6)", "false-bottom dumpster (prop #1 shared)", "roof stash (from q3)"],
+      "triggers": ["Marcus fake-out silent alarm if pressed wrong", "vault timer trips a 2-Cleaner proximity spawn guarding the board box", "false-bottom dumpster container trap"],
+      "secret_poi": ["False-Bottom Dumpster (tool cache)", "Roof Stash (lookout)"],
+      "reward": {"id": "lockpick_set", "type": "capability", "effect": "silently open locked doors/containers/ATMs/lot cars; no ATM auto-stars; skip jimmy timer"},
+      "connections": ["Marcus <-> dealer debt", "Ledger -> q10", "Etched Lake Key -> q10", "uses Scanner(q2)+Loupe(q1)"],
+      "dialogue": [
+        {"npc": "Sal Marino", "category": "recruit/casing-coaching/payoff", "lines": 20},
+        {"npc": "Marcus", "category": "turn/debt/alarm-panic", "lines": 10},
+        {"npc": "Duke the wheelman", "category": "laconic getaway banter", "lines": 6}
+      ]
+    },
+    {
+      "id": "q5_siren",
+      "name": "Roadside Assistance",
+      "oblivion_dna": "The Siren's Deception",
+      "giver": "worried spouse (existing ped)",
+      "discovery": "overheard plea near the RaceTrac",
+      "waypoints": ["60,42 RaceTrac", "20,-4 Race Track Rd bait car", "20,-4 manhole room"],
+      "npcs": [
+        {"name": "Desiree the Siren", "kind": "new", "look": "red dress, hazard triangle, sweet smile, hidden blade"},
+        {"name": "Brick", "kind": "new", "look": "huge, tank top, tire iron, neck tattoo"},
+        {"name": "Rescued Husband", "kind": "existing", "base": "generic ped", "look": "grateful, rattled Good Samaritan"}
+      ],
+      "items": [
+        {"id": "bait_car_keys", "name": "Bait Car Keys + Slim Jim", "icon": "slim-jim crossed with a heart-charm keyfob", "questUse": "REWARD: unique fast car + instant hotwire"},
+        {"id": "stolen_wallet", "name": "Stolen Wallet", "icon": "leather wallet cluster", "questUse": "proves the crew's thefts"},
+        {"id": "marks_note", "name": "Marks Corkboard Note", "icon": "pinned index card 'flagged for the board'", "questUse": "Pact thread tile"}
+      ],
+      "props": ["openable manhole cover (prop #2)", "bait sedan with hazards/hood up"],
+      "triggers": ["Brick + goons proximity-spawn from treeline/trunk (ambush)", "Desiree fake-out victim act then draws"],
+      "secret_poi": ["The Manhole Room (gang stash) -> q10 access shaft"],
+      "reward": {"id": "bait_car_keys", "type": "vehicle+capability", "effect": "keep tuned muscle car + instant hotwire (skip break-in timer)"},
+      "connections": ["'flagged for the board' -> Pact", "disavowed muscle <-> the real Cleaners(q8)", "manhole -> q10", "bait car aids q4 getaway"],
+      "dialogue": [
+        {"npc": "Desiree the Siren", "category": "lure/fake-victim/venomous-turn", "lines": 12},
+        {"npc": "Brick", "category": "menacing few-words", "lines": 6},
+        {"npc": "Rescued Husband", "category": "captive relief/thanks", "lines": 6}
+      ]
+    },
+    {
+      "id": "q6_arcade",
+      "name": "Insert Coin to Continue",
+      "oblivion_dna": "A Brush with Death",
+      "giver": "Xander",
+      "discovery": "talk to Xander at the arcade cabinets",
+      "waypoints": ["arcade plaza", "glitch level 1 wrong-Publix", "glitch level 2 repeating aisle", "glitch level 3 boss arena"],
+      "npcs": [
+        {"name": "Xander", "kind": "existing", "base": "Xander preset", "look": "laid-back gamer, Derik's friend"},
+        {"name": "Derik Sharp", "kind": "existing", "base": "Sharp family", "look": "trapped teen; optional 'asleep' reskin state"},
+        {"name": "The Arcade Warden", "kind": "new", "look": "towering flat-shaded glitch amalgam, single glowing eye, lake-entity voice"}
+      ],
+      "items": [
+        {"id": "neon_blaster", "name": "Neon Blaster", "icon": "wireframe/neon raygun", "questUse": "REWARD weapon skin (paired with 8-Bit Reflexes)"},
+        {"id": "reflexes", "name": "8-Bit Reflexes", "icon": "pixel-heart power-up", "questUse": "REWARD capability: ADS bullet-time"},
+        {"id": "cartridge", "name": "WESTCHASE Cartridge", "icon": "unlabeled game cartridge (crumbles to lake sand)", "questUse": "entry item + material lake tie"}
+      ],
+      "props": ["arcade cabinet portal + glitch-world environment kit (prop #5)", "pixel cage"],
+      "triggers": ["touching a frozen NPC aggros a corrupted enemy (touch trap)", "repeating-aisle loop until correct order", "Arcade Warden phase boss (lake-entity voice)"],
+      "secret_poi": [],
+      "reward": {"id": "neon_blaster", "type": "weapon+capability", "effect": "unique pistol/raygun skin + ADS slow-mo"},
+      "connections": ["direct line to the lake entity -> q10", "Sharp-family thread (Derik/Xander/Don)", "'doors under the water' matches Sal(q4)+Agatha(q3)", "Reflexes trivializes q10 boss"],
+      "dialogue": [
+        {"npc": "Xander", "category": "panicked-gamer intro/relief", "lines": 12},
+        {"npc": "Derik Sharp", "category": "trapped/lake-vision/waking", "lines": 6},
+        {"npc": "The Arcade Warden", "category": "distorted entity taunts", "lines": 8}
+      ]
+    },
+    {
+      "id": "q7_legday",
+      "name": "Leg Day",
+      "oblivion_dna": "Sheogorath-style absurdism",
+      "giver": "Vlad",
+      "discovery": "the squatting fitness prophet at the lakeside picnic spot",
+      "waypoints": ["-240,-140 lakeside", "-116,-30 Starbucks (Chad)", "townhouse yard (gnome)", "cross-town smoothie sprint", "-132,44 Gains Cave"],
+      "npcs": [
+        {"name": "Vlad", "kind": "new", "look": "mountainous oiled bodybuilder, tiny shorts, sweatband, tiny dumbbell"},
+        {"name": "Chad", "kind": "reskin", "base": "gym-bro ped", "look": "tank top, visor, permanent smoothie"},
+        {"name": "Vlad's Gnome", "kind": "existing", "base": "yard-gnome prop", "look": "the 'boulder' you carry (not a character)"}
+      ],
+      "items": [
+        {"id": "sprint_shoes", "name": "Vlad's Blessed Sneakers", "icon": "glowing chunky cross-trainers", "questUse": "REWARD: faster run + double-jump"},
+        {"id": "protein_shaker", "name": "Cardio-Boy's Protein", "icon": "gym shaker bottle", "questUse": "absurd fetch"},
+        {"id": "destiny_smoothie", "name": "Smoothie of Destiny", "icon": "melting green smoothie", "questUse": "timed sprint item"},
+        {"id": "tunnel_fragment", "name": "Tunnel Map Fragment", "icon": "torn blueprint scrap of a tunnel", "questUse": "q10 sub-lake door key 2/3"}
+      ],
+      "props": ["openable trapdoor/hatch (prop #1, Gains Cave)", "weight bench + bricked passage"],
+      "triggers": ["Chad comic slow chase (fake-out)", "gnome-carry slow timed waddle", "two real Cleaners stashing crates in the Gains Cave (ambush)"],
+      "secret_poi": ["The Gains Cave (cellar behind a building) -> q10 tunnel node"],
+      "reward": {"id": "sprint_shoes", "type": "capability", "effect": "faster run + double/high jump"},
+      "connections": ["Gains Cave tunnel <-> manhole(q5) <-> storm drain(q9) <-> q10", "Cleaners(q8)", "eviction seal(q1/q3)", "sprint shoes ease q10 descent"],
+      "dialogue": [
+        {"npc": "Vlad", "category": "absurd oath/escalating dares/champion crowning", "lines": 20},
+        {"npc": "Chad", "category": "nasal gym-bro trash-talk/wheezing", "lines": 8},
+        {"npc": "bystanders", "category": "reactions to gnome-carry", "lines": 6}
+      ]
+    },
+    {
+      "id": "q8_cleaners",
+      "name": "The Cleaners",
+      "oblivion_dna": "Dark Brotherhood",
+      "giver": "The Concierge (via note)",
+      "discovery": "triggered by reaching 3+ stars then escaping clean (or a kill threshold): a black card appears",
+      "waypoints": ["-40,-70 Publix dumpster (midnight)", "165,120 Hollow Oak", "contract 1 target", "contract 2 tail", "contract 3 target", "Concierge meet"],
+      "npcs": [
+        {"name": "The Concierge", "kind": "new", "look": "immaculate charcoal suit, gloves, Countryway lapel pin"},
+        {"name": "Silas", "kind": "reskin", "base": "ped/dealer dark repaint", "look": "grey hoodie, hollow eyes, gloves; tired handler"},
+        {"name": "The Target", "kind": "existing", "base": "Marcus or Wendell", "look": "a previously-helped NPC named in the final contract"}
+      ],
+      "items": [
+        {"id": "silenced_pistol", "name": "Silenced Pistol", "icon": "matte pistol with oversized suppressor", "questUse": "REWARD weapon (paired with Ghost)"},
+        {"id": "ghost_perk", "name": "Ghost", "icon": "black calling card", "questUse": "REWARD capability: stealth kills don't raise wanted + dealer discount"},
+        {"id": "black_card", "name": "Black Calling Card", "icon": "black card with the seal", "questUse": "recruitment trigger item"},
+        {"id": "dossier", "name": "Contract Dossier", "icon": "manila dossier with a photo", "questUse": "names each target"}
+      ],
+      "props": ["false-bottom dumpster (prop #1 shared)", "hollow-oak dead-drop (prop #7)"],
+      "triggers": ["rigged rival envelope container trap in the oak", "clean stealth kill = no stars (mechanic intro)", "refuse contract 3 -> Concierge sends Cleaners after you (ambush)"],
+      "secret_poi": ["False-Bottom Dumpster (contact)", "Hollow Oak (tree hole dead-drop) + q10 clue"],
+      "reward": {"id": "silenced_pistol", "type": "weapon+capability", "effect": "silenced weapon; stealth kills don't raise wanted; dealer fence discount"},
+      "connections": ["dealer discount ties existing dealer", "eviction seal closes q1/q3 loop", "'under the lake, literally' -> q10", "Q8 fork sets q10 ending (inherit vs expose/burn)"],
+      "dialogue": [
+        {"npc": "The Concierge", "category": "silken recruit/contracts/self-reveal", "lines": 18},
+        {"npc": "Silas", "category": "weary handler tutorials", "lines": 10},
+        {"npc": "The Target", "category": "dying warning / moral-fork lines", "lines": 6}
+      ]
+    },
+    {
+      "id": "q9_biscuit",
+      "name": "Where's Biscuit?",
+      "oblivion_dna": "original heart/kid-safe (Oblivion fetch-with-soul)",
+      "giver": "Dylan Sharp",
+      "discovery": "the crying youngest Sharp at the Publix lot",
+      "waypoints": ["-72,-97 Publix lot", "hide-and-seek champion", "paw-print trail to shore", "-238,-176 storm drain"],
+      "npcs": [
+        {"name": "Dylan Sharp", "kind": "existing", "base": "Sharp family (youngest ~8)", "look": "tearful kid; untouchable"},
+        {"name": "Hide-and-Seek Champion", "kind": "existing", "base": "kid cast", "look": "proud map-savvy child; untouchable"},
+        {"name": "Biscuit", "kind": "new", "look": "small scruffy brown mutt, big ears, wagging tail (non-humanoid)"}
+      ],
+      "items": [
+        {"id": "dog_whistle", "name": "Dog Whistle", "icon": "brass dog whistle on a red collar-tag", "questUse": "REWARD: summon Biscuit companion (fetch/sniff-POIs/harass/metal-detector ping)"},
+        {"id": "alien_keycard", "name": "Alien Keycard", "icon": "glowing not-from-here metal fragment/keycard", "questUse": "q10 sub-lake door key 3/3"}
+      ],
+      "props": ["storm-drain/box-culvert opening", "buried dig spot"],
+      "triggers": ["harmless raccoon jump-scare from the drain (non-hostile)"],
+      "secret_poi": ["The Storm Drain (invented) -> q10 wade-in approach", "champion soft-teaches Hollow Oak/Roof Stash/Gains Cave"],
+      "reward": {"id": "dog_whistle", "type": "capability", "effect": "summon Biscuit: fetch cash/items, sniff buried cash + secret POIs, non-lethal enemy harass"},
+      "connections": ["Sharp-family core (Dylan/Don <-> Derik q6 <-> Don q2)", "fragment 'by the water' <-> lake refrain", "Biscuit sniff eases q10 navigation"],
+      "dialogue": [
+        {"npc": "Dylan Sharp", "category": "tearful plea/pure joy", "lines": 10},
+        {"npc": "Hide-and-Seek Champion", "category": "proud nook-bragging map hints", "lines": 8},
+        {"npc": "Don Sharp", "category": "distracted-guilty background barbs", "lines": 4}
+      ]
+    },
+    {
+      "id": "q10_beneath",
+      "name": "What Lies Beneath",
+      "oblivion_dna": "finale (Pact payoff)",
+      "giver": "The Concierge or Don Sharp (per Q8 fork)",
+      "discovery": "triggered when holding Etched Lake Key(q4)+Tunnel Fragment(q7)+Alien Keycard(q9) and having met the Concierge(q8)",
+      "waypoints": ["POI descent (gains cave/manhole/storm drain/red-house lift)", "three-lock door", "sub-lake facility rooms", "-255,-150 tank/craft chamber", "the choice"],
+      "npcs": [
+        {"name": "Chairman Augustus Thorne", "kind": "new", "look": "tall patrician, red-and-gold blazer, HOA pin, unnaturally calm"},
+        {"name": "The Entity", "kind": "existing", "base": "meshyufo UFO+alien asset", "look": "the crashed thing in its tank/craft"},
+        {"name": "Don Sharp (redeemed)", "kind": "existing", "base": "Sharp family", "look": "defecting ally at the climax"}
+      ],
+      "items": [
+        {"id": "board_signet", "name": "The Board Signet", "icon": "gold signet ring with Countryway seal", "questUse": "REWARD (Inherit ending): run Westchase town-wide perk"},
+        {"id": "whistleblower_perk", "name": "The Whistleblower", "icon": "press badge + broken seal", "questUse": "REWARD (Expose ending): cop leniency + hero prices"},
+        {"id": "scorched_rpg", "name": "Scorched Earth RPG", "icon": "battle-scarred rocket launcher skin", "questUse": "REWARD (Burn ending): unique weapon + wilder sandbox"}
+      ],
+      "props": ["sub-lake facility interior module kit (prop #4)", "cage-lift shaft (prop #3 shared)", "three-lock door"],
+      "triggers": ["board Cleaners last stand (ambush)", "the entity wakes (Arcade Warden voice returns)", "THE CHOICE fork: expose/burn/inherit"],
+      "secret_poi": ["The Sub-Lake Facility (finale) + convergence of all prior POIs; red-house lift alt entrance"],
+      "reward": {"id": "ending_reward", "type": "capability/skin", "effect": "ending-dependent: Board Signet (run the town) / Whistleblower (leniency+hero prices) / Scorched Earth (RPG skin + chaos)"},
+      "connections": ["pays off every quest key/NPC/thread; Q8 fork gates ending set; reuses UFO/alien asset"],
+      "dialogue": [
+        {"npc": "Chairman Augustus Thorne", "category": "velvet offer/reasonable menace", "lines": 16},
+        {"npc": "The Entity", "category": "distorted assessment lines (Warden voice)", "lines": 6},
+        {"npc": "Don Sharp (redeemed)", "category": "defection/ally support/denouement", "lines": 10},
+        {"npc": "returning cast", "category": "per-ending payoff barks (Vivian/Agatha/Vlad/Wendell/Sal/Dylan/Xander)", "lines": 18}
+      ]
+    }
+  ]
+}
