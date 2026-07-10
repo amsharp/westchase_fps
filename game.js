@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.47';
+var GAME_VERSION = 'v1.66.48';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -935,12 +935,17 @@ function gasStation(x, z) {
     g.add(cyl(0.05, 0.05, 0.55, 5, hoseM, 0.5, 1.0, 0.2));       // nozzle holster/hose
     g.position.set(dx, 0, dz); g.rotation.y = ry || 0; scene.add(g);
   }
-  // 3 curbed pump islands, 2 dispensers each, bollards at the ends
+  // 3 curbed pump islands, 2 dispensers each, bollards at the ends. Each island
+  // gets a collider so the pumps read as solid (you route around them, not
+  // through) — matches the raised curb footprint, inset a touch so the player's
+  // body radius doesn't snag the kerb edge. (placeVenueData captures + rotates
+  // these into the venue's world OBB.)
   [cx - 6.5, cx, cx + 6.5].forEach(function (ix) {
     scene.add(box(2.0, 0.22, 5.4, curbM, ix, 0.24, z));          // raised safety island
     dispenser(ix, z - 1.4, 0); dispenser(ix, z + 1.4, Math.PI);
     scene.add(cyl(0.12, 0.14, 0.85, 8, boltM, ix, 0.42, z - 2.5)); // end bollards
     scene.add(cyl(0.12, 0.14, 0.85, 8, boltM, ix, 0.42, z + 2.5));
+    addCollider(ix, z, 1.8, 5.0);                                 // solid pump island
   });
   // monument price sign at the road corner (pole + red brand cabinet + prices)
   var sx = cx - cw / 2 - 3, sz = z + cd / 2 + 1;
