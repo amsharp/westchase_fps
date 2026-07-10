@@ -7322,6 +7322,54 @@ if (WC_REMAP) (function landscapePass() {
     }
   }
 
+  // ============ WAVE 2: PARKING-LOT ISLANDS ============
+  // Curbed landscape islands scattered through the bigger lots — the classic
+  // Florida strip-mall island: light-grey curb ring + mulch fill + a palm (or
+  // crepe myrtle) + a ring of low shrubs. Placed on an interior grid, each spot
+  // validated collider-free (spotClear) and off buildings/roads/water so they
+  // land in the median rows, never on a driving lane or the entrance awning.
+  var islandTotal = 0, ISLAND_CAP = 26;
+  function nearVenueFront(x, z) {
+    for (var q = 0; q < VENUES.length; q++) {
+      var vq = VENUES[q]; if (!COMM[vq.type]) continue;
+      var fq = vFront(vq), fcxq = vq.x + fq.fx * (vq.d / 2), fczq = vq.z + fq.fz * (vq.d / 2);
+      var ddx = x - fcxq, ddz = z - fczq; if (ddx * ddx + ddz * ddz < 100) return true;   // <10u of a front
+    }
+    return false;
+  }
+  function island(x, z, ry) {
+    if (islandTotal >= ISLAND_CAP) return false;
+    var iw = rnd(3.2, 4.6), id = rnd(2.6, 3.6);
+    curbRing(x, z, iw, id, ry);
+    mulchBed(x, z, iw - 0.3, id - 0.3, ry);
+    if (Math.random() < 0.42) myrtle(x, z); else ipalm(x, z);
+    var ns = 3 + (Math.random() * 2 | 0);
+    for (var i = 0; i < ns; i++) {
+      var a = i / ns * Math.PI * 2 + rnd(-0.3, 0.3), rr = Math.min(iw, id) * 0.32;
+      shrub(x + Math.cos(a) * rr, z + Math.sin(a) * rr, rnd(0.5, 0.8), pick(SHRUB_KEYS));
+    }
+    islandTotal++; landscapeStats.island++; return true;
+  }
+  for (var pk = 0; pk < SURF.length; pk++) {
+    var su = SURF[pk]; if (su.kind !== 'parking' || su.w * su.d < 780) continue;
+    var ryL = (su.rot || 0) * deg;
+    var nU = Math.max(1, Math.min(3, Math.round(su.w / 26)));
+    var nV = (su.d >= 40) ? 2 : 1;
+    for (var iu = 0; iu < nU; iu++) {
+      for (var iv = 0; iv < nV; iv++) {
+        // interior grid point; stagger v to sit between rows, keep 6u off edges
+        var u = -su.w / 2 + 6 + (su.w - 12) * (nU === 1 ? 0.5 : iu / (nU - 1));
+        var vv = nV === 1 ? 0 : (iv === 0 ? -su.d * 0.24 : su.d * 0.24);
+        u += rnd(-1.5, 1.5); vv += rnd(-1.2, 1.2);
+        var wp = rectPt(su, u, vv), wx = wp[0], wz = wp[1];
+        if (!spotClear(wx, wz) || inLake(wx, wz)) continue;
+        if (typeof remapInClear !== 'undefined' && remapInClear(wx, wz, 2)) continue;
+        if (nearVenueFront(wx, wz)) continue;
+        island(wx, wz, ryL);
+      }
+    }
+  }
+
   lflush();
 })();
 
