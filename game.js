@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.57.3';
+var GAME_VERSION = 'v1.57.4';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -975,7 +975,7 @@ function subdivision(cx, cz, cols, rows, sx, sz) {
     var side = r === 0 ? -1 : 1;
     var hz = cz + side * (5 + sz / 2);
     house(hx, hz);
-    if (Math.random() < 0.5) oak(hx + (Math.random() - 0.5) * sx * 0.6, hz + side * (sz * 0.6));
+    if (treeRnd() < 0.5) oak(hx + (treeRnd() - 0.5) * sx * 0.6, hz + side * (sz * 0.6));
   }
 }
 
@@ -995,6 +995,16 @@ function coffeeShop(x, z) {
 
 // ---------------- breakable props (trees + street lights vs cars) ----------------
 var breakables = [];
+// Deterministic RNG stream for world-build placement coin flips that decide
+// whether / which breakable-registering object to place (tree scatter,
+// forest-patch skips, fence-type pick). These register breakables+colliders,
+// so unseeded Math.random() gates made the collider/breakable COUNT drift per
+// load — which confused MP desync tests (breakables are per-peer, but the
+// count varying looked like a bug). Own stream so interleaved Math.random()
+// elsewhere can't perturb it; consumed in deterministic load order.
+// seededRng is a hoisted function decl; lazy-init keeps load order safe.
+var _treeRngFn = null;
+function treeRnd() { if (!_treeRngFn) _treeRngFn = seededRng(0x7EE57A11); return _treeRngFn(); }
 var Y_UP = new THREE.Vector3(0, 1, 0);
 var packPropCache = {};
 function getPackProp(name) {
@@ -1171,7 +1181,7 @@ function forestPatch(x0, x1, z0, z1, count) {
   var area = (x1 - x0) * (z1 - z0);
   if (count === undefined) count = Math.min(60, Math.round(area / 260));
   for (var i = 0; i < count; i++) {
-    var fx = x0 + Math.random() * (x1 - x0), fz = z0 + Math.random() * (z1 - z0);
+    var fx = x0 + treeRnd() * (x1 - x0), fz = z0 + treeRnd() * (z1 - z0);
     // survey houses may nose into a forest-rect edge — keep trees out of them
     if (houseBlocksSpot(fx, fz) || inLake(fx, fz)) continue;
     oak(fx, fz);
@@ -2742,7 +2752,7 @@ function remapCoreSpot() {
 // stand on the Y-junction asphalt; keep only the ones clear of true roads)
 [[20, 20], [-20, 20], [20, -20], [-20, -20], [-90, 22], [90, 22], [-90, -22], [30, -60], [-30, 70]].forEach(function (p) { if (!WC_REMAP || remapPointClear(p[0], p[1], 2)) palm(p[0], p[1]); });
 for (var oi = 0; oi < 40; oi++) {
-  var ox = -CORE + 40 + Math.random() * (CORE * 2 - 80), oz = -CORE + 40 + Math.random() * (CORE * 2 - 80);
+  var ox = -CORE + 40 + treeRnd() * (CORE * 2 - 80), oz = -CORE + 40 + treeRnd() * (CORE * 2 - 80);
   // keep oaks off the roads/core (and off the expansion roads/ponds)
   if (Math.abs(oz) > MAIN_HW + 6 && Math.abs(ox) > CROSS_HW + 6 && (Math.abs(ox) > 180 || Math.abs(oz) > 170) && expClear(ox, oz, 4) && !houseBlocksSpot(ox, oz) && !inLake(ox, oz)) oak(ox, oz);
 }
@@ -3550,7 +3560,7 @@ function medianSeg(x0, x1) {
   scene.add(box(w, 0.3, 3, medGrassM, cx, 0.26, 0));
   scene.add(box(w, 0.34, 0.28, curbM, cx, 0.28, -1.5));
   scene.add(box(w, 0.34, 0.28, curbM, cx, 0.28, 1.5));
-  for (var px = x0 + 7; px < x1 - 5; px += 32) { if (Math.random() < 0.6) palm(px, 0); else crepeMyrtle(px, 0); }
+  for (var px = x0 + 7; px < x1 - 5; px += 32) { if (treeRnd() < 0.6) palm(px, 0); else crepeMyrtle(px, 0); }
 }
 if (!WC_REMAP) {   // median + corner islands are axis-junction furniture (R3 re-authors)
   medianSeg(CROSS_HW + 11, 300);
@@ -3789,8 +3799,8 @@ if (WC_REMAP) (function r3Junction() {
     if (bl < 0.3) continue;                     // near-opposite legs: no corner between them
     bx /= bl; bz /= bl;
     for (var pi = 0; pi < 3; pi++) {
-      var pr = 34 + pi * 5 + Math.random() * 2;
-      var px = bx * pr + (Math.random() - 0.5) * 4, pz = bz * pr + (Math.random() - 0.5) * 4;
+      var pr = 34 + pi * 5 + treeRnd() * 2;
+      var px = bx * pr + (treeRnd() - 0.5) * 4, pz = bz * pr + (treeRnd() - 0.5) * 4;
       if (remapPointClear(px, pz, 2.5)) palm(px, pz);
     }
   }
@@ -3857,9 +3867,9 @@ if (WC_REMAP) (function r3Medians() {
       scene.add(cyl(MW + 0.15, MW + 0.15, GH + 0.02, 12, curbM, n0.x, GH / 2 + 0.05, n0.z));
       scene.add(cyl(MW + 0.15, MW + 0.15, GH + 0.02, 12, curbM, n1.x, GH / 2 + 0.05, n1.z));
       // palms/crepe myrtles down the center, like the satellite's median planting
-      for (var ps = a + 10; ps < b - 10; ps += 26 + Math.random() * 12) {
+      for (var ps = a + 10; ps < b - 10; ps += 26 + treeRnd() * 12) {
         var pp = rmAt(rd.pts, cum, ps);
-        if (Math.random() < 0.6) palm(pp.x, pp.z); else crepeMyrtle(pp.x, pp.z);
+        if (treeRnd() < 0.6) palm(pp.x, pp.z); else crepeMyrtle(pp.x, pp.z);
       }
     }
   }
@@ -5346,7 +5356,7 @@ if (WC_REMAP) (function densityLayer() {
         var pt = rmAt(r.pts, r.cum, sc), off = r.hw + (r.cls <= 1 ? 4.5 : 3.2);
         var tx = pt.x - pt.uz * off * side, tz = pt.z + pt.ux * off * side; side = -side;
         if (!remapPointClear(tx, tz, 2) || inLake(tx, tz) || houseBlocksSpot(tx, tz) || remapInClear(tx, tz, 1) || !spotClear(tx, tz)) continue;
-        if (Math.random() < 0.34) palm(tx, tz); else oak(tx, tz, 0.78 + Math.random() * 0.42);
+        if (treeRnd() < 0.34) palm(tx, tz); else oak(tx, tz, 0.78 + treeRnd() * 0.42);
         densityStats.trees++;
       }
     }
@@ -5366,7 +5376,7 @@ if (WC_REMAP) (function densityLayer() {
     var f = vFront(v), fpx = v.x + f.fx * (v.d / 2 + 2.2), fpz = v.z + f.fz * (v.d / 2 + 2.2);
     var e = v.w / 2 - 1.5;
     bush(fpx + f.rx * e, fpz + f.rz * e); bush(fpx - f.rx * e, fpz - f.rz * e);
-    if (Math.random() < 0.7) crepeMyrtle(fpx + f.rx * (e * 0.4), fpz + f.rz * (e * 0.4));
+    if (treeRnd() < 0.7) crepeMyrtle(fpx + f.rx * (e * 0.4), fpz + f.rz * (e * 0.4));
   }
 
   // ============ 2. Y-JUNCTION TRAFFIC FURNITURE — moved ============
@@ -5533,7 +5543,7 @@ if (WC_REMAP) (function densityLayer() {
     // hedge along the back of each townhouse row
     if (vv4.type === 'townhouse') {
       var f4 = vFront(vv4), hw2 = vv4.w / 2 - 1, bx2 = vv4.x - f4.fx * (vv4.d / 2 + 1.2), bz2 = vv4.z - f4.fz * (vv4.d / 2 + 1.2);
-      fenceRun(bx2 - f4.rx * hw2, bz2 - f4.rz * hw2, bx2 + f4.rx * hw2, bz2 + f4.rz * hw2, Math.random() < 0.5 ? 'hedge_row' : 'privacy_fence', true);
+      fenceRun(bx2 - f4.rx * hw2, bz2 - f4.rz * hw2, bx2 + f4.rx * hw2, bz2 + f4.rz * hw2, treeRnd() < 0.5 ? 'hedge_row' : 'privacy_fence', true);
     }
     // low brick wall along the street edge of Publix / BofA lots
     if (vv4.id === 'publix' || vv4.id === 'boa') {
