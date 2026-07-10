@@ -209,3 +209,20 @@ mref0pwi, mref3wds (bus stops backwards); mredxzx6, mreenqoe (no-road homes).
 RESOLVED: gen-tts SHIPPED both vendors @v1.66.22 (lemonade-kid mreehkm9 +
 ice-cream-truck mreeipmy, with voice lines + E-buy). round5-features: the
 vendors are DONE — take fence panels (mreejak5) + traffic honks (mreeoimw).
+
+## QA sweep batch 1 (2026-07-10, reporter QA-CLAUDE — in-engine bot QA, filed via the real /bug pipeline)
+All from a 24-POI eye-level sweep (day/night/rain/interior) on v1.66.31. All OPEN.
+- mrf7rril (0,-40)    green hedge box in middle of junction asphalt
+- mrf7rrzk (-104,-22) flame sprite burning on townhouse wall, no source (check: possible vfxsheets/env-torch regression)
+- mrf7rs59 (-104,-22) flamingo ornament on bare pavement
+- mrf7rsar (40,-40)   giant smeared lane-dash decal near player, others crisp
+- mrf7rsgx (-40,-40)  cardboard boxes scattered on lot asphalt
+- mrf7rsmq (48,30)    quest NPC stands mid-road under his beacon
+- mrf7rss6 (-200,-150) quest beacon points behind backyard fence (unreachable?)
+- mrf7rsy0 (-72,-80)  hedge bar runs down paved walkway w/ fence post inside; wall texture smeary up close
+- mrf7rt3d (240,-150) lone bench in empty field
+- mrf7rt8u (-160,45)  stone fountain at road edge / in parking lane
+- mrf7rtea (310,6)    map edge = flat grey band behind houses
+- mrf7rtk5 (60,-8)    rain splashes are floating white squares, not ground rings
+- mrf7rtp6 (150,-85)  crack decal painted on grass; road stretch has no lane markings
+- mrf7rtum (-180,-260) tree canopy fills whole screen walking under it
