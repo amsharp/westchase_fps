@@ -620,7 +620,12 @@ dry land, which makes the water a decent (slow) escape route.
 ## Weather & time
 
 Day fades into properly dark night on a cycle; street lights along the
-roads and parking lots switch on automatically. Rain rolls in at random —
+roads and parking lots switch on automatically, each casting a soft warm
+pool of light on the asphalt below. After dark the town reads as lived-in:
+windows glow warm in a scattered, inhabited pattern across the buildings,
+and the storefront and venue signs (RaceTrac, Publix, Dollar Tree and the
+rest) pick up a warm neon backglow. All of it is gated to night and fades
+away by morning. Rain rolls in at random —
 grey skies by day, pitch black at night — and now comes in different
 strengths, from a light drizzle to a heavy downpour, each with matching
 rain density, sound, and haze. Overcast spells drift through on their own,
