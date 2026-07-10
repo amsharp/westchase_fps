@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.26';
+var GAME_VERSION = 'v1.66.27';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -3841,10 +3841,35 @@ function updateSignals(dt) {
 var carSignals = [];
 var CAR_STOP_D = 5.6;     // center-to-center spacing when queued (car len 4.64 + gap)
 var CAR_HEADWAY = 0.85;   // time-headway (s) turning gap into a target speed
+// ---- traffic honks + personality (mreeoimw): drivers get a per-car impatience
+// (imp), a cruising-speed multiplier (spdMul) and a horn pitch, so traffic is no
+// longer uniform. A tasteful, doubly-cooldowned positional horn toots when a car
+// has been held behind a leader / at a light too long (impatient sooner), the odd
+// random cruise toot, and an angry blast when the player jaywalks in front. One
+// town-wide gap keeps it from becoming a cacophony. Host-local audio flavour. ----
+var lastHornT = -99, carHornCount = 0;
+function carPersona(c) {
+  if (c.imp !== undefined) return;
+  c.imp = Math.random();                       // 0 patient .. 1 impatient
+  c.spdMul = 0.82 + Math.random() * 0.46;      // 0.82..1.28 cruising-speed spread
+  c._hornHz = (Math.random() * 150 - 55) | 0;  // horn pitch variety
+}
+function carHorn(c, angry) {
+  if (T - lastHornT < 1.1) return;                          // town-wide anti-cacophony gap
+  if (T - (c._hornT || -99) < (angry ? 2.4 : 5.5)) return;  // per-car gap
+  var m = c.car.group.position, dx = m.x - player.x, dz = m.z - player.z, dist = Math.sqrt(dx * dx + dz * dz);
+  if (dist > 62) return;                                    // too far to hear -> skip (saves audio nodes)
+  lastHornT = T; c._hornT = T; carHornCount++;
+  var g = 0.15 * (1 - dist / 62), f = angry ? 300 : 380 + (c._hornHz || 0);
+  beep(f, angry ? 0.5 : 0.26, g, 'sawtooth'); beep(f * 1.5, angry ? 0.5 : 0.26, g * 0.5, 'square');   // beep() self-guards when audio is off
+  if (angry) setTimeout(function () { beep(f, 0.34, g, 'sawtooth'); beep(f * 1.5, 0.34, g * 0.5, 'square'); }, 240);
+}
 // desired speed for a remap traffic car: the min of free-flow cruise, the gap
 // to the leader ahead, the distance to a red light, and any stop-sign hold.
 function carDesiredSpeed(c, idx, dt) {
-  var des = c.cruise !== undefined ? c.cruise : c.speed;
+  carPersona(c);
+  c._holdKind = '';
+  var des = (c.cruise !== undefined ? c.cruise : c.speed) * (c.spdMul || 1);
   var m = c.car.group.position;
   var hx = c.rTx, hz = c.rTz;
   if (hx === undefined) { var hr = c.car.group.rotation.y; hx = Math.cos(hr); hz = -Math.sin(hr); }
@@ -3866,7 +3891,12 @@ function carDesiredSpeed(c, idx, dt) {
     if (!o.parked && (hx * ohx + hz * ohz) < 0.1) continue;
     if (fwd < bestGap) bestGap = fwd;
   }
-  if (bestGap < Infinity) des = Math.min(des, Math.max(0, bestGap - CAR_STOP_D) / CAR_HEADWAY);
+  if (bestGap < Infinity) {
+    // impatient drivers tuck in closer + accept a shorter headway
+    var ls = Math.max(0, bestGap - (CAR_STOP_D - c.imp * 1.1)) / (CAR_HEADWAY * (1 - c.imp * 0.28));
+    if (ls < des) des = ls;
+    if (ls < 1.0) c._holdKind = 'lead';
+  }
   // (b) red lights: stop at the bar of the approach we're driving toward
   for (var s = 0; s < carSignals.length; s++) {
     var lg = carSignals[s];
@@ -3880,7 +3910,9 @@ function carDesiredSpeed(c, idx, dt) {
     if (bl > lg.hw + 2) continue;                     // not on this approach lane
     // on yellow only start stopping if there's comfortable room; else clear it
     if (col === 'y' && bf < 6) continue;
-    des = Math.min(des, Math.max(0, bf - 1.8) / 0.65);
+    var lsd = Math.max(0, bf - 1.8) / 0.65;
+    if (lsd < des) des = lsd;
+    if (lsd < 1.0 && !c._holdKind) c._holdKind = 'light';
   }
   // (c) stop signs: brief hold at uncontrolled 3+ leg nodes (never the central
   // signal Y near the origin). Per-node one-shot with a hard timeout -> no deadlock.
@@ -3903,6 +3935,16 @@ function applyCarGovernor(c, idx, dt) {
   var d = des - c.speed, step = rate * dt;
   c.speed += d < -step ? -step : (d > step ? step : d);
   if (c.speed < 0) c.speed = 0;
+  // honk: held behind a leader / at a red for longer than this driver's patience
+  if (des < 1.0 && c.speed < 1.2) {
+    c._waitT = (c._waitT || 0) + dt;
+    var thresh = 3.4 - c.imp * 2.1;             // impatient ~1.3s, patient ~3.4s
+    if (!c._honkedStop && c._waitT > thresh && c._holdKind) { carHorn(c, false); c._honkedStop = true; }
+    else if (c._honkedStop && c.imp > 0.6 && c._waitT > thresh + 4) { c._waitT = thresh - 0.5; c._honkedStop = false; }   // impatient re-honk on a long hold
+  } else {
+    c._waitT = 0; c._honkedStop = false;
+    if (c.imp > 0.55 && c.speed > 3 && Math.random() < dt * 0.004) carHorn(c, false);   // rare "just because" cruise toot
+  }
 }
 
 // corner sabal-palm clusters — 3 per junction corner island (staggered heights
@@ -9858,6 +9900,12 @@ function updateCars(dt) {
     var edx = player.x - m.position.x, edz = player.z - m.position.z;
     var ed = Math.sqrt(edx * edx + edz * edz);
     if (c.eng) engineTick(c, dt, c.speed, 0, ed, false);
+    // angry blast when the player jaywalks into a moving car's path
+    if (!driving && !state.dead && !c.berserk && !(c.shoveT > 0) && !c.parked && !c.stolen && c.speed > 3 && ed < 10) {
+      var jhr = m.rotation.y, jfx = Math.cos(jhr), jfz = -Math.sin(jhr);
+      var pf = edx * jfx + edz * jfz, plat = edx * jfz - edz * jfx;
+      if (pf > 1 && pf < 8 && (plat < 0 ? -plat : plat) < 2.2) carHorn(c, true);
+    }
     // smoke when shot up
     if (c.dmgT > 1.2) {
       c.smokeT -= dt;
@@ -17174,6 +17222,8 @@ window.__wc = {
   landCollidersRef: function () { return landColliders; }, pushOut: pushOut,
   solidMeshesReg: solidMeshes,
   buildFenceRun: function (pts, type, opts) { return buildFenceRun(pts, type, opts); }, fenceRuns: FENCE_RUNS,
+  carHornStats: function () { return { count: carHornCount, lastHornT: lastHornT }; },
+  carHorn: function (i, angry) { if (cars[i]) carHorn(cars[i], angry); },
   remapPointClear: function (x, z, pad) { return remapPointClear(x, z, pad); },
   oakInfo: function () { return { count: oakCount, cap: OAK_CAP }; },
   densityInfo: function () { return densityStats; },

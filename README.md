@@ -496,6 +496,11 @@ The main intersection is dressed like the real one: galvanized mast-arm
 cars slow and queue bumper-to-bumper at a red, wait out the cycle, and
 pull away on green. They also keep a safe following gap on the open road
 and tap the brakes for a beat at the smaller uncontrolled intersections.
+Drivers aren't clones anymore — they cruise at different speeds, and the
+impatient ones tuck in closer and **lean on the horn** when they've been
+stuck behind someone or sitting at a red too long. Step into a moving
+car's path and you'll get an angry blast, too (tasteful cooldowns keep it
+from turning into a horn symphony).
 The streets are busy now — roughly triple the old traffic and pedestrian
 counts — and walkers who see a car bearing down on them bolt sideways out
 of the lane, whether it's an NPC car or one another player is driving.
