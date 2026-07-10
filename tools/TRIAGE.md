@@ -25,11 +25,11 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 ## Round 3 — OPEN: collision/gameplay (next up, high priority)
 - mree5z0n (-223,225) invisible barrier — FIXED@v1.65.3 (rotated houses now use ORIENTED colliders; the axis-aligned AABB was swallowing driveways)
 - mreealh2 (-415,262) invisible wall — FIXED@v1.65.3 (same OBB fix — the gap between two houses is drivable again)
-- mreee1df (-207,31)  invisible wall — likely the lakeside chain-post row (visible but thin); re-check in-game after the OBB fix ships
-- mree6h2d (-260,271) walk through tree
-- mree1rcg (55,79)    chainlink: NPCs stuck + links comically large
-- mredz61g (91,-18)   kids merged spamming tag lines — FIXED@v1.65.4 (no tag-backs + fresh-it freeze + pairwise separation)
-- mree93m6 (-475,353) kid-merge during game — FIXED@v1.65.4 (same)
+- mreee1df (-207,31)  invisible wall — IN-AGENT (round3-collision); note: likely the lakeside chain-post row (visible but thin), OBB fix may already help
+- mree6h2d (-260,271) walk through tree — IN-AGENT (round3-collision)
+- mree1rcg (55,79)    chainlink: NPCs stuck + links comically large — IN-AGENT (round3-collision)
+- mredz61g (91,-18)   kids merged spamming tag lines — FIXED@v1.65.4 by fable agent (no tag-backs + fresh-it freeze + pairwise separation) — round3-collision: SKIP, already shipped
+- mree93m6 (-475,353) kid-merge during game — FIXED@v1.65.4 (same) — round3-collision: SKIP, already shipped
 
 ## Round 4 — OPEN: rendering/materials
 - mree7hy2 (-370,346) ground decal alpha broken
