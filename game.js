@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.10';
+var GAME_VERSION = 'v1.66.11';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -1192,15 +1192,40 @@ function palm(x, z) {
   registerBreakable(g, x, z, 0.8, 'tree', null, 0.3);
 }
 
+// A small road-grazing forest leaf used to be dropped whole (no collider), but
+// expForestFill still plants instanced trees across the entire original rect —
+// so the player could walk straight through solid-looking forest (bug mree6h2d
+// @ -260,271, where a road clips only the leaf's SW corner yet the whole leaf
+// lost its collider). Tile the leaf's road-CLEAR interior with small colliders
+// so those fill trees block, without ever walling off the pavement. The pad-5
+// clearance keeps each 2.5u half-extent cell well clear of the road edge.
+function forestPatchClearTiles(x0, x1, z0, z1) {
+  if (inLake((x0 + x1) / 2, (z0 + z1) / 2) && (x1 - x0) < 90 && (z1 - z0) < 90) return;
+  var cell = 5;
+  for (var cx = x0 + cell / 2; cx < x1 + cell / 2; cx += cell) {
+    var ccx = Math.min(cx, x1 - cell / 2);
+    for (var cz = z0 + cell / 2; cz < z1 + cell / 2; cz += cell) {
+      var ccz = Math.min(cz, z1 - cell / 2);
+      if (WC_REMAP && !remapPointClear(ccx, ccz, 5)) continue;
+      if (inLake(ccx, ccz)) continue;
+      addCollider(ccx, ccz, cell, cell);
+    }
+  }
+}
 function forestPatch(x0, x1, z0, z1, count) {
   // remap: forest rects were authored/pre-clipped against the AXIS roads —
   // several now straddle the true diagonals (their colliders would wall off
-  // the road). Split rects that touch a true road and keep the clear halves.
+  // the road). Split rects that touch a true road and keep the clear halves;
+  // once a non-clear leaf is too small to usefully halve, tile its clear part
+  // (see forestPatchClearTiles) instead of dropping it and leaving walk-through
+  // forest fill behind.
   if (WC_REMAP && !remapRectClear(x0, x1, z0, z1, 2.5)) {
-    if (Math.max(x1 - x0, z1 - z0) > 56) {
+    if (Math.max(x1 - x0, z1 - z0) > 22) {
       var cnt2 = count === undefined ? undefined : Math.ceil(count / 2);
       if (x1 - x0 >= z1 - z0) { forestPatch(x0, (x0 + x1) / 2, z0, z1, cnt2); forestPatch((x0 + x1) / 2, x1, z0, z1, cnt2); }
       else { forestPatch(x0, x1, z0, (z0 + z1) / 2, cnt2); forestPatch(x0, x1, (z0 + z1) / 2, z1, cnt2); }
+    } else {
+      forestPatchClearTiles(x0, x1, z0, z1);
     }
     return;
   }
