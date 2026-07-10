@@ -75,7 +75,7 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mreekjjq (-7,-57) walker accessory abandoned in street — R2 anim overlap
 - mreelboe (-70,-115) big green blob — IN-AGENT (round4-render)
 - mreelusq (-113,-114) cop left arm buggy + walks into building — R3
-- mreemd0e (-194,-110) garage door between windows on facade — R5 — IN-AGENT (round5-structure)
+- mreemd0e (-194,-110) garage door between windows on facade — FIXED@v1.66.8 (townhouseRow front ground floor recomposed: plain stucco cover hides the shared-tex ground window row, 2-car garage on the left + entry door on the right; upper-floor windows kept)
 - mreendej (-8,-330) purple-home roof texture + overhangs sidewalk — R5 — IN-AGENT (round5-structure)
 - mreenqoe (-25,-347) homes with no road/walkway — R5 (same class as mredxzx6) — IN-AGENT (round5-structure)
 - mreeoimw (-1,-517) traffic too uniform; want occasional honks — R5 feature
