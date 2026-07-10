@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.31';
+var GAME_VERSION = 'v1.66.32';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -4062,11 +4062,16 @@ if (WC_REMAP) (function r3Junction() {
     { ux: 0.659, uz: 0.753, hw: 11, D: 23, grp: 'cross', sign: 'RACE TRACK RD' },     // Countryway SE
     { ux: -0.033, uz: -0.999, hw: 8, D: 21, grp: 'cross', sign: 'RACE TRACK RD', ox: -1, oz: 0 } // Nine Eagles N
   ];
-  // plain box: ribbons ladder up to y.158 and their dashed/yellow textures
-  // cross each other here — cover with the same plain asphalt the collectors
-  // use (0.162 stays under all junction paint at 0.165+)
+  // plain box: the two arterial ribbons cross here (race_track y.164 +
+  // countryway y.16415 under the current class-band ladder) and their dashed/
+  // yellow textures overlap in a messy X — cover with the same plain asphalt
+  // the collectors use. Must sit ABOVE the arterial ribbons (>.16415) yet BELOW
+  // all junction paint (stop bars .165 / arrows .166 / crosswalks .167), so it
+  // masks the crossing without hiding the markings. (Was .162, calibrated for
+  // the OLD ladder where arterials topped out at .158 — the ladder change left
+  // the box buried under the ribbons, so the crossing paint showed through.)
   var boxGeo = new THREE.CircleGeometry(27, 30); boxGeo.rotateX(-Math.PI / 2);
-  var boxM = new THREE.Mesh(boxGeo, expResM); boxM.position.set(0, 0.162, 0); scene.add(boxM);
+  var boxM = new THREE.Mesh(boxGeo, expResM); boxM.position.set(0, 0.1646, 0); scene.add(boxM);
   // painted quad rotated to a leg: PlaneGeometry width runs ACROSS the road
   function paintQuad(cx, cz, w, d, yaw, y, mat) {
     var g = new THREE.PlaneGeometry(w, d); g.rotateX(-Math.PI / 2);
