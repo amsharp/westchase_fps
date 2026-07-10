@@ -162,7 +162,7 @@ Clusters:
 ## Batch 8
 - mreggwii (42,0)   wendel glitchy in MP — FIXED@v1.66.5 (world-snapshot interpolation for NPC/car/cop mirrors; was 8Hz exp-chase)
 - mregi4tl (128,-5) stuttery walking NPC in MP — FIXED@v1.66.5 (same)
-- mreghm0l (92,-48) floating idle anim — R2-anim extras
+- mreghm0l (92,-48) floating idle anim — FIXED@v1.66.32 (see Batch 10)
 - mregiwcv (-47,17) unidentifiable thing — IN-AGENT (round5-tail)
 - mregjcuz (-27,-4) should be lit at night — R5 lighting
 - mregk7im/mregkhdi/mregli5y/mregma9f (Dunkin interior: workers not facing, stretched counter, room-bounds wall, menu clipping, voice ask) — other agent interiors
@@ -171,13 +171,15 @@ Clusters:
 
 ## Batch 9
 - mregrr51 (-46,-2) directional damage indicators — SHIPPED@v1.66.8 (red chevrons around screen center pointing at the source: cop shots, PvP, NPC jabs, explosions, car hits, alien beam)
-- mreguavi (-68,9) WALKER NPC still broken (backwards, hands off, not hunched) — escalated: reclaiming from round2-anim if no report this cycle
+- mreguavi (-68,9) WALKER NPC still broken (backwards, hands off, not hunched) — FIXED@v1.66.32 (see Batch 10)
 
 ## Batch 10 (animation round handoff)
 - mregenli NIA walk — FIXED@v1.66.10 (MESHY_LEG_FIX NIA:1.2, lat 0.77->0.32); bike texture + xander voice parts still OPEN
-- mregajgt GARY walk — IN-AGENT (anim-batch10, fable) — axis/mirror sweep in _animtuneY
-- mreghm0l floating idle / mreg77qb boombox / mregcwvd luggage — IN-AGENT (anim-batch10, fable) — poseWalkerGrip pattern
-- mreguavi WALKER NPC (backwards/hands-off/not-hunched, Batch 9) — IN-AGENT (anim-batch10, fable) — folded into the grip batch
+- mregajgt GARY walk — FIXED@v1.66.32 (Y-yaw alone couldn't close his splay — upper legs also sit abducted vs the shared clip's rig; MESHY_LEG_FIX now takes {y,z} objects, GARY {y:0.2,z:0.25} = yaw + mirrored Z adduction, lat 0.681->0.327, stride/feet unchanged; HECTOR 0.306 / NIA 0.321 regression-checked)
+- mreghm0l floating idle — FIXED@v1.66.32 (kids ship no idle clip; the frame-0 "idle" is a mid-stride passing pose with both feet off the ground — meshyPlantPose finds and holds the walk cycle's plant frame instead)
+- mreg77qb boombox — FIXED@v1.66.32 (grip was at the box BOTTOM so it floated above the fist; fist now on the top handle, long axis fore-aft, carry arm pinned straight down via poseCarryArm)
+- mregcwvd luggage — FIXED@v1.66.32 (suitcase handle faces the owner on the RIGHT side, right arm aimed down-back onto it via poseCaseDrag — was floating beside the hip)
+- mreguavi WALKER NPC — FIXED@v1.66.32 (ACC_PLACE walker ry 0: rails were turned sideways by the +PI/2 default so it read backwards; world-space aimLimbAt puts both hands on the rail ends per-rig — the old bone-local X multiply zombie-armed some rigs — plus spine hunch via pitchLimbWorld, gated on reposed frames so it can't compound)
 
 ## Round 5 — IN-AGENT (round5-roads) — roads/junctions/sidewalks/bus-stops/no-road-homes
 Slice: mreeqqbh, mreetig1, mref0zmv, mreexjvh, mreexz4c, mref1n8n (road/junction/sidewalk quality);
