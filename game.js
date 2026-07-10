@@ -206,16 +206,21 @@ var walkT = tex(128, function (g, s) {
   g.beginPath(); g.moveTo(0, s / 2); g.lineTo(s, s / 2); g.moveTo(s / 2, 0); g.lineTo(s / 2, s); g.stroke();
 }, 6, 6);
 
-var roadT = tex(128, function (g, s) {
+// 512px (was 128): the lane dashes baked into this texture stretch over
+// 16u x 2*hw of road, so at 128px a dash magnified up close smeared into a
+// giant blurry streak while distant (minified) dashes stayed crisp (report
+// mrf7rsar). All paint geometry is s-relative — same layout, 4x sharper.
+var roadT = tex(512, function (g, s) {
+  var k = s / 128;
   g.fillStyle = '#3a3b40'; g.fillRect(0, 0, s, s);
-  noise(g, s, 900, 0.16, 0.05);
+  noise(g, s, Math.round(900 * k * k), 0.16, 0.05);
   g.fillStyle = '#c9a42e';
-  g.fillRect(0, s / 2 - 4, s, 2.5);
-  g.fillRect(0, s / 2 + 2, s, 2.5);
+  g.fillRect(0, s / 2 - 4 * k, s, 2.5 * k);
+  g.fillRect(0, s / 2 + 2 * k, s, 2.5 * k);
   g.fillStyle = 'rgba(220,220,215,0.85)';
-  for (var d = 4; d < s; d += 42) {
-    g.fillRect(d, s * 0.25 - 1, 20, 2.5);
-    g.fillRect(d, s * 0.75 - 1, 20, 2.5);
+  for (var d = 4 * k; d < s; d += 42 * k) {
+    g.fillRect(d, s * 0.25 - k, 20 * k, 2.5 * k);
+    g.fillRect(d, s * 0.75 - k, 20 * k, 2.5 * k);
   }
 });
 
@@ -4704,28 +4709,47 @@ function respawnDrop(d) {
   d.speed = 22 + Math.random() * 9;
 }
 var SPLASH_N = 130, splashIdx = 0;
-var splashPts = (function () {
-  var geo = new THREE.BufferGeometry();
-  var pos = new Float32Array(SPLASH_N * 3);
-  for (var i = 0; i < SPLASH_N * 3; i += 3) pos[i + 1] = -999;
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  var mat = new THREE.PointsMaterial({ color: 0xdfeaf2, size: 0.1, transparent: true, opacity: 0.6 });
-  var pts = new THREE.Points(geo, mat);
-  pts.visible = false; pts.frustumCulled = false;
-  scene.add(pts);
-  return pts;
+// Splashes are flat, ground-hugging ripple rings (instanced quads with a soft
+// radial-alpha texture). The old implementation was an untextured THREE.Points
+// cloud (hard-edged white squares) whose y also drifted UP each frame, so
+// splashes read as white squares floating over the road (report mrf7rtk5).
+var splashTex = (function () {
+  var c = document.createElement('canvas'); c.width = c.height = 32;
+  var g = c.getContext('2d');
+  var grd = g.createRadialGradient(16, 16, 0, 16, 16, 16);
+  grd.addColorStop(0.0, 'rgba(223,234,242,0)');
+  grd.addColorStop(0.5, 'rgba(223,234,242,0)');
+  grd.addColorStop(0.74, 'rgba(223,234,242,0.55)');
+  grd.addColorStop(0.9, 'rgba(223,234,242,0.22)');
+  grd.addColorStop(1.0, 'rgba(223,234,242,0)');
+  g.fillStyle = grd; g.fillRect(0, 0, 32, 32);
+  var t = new THREE.CanvasTexture(c);
+  t.minFilter = THREE.LinearFilter; t.magFilter = THREE.LinearFilter; t.generateMipmaps = false;
+  return t;
 })();
+var splashPos = new Float32Array(SPLASH_N * 3);
+var splashMesh = (function () {
+  var geo = new THREE.PlaneGeometry(1, 1); geo.rotateX(-Math.PI / 2);   // flat on the ground
+  var mat = new THREE.MeshBasicMaterial({ map: splashTex, transparent: true, depthWrite: false, opacity: 0.8 });
+  var m = new THREE.InstancedMesh(geo, mat, SPLASH_N);
+  m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  var zero = new THREE.Matrix4().makeScale(0, 0, 0);
+  for (var i = 0; i < SPLASH_N; i++) m.setMatrixAt(i, zero);
+  m.visible = false; m.frustumCulled = false;
+  scene.add(m);
+  return m;
+})();
+var _splashM4 = new THREE.Matrix4();
 var splashLife = new Float32Array(SPLASH_N);
 function addSplash(x, y, z) {
-  var p = splashPts.geometry.attributes.position.array;
-  p[splashIdx * 3] = x; p[splashIdx * 3 + 1] = y + 0.08; p[splashIdx * 3 + 2] = z;
+  splashPos[splashIdx * 3] = x; splashPos[splashIdx * 3 + 1] = y + 0.045; splashPos[splashIdx * 3 + 2] = z;
   splashLife[splashIdx] = 0.28;
   splashIdx = (splashIdx + 1) % SPLASH_N;
 }
 function updateRainFx(dt) {
   var show = raining && !inside;
   rainLines.visible = show;
-  splashPts.visible = show;
+  splashMesh.visible = show;
   if (!show) return;
   var pos = rainLines.geometry.attributes.position.array;
   // particle density tracks rain intensity — drizzle shows a fraction of the drops
@@ -4744,15 +4768,21 @@ function updateRainFx(dt) {
     pos[i * 6 + 3] = d.x; pos[i * 6 + 4] = d.y - 0.85; pos[i * 6 + 5] = d.z;
   }
   rainLines.geometry.attributes.position.needsUpdate = true;
-  var sp = splashPts.geometry.attributes.position.array;
   for (i = 0; i < SPLASH_N; i++) {
     if (splashLife[i] > 0) {
       splashLife[i] -= dt;
-      sp[i * 3 + 1] += dt * 0.9;   // little upward pop
-      if (splashLife[i] <= 0) sp[i * 3 + 1] = -999;
+      if (splashLife[i] <= 0) {
+        _splashM4.makeScale(0, 0, 0);         // done: collapse the instance
+      } else {
+        var age = 1 - splashLife[i] / 0.28;   // ripple ring grows as it fades
+        var sc = 0.16 + age * 0.3;
+        _splashM4.makeScale(sc, 1, sc);
+        _splashM4.setPosition(splashPos[i * 3], splashPos[i * 3 + 1], splashPos[i * 3 + 2]);
+      }
+      splashMesh.setMatrixAt(i, _splashM4);
     }
   }
-  splashPts.geometry.attributes.position.needsUpdate = true;
+  splashMesh.instanceMatrix.needsUpdate = true;
 }
 // faint additive rainbow arc — a single billboard shown briefly after heavier
 // rain clears on a bright day. One draw call; hidden (visible=false) otherwise.
@@ -8556,9 +8586,34 @@ if (WC_REMAP) (function landscapePass() {
   var UCARD = new THREE.PlaneGeometry(1, 1); UCARD.translate(0, 0.5, 0);    // upright card, base at y0
 
   // ---- species builders ----
-  // low manicured hedge run A->B, height h, thickness th
-  function hedge(ax, az, bx, bz, h, th) {
+  // paved-lot test: inside any editor-authored parking/pavement rect
+  function onPavedSurf(x, z) {
+    for (var i = 0; i < SURF.length; i++) {
+      var s = SURF[i], ra = (s.rot || 0) * deg, c = Math.cos(ra), sn = Math.sin(ra);
+      var dx = x - s.x, dz = z - s.z, u = dx * c - dz * sn, v = dx * sn + dz * c;
+      if (Math.abs(u) < s.w / 2 && Math.abs(v) < s.d / 2) return true;
+    }
+    return false;
+  }
+  // low manicured hedge run A->B, height h, thickness th.
+  // hug=true: a bed hugging a building's FRONT wall (planter-style, allowed on
+  // the venue's paved apron). Everything else must stay off road asphalt /
+  // junction pads / road sidewalks / parking + pavement slabs — hedges used to
+  // land mid-junction (report mrf7rril) and down paved walkways (mrf7rsy0)
+  // because, unlike shrub()/grass(), this builder had no clearance check.
+  function hedgeClear(ax, az, bx, bz, hug) {
+    var dx = bx - ax, dz = bz - az, L = Math.sqrt(dx * dx + dz * dz);
+    var n = Math.max(2, Math.ceil(L / 1.5) + 1);
+    for (var i = 0; i < n; i++) {
+      var t = i / (n - 1), px = ax + dx * t, pz = az + dz * t;
+      if (!remapPointClear(px, pz, 0.35)) return false;
+      if (!hug && (onSidewalk(px, pz) || onPavedSurf(px, pz))) return false;
+    }
+    return true;
+  }
+  function hedge(ax, az, bx, bz, h, th, hug) {
     var dx = bx - ax, dz = bz - az, L = Math.sqrt(dx * dx + dz * dz); if (L < 0.4) return;
+    if (!hedgeClear(ax, az, bx, bz, hug)) return;
     th = th || 0.7; var ry = Math.atan2(dx, dz);
     var geo = new THREE.BoxGeometry(th, h, L), uv = geo.attributes.uv, repN = Math.max(1, Math.round(L / h));
     for (var i = 0; i < uv.count; i++) uv.setY(i, uv.getY(i) * repN);   // tile foliage along the run
@@ -8613,16 +8668,24 @@ if (WC_REMAP) (function landscapePass() {
     }
   }
 
-  // reuse existing (capped) tree builders for woody ornamentals
-  function myrtle(x, z) { if (typeof crepeMyrtle === 'function' && landscapeStats.myrtle < CAP.myrtle) { crepeMyrtle(x, z); landscapeStats.myrtle++; } }
-  function ipalm(x, z) { if (typeof palm === 'function' && landscapeStats.palm < CAP.palm) { palm(x, z); landscapeStats.palm++; } }
+  // reuse existing (capped) tree builders for woody ornamentals.
+  // remapPointClear guard: like the hedges, ornamental trees placed by
+  // road-relative frontage/corner math could land on ANOTHER road's asphalt
+  // or a junction pad (a lone crepe myrtle stood mid-junction — same defect
+  // family as report mrf7rril). Parking-lot islands are unaffected
+  // (remapPointClear only rejects road asphalt/pads, not lots).
+  function myrtle(x, z) { if (typeof crepeMyrtle === 'function' && landscapeStats.myrtle < CAP.myrtle && remapPointClear(x, z, 1.2)) { crepeMyrtle(x, z); landscapeStats.myrtle++; } }
+  function ipalm(x, z) { if (typeof palm === 'function' && landscapeStats.palm < CAP.palm && remapPointClear(x, z, 1.2)) { palm(x, z); landscapeStats.palm++; } }
 
   var CAP = { shrub: 1200, hedge: 360, grass: 500, mulch: 400, myrtle: 60, palm: 40 };
   function okShrub() { return landscapeStats.shrub < CAP.shrub; }
 
   // guards: reuse the world's placement checks; front-hugging beds trust the
   // vFront geometry (spotClear would reject anything near a building collider).
-  function openClear(x, z) { return spotClear(x, z) && !inLake(x, z) && (typeof remapInClear === 'undefined' || !remapInClear(x, z, 1)) && (typeof houseBlocksSpot === 'undefined' || !houseBlocksSpot(x, z)); }
+  // remapPointClear added: the corner-bed probe assumed axis-aligned quadrants,
+  // but the remap junction legs run diagonally, so 45-degree probe points fell
+  // ON the arterial asphalt and planted signature beds mid-junction (mrf7rril).
+  function openClear(x, z) { return spotClear(x, z) && !inLake(x, z) && remapPointClear(x, z, 2) && (typeof remapInClear === 'undefined' || !remapInClear(x, z, 1)) && (typeof houseBlocksSpot === 'undefined' || !houseBlocksSpot(x, z)); }
 
   var COMM = { racetrac: 1, publix: 1, dollar_tree: 1, storage: 1, starbucks: 1, bank: 1, strip: 1, dunkin: 1, offices: 1, yoga: 1, pharmacy: 1, sushi: 1, farnell: 1, shop: 1 };
 
@@ -8645,7 +8708,7 @@ if (WC_REMAP) (function landscapePass() {
       var la = segs[sgi][0], lb = segs[sgi][1]; if (lb - la < 1.2) continue;
       var ax = bx0 + f.rx * la, az = bz0 + f.rz * la, bx = bx0 + f.rx * lb, bz = bz0 + f.rz * lb;
       var hgt = rnd(0.6, 0.85);
-      hedge(ax, az, bx, bz, hgt, rnd(0.6, 0.85));
+      hedge(ax, az, bx, bz, hgt, rnd(0.6, 0.85), true);   // hug: front-wall planter bed
       var mcx = (ax + bx) / 2, mcz = (az + bz) / 2;
       mulchBed(mcx, mcz, Math.abs(lb - la) + 0.6, 1.9, f.yaw);
       // foundation shrubs + grasses along the segment, in front of the hedge
@@ -9600,8 +9663,14 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
     if (th % 3 === 0) place('garden_gnome', fx + tf.rx * rnd(-3, 3), fz + tf.rz * rnd(-3, 3), rnd(0, 6.28));
     if (th % 3 === 1) place('flamingo', fx + tf.rx * rnd(-3, 3), fz + tf.rz * rnd(-3, 3), rnd(0, 6.28));
     if (th % 4 === 0) place('bird_bath', fx + tf.rx * rnd(-2, 2), fz + tf.rz * rnd(-2, 2), 0);
-    if (th === 0) { var _lx = fx + tf.rx * 5, _lz = fz + tf.rz * 5; place('lemonade_stand', _lx, _lz, tout, { instance: true }); pendingVendors.push({ voice: 'LEMONADE', build: 'kid', prop: 'lemonade_stand', x: _lx, z: _lz, ry: tout, side: -1 }); place('fire_pit', tv.x - tf.fx * 4, tv.z - tf.fz * 4, 0, { instance: true }); }
-    if (th === 2) place('bbq_grill', tv.x - tf.fx * 4, tv.z - tf.fz * 4, tout, { instance: true });
+    // fire pit: the old spot (tv - fx*4, 4u behind the row CENTER) was INSIDE
+    // the townhouse footprint (half-depth 6+) — its flame sprites draw with
+    // depthTest:false, so a fire burned "on the wall" seen from the street
+    // (report mrf7rrzk). Front lawn instead, with a road/venue clearance guard.
+    if (th === 0) { var _lx = fx + tf.rx * 5, _lz = fz + tf.rz * 5; place('lemonade_stand', _lx, _lz, tout, { instance: true }); pendingVendors.push({ voice: 'LEMONADE', build: 'kid', prop: 'lemonade_stand', x: _lx, z: _lz, ry: tout, side: -1 }); var _fpx = fx + tf.fx * 1.6 + tf.rx * 9, _fpz = fz + tf.fz * 1.6 + tf.rz * 9; if (remapPointClear(_fpx, _fpz, 1) && !remapInClear(_fpx, _fpz, 0.5)) place('fire_pit', _fpx, _fpz, 0, { instance: true }); }
+    // same footprint bug as the th 0 fire pit: 4u behind center is inside the
+    // row (half-depth 4.5) — its 'smoke' emitter puffed at the wall. Front lawn.
+    if (th === 2) { var _bqx = fx + tf.fx * 1.6 + tf.rx * 9, _bqz = fz + tf.fz * 1.6 + tf.rz * 9; if (remapPointClear(_bqx, _bqz, 1) && !remapInClear(_bqx, _bqz, 0.5)) place('bbq_grill', _bqx, _bqz, tout, { instance: true }); }
   }
   // red-house ornamental yard — a tidy planting bed tucked against the front
   // corner (off the entrance axis) reads as intentional landscaping instead of
