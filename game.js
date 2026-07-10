@@ -14278,7 +14278,11 @@ var gunHold = { clip: 'relax', t: 0.75 };   // relax mid-frame: right palm sits 
 // Kar98k forestock, on the RPG tube, and meeting the firing hand for the pistol.
 // upper_arm.L z = right-swing, forearm.L x = forward reach (smaller = further).
 var SUPPORT_POSE = {
-  pistol: [[-1.59, 0.5, -1.5], [1.2, 0.4, -3.2], [2.5, -0.82, 0.3], [0.2, 0.3, -0.4]],
+  // pistol is ONE-HANDED (report mrefrgtb): the support arm is posed down/back
+  // out of the camera frustum instead of wrapping the grip, and pistol has no
+  // GRIP_TGT entry so solveSupportIK keeps this seed (no IK pull onto the gun).
+  // The silenced pistol keeps the old two-hand hold.
+  pistol: [[-1.59, -0.3, 1.2], [-0.6, 0.0, 1.4], [0.1, 0.0, 0.0], [0.0, 0.0, 0.0]],
   smg:    [[-1.59, -0.01, -1.16], [1.2, 0.4, -2.9], [2.1, -0.82, 0.3], [0.15, 0.3, -0.4]],
   rifle:  [[-1.59, -0.01, -1.16], [0.98, 0.4, -2.6], [1.7, -0.82, 0.3], [0.1, 0.3, -0.4]],
   auto:   [[-1.59, -0.01, -1.16], [0.98, 0.4, -2.7], [1.85, -0.82, 0.3], [0.1, 0.3, -0.4]],
@@ -14326,7 +14330,7 @@ function applySupportPose(w) {
 // world-space swing with setFromUnitVectors, conjugate by the parent's world
 // quaternion into bone-local space, premultiply.
 var GRIP_TGT = {
-  pistol: [0.21, -0.40, -0.52],
+  // (no pistol entry — one-handed, see SUPPORT_POSE)
   smg:    [0.28, -0.30, -0.56],
   rifle:  [0.18, -0.42, -0.84],
   auto:   [0.19, -0.42, -0.76],
