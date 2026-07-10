@@ -81,12 +81,12 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 ## Round 5 — IN-AGENT (round5-props) — prop placement/quality slice
 - mree10qu (62,32)    person clipping inside yellow prop — FIXED@v1.66.18 (the "yellow prop" is the amber quest-giver beacon; the worried-spouse giver ped stood inside its ground-level pole. Beacon now FLOATS above head height (pole y 3.3-5.5, orb 5.7, downward pointer cone) so no ped clips it — applies to all 10 giver beacons)
 - mreedozu (-199,33)  unidentifiable mesh — FIXED@v1.66.18 (the decorative lakeside pond_fence arc placed 8 SOLID panels at ~8u spacing -> isolated dark frames stranded in the lawn 30-50u from the water, reading as garbage + stray colliders. Removed the arc; the lakeside keeps benches/umbrellas/bbq/fire-pit/bird-bath/lamps/fountain/windmill/flamingos)
-- mreeelik (-118,75)  car placement weird — IN-AGENT (round5-props)
+- mreeelik (-118,75)  car placement weird — FIXED@v1.66.20 (WC_REMAP parking rows filled diagonal editor lots at 3.4u stall pitch; vans/trucks (~5.5x2.6) clipped their neighbours — 3 overlapping pairs at the WEST PARK lot. Widened pitch 3.4->5.2 + aisle 6.6->8.0; 0 overlaps there now, 26 parked cars map-wide preserved)
 - mreeccpr/mreebnfk (-226,152) prop set jarring in front of office tower (placement only) — IN-AGENT (round5-props)
 - mreegamp (-140,43)  placement bad — IN-AGENT (round5-props)
 - mreei0of (-142,-30) flower bed out of place — IN-AGENT (round5-props)
 - mreeuu2g (-136,230) unclear props — IN-AGENT (round5-props)
-- mreelboe (-70,-115) big green blob shrub — IN-AGENT (round5-props)
+- mreelboe (-70,-115) big green blob shrub — REASSIGNED→round5-vegetation (shrub geometry/look, not placement; round5-props not touching it)
 - mreds4nw (90,-131) + mref3ibd (535,126) AC props: big rooftop industrial HVAC — IN-AGENT (round5-props)
 
 ## Notes
