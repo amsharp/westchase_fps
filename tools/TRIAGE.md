@@ -61,6 +61,12 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mree9kv6 (-477,355) umbrella grip pose
 - mreed9ar (-194,21)  smoke/fire: redo as AI sprite sheets (research game VFX)
 
+## Round 5 — IN-AGENT (round5-features) — quirky vendor/fence/traffic slice
+- mreehkm9 (-142,-9) lemonade stand wants KID VENDOR + dialogue — IN-AGENT (round5-features)
+- mreeipmy (-161,-76) ice cream truck wants VENDOR — IN-AGENT (round5-features)
+- mreejak5 (-158,-86) fences should BREAK IN PANELS under cars — IN-AGENT (round5-features)
+- mreeoimw (-1,-517) traffic too uniform; want occasional HONKS + variety — IN-AGENT (round5-features)
+
 ## Round 5 — IN-AGENT (round5-props) — prop placement/quality slice
 - mree10qu (62,32)    person clipping inside yellow prop — IN-AGENT (round5-props)
 - mreedozu (-199,33)  unidentifiable mesh — IN-AGENT (round5-props)
