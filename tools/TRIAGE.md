@@ -175,8 +175,9 @@ Clusters:
 
 ## Batch 10 (animation round handoff)
 - mregenli NIA walk — FIXED@v1.66.10 (MESHY_LEG_FIX NIA:1.2, lat 0.77->0.32); bike texture + xander voice parts still OPEN
-- mregajgt GARY walk — OPEN: same class but Y-yaw alone insufficient (lat stuck 0.62 @0.9rad) — needs axis/mirror sweep in _animtuneY
-- mreghm0l floating idle / mreg77qb boombox / mregcwvd luggage — OPEN: accessory grip/placement class, use the poseWalkerGrip pattern (see anim round notes)
+- mregajgt GARY walk — IN-AGENT (anim-batch10, fable) — axis/mirror sweep in _animtuneY
+- mreghm0l floating idle / mreg77qb boombox / mregcwvd luggage — IN-AGENT (anim-batch10, fable) — poseWalkerGrip pattern
+- mreguavi WALKER NPC (backwards/hands-off/not-hunched, Batch 9) — IN-AGENT (anim-batch10, fable) — folded into the grip batch
 
 ## Round 5 — IN-AGENT (round5-roads) — roads/junctions/sidewalks/bus-stops/no-road-homes
 Slice: mreeqqbh, mreetig1, mref0zmv, mreexjvh, mreexz4c, mref1n8n (road/junction/sidewalk quality);
