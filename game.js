@@ -5731,6 +5731,106 @@ function buildDunkin(spec) {
   spec.zones.push({ x: cx, z: 597.2, r2: 5, prompt: '[E] CHAT WITH BARISTA', fn: function () { staffSay(['"What can I get started for ya?"', '"The iced coffee is on point today."', '"Fresh pot brewing — two minutes!"']); } });
 }
 
+// ---------------- STARBUCKS café (venue starbucks, across from Dunkin) --------
+var STARBUCKS = registerInterior({
+  id: 'starbucks',
+  box: { x0: -613, x1: -587, z0: 590, z1: 610, y: -240 },    // 26 x 20 room, y=-240
+  doorZone: { x: -96.27, z: 57.32, r2: 40 },                 // world front-face (rot 35)
+  doorIn: { x: -600, z: 605, yaw: 0 },
+  doorOut: { x: -94.26, z: 60.19, yaw: 0.611 },
+  exitZone: { x: -600, z: 607, r2: 11 },
+  label: 'STARBUCKS',
+  build: buildStarbucks
+});
+function buildStarbucks(spec) {
+  var floorT = tex(64, function (g, s) {
+    g.fillStyle = '#d8cdbb'; g.fillRect(0, 0, s, s);       // warm faux-marble
+    g.fillStyle = '#ccbfa8'; for (var i = 0; i < 5; i++) { g.fillRect(0, (Math.random() * s) | 0, s, 2); }
+    g.strokeStyle = '#b8a988'; g.lineWidth = 1; g.strokeRect(0, 0, s, s);
+    noise(g, s, 70, 0.04, 0.03);
+  }, 7, 5);
+  var wallT = tex(64, function (g, s) {
+    g.fillStyle = '#efe7d6'; g.fillRect(0, 0, s, s);
+    g.fillStyle = '#00704a'; g.fillRect(0, s * 0.3, s, 9);        // Starbucks green band
+    g.fillStyle = '#1e3932'; g.fillRect(0, s * 0.3 + 9, s, 3);
+    noise(g, s, 50, 0.03, 0.03);
+  }, 8, 1);
+  var woodT = tex(64, function (g, s) {
+    g.fillStyle = '#6a4a2c'; g.fillRect(0, 0, s, s);
+    for (var y = 0; y < s; y += 6) { g.fillStyle = 'rgba(40,24,10,' + (0.15 + Math.random() * 0.2) + ')'; g.fillRect(0, y, s, 2); }
+    noise(g, s, 40, 0.05, 0.02);
+  }, 3, 1);
+  var pastryT = tex(64, function (g, s) {
+    g.fillStyle = '#c8a878'; g.fillRect(0, 0, s, s);
+    var cols = ['#e0b060', '#a8602c', '#f0d8a0', '#c85030', '#8a4a20', '#e8c8d0'];
+    for (var y = 4; y < s; y += 14) for (var x = 3; x < s; x += 13) { g.fillStyle = cols[(Math.random() * cols.length) | 0]; g.fillRect(x, y, 10, 10); }
+  }, 2, 1);
+  var menuT = tex(128, function (g, s) {
+    g.fillStyle = '#1e3932'; g.fillRect(0, 0, s, s);
+    g.fillStyle = '#c8a96a'; g.font = 'bold 14px sans-serif'; g.fillText('STARBUCKS', 8, 20);
+    g.fillStyle = '#e8e0cc'; g.font = '11px sans-serif';
+    var rows = ['Caffe Latte ...... $4', 'Cappuccino ....... $4', 'Cold Brew ........ $4', 'Frappuccino ...... $5', 'Croissant ........ $3', 'Muffin ........... $3'];
+    for (var i = 0; i < rows.length; i++) g.fillText(rows[i], 8, 40 + i * 14);
+  }, 1, 1);
+  var floorM = lamb2(floorT), wallM = lamb2(wallT), woodM = lamb2(woodT);
+  var glassM = new THREE.MeshPhongMaterial({ color: 0xcfe6ea, transparent: true, opacity: 0.3, shininess: 90, side: THREE.DoubleSide });
+  var steelM = lamb({ color: 0xb8bcc0 }), greenM = lamb({ color: 0x00704a }), whiteM = lamb({ color: 0xf0ece2 }), chairM = lamb({ color: 0x5a3a26 });
+  var s = intShell(spec, { floorM: floorM, wallM: wallM, ceilColor: 0xe8e0d0, bannerLines: ['STARBUCKS'], bannerBg: '#00704a', bannerFg: '#d4b880' });
+  var Y = s.Y, cx = s.cx;
+
+  // café bar (wood front, back counter with espresso machine)
+  var counter = box(15, 1.1, 1.4, [woodM, woodM, whiteM, woodM, woodM, woodM], cx, Y + 0.55, 594); scene.add(counter); solidMeshes.push(counter); intCol(spec, cx, 594, 15, 1.4);
+  scene.add(box(15, 0.1, 1.5, greenM, cx, Y + 1.12, 594));                                     // green counter lip
+  // pastry case in front of the bar
+  var caseBase = box(9, 0.9, 1.1, whiteM, cx - 3, Y + 0.45, 595.9); scene.add(caseBase); solidMeshes.push(caseBase); intCol(spec, cx - 3, 595.9, 9, 1.1);
+  scene.add(box(8.4, 0.5, 0.85, lamb2(pastryT), cx - 3, Y + 1.05, 595.9));
+  scene.add(box(9, 0.75, 1.0, glassM, cx - 3, Y + 1.28, 595.9));
+  // espresso machine + syrup bottles on the back counter (north wall)
+  scene.add(box(2.2, 1.1, 0.8, steelM, cx + 3, Y + 1.35, 591.3));
+  scene.add(box(1.6, 0.9, 0.7, lamb({ color: 0x2a2620 }), cx - 3, Y + 1.25, 591.3));
+  for (var bx = -2; bx <= 2; bx += 1) scene.add(cyl(0.12, 0.12, 0.4, 8, lamb({ color: 0x8a5a2a }), cx + 5 + bx * 0.5, Y + 1.05, 592));
+  // menu board above the bar
+  var menu = new THREE.Mesh(new THREE.PlaneGeometry(9, 3), lamb2(menuT));
+  menu.position.set(cx, Y + 3.1, 590.4); scene.add(menu);
+  // lounge seating: armchairs + little round tables in the south half
+  var tableTopM = lamb({ color: 0x3a2a1a }), poleM = lamb({ color: 0x6a6e72 });
+  var groups = [[cx - 6, 603], [cx + 1, 606], [cx + 7, 603]];
+  for (var gi = 0; gi < groups.length; gi++) {
+    var gp = groups[gi];
+    scene.add(cyl(0.65, 0.65, 0.1, 16, tableTopM, gp[0], Y + 0.95, gp[1]));
+    scene.add(cyl(0.09, 0.09, 0.9, 8, poleM, gp[0], Y + 0.45, gp[1]));
+    intCol(spec, gp[0], gp[1], 1.1, 1.1);
+    // two cushioned armchairs flanking each table
+    for (var side = -1; side <= 1; side += 2) {
+      var ax = gp[0] + side * 1.4;
+      scene.add(box(0.9, 0.4, 0.9, chairM, ax, Y + 0.35, gp[1]));           // seat
+      scene.add(box(0.9, 0.7, 0.18, chairM, ax, Y + 0.7, gp[1] + side * 0.36)); // back (rough)
+      intCol(spec, ax, gp[1], 1.0, 1.0);
+    }
+  }
+
+  placeStaffIn(spec, 'BARISTA_CHLOE', cx - 3, 592.6, Math.PI);
+  placeStaffIn(spec, 'BARISTA_OMARI', cx + 3, 592.6, Math.PI);
+
+  spec.zones.push({
+    x: cx - 4, z: 597.2, r2: 8, prompt: '[E] ORDER A LATTE — $4',
+    fn: function () {
+      if (state.money < 4) { sfx('deny'); popup2("You can't afford it"); return; }
+      if (bagAdd('coffee', 1) > 0) { sfx('deny'); popup2('Your bag is full'); return; }
+      state.money -= 4; sfx('buy'); itemToast('coffee'); popup('+1 Latte'); staffSay(['"One caffe latte, coming up!"']);
+    }
+  });
+  spec.zones.push({
+    x: cx + 4, z: 597.2, r2: 8, prompt: '[E] BUY A CROISSANT — $3',
+    fn: function () {
+      if (state.money < 3) { sfx('deny'); popup2("You can't afford it"); return; }
+      if (bagAdd('sandwich', 1) > 0) { sfx('deny'); popup2('Your bag is full'); return; }
+      state.money -= 3; sfx('buy'); itemToast('sandwich'); popup('+1 Croissant'); staffSay(['"Warmed up for ya!"']);
+    }
+  });
+  spec.zones.push({ x: cx, z: 597.2, r2: 5, prompt: '[E] CHAT WITH BARISTA', fn: function () { staffSay(['"Can I get a name for the cup?"', '"Oat milk or two percent?"', '"That\'ll be right up at the hand-off."']); } });
+}
+
 // ---------------- street props (AI PSX props: streetprops.js) ----------------
 // 30 Meshy-generated quantized props placed contextually around the map.
 // Prop INTERACTION FX (vending machine, payphone, newspaper box, hydrant
