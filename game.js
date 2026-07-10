@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.65.1';
+var GAME_VERSION = 'v1.65.2';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -5851,10 +5851,12 @@ function enterInterior(id) {
   setZoom(false);
   player.x = spec.doorIn.x; player.z = spec.doorIn.z; player.y = spec.box.y + EYE;
   yaw = spec.doorIn.yaw || 0; pitch = 0;
+  if (typeof initCustomers === 'function') initCustomers(spec);   // #65: populate the shop
   if (spec.onEnter) spec.onEnter(spec);
 }
 function exitInterior() {
   var spec = curInterior;
+  if (typeof clearCustomers === 'function') clearCustomers();     // #65: despawn customers cleanly
   inside = false; curInterior = null;
   if (spec) {
     player.x = spec.doorOut.x; player.z = spec.doorOut.z; player.y = EYE;
@@ -5889,9 +5891,10 @@ function interiorPrompt() {
   return '';
 }
 function updateInterior(dt) {   // idle-animate the current room's staff in place
-  if (!inside || !curInterior) return;
+  if (!inside || !curInterior) { if (shopCust.length) clearCustomers(); return; }
   var st = curInterior.staff;
   for (var i = 0; i < st.length; i++) animPerson(st[i], 0, dt, 0);
+  updateCustomers(dt);   // #65: shop-life sim (per-player, local)
 }
 function staffSay(lines) { toast(lines[(Math.random() * lines.length) | 0], 2600); sfx('buy'); }
 
@@ -6542,6 +6545,209 @@ function buildBank(spec) {
   });
   spec.zones.push({ x: cx - 5, z: cz - 6, r2: 7, prompt: '[E] SEE A TELLER', fn: function () { staffSay(['"Welcome to Bank of America, how can I help?"', '"Would you like to open a checking account?"', '"Your balance is looking healthy today."']); } });
   spec.zones.push({ x: cx + 5, z: cz - 6, r2: 7, prompt: '[E] SEE A TELLER', fn: function () { staffSay(['"Next, please!"', '"Cash or deposit today?"', '"Careful carrying that much around town."']); } });
+}
+
+// ==================== SHOP-LIFE SIMULATION (#65) =============================
+// Per-player, LOCAL customers that populate whichever generalized interior the
+// player is standing in. They walk in through the door, BROWSE the fixtures
+// (pausing at shelves/cases), then head to a CHECKOUT lane, wait single-file,
+// get served, and leave. Browsing customers occasionally ask a staffer a
+// product question (real voiced lines from shopvoices1.js), staff trade work
+// banter, and the player can bark a flavor line at anyone in the shop. Drawing
+// a weapon inside empties the store (panic-flee to the door). NEVER on the MP
+// wire — like the interiors themselves this is host/local sim, so a client who
+// walks into a shop still gets a lively room (null-guarded throughout).
+var shopCust = [];            // active customer objects for the CURRENT interior
+var SHOP_QGAP = 1.4;          // single-file queue spacing (metres)
+var SHOP_CUST_SPD = 1.55;
+// per-interior sim data: cap (population ceiling), spawn cadence, browse spots
+// (x,z stand point + fx,fz fixture the customer faces), checkout lanes
+// (sx,sz serve spot + face yaw + qx,qz queue-back unit vector), the door point
+// customers appear at / vanish into, and the SHOP_VOICES roles used for the
+// staff answer + the register cashier bark. Coordinates trace each interior's
+// hand-authored fixtures (see the build* functions above).
+var SHOP_CFG = {
+  publix: {
+    cap: 7, spawn: [4, 8], door: { x: 314, z: -266 },
+    ansRole: 'CASHIER', ansCat: 'answer', payRole: 'CASHIER',
+    browse: [
+      { x: 289.5, z: -296, fx: 285, fz: -296 }, { x: 289.5, z: -306, fx: 294, fz: -306 },
+      { x: 298.5, z: -300, fx: 294, fz: -300 }, { x: 307.5, z: -300, fx: 303, fz: -300 },
+      { x: 281, z: -300, fx: 277, fz: -300 }, { x: 300, z: -331.5, fx: 300, fz: -334 },
+      { x: 288, z: -331.5, fx: 288, fz: -334 }, { x: 314, z: -321.5, fx: 314, fz: -324 }
+    ],
+    lanes: [
+      { sx: 280, sz: -273.4, face: 0, qx: 0, qz: -1 },
+      { sx: 288, sz: -273.4, face: 0, qx: 0, qz: -1 },
+      { sx: 296, sz: -273.4, face: 0, qx: 0, qz: -1 }
+    ]
+  },
+  dunkin: {
+    cap: 4, spawn: [7, 13], door: { x: 600, z: 606 },
+    ansRole: 'DUNKIN', ansCat: 'chatter', payRole: 'DUNKIN',
+    browse: [
+      { x: 596, z: 599, fx: 596, fz: 596 }, { x: 604, z: 599, fx: 604, fz: 596 },
+      { x: 593, z: 602, fx: 593, fz: 605 }, { x: 607, z: 602, fx: 607, fz: 605 }
+    ],
+    lanes: [{ sx: 600, sz: 597.5, face: Math.PI, qx: 0, qz: 1 }]
+  },
+  starbucks: {
+    cap: 4, spawn: [7, 13], door: { x: -600, z: 606 },
+    ansRole: 'BARISTA', ansCat: 'chatter', payRole: 'BARISTA',
+    browse: [
+      { x: -604, z: 599, fx: -604, fz: 596 }, { x: -596, z: 599, fx: -596, fz: 596 },
+      { x: -608, z: 601, fx: -606, fz: 603 }, { x: -592, z: 601, fx: -593, fz: 603 }
+    ],
+    lanes: [{ sx: -600, sz: 597.5, face: Math.PI, qx: 0, qz: 1 }]
+  },
+  sakura: {
+    cap: 4, spawn: [8, 15], door: { x: 600, z: -591 },
+    ansRole: 'SUSHI', ansCat: 'phrase', payRole: 'SUSHI',
+    browse: [
+      { x: 596, z: -599, fx: 596, fz: -602 }, { x: 604, z: -599, fx: 604, fz: -602 },
+      { x: 589, z: -600, fx: 586, fz: -600 }, { x: 611, z: -600, fx: 614, fz: -600 }
+    ],
+    lanes: [{ sx: 600, sz: -599.5, face: Math.PI, qx: 0, qz: 1 }]
+  },
+  dollar_tree: {
+    cap: 5, spawn: [6, 11], door: { x: -600, z: -591 },
+    ansRole: 'DOLLAR', ansCat: 'line', payRole: 'DOLLAR',
+    browse: [
+      { x: -606, z: -600, fx: -609, fz: -600 }, { x: -600, z: -600, fx: -603, fz: -600 },
+      { x: -594, z: -600, fx: -597, fz: -600 }, { x: -588, z: -595, fx: -591, fz: -593 }
+    ],
+    lanes: [{ sx: -608, sz: -594.6, face: 0, qx: 0, qz: -1 }]
+  },
+  bank: {
+    cap: 5, spawn: [7, 13], door: { x: 0, z: 608 },
+    ansRole: 'TELLER', ansCat: 'transaction', payRole: 'TELLER',
+    browse: [
+      { x: 12, z: 596, fx: 15, fz: 596 }, { x: 12, z: 600, fx: 15, fz: 600 },
+      { x: -8, z: 606, fx: -8, fz: 608 }, { x: 0, z: 600, fx: 0, fz: 592 }
+    ],
+    lanes: [
+      { sx: -5, sz: 594, face: Math.PI, qx: 0, qz: 1 },
+      { sx: 5, sz: 594, face: Math.PI, qx: 0, qz: 1 }
+    ]
+  }
+};
+function shopCfg() { return curInterior ? SHOP_CFG[curInterior.id] : null; }
+// a random customer look: a Meshy civilian body (matches the townsfolk), no hat
+function customerCfg() {
+  var cfg = randomCharConfig();
+  if (MESHY_CIVS.length) cfg.preset = 1 + PSX_SKINS.length + (Math.random() * MESHY_CIVS.length | 0);
+  cfg.hat = 0;
+  return cfg;
+}
+// interior collision test against the active room's AABB colliders (intCol only
+// ever pushes axis-aligned boxes) — cheap whisker probe for browse steering
+function custPointFree(spec, px, pz, r) {
+  var L = spec.colliders;
+  for (var i = 0; i < L.length; i++) {
+    var b = L[i];
+    if (px < b.x0 - r || px > b.x1 + r || pz < b.z0 - r || pz > b.z1 + r) continue;
+    return false;
+  }
+  return true;
+}
+// steer + integrate one customer toward (tx,tz); returns remaining distance.
+// Reuses the NPC obstacle-whisker idea (probe ahead, hold a clear bearing) plus
+// light customer-customer separation so they don't stack at a fixture.
+function moveCust(c, spec, dt, spd) {
+  var dx = c.tx - c.x, dz = c.tz - c.z, d = Math.sqrt(dx * dx + dz * dz) || 1;
+  var vx = dx / d, vz = dz / d;
+  if (c.avoidT > 0) { c.avoidT -= dt; vx = c.avoidVX; vz = c.avoidVZ; }
+  else if (d > 1.4) {
+    var la = 1.2 + spd * 0.3;
+    if (!custPointFree(spec, c.x + vx * la, c.z + vz * la, 0.45)) {
+      for (var aw = 0; aw < 4; aw++) {
+        var ang = (aw < 2 ? 0.7 : 1.3) * (aw % 2 === 0 ? 1 : -1);
+        var ca = Math.cos(ang), sa = Math.sin(ang), wx = vx * ca - vz * sa, wz = vx * sa + vz * ca;
+        if (custPointFree(spec, c.x + wx * la, c.z + wz * la, 0.45)) { c.avoidVX = wx; c.avoidVZ = wz; c.avoidT = 0.35; vx = wx; vz = wz; break; }
+      }
+    }
+  }
+  // separation from other customers (cheap, n small)
+  var sepx = 0, sepz = 0;
+  for (var j = 0; j < shopCust.length; j++) {
+    var o = shopCust[j]; if (o === c) continue;
+    var ox = c.x - o.x, oz = c.z - o.z, od = ox * ox + oz * oz;
+    if (od < 0.81 && od > 0.0001) { var oi = 1 / Math.sqrt(od); sepx += ox * oi; sepz += oz * oi; }
+  }
+  vx += sepx * 0.5; vz += sepz * 0.5;
+  var vl = Math.sqrt(vx * vx + vz * vz) || 1; vx /= vl; vz /= vl;
+  c.x += vx * spd * dt; c.z += vz * spd * dt;
+  var p = pushOut(c.x, c.z, 0.4, spec.colliders); c.x = p.x; c.z = p.z;
+  c.phase += spd * dt * 3.4;
+  c.mesh.rotation.y = Math.atan2(vx, vz);
+  c.mesh.position.set(c.x, spec.box.y, c.z);
+  animPerson(c.mesh, spd, dt, c.phase);
+  return Math.sqrt((c.tx - c.x) * (c.tx - c.x) + (c.tz - c.z) * (c.tz - c.z));
+}
+function custFace(c, tx, tz) { c.mesh.rotation.y = Math.atan2(tx - c.x, tz - c.z); }
+// choose a browse spot the customer isn't already at (avoid immediate repeat)
+function pickBrowse(cfg, c) {
+  var b = cfg.browse, pick;
+  for (var t = 0; t < 6; t++) { pick = b[(Math.random() * b.length) | 0]; if (pick !== c.lastBrowse) break; }
+  c.lastBrowse = pick; c.tx = pick.x; c.tz = pick.z; c.fx = pick.fx; c.fz = pick.fz;
+}
+// spawn one customer into the CURRENT interior. atDoor===false seeds an
+// already-present shopper straight at a fixture (store looks alive on entry).
+function spawnCustomer(atDoor) {
+  var sc = shopCfg(); if (!sc || !curInterior || shopCust.length >= sc.cap) return null;
+  var Y = curInterior.box.y;
+  var c = { mesh: buildCharacter(customerCfg()), state: 'enter', phase: Math.random() * 9, animT: Math.random() * 2, stateT: 0, beats: 2 + (Math.random() * 3 | 0), iy: Y, lane: -1, qi: -1, avoidT: 0 };
+  if (atDoor === false) {
+    var b0 = sc.browse[(Math.random() * sc.browse.length) | 0];
+    c.x = b0.x; c.z = b0.z; c.state = 'look'; c.stateT = 1 + Math.random() * 3; c.lastBrowse = b0; c.fx = b0.fx; c.fz = b0.fz;
+  } else {
+    c.x = sc.door.x + (Math.random() - 0.5) * 1.5; c.z = sc.door.z + (Math.random() - 0.5) * 0.6;
+    pickBrowse(sc, c);
+  }
+  c.mesh.position.set(c.x, Y, c.z);
+  if (atDoor === false) custFace(c, c.fx, c.fz);
+  scene.add(c.mesh); shopCust.push(c);
+  return c;
+}
+function clearCustomers() {
+  for (var i = 0; i < shopCust.length; i++) { if (shopCust[i].mesh) scene.remove(shopCust[i].mesh); }
+  shopCust.length = 0;
+}
+var shopSpawnT = 6;
+function initCustomers(spec) {
+  clearCustomers();
+  var sc = SHOP_CFG[spec.id]; if (!sc) return;
+  var n = 2 + (Math.random() * (sc.cap - 2) | 0);
+  for (var i = 0; i < n; i++) spawnCustomer(false);
+  shopSpawnT = sc.spawn[0] + Math.random() * (sc.spawn[1] - sc.spawn[0]);
+}
+function updateCustomers(dt) {
+  var sc = shopCfg(); if (!sc) { if (shopCust.length) clearCustomers(); return; }
+  var Y = curInterior.box.y;
+  shopSpawnT -= dt;
+  if (shopSpawnT <= 0) {
+    shopSpawnT = sc.spawn[0] + Math.random() * (sc.spawn[1] - sc.spawn[0]);
+    if (shopCust.length < sc.cap) spawnCustomer(true);
+  }
+  for (var i = shopCust.length - 1; i >= 0; i--) {
+    var c = shopCust[i], m = c.mesh;
+    if (c.state === 'enter' || c.state === 'browse') {
+      var rem = moveCust(c, curInterior, dt, SHOP_CUST_SPD);
+      if (rem < 0.9) { c.state = 'look'; c.stateT = 2 + Math.random() * 3.5; c.animT = Math.random() * 2; custFace(c, c.fx, c.fz); }
+    } else if (c.state === 'look') {
+      c.stateT -= dt; c.animT += dt;
+      animPersonClip(m, (c.beats & 1) ? 'idle2' : 'idle', c.animT);
+      m.position.set(c.x, Y, c.z);
+      if (c.stateT <= 0) {
+        c.beats--;
+        if (c.beats > 0) { pickBrowse(sc, c); c.state = 'browse'; }
+        else { c.tx = sc.door.x; c.tz = sc.door.z; c.state = 'leave'; }
+      }
+    } else if (c.state === 'leave') {
+      var rd = moveCust(c, curInterior, dt, SHOP_CUST_SPD * 1.1);
+      if (rd < 1.2) { scene.remove(m); shopCust.splice(i, 1); }
+    }
+  }
 }
 
 // ---------------- street props (AI PSX props: streetprops.js) ----------------
@@ -15820,6 +16026,9 @@ window.__wc = {
   enterSakura: function () { enterInterior('sakura'); }, enterDollarTree: function () { enterInterior('dollar_tree'); }, enterBank: function () { enterInterior('bank'); },
   listInteriors: function () { var o = []; for (var id in interiors) o.push(id); return o; },
   interiorState: function () { return { inside: inside, id: curInterior ? curInterior.id : (inside ? 'gas' : null), staff: curInterior ? curInterior.staff.length : 0, colliders: curInterior ? curInterior.colliders.length : 0, box: curInterior ? curInterior.box : null }; },
+  shopPopulation: function () { return shopCust.length; },
+  spawnCustomer: function () { return !!spawnCustomer(true); },
+  listShopNpcs: function () { return shopCust.map(function (c) { return { state: c.state, x: Math.round(c.x * 10) / 10, z: Math.round(c.z * 10) / 10, lane: c.lane, qi: c.qi, beats: c.beats }; }); },
   initAudio: initAudio, playNpcVoice: playNpcVoice, playVoiceAny: playVoiceAny,
   audioVoices: function () { return activeVoices; }, getAC: function () { return ac; },
   voiceDbg: function () { return { local: dbgVoiceLocal, net: dbgVoiceNet, bcast: dbgVoiceBcast }; },

@@ -377,6 +377,9 @@ function wcTick(w, nextLabel) {
      AFTER meshychars.js (references MESHY_CHARS + MESHY_SHARED_CLIPS). game.js
      guards with typeof STAFF_CHARS. shopvoices1.js is optional shop dialogue. -->
 <script src="staffchars.js" onload="wcTick(3.0,'hiring the staff…')"></script>
+<!-- shop customer/staff voiced dialogue (task #65 SHOP_VOICES); game.js guards
+     with typeof/window.SHOP_VOICES so it still boots (text bubbles) if absent -->
+<script src="shopvoices1.js" onload="wcTick(1.6,'opening the shops…')"></script>
 <!-- child NPCs + kid/parent voice pack (task #72); game.js guards both with
      typeof KID_CHARS / KID_VOICES so it still boots if these are absent -->
 <script src="kidchars.js" onload="wcTick(2.0,'rounding up the kids…')"></script>
