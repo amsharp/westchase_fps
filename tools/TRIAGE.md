@@ -61,6 +61,17 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mree9kv6 (-477,355) umbrella grip pose
 - mreed9ar (-194,21)  smoke/fire: redo as AI sprite sheets (research game VFX)
 
+## Round 5 — IN-AGENT (round5-props) — prop placement/quality slice
+- mree10qu (62,32)    person clipping inside yellow prop — IN-AGENT (round5-props)
+- mreedozu (-199,33)  unidentifiable mesh — IN-AGENT (round5-props)
+- mreeelik (-118,75)  car placement weird — IN-AGENT (round5-props)
+- mreeccpr/mreebnfk (-226,152) prop set jarring in front of office tower (placement only) — IN-AGENT (round5-props)
+- mreegamp (-140,43)  placement bad — IN-AGENT (round5-props)
+- mreei0of (-142,-30) flower bed out of place — IN-AGENT (round5-props)
+- mreeuu2g (-136,230) unclear props — IN-AGENT (round5-props)
+- mreelboe (-70,-115) big green blob shrub — IN-AGENT (round5-props)
+- mreds4nw (90,-131) + mref3ibd (535,126) AC props: big rooftop industrial HVAC — IN-AGENT (round5-props)
+
 ## Notes
 - mrdphrsv is Claude's own deploy test, ignore.
 
