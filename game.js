@@ -13127,10 +13127,11 @@ spawnVendors();
 var wildlife = [], wildlifeReady = false;
 var wildRng = seededRng(0x63726974);       // seeded so first placement is reproducible
 var WILD_FAR = 95, WILD_FAR2 = WILD_FAR * WILD_FAR;
-var BIRD_COUNT = 8, DUCK_COUNT = 4, SQUIRREL_COUNT = 2;
+var BIRD_COUNT = 8, DUCK_COUNT = 4, SQUIRREL_COUNT = 2, CAT_COUNT = 2;
+var wildPlayerSpeed = 0, wildPrevPX = null, wildPrevPZ = null;
 // shared geometry/materials (built lazily on first update so no load-time cost /
 // no dependency on load order)
-var wildGeo = null, BIRD_MATS = null, wBeakMat = null, DUCK_MATS = null, SQ_MATS = null;
+var wildGeo = null, BIRD_MATS = null, wBeakMat = null, DUCK_MATS = null, SQ_MATS = null, CAT_MATS = null;
 function buildWildlifeAssets() {
   if (wildGeo) return;
   wildGeo = {
@@ -13144,7 +13145,12 @@ function buildWildlifeAssets() {
     sqBody: new THREE.SphereGeometry(0.11, 8, 6),
     sqHead: new THREE.SphereGeometry(0.075, 8, 6),
     sqTail: new THREE.SphereGeometry(0.1, 8, 6),
-    sqEar: new THREE.ConeGeometry(0.03, 0.06, 4)
+    sqEar: new THREE.ConeGeometry(0.03, 0.06, 4),
+    catBody: new THREE.SphereGeometry(0.13, 10, 7),
+    catHead: new THREE.SphereGeometry(0.1, 9, 7),
+    catEar: new THREE.ConeGeometry(0.045, 0.09, 4),
+    catLeg: new THREE.CylinderGeometry(0.028, 0.022, 0.24, 5),
+    catTail: new THREE.CylinderGeometry(0.032, 0.02, 0.42, 5)
   };
   var L = lamb;
   BIRD_MATS = [
@@ -13162,6 +13168,12 @@ function buildWildlifeAssets() {
   SQ_MATS = [
     { body: L({ color: 0x8a8177 }), tail: L({ color: 0xa39a8f }), belly: L({ color: 0xcfc7bc }) },
     { body: L({ color: 0x86603a }), tail: L({ color: 0x9c774c }), belly: L({ color: 0xd8b184 }) }
+  ];
+  // stray cats: gray tabby, ginger, tuxedo
+  CAT_MATS = [
+    { body: L({ color: 0x8d8b86 }), belly: L({ color: 0xc2c0ba }) },
+    { body: L({ color: 0xb5702f }), belly: L({ color: 0xe0b784 }) },
+    { body: L({ color: 0x2c2c30 }), belly: L({ color: 0xe8e8ea }) }
   ];
 }
 function buildBird(variant) {
@@ -13291,16 +13303,25 @@ function initWildlife() {
     var sc = { kind: 'squirrel', variant: sv, mesh: sg, x: 0, z: 0, y: 0, state: 'hidden', phase: wildRng() * 6.28, tree: null, tgt: null, wanderT: 0, chitT: 4 + wildRng() * 9, climbY: 0 };
     sg.visible = false; scene.add(sg); wildlife.push(sc);
   }
+  for (var ci = 0; ci < CAT_COUNT; ci++) {
+    var cv = (wildRng() * CAT_MATS.length) | 0, cg = buildCat(cv);
+    var cc = { kind: 'cat', variant: cv, mesh: cg, x: 0, z: 0, y: 0, state: 'wander', phase: wildRng() * 6.28, tgt: null, wanderT: 0, sitT: 0, fleeT: 0, meowT: 6 + wildRng() * 12, petCD: 0 };
+    scene.add(cg); wildlife.push(cc); relocateCat(cc);
+  }
 }
 function updateWildlife(dt) {
   if (!state.running || inside || state.dead) return;
   initWildlife();
   var px = player.x, pz = player.z;
+  // track player speed (drives the cat's skittishness) — cheap, once per frame
+  if (wildPrevPX !== null && dt > 0) { var mvd = Math.hypot(px - wildPrevPX, pz - wildPrevPZ) / dt; wildPlayerSpeed += (mvd - wildPlayerSpeed) * Math.min(1, dt * 8); }
+  wildPrevPX = px; wildPrevPZ = pz;
   for (var i = 0; i < wildlife.length; i++) {
     var c = wildlife[i];
     if (c.kind === 'bird') updateBird(c, dt, px, pz);
     else if (c.kind === 'duck') updateDuck(c, dt, px, pz);
     else if (c.kind === 'squirrel') updateSquirrel(c, dt, px, pz);
+    else if (c.kind === 'cat') updateCat(c, dt, px, pz);
   }
 }
 // ---- ducks (lake + fountain): float on the water surface, paddle to gentle
@@ -13446,6 +13467,100 @@ function updateSquirrel(c, dt, px, pz) {
     c.y = c.climbY;
   }
   m.position.set(c.x, c.y, c.z);
+}
+// ---- stray cats: amble slowly along sidewalks/yards near the player, sit,
+// and are SKITTISH — bolt a short way if you get too close too fast. Approach
+// gently and press [E] to pet (a meow, a purr, and a little heart). ----
+function buildCat(variant) {
+  var m = CAT_MATS[variant], g = new THREE.Group();
+  var body = new THREE.Mesh(wildGeo.catBody, m.body); body.scale.set(1, 0.85, 1.75); body.position.set(0, 0.26, 0); g.add(body);
+  var belly = new THREE.Mesh(wildGeo.catBody, m.belly); belly.scale.set(0.8, 0.55, 1.4); belly.position.set(0, 0.2, 0.02); g.add(belly);
+  var head = new THREE.Mesh(wildGeo.catHead, m.body); head.scale.set(1, 0.92, 0.92); head.position.set(0, 0.34, 0.26); g.add(head);
+  var earL = new THREE.Mesh(wildGeo.catEar, m.body); earL.position.set(-0.055, 0.45, 0.24); g.add(earL);
+  var earR = new THREE.Mesh(wildGeo.catEar, m.body); earR.position.set(0.055, 0.45, 0.24); g.add(earR);
+  var snout = new THREE.Mesh(wildGeo.catHead, m.belly); snout.scale.set(0.5, 0.4, 0.5); snout.position.set(0, 0.31, 0.34); g.add(snout);
+  var lx = [-0.07, 0.07, -0.07, 0.07], lz = [0.14, 0.14, -0.14, -0.14];
+  for (var i = 0; i < 4; i++) { var leg = new THREE.Mesh(wildGeo.catLeg, m.body); leg.position.set(lx[i], 0.12, lz[i]); g.add(leg); }
+  // tail pivot at the rear; sways in updateCat
+  var tp = new THREE.Group(); tp.position.set(0, 0.28, -0.24);
+  var tail = new THREE.Mesh(wildGeo.catTail, m.body); tail.position.set(0, 0.16, -0.04); tail.rotation.x = 0.5; tp.add(tail); g.add(tp);
+  g.add(blobShadow(0.16, 0.26, 0.02));
+  g.userData.tail = tp; g.userData.head = head;
+  return g;
+}
+function relocateCat(c) {
+  var spot = wildGroundSpot(player, 24, 50) || wildGroundSpot(player, 10, 24);
+  if (spot) { c.x = spot.x; c.z = spot.z; } else { c.x = player.x + (wildRng() - 0.5) * 40; c.z = player.z + (wildRng() - 0.5) * 40; }
+  c.y = 0; c.state = 'wander'; c.wanderT = 0; c.tgt = null; c.mesh.visible = true; c.mesh.position.set(c.x, 0, c.z); c.mesh.rotation.y = wildRng() * 6.2832;
+}
+function catNewTarget(c) {
+  var spot = wildGroundSpot({ x: c.x, z: c.z }, 3, 10);
+  c.tgt = spot ? { x: spot.x, z: spot.z } : { x: c.x + (Math.random() - 0.5) * 8, z: c.z + (Math.random() - 0.5) * 8 };
+}
+function updateCat(c, dt, px, pz) {
+  var m = c.mesh, dx = c.x - px, dz = c.z - pz, d2 = dx * dx + dz * dz;
+  if (d2 > WILD_FAR2) { relocateCat(c); return; }   // LOD: far -> amble in from fresh ground near the player
+  m.visible = true; c.phase += dt;
+  if (c.petCD > 0) c.petCD -= dt;
+  // tail sway (idle motion, always)
+  if (m.userData.tail) m.userData.tail.rotation.z = Math.sin(c.phase * 1.8) * 0.3;
+  var spd = 0, vx = 0, vz = 0;
+  if (c.state === 'pet') {
+    c.sitT -= dt; m.rotation.y = Math.atan2(px - c.x, pz - c.z);   // look up at the player
+    if (m.userData.head) m.userData.head.rotation.x = -0.15;
+    if (c.sitT <= 0) { c.state = 'wander'; c.wanderT = 0; if (m.userData.head) m.userData.head.rotation.x = 0; }
+  } else {
+    // skittish: bolt if the player is very close, or close AND moving fast
+    if (c.state !== 'flee' && (d2 < 4.84 || (d2 < 20 && wildPlayerSpeed > 3.4))) {
+      c.state = 'flee'; c.fleeT = 1.0 + Math.random() * 0.8;
+      var fa = Math.atan2(dz, dx); c.tgt = { x: c.x + Math.cos(fa) * 8, z: c.z + Math.sin(fa) * 8 };
+      if (!inside && Math.random() < 0.5) wildMeow();
+    }
+    if (c.state === 'flee') {
+      c.fleeT -= dt; spd = 5.2;
+      var tdx = c.tgt.x - c.x, tdz = c.tgt.z - c.z, td = Math.hypot(tdx, tdz) || 1; vx = tdx / td; vz = tdz / td;
+      if (c.fleeT <= 0) { c.state = 'wander'; c.wanderT = 0; }
+    } else if (c.state === 'sit') {
+      c.sitT -= dt; if (c.sitT <= 0) { c.state = 'wander'; c.wanderT = 0; }
+    } else {   // wander
+      if (!c.tgt || c.wanderT <= 0) { catNewTarget(c); c.wanderT = 2 + Math.random() * 3; if (Math.random() < 0.3) { c.state = 'sit'; c.sitT = 2 + Math.random() * 3.5; } }
+      c.wanderT -= dt;
+      var wdx = c.tgt.x - c.x, wdz = c.tgt.z - c.z, wd = Math.hypot(wdx, wdz);
+      if (wd > 0.4) { spd = 1.25; vx = wdx / wd; vz = wdz / wd; } else { c.state = 'sit'; c.sitT = 1.5 + Math.random() * 3; }
+    }
+    if (m.userData.head) m.userData.head.rotation.x = 0;
+  }
+  if (spd > 0.05) {
+    c.x += vx * spd * dt; c.z += vz * spd * dt;
+    c.x = Math.max(-HALF + 6, Math.min(HALF - 6, c.x)); c.z = Math.max(-HALF + 6, Math.min(HALF - 6, c.z));
+    var pos = pushOut(c.x, c.z, 0.2); c.x = pos.x; c.z = pos.z;
+    m.rotation.y = Math.atan2(vx, vz);
+    if (m.userData.tail) m.userData.tail.rotation.z += Math.sin(c.phase * 9) * 0.12;   // faster sway on the move
+  }
+  m.position.set(c.x, 0, c.z);
+  // occasional meow near the player (not while fleeing)
+  c.meowT -= dt;
+  if (c.meowT <= 0) { c.meowT = 8 + Math.random() * 16; if (c.state !== 'flee' && d2 < 400 && !inside && Math.random() < 0.5) wildMeow(); }
+}
+// nearest pettable cat within reach (calm, not fleeing) — for the E prompt/handler
+function nearestPetCat() {
+  if (!state.running || state.dead || driving || inside) return null;
+  var best = null, bd = 2.4 * 2.4;
+  for (var i = 0; i < wildlife.length; i++) {
+    var c = wildlife[i]; if (c.kind !== 'cat' || c.state === 'flee' || !c.mesh.visible) continue;
+    var dx = c.x - player.x, dz = c.z - player.z, d2 = dx * dx + dz * dz;
+    if (d2 < bd) { bd = d2; best = c; }
+  }
+  return best;
+}
+function petCat(c) {
+  if (!c || c.petCD > 0) return false;
+  c.state = 'pet'; c.sitT = 2.6; c.petCD = 4; c.tgt = null;
+  if (!inside) { wildMeow(); setTimeout(function () { wildPurr(); }, 320); }
+  // a little floating heart + a wholesome line
+  popup('♥');
+  toast('🐈 You pet the stray cat. <b>Purrrr…</b>', 2400);
+  return true;
 }
 function wildlifeCounts() {
   var o = { bird: 0, duck: 0, squirrel: 0, cat: 0 };
@@ -18027,6 +18142,7 @@ document.addEventListener('keydown', function (e) {
     if (gdx * gdx + gdz * gdz < 40) { enterStore(); return; }
     var idr = nearInteriorDoor();
     if (idr) { enterInterior(idr.id); return; }   // Publix (and future shop interiors)
+    if (petCat(nearestPetCat())) return;   // pet a nearby stray cat (wholesome, local-only)
     if (streetPropInteract()) return;   // vending / payphone / ATM / newsbox / dumpster / kick / mailbox
     if (envPropInteract()) return;      // env props: sit / drink / buy / play / vend / read / mailbox
     if (bushRummage()) return;          // rummage a bush/hedge for lost items
@@ -18246,9 +18362,11 @@ function updatePlayer(dt) {
     else if (qa2) prompt.textContent = '[E] TALK TO ' + (qa2.name || 'THEM').toUpperCase();
     else if (qh2 && questHatchUnlocked(qh2.id)) prompt.textContent = '[E] ENTER ' + (QPOI[qh2.id].name || 'HATCH').toUpperCase();
     else {
-      var spp = breakIn ? null : (streetPropPrompt() || envPropPrompt() || bushPrompt());   // street + env + bush E-prompts
-      var nsc = spp || breakIn ? null : nearestStealableCar();
+      var petc = breakIn ? null : (typeof nearestPetCat === 'function' ? nearestPetCat() : null);
+      var spp = (breakIn || petc) ? null : (streetPropPrompt() || envPropPrompt() || bushPrompt());   // street + env + bush E-prompts
+      var nsc = spp || petc || breakIn ? null : nearestStealableCar();
       if (breakIn) prompt.textContent = 'BREAKING IN…';
+      else if (petc) prompt.textContent = (petc.petCD > 0 ? '' : '[E] PET THE CAT');
       else if (spp) prompt.textContent = spp;
       else if (nsc) prompt.textContent = carDrivenByPlayer(nsc) ? '[E] HIJACK CAR' : (nsc.parked ? '[E] BREAK IN' : '[E] STEAL CAR');
       else prompt.textContent = '';
@@ -18771,7 +18889,7 @@ window.__wc = {
   buildQuestChar: buildQuestChar, playQuestVoice: playQuestVoice, getEnvProp: getEnvProp,
   questRegisterItems: questRegisterItems, itemDef: itemDef, itemTex: itemTex, bagAdd: bagAdd, bagCount: bagCount,
   questAssets: function () { return { chars: Object.keys(QUEST_IDX), reskins: Object.keys(QUEST_RESKIN_IDX), props: (typeof QUEST_PROPS !== 'undefined') ? QUEST_PROPS.map(function (p) { return p.n; }) : [], items: (typeof QUEST_ITEM_DEFS !== 'undefined') ? QUEST_ITEM_DEFS.length : 0, voices: (typeof QUEST_VOICES !== 'undefined') ? Object.keys(QUEST_VOICES).length : 0 }; },
-  wildlife: wildlife, wildlifeCounts: wildlifeCounts, updateWildlife: updateWildlife, initWildlife: initWildlife,
+  wildlife: wildlife, wildlifeCounts: wildlifeCounts, updateWildlife: updateWildlife, initWildlife: initWildlife, nearestPetCat: nearestPetCat, petCat: petCat,
   tick: function (dt) { T += dt; updateReflex(dt); var sdt = dt * reflexScale(); updatePlayer(dt); updateNPCs(sdt); updateKids(sdt); updateWildlife(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); updateQuestCaps(dt); updateSecrets(sdt); renderer.render(scene, camera); }
 };
 
