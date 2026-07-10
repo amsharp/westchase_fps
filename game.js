@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.62.2';
+var GAME_VERSION = 'v1.62.3';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -12884,9 +12884,22 @@ function ghostActive() { return hasUnlock('ghost') && state.equipped === 'silenc
 function ghostBuy(p) { return hasUnlock('ghost') ? Math.max(0, Math.round(p * 0.9)) : p; }
 function ghostSell(v) { return hasUnlock('ghost') ? Math.round(v * 1.15) : v; }
 
+// ---- quest-NPC idle animation (C): the placed qActors are static-posed;
+// drive the standard idle (animPerson spd=0 → skinned idle clip / limb rest)
+// so they breathe and shift like every other townsperson. Near-camera only.
+function updateQActors(dt) {
+  if (typeof qActors === 'undefined' || !qActors) return;
+  for (var i = 0; i < qActors.length; i++) {
+    var a = qActors[i]; if (!a.mesh) continue;
+    if (a.phase === undefined) a.phase = Math.random() * 6.28;
+    var dx = a.x - player.x, dz = a.z - player.z; if (dx * dx + dz * dz > 130 * 130) continue;
+    a.phase += dt * 3.4;
+    try { animPerson(a.mesh, 0, dt, a.phase); } catch (e) { }
+  }
+}
 // ---- master capability update (called from the loop + __wc.tick) ----
 function updateQuestCaps(dt) {
-  updateLoupe(dt); updateLantern(dt); updateReflex(dt); updateBiscuit(dt);
+  updateLoupe(dt); updateLantern(dt); updateReflex(dt); updateBiscuit(dt); updateQActors(dt);
 }
 // debug: force-grant a capability (and its item) without playing the quest
 function giveUnlock(flag) {
@@ -14700,6 +14713,7 @@ window.__wc = {
   summonBiscuit: summonBiscuit, dismissBiscuit: dismissBiscuit, toggleBiscuit: toggleBiscuit,
   biscuitState: function () { return biscuit ? { x: Math.round(biscuit.x * 10) / 10, z: Math.round(biscuit.z * 10) / 10, dist: Math.round(Math.sqrt((biscuit.x - player.x) * (biscuit.x - player.x) + (biscuit.z - player.z) * (biscuit.z - player.z)) * 10) / 10 } : null; },
   ghostActive: ghostActive, ghostBuy: ghostBuy, ghostSell: ghostSell,
+  qActorsRef: function () { return qActors; }, updateQActors: updateQActors,
   ownWeapon: function (k) { if (WEAPONS[k]) { state.owned[k] = true; return true; } return false; },
   setAdsDown: function (v) { adsDown = !!v; },
   questGiverNear: questGiverNear, questGiverTalk: questGiverTalk, refreshQuestPanel: refreshQuestPanel,
