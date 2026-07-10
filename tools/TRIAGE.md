@@ -26,7 +26,7 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mree5z0n (-223,225) invisible barrier — FIXED@v1.65.3 (rotated houses now use ORIENTED colliders; the axis-aligned AABB was swallowing driveways)
 - mreealh2 (-415,262) invisible wall — FIXED@v1.65.3 (same OBB fix — the gap between two houses is drivable again)
 - mreee1df (-207,31)  invisible wall — IN-AGENT (round3-collision); note: likely the lakeside chain-post row (visible but thin), OBB fix may already help
-- mree6h2d (-260,271) walk through tree — IN-AGENT (round3-collision)
+- mree6h2d (-260,271) walk through tree — FIXED@v1.66.11 (forestPatch dropped a whole small leaf's collider when a road merely clipped its SW corner, but expForestFill still planted instanced trees across the entire rect -> walk-through forest. Non-clear leaves now split finer + tile their road-clear interior with colliders via forestPatchClearTiles; +0 new road blocks vs baseline)
 - mree1rcg (55,79)    chainlink: NPCs stuck + links comically large — IN-AGENT (round3-collision)
 - mredz61g (91,-18)   kids merged spamming tag lines — FIXED@v1.65.4 by fable agent (no tag-backs + fresh-it freeze + pairwise separation) — round3-collision: SKIP, already shipped
 - mree93m6 (-475,353) kid-merge during game — FIXED@v1.65.4 (same) — round3-collision: SKIP, already shipped
