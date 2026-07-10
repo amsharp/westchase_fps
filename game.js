@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.56.5';
+var GAME_VERSION = 'v1.57.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -8953,8 +8953,95 @@ function fleeKidsNear(x, z, r2) {
     var k = kids[i], dx = k.x - x, dz = k.z - z;
     if (dx * dx + dz * dz < r2) {
       var d = Math.sqrt(dx * dx + dz * dz) || 1;
+      if (k.state === 'play_on' || k.state === 'play_go') endKidPlay(k);   // chaos breaks up the game
       k.state = 'flee'; k.stateT = 3 + Math.random() * 2.5; k.fleeDX = dx / d; k.fleeDZ = dz / d; k.fleeSpd = 5.6;
     }
+  }
+}
+// ---- STEP 3: playground play ----
+// group the placed slide / swing_set / playground_climber props (envProps) into
+// playsets by proximity, lazily on first use (envProps is populated at load).
+var kidPlaysets = null;
+function getKidPlaysets() {
+  if (kidPlaysets) return kidPlaysets;
+  kidPlaysets = [];
+  if (typeof envProps === 'undefined') return kidPlaysets;
+  var pieces = [];
+  for (var i = 0; i < envProps.length; i++) { var r = envProps[i]; if (r.name === 'slide' || r.name === 'swing_set' || r.name === 'playground_climber') pieces.push(r); }
+  var used = [];
+  for (i = 0; i < pieces.length; i++) {
+    if (used[i]) continue; used[i] = 1;
+    var set = { pieces: [pieces[i]] };
+    for (var j = i + 1; j < pieces.length; j++) { if (used[j]) continue; var dx = pieces[j].x - pieces[i].x, dz = pieces[j].z - pieces[i].z; if (dx * dx + dz * dz < 225) { set.pieces.push(pieces[j]); used[j] = 1; } }
+    var sx = 0, sz = 0; for (var q = 0; q < set.pieces.length; q++) { sx += set.pieces[q].x; sz += set.pieces[q].z; } set.cx = sx / set.pieces.length; set.cz = sz / set.pieces.length;
+    kidPlaysets.push(set);
+  }
+  return kidPlaysets;
+}
+function nearestPlayset(x, z, r) {
+  var sets = getKidPlaysets(), best = null, bd = r * r;
+  for (var i = 0; i < sets.length; i++) { var s = sets[i], dx = s.cx - x, dz = s.cz - z, d = dx * dx + dz * dz; if (d < bd) { bd = d; best = s; } }
+  return best;
+}
+function startKidPlay(k, set) {
+  var pc = set.pieces[(Math.random() * set.pieces.length) | 0], d = pc.dims;
+  var f = [Math.sin(pc.ry), Math.cos(pc.ry)];   // piece forward axis
+  k.playPiece = pc; k.pf = f;
+  k.playKind = pc.name === 'slide' ? 'slide' : (pc.name === 'swing_set' ? 'swing' : 'climb');
+  if (k.playKind === 'slide') {
+    k.aTop = [pc.x - f[0] * d[2] * 0.30, pc.z - f[1] * d[2] * 0.30]; k.aTopY = d[1] * 0.60;
+    k.aFoot = [pc.x + f[0] * d[2] * 0.48, pc.z + f[1] * d[2] * 0.48];
+    k.approach = [pc.x - f[0] * (d[2] * 0.5 + 1.2), pc.z - f[1] * (d[2] * 0.5 + 1.2)];
+  } else if (k.playKind === 'swing') {
+    k.seat = [pc.x, pc.z]; k.seatY = Math.max(0.35, d[1] * 0.38);
+    k.approach = [pc.x - f[0] * 1.8, pc.z - f[1] * 1.8];
+    k.swingBase = (pc.swayAmp !== undefined) ? pc.swayAmp : 0.22;
+  } else {
+    k.cA = [pc.x - f[0] * d[2] * 0.38, pc.z - f[1] * d[2] * 0.38];
+    k.cB = [pc.x + f[0] * d[2] * 0.38, pc.z + f[1] * d[2] * 0.38];
+    k.cTopY = d[1] * 0.55;
+    k.approach = [k.cA[0], k.cA[1]];
+  }
+  k.state = 'play_go'; k.playT = 20 + Math.random() * 20; k.playPhase = 0; k.playY = 0; k.playMoving = true; k.playGoT = 3.5;
+}
+function endKidPlay(k) {
+  if (k.playKind === 'swing' && k.playPiece && k.playPiece.swayChild) k.playPiece.swayAmp = k.swingBase;   // restore gentle idle sway
+  k.playY = 0; k.playMoving = false; k.state = 'follow'; k.playPiece = null;
+  if (k.mesh) k.mesh.rotation.x = 0;
+}
+// keep the parent parked nearby, watching, while its kid plays
+function watchParent(k) {
+  var p = k.parent;
+  if (!p || p.state === 'down' || p.state === 'ragdoll' || p.state === 'hidden') return;
+  if (p.state !== 'stand') { p.state = 'stand'; p.animT = 0; p.idleVar = false; }
+  p.stateT = 3;
+  if (p.mesh) p.mesh.rotation.y = Math.atan2((k.x - p.x) || 0.001, (k.z - p.z) || 0.001);
+}
+// scripted per-piece motion; sets k.x/k.z/k.playY, plays 'wheee' voice cues
+function updateKidPlayOn(k, dt, i) {
+  var pc = k.playPiece; if (!pc) { k.state = 'follow'; return; }
+  var voiceAt = { x: k.x, z: k.z, kkey: 'k' + i, ref: k, net: 1 };
+  if (k.playKind === 'slide') {
+    k.playPhase += dt / 2.6; var c = k.playPhase - Math.floor(k.playPhase);
+    if (c < 0.34) { var t = c / 0.34; k.x = k.aTop[0]; k.z = k.aTop[1]; k.playY = t * k.aTopY; k.playMoving = true; }
+    else if (c < 0.64) {
+      var t2 = (c - 0.34) / 0.30; k.x = k.aTop[0] + (k.aFoot[0] - k.aTop[0]) * t2; k.z = k.aTop[1] + (k.aFoot[1] - k.aTop[1]) * t2; k.playY = k.aTopY * (1 - t2); k.playMoving = false;
+      if (k.mesh) k.mesh.rotation.y = Math.atan2(k.pf[0], k.pf[1]);
+      if (t2 < 0.12) playKidVoice(k.persona, 'play', 0.55, 5, voiceAt);
+    } else { var t3 = (c - 0.64) / 0.36; k.x = k.aFoot[0] + (k.aTop[0] - k.aFoot[0]) * t3; k.z = k.aFoot[1] + (k.aTop[1] - k.aFoot[1]) * t3; k.playY = 0; k.playMoving = true; }
+  } else if (k.playKind === 'swing') {
+    if (pc.swayChild) pc.swayAmp = 0.5;                    // seat swings wider while ridden
+    var a = Math.sin(T * (pc.swaySpd || 1.7)) * 0.6;
+    k.x = k.seat[0] + k.pf[0] * Math.sin(a) * 1.25; k.z = k.seat[1] + k.pf[1] * Math.sin(a) * 1.25;
+    k.playY = k.seatY - (1 - Math.cos(a)) * 0.7; k.playMoving = false;
+    if (k.mesh) k.mesh.rotation.y = Math.atan2(k.pf[0], k.pf[1]);
+    if (Math.random() < 0.01) playKidVoice(k.persona, 'play', 0.5, 6, voiceAt);
+  } else {   // climber scramble: A -> top -> B and back
+    k.playPhase += dt / 3.0; var cc = k.playPhase - Math.floor(k.playPhase);
+    var A = cc < 0.5 ? k.cA : k.cB, B = cc < 0.5 ? k.cB : k.cA, tt = (cc < 0.5 ? cc : cc - 0.5) / 0.5;
+    k.x = A[0] + (B[0] - A[0]) * tt; k.z = A[1] + (B[1] - A[1]) * tt; k.playY = Math.sin(tt * Math.PI) * k.cTopY; k.playMoving = true;
+    if (k.mesh) k.mesh.rotation.y = Math.atan2((B[0] - A[0]) || 0.001, (B[1] - A[1]) || 0.001);
+    if (cc < 0.02) playKidVoice(k.persona, 'play', 0.5, 7, voiceAt);
   }
 }
 function updateKids(dt) {
@@ -8970,27 +9057,58 @@ function updateKids(dt) {
       if (pdx * pdx + pdz * pdz > 45 * 45) { repairKid(k); p = k.parent; }
     }
     var spd = 0, vx = 0, vz = 0;
+    // ---- STEP 3: playing on a piece — fully scripted motion, own Y, then skip
+    // the shared walk/dodge/dialogue path ----
+    if (k.state === 'play_on') {
+      updateKidPlayOn(k, dt, i);
+      m.position.set(k.x, k.playY || 0, k.z);
+      if (k.playMoving) { k.phase += 2.4 * dt * 3.4; animPerson(m, 2.4, dt, k.phase); }
+      else meshyPose(m.userData.skin, 'walk', 0);
+      watchParent(k);
+      k.playT -= dt; if (k.playT <= 0) endKidPlay(k);
+      continue;
+    }
     if (k.state === 'flee') {
       k.stateT -= dt; spd = k.fleeSpd || 5.4; vx = k.fleeDX; vz = k.fleeDZ;
       if (k.stateT <= 0) k.state = 'follow';
+    } else if (k.state === 'play_go') {
+      // run toward the piece; start playing once close (or after a short timeout —
+      // solid climber/swing colliders can stop pushOut a step short of the spot)
+      k.playGoT -= dt;
+      var ax = k.approach[0], az = k.approach[1], gdx = ax - k.x, gdz = az - k.z, gd = Math.sqrt(gdx * gdx + gdz * gdz);
+      if (gd < 0.9 || k.playGoT <= 0) { k.state = 'play_on'; k.playPhase = 0; }
+      else { spd = 3.9; vx = gdx / gd; vz = gdz / gd; }
+      watchParent(k);
     } else {
       var px = p ? p.x : k.x, pz = p ? p.z : k.z;
       var pdx = px - k.x, pdz = pz - k.z, pd = Math.sqrt(pdx * pdx + pdz * pdz);
-      // occasional gawk-and-lag, then a catch-up run
-      k.lagT -= dt;
-      if (k.state === 'follow' && k.lagT <= 0 && pd < 6) { k.state = 'lag'; k.stateT = 1.2 + Math.random() * 1.8; k.lagT = 7 + Math.random() * 10; }
-      if (k.state === 'lag') {
-        k.stateT -= dt; m.rotation.y += Math.sin(T * 2 + k.phase) * 0.02;
-        if (k.stateT <= 0 || pd > 7) k.state = pd > 6 ? 'catchup' : 'follow';
-      } else if (k.state === 'catchup' || (k.state === 'follow' && pd > 8)) {
-        k.state = 'catchup';
-        if (pd < 3.2) { k.state = 'follow'; if (Math.random() < 0.4) playKidVoice(k.persona, 'play', 0.5, 8, { x: k.x, z: k.z, ref: k, net: 1 }); }
-        else { spd = 4.7; vx = pdx / (pd || 1); vz = pdz / (pd || 1); }
-      } else {  // follow: hand-hold at the offset point beside the parent
-        var tx = px + Math.cos(k.offA) * k.hold, tz = pz + Math.sin(k.offA) * k.hold;
-        var dx = tx - k.x, dz = tz - k.z, d = Math.sqrt(dx * dx + dz * dz);
-        if (d > 1.1) { spd = Math.min(k.speed, p ? Math.max(1.2, p.speed) : k.speed); vx = dx / (d || 1); vz = dz / (d || 1); }
-        else if (p) m.rotation.y = Math.atan2((p.x - k.x) || 0.001, (p.z - k.z) || 0.001);
+      // play trigger: a pair loitering near a playset -> the kid runs off to play
+      if (k.state === 'follow' && p) {
+        k.playCheckT = (k.playCheckT || 0) - dt;
+        if (k.playCheckT <= 0) {
+          k.playCheckT = 2 + Math.random() * 2.5;
+          var pset = nearestPlayset(k.x, k.z, 15);
+          if (pset && (pset.cx - p.x) * (pset.cx - p.x) + (pset.cz - p.z) * (pset.cz - p.z) < 441 && Math.random() < 0.5) startKidPlay(k, pset);
+        }
+      }
+      // (if the trigger flipped us to play_go, skip the follow logic this frame)
+      if (k.state === 'follow' || k.state === 'lag' || k.state === 'catchup') {
+        // occasional gawk-and-lag, then a catch-up run
+        k.lagT -= dt;
+        if (k.state === 'follow' && k.lagT <= 0 && pd < 6) { k.state = 'lag'; k.stateT = 1.2 + Math.random() * 1.8; k.lagT = 7 + Math.random() * 10; }
+        if (k.state === 'lag') {
+          k.stateT -= dt; m.rotation.y += Math.sin(T * 2 + k.phase) * 0.02;
+          if (k.stateT <= 0 || pd > 7) k.state = pd > 6 ? 'catchup' : 'follow';
+        } else if (k.state === 'catchup' || (k.state === 'follow' && pd > 8)) {
+          k.state = 'catchup';
+          if (pd < 3.2) { k.state = 'follow'; if (Math.random() < 0.4) playKidVoice(k.persona, 'play', 0.5, 8, { x: k.x, z: k.z, ref: k, net: 1 }); }
+          else { spd = 4.7; vx = pdx / (pd || 1); vz = pdz / (pd || 1); }
+        } else {  // follow: hand-hold at the offset point beside the parent
+          var tx = px + Math.cos(k.offA) * k.hold, tz = pz + Math.sin(k.offA) * k.hold;
+          var dx = tx - k.x, dz = tz - k.z, d = Math.sqrt(dx * dx + dz * dz);
+          if (d > 1.1) { spd = Math.min(k.speed, p ? Math.max(1.2, p.speed) : k.speed); vx = dx / (d || 1); vz = dz / (d || 1); }
+          else if (p) m.rotation.y = Math.atan2((p.x - k.x) || 0.001, (p.z - k.z) || 0.001);
+        }
       }
     }
     if (spd > 0.05) {
@@ -12009,7 +12127,83 @@ function updatePlayer(dt) {
     }
   }
 }
-function updateHUD() { document.getElementById('money').textContent = '$' + state.money; document.getElementById('hpBar').style.width = Math.max(0, state.hp) + '%'; }
+// ---------------- pixelated HUD canvas (PS1-on-a-TV) ----------------
+// Everything readable (money, hp, weapon, stars, prompt, rocket cd) is drawn
+// into ONE low-res canvas at a fixed logical height, then CSS upscales it with
+// image-rendering:pixelated — chunky bitmap-look glyphs at any resolution. The
+// hidden DOM readouts (updated below + by scattered code) are the data source.
+var hudCv = document.getElementById('hudCanvas');
+var hudCx = hudCv.getContext('2d');
+var HUD_H = 360;                        // logical height (square pixels, upscaled)
+var hudW = 640, hudH = HUD_H;
+function sizeHud() {
+  var aspect = window.innerWidth / Math.max(1, window.innerHeight);
+  hudH = HUD_H;
+  hudW = Math.max(320, Math.round(HUD_H * aspect));
+  hudCv.width = hudW; hudCv.height = hudH;
+  // minimap: hold ~26% of screen height on any resolution (TV-overlay consistent)
+  var ms = Math.max(150, Math.min(300, Math.round(window.innerHeight * 0.26)));
+  mm.style.width = ms + 'px'; mm.style.height = ms + 'px';
+}
+window.addEventListener('resize', sizeHud); sizeHud();
+// chunky glyph: hard black drop-shadow → reads as an outlined bitmap once upscaled
+function hudText(txt, x, y, size, fill, align) {
+  hudCx.font = 'bold ' + size + 'px "Courier New",monospace';
+  hudCx.textAlign = align || 'left';
+  hudCx.textBaseline = 'alphabetic';
+  var off = Math.max(1, Math.round(size / 11));
+  hudCx.fillStyle = '#000'; hudCx.fillText(txt, x + off, y + off);
+  hudCx.fillStyle = fill; hudCx.fillText(txt, x, y);
+}
+function hudBar(x, y, w, h, frac, fill, notches) {
+  hudCx.fillStyle = '#000'; hudCx.fillRect(x - 2, y - 2, w + 4, h + 4);
+  hudCx.fillStyle = '#cfc7b0'; hudCx.fillRect(x - 1, y - 1, w + 2, h + 2);
+  hudCx.fillStyle = '#241014'; hudCx.fillRect(x, y, w, h);
+  hudCx.fillStyle = fill; hudCx.fillRect(x, y, Math.round(w * Math.max(0, Math.min(1, frac))), h);
+  if (notches) { hudCx.fillStyle = '#000'; for (var s = 1; s < notches; s++) hudCx.fillRect(x + Math.round(w * s / notches), y, 2, h); }
+}
+function drawHudCanvas() {
+  var W = hudW, H = hudH, M = 18;
+  hudCx.clearRect(0, 0, W, H);
+  // money + hp plate (top-left)
+  var money = '$' + state.money;
+  hudCx.font = 'bold 26px "Courier New",monospace';
+  var mwid = hudCx.measureText(money).width;
+  var plateW = Math.max(192, mwid) + 14;
+  hudCx.fillStyle = 'rgba(8,11,18,0.5)'; hudCx.fillRect(M - 7, M - 5, plateW, 62);
+  hudText(money, M, M + 22, 26, '#8ee87f', 'left');
+  var hp = Math.max(0, Math.min(100, state.hp)) / 100;
+  var hpcol = hp > 0.5 ? '#d94f3d' : (hp > 0.25 ? '#e0902e' : '#e5533d');
+  hudBar(M, M + 34, 176, 16, hp, hpcol, 10);
+  // wanted stars (top-center)
+  var sw = state.wanted | 0, gap = 32, sx = W / 2 - gap * 2;
+  for (var i = 0; i < 5; i++) hudText('★', sx + i * gap, M + 28, 30, i < sw ? '#ffd94a' : '#39404d', 'center');
+  // weapon box (bottom-right) — mirror the hidden DOM readout (keeps DRIVING/reload subtext)
+  var wb = document.getElementById('weaponBox'), main = '', sub = '';
+  if (wb) {
+    var cn = wb.childNodes;
+    main = (cn[0] && cn[0].nodeType === 3) ? cn[0].textContent : (wb.textContent || '');
+    var sm = wb.querySelector('small'); sub = sm ? sm.textContent : '';
+  }
+  main = (main || '').trim(); sub = (sub || '').replace(/ /g, ' ').trim();
+  var wy = H - M;
+  if (sub) { hudText(sub, W - M, wy, 13, '#b9b19a', 'right'); wy -= 19; }
+  hudText(main, W - M, wy, 24, '#fff', 'right');
+  // rocket cooldown (just below the crosshair)
+  if (rocketCdEl && !rocketCdEl.classList.contains('hidden')) {
+    var pct = (parseFloat(rocketCdBar.style.width) || 0) / 100;
+    hudBar(W / 2 - 44, H / 2 + 22, 88, 9, pct, '#ffd94a', 0);
+  }
+  // context prompt (lower-center) — sits well below the crosshair, never over it
+  var pr = document.getElementById('prompt'), pt = pr ? (pr.textContent || '').trim() : '';
+  if (pt) {
+    hudCx.font = 'bold 19px "Courier New",monospace';
+    var pw = hudCx.measureText(pt).width, px = W / 2, py = Math.round(H * 0.80);
+    hudCx.fillStyle = 'rgba(8,11,18,0.6)'; hudCx.fillRect(px - pw / 2 - 12, py - 20, pw + 24, 30);
+    hudText(pt, px, py, 19, '#ffe9a0', 'center');
+  }
+}
+function updateHUD() { document.getElementById('money').textContent = '$' + state.money; document.getElementById('hpBar').style.width = Math.max(0, state.hp) + '%'; drawHudCanvas(); }
 
 // ---------------- main loop ----------------
 var last = performance.now();
@@ -12054,6 +12248,7 @@ setTimeout(loadNpcVoiceChunks, 800);
 window.__wc = {
   state: state, player: player, npcs: npcs, cashes: cashes, cops: cops,
   kids: kids, adultRace: adultRace, spawnKids: spawnKids, updateKids: updateKids, playKidVoice: playKidVoice, kidVoiceDbg: function () { return kidVoiceDbg; },
+  getKidPlaysets: getKidPlaysets, nearestPlayset: nearestPlayset, startKidPlay: startKidPlay,
   setWanted: setWanted, damageCop: damageCop,
   start: function () { startScreen.classList.add('hidden'); state.running = true; },
   setYaw: function (y) { yaw = y; camera.position.set(player.x, player.y, player.z); camera.rotation.y = yaw; camera.rotation.x = pitch; },
