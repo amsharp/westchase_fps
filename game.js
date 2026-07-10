@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.28';
+var GAME_VERSION = 'v1.66.29';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -3505,6 +3505,7 @@ function houseSidewalkNudge(x, z, w, d, rot) {
 }
 var houseStats = { instances: 0, meshes: 0, tris: 0, colliders: 0, skipped: 0 };
 var houseMeshesRef = [];   // merged house meshes (perf A/B toggle hook)
+var houseFronts = [];      // final (post-nudge) house-front frames for the landscaping pass (foundation shrubs)
 (function buildSurveyHouses() {
   if (!STAMP_SURVEY_HOUSES || typeof HOUSE_CLUSTERS === 'undefined') return;   // editor map has no survey-house fill
   var chunks = {};   // 'ci|vi' -> {pos:[],norm:[],uv:[]}
@@ -3543,6 +3544,9 @@ var houseMeshesRef = [];   // merged house meshes (perf A/B toggle hook)
     if (!cl.spec.canopy && cl.spec.feat && cl.spec.feat.door) {
       var dxl = (cl.spec.feat.door.x - 0.5) * w;
       registerDoor(dxl * ca + (d / 2) * sa + x, -dxl * sa + (d / 2) * ca + z, sa, ca, 2.2);
+      // front-face frame for foundation plantings: centre on the front wall, with
+      // outward normal (sa,ca) and along-wall right (ca,-sa). x,z are post-nudge.
+      houseFronts.push({ fcx: x + (d / 2) * sa, fcz: z + (d / 2) * ca, nx: sa, nz: ca, rgx: ca, rgz: -sa, w: w, doorX: dxl });
     }
     if (cl.spec.canopy) {
       // hollow: collide the columns only (walk/drive under the slab)
@@ -7898,7 +7902,7 @@ if (WC_REMAP) (function densityLayer() {
 // collider: per CLAUDE.md, bushes/shrubs/beds stay PASS-THROUGH (only tree
 // trunks collide, via their own systems).
 // ============================================================
-var landscapeStats = { hedge: 0, shrub: 0, mulch: 0, grass: 0, myrtle: 0, palm: 0, island: 0, tris: 0, draws: 0 };
+var landscapeStats = { hedge: 0, shrub: 0, mulch: 0, grass: 0, myrtle: 0, palm: 0, island: 0, foundation: 0, tris: 0, draws: 0 };
 var landscapeMeshes = [];
 if (WC_REMAP) (function landscapePass() {
   var deg = Math.PI / 180;
@@ -7998,14 +8002,14 @@ if (WC_REMAP) (function landscapePass() {
   // wider lead blob + satellites clustered around it and lifted give an organic
   // rounded silhouette; per-blob scale/rotation jitter breaks the ball look.
   var SHRUB_KEYS = ['dark', 'mid', 'olive'];
-  function shrub(x, z, scale, key) {
+  function shrub(x, z, scale, key, lite) {
     // never on asphalt: frontage math near the diagonal junction landed
     // flower beds mid-road (report mrefti0d) — guard at the source. Also keep
     // shrubs off the flanking sidewalk (report mredxgss) so they read as
     // planting-strip greenery, not obstacles blocking the walk.
     if (WC_REMAP && (!remapPointClear(x, z, 1.0) || onSidewalk(x, z))) return;
     scale = scale || rnd(0.75, 1.25); key = key || pick(SHRUB_KEYS);
-    var n = 3 + (Math.random() * 3 | 0);   // 3-5 blobs
+    var n = lite ? 2 + (Math.random() * 2 | 0) : 3 + (Math.random() * 3 | 0);   // lite: 2-3, else 3-5 blobs
     for (var i = 0; i < n; i++) {
       var lead = i === 0;
       var r = scale * (lead ? rnd(0.62, 0.84) : rnd(0.38, 0.62));
@@ -8209,6 +8213,34 @@ if (WC_REMAP) (function landscapePass() {
         placed = true;
       }
     }
+  }
+
+  // ============ WAVE 4: RESIDENTIAL FOUNDATION SHRUBS ============
+  // Low manicured foundation plantings hugging each survey-house FRONT wall,
+  // split around the entry. The earlier pass (#51) never landed these (a naive
+  // attempt put them ~22u off the front); we key off houseFronts, which stores
+  // the post-nudge front-wall frame, so shrubs sit right against the wall. A
+  // thin mulch strip anchors the bed. Capped to keep the merge modest.
+  if (typeof houseFronts !== 'undefined' && houseFronts.length) {
+    var HF_CAP = 1600, hfDone = 0, bedOff2 = 1.15;
+    for (var hi = 0; hi < houseFronts.length && hfDone < HF_CAP; hi++) {
+      var hf = houseFronts[hi];
+      if (hf.w < 4) continue;
+      var halfW = hf.w / 2 - 0.9, doorHalf = 1.5, cxF = hf.fcx + hf.nx * bedOff2, czF = hf.fcz + hf.nz * bedOff2;
+      // mulch strip along the whole front (one quad; yaw so d spans the bed depth)
+      mulchBed(cxF, czF, hf.w - 0.6, 1.35, Math.atan2(hf.nx, hf.nz));
+      for (var tt = -halfW; tt <= halfW + 0.01 && hfDone < HF_CAP; tt += 1.85) {
+        if (Math.abs(tt - hf.doorX) < doorHalf) continue;   // keep the entry walk clear
+        var sx = cxF + hf.rgx * tt + hf.nx * rnd(-0.15, 0.2), sz = czF + hf.rgz * tt + hf.nz * rnd(-0.15, 0.2);
+        if (Math.random() < 0.82) shrub(sx, sz, rnd(0.45, 0.72), pick(SHRUB_KEYS), true);   // lite foundation shrub
+        else grass(sx, sz, rnd(0.55, 0.8));
+        hfDone++;
+      }
+      // a flowering accent shrub flanking one side of the door
+      var da = hf.doorX + (Math.random() < 0.5 ? 1 : -1) * (doorHalf + 0.5);
+      if (Math.abs(da) <= halfW + 0.5) { shrub(cxF + hf.rgx * da, czF + hf.rgz * da, rnd(0.55, 0.8), 'bloom', true); hfDone++; }
+    }
+    landscapeStats.foundation = hfDone;
   }
 
   lflush();

@@ -491,6 +491,19 @@ cards with alpha cutouts, from the free "retro nature pack" by
 **ElegantCrow** — and the median crepe myrtles bloom pink off the same
 leaves. They still snap like twigs if you drive through them.
 
+The town is landscaped like real Florida suburbia. **Sabal palms** now
+carry full three-tier canopies — a dozen-plus fronds arcing up, out and
+drooping — in four variants (tall, standard, young and wind-leaned) so no
+two are identical. **Crepe myrtles** grow as proper multi-stem vases,
+several slender trunks fanning up into a rounded pink-and-white bloom.
+Every commercial front has a foundation bed (low hedge, mulch strip,
+shrubs and fountain grass split around the door), the bigger parking lots
+have curbed landscape islands with a palm and a shrub ring, and now **every
+house** gets its own foundation planting hugging the front wall. Street
+trees sit in curbed **tree wells** — a soil cutout with a cast-iron grate
+— instead of poking straight through the sidewalk, and low shrubs keep to
+the planting strip rather than the walk.
+
 The main intersection is dressed like the real one: galvanized mast-arm
 **traffic signals that actually cycle** — and now **traffic obeys them**:
 cars slow and queue bumper-to-bumper at a red, wait out the cycle, and
