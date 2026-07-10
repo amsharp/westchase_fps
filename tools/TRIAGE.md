@@ -116,3 +116,11 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 
 ## Batch 6
 - mrefkx0p (-49,17) pavement lines shimmer with camera motion — FIXED@v1.66.3 (logarithmicDepthBuffer on the main renderer; near-plane raise was rejected — viewmodels hug the camera)
+
+## Batch 7 (31 reports, mrefm6zw..mregenli — user now on v1.65.4/v1.66.0)
+Clusters:
+- CHAINLINK/STUCK cluster (round3-collision territory): mregbuvd/mregc5uc/mregcixv walking into RaceTrac fence; mregb8uv/mregbgkm people stuck; mrefuw9y stuck on building; mrefnfji stuck on prop + wants NPC-vs-NPC collision
+- ANIMATION cluster (fold into round2-anim on return): mrefmjf0 worst walk (she); mregajgt gary weird walk; mregazq4 leon shoulder; mrefp3hw floating guy; mreg77qb boombox hold; mregcwvd luggage roll; mregenli nia walk + bike texture + xander voice
+- INTERIOR cluster (other agent's shop systems): mrefpkq1 cashier voicelines; mrefq2w5 npcs stuck on shelves; mrefqf7b warped texture; mrefwcmm $1.25 sign floating/one-sided + boring shelves; mrefv6f6 interior 'invisible wall' (room bounds, needs visible walls)
+- CONTENT/GEN requests: mrefm6zw real Publix logo (AI gen + tile); mrefogw8 avoid duplicate NPC looks + 5x NPC density; mrefucxb NPCs voice not text; mrefsp85 varied car engine sounds; mrefts2d ugly palms (with mredw3ho variants)
+- QUICK FIXES: mrefti0d flowers mid-road — FIXED@v1.66.4 (shrub/grass road-clearance guard at source); mreg8mld post not breakable; mrefrgtb pistol should be one-handed (viewmodel); mreft54h unnatural U-turns at junction; mregdctj sign post clipping

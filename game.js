@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.3';
+var GAME_VERSION = 'v1.66.4';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -7543,6 +7543,9 @@ if (WC_REMAP) (function landscapePass() {
   // shrub clump: 1-3 flattened blobs, colour by species key
   var SHRUB_KEYS = ['dark', 'mid', 'olive'];
   function shrub(x, z, scale, key) {
+    // never on asphalt: frontage math near the diagonal junction landed
+    // flower beds mid-road (report mrefti0d) — guard at the source
+    if (WC_REMAP && !remapPointClear(x, z, 1.0)) return;
     scale = scale || rnd(0.75, 1.25); key = key || pick(SHRUB_KEYS);
     var n = 1 + (Math.random() * 2.5 | 0);
     for (var i = 0; i < n; i++) {
@@ -7553,6 +7556,7 @@ if (WC_REMAP) (function landscapePass() {
   }
   // ornamental fountain-grass tuft: 2 crossed alpha cards
   function grass(x, z, scale) {
+    if (WC_REMAP && !remapPointClear(x, z, 0.6)) return;
     scale = scale || rnd(0.7, 1.15); var ry = rnd(0, 3.14);
     lbake('ls_grass', grassMat, UCARD, mtx(x, 0.02, z, ry, scale * 1.3, scale, 1));
     lbake('ls_grass', grassMat, UCARD, mtx(x, 0.02, z, ry + Math.PI / 2, scale * 1.3, scale, 1));
