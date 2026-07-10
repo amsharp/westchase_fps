@@ -1606,7 +1606,7 @@ function makeCar() {
   // if ggbotvehs.js is ever missing.
   var nMeshy = (typeof GGBOT_VEHS !== 'undefined' && GG_TRAFFIC.length) ? 0 : (typeof MESHY_VEHS !== 'undefined' && MESHY_VEHS.length ? MESHY_VEHS.length : 0);
   var pickN = (Math.random() * (nMeshy + GG_TRAFFIC.length)) | 0;
-  var e = null, s = 1, ends = null, ggw = null, vname = 'PROC';
+  var e = null, s = 1, ends = null, ggw = null, vname = 'PROC', bodyMesh = null;
   if (pickN >= nMeshy && GG_TRAFFIC.length) {
     // GGBot body: shipped variant texture, own wheel mesh at TRUE pivots
     var gi = GG_TRAFFIC[pickN - nMeshy];
@@ -1618,7 +1618,7 @@ function makeCar() {
     var gmat = getGGMat(gi, ti);
     var vm3 = new THREE.Mesh(getGGGeo(gi), gmat);
     vm3.scale.set(s, s, s);
-    body.add(vm3);
+    body.add(vm3); bodyMesh = vm3;
     ggw = { geo: getGGWheel(gi), mat: gmat };
     wheelSpots = e.wheels.map(function (w) { return [w[0] * s, w[1] * s, w[2] * s, w[3] * s]; });
     ends = ggEnds(gi);
@@ -1629,7 +1629,7 @@ function makeCar() {
     s = VEH_LEN / e.dims[0];
     var vm2 = new THREE.Mesh(getVehGeo(vi), getVehMat(vi, (Math.random() * VEH_COLS.length) | 0));
     vm2.scale.set(s, s, s);
-    body.add(vm2);
+    body.add(vm2); bodyMesh = vm2;
     ends = vehEnds(vi);
     vname = e.n;
     // spinning/steering wheel props must fully cover the baked wheels
@@ -1713,7 +1713,7 @@ function makeCar() {
   var head1 = glowQuad(headGlowM, glNX, hY, hZ, 0.26), head2 = glowQuad(headGlowM, glNX, hY, -hZ, 0.26);
   var tail1 = glowQuad(tailM, glTX, tY, tZ, 0.2), tail2 = glowQuad(tailM, glTX, tY, -tZ, 0.2);
   g.add(blobShadow(2.4, 1.15, 0.1)); scene.add(g);
-  return { group: g, body: body, wheels: wheels, pivots: pivots, beam: beam, head1: head1, head2: head2, tail1: tail1, tail2: tail2, tailM: tailM, tailS: 0.15, vname: vname };
+  return { group: g, body: body, wheels: wheels, pivots: pivots, beam: beam, head1: head1, head2: head2, tail1: tail1, tail2: tail2, tailM: tailM, tailS: 0.15, vname: vname, bodyMesh: bodyMesh };
 }
 function staticCar(x, z, ry) { var c = makeCar(); c.group.position.set(x, 0, z); c.group.rotation.y = ry || 0; }
 // suspension spring + accel pitch + steer roll + front-wheel steering (visual only)
@@ -1750,6 +1750,15 @@ function updateCarLights(c, dt, braking) {
   if (cc.head1.visible !== on) { cc.head1.visible = on; cc.head2.visible = on; }
   var tv = on || brk;
   if (cc.tail1.visible !== tv) { cc.tail1.visible = tv; cc.tail2.visible = tv; }
+  // the body's PAINTED head/taillights glow via the shared nightEmis material —
+  // a parked car (engine off) must not; swap it to a clone with emissive killed
+  // so parked cars don't sit lit up at night (bug mreesgtd).
+  if (cc.bodyMesh) {
+    var wantDark = !!(c.parked || c.exploded);
+    if (wantDark && !cc.darkMat) { cc.litMat = cc.bodyMesh.material; cc.darkMat = cc.litMat.clone(); cc.darkMat.emissive = new THREE.Color(0x000000); cc.darkMat.emissiveIntensity = 0; cc.darkMat.emissiveMap = null; }
+    var wantMat = wantDark ? cc.darkMat : (cc.litMat || cc.bodyMesh.material);
+    if (wantMat && cc.bodyMesh.material !== wantMat) cc.bodyMesh.material = wantMat;
+  }
   if (cc.brkOn !== brk) {
     cc.brkOn = brk;
     var ts = brk ? cc.tailS * 2 : cc.tailS;

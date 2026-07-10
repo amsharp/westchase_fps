@@ -37,7 +37,7 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mree8hw2 (-511,421) square shadow patches — FIXED@v1.66.1 (same — asphalt/mud_patch hard rectangle now blends); ALSO covers Batch4 mreewls4 (-467,332) dark square under trees
 - mree2yur (11,127)   porto-potty black mesh artifacts — FIXED@v1.66.6 (env-prop material was smooth-shaded; smooth-averaged corner normals on the low-poly boxy mesh smeared faces dark. flatShading:true on env-prop materials → clean facets. Residual dark top is the asset's baked roof-vent opening, not a bug)
 - mree3tg7 (-70,133)  two props glowing oddly — FIXED@v1.66.6 (the 'glow' anim strobed emissive 0.02-0.54 at FULL strength in daylight; now gated by wcNightGlow — faint ~0.05 daytime accent, ramps up after dark)
-- mree59kf (-108,158) hair has transparent chunks — IN-AGENT (round4-render)
+- mree59kf (-108,158) hair has transparent chunks — DEFERRED→asset-pipeline (round4-render investigated exhaustively: EVERY character hair path is opaque or side:DoubleSide with NO transparent/alphaTest — verified across PSX presets, Meshy skinned civs, kids, staff, quest chars. So see-through hair is NOT a code material bug; it's a geometry GAP in one specific AI-generated head mesh (Meshy remesh can drop tris). Needs the offending character identified + hair mesh regenerated via tools/chargen. Not code-fixable surgically.)
 - mree0ii7 (79,1)     claw machine flashing red — FIXED@v1.66.6 (same glow-gating fix; the red 'flash' was the soda_machine's emissive strobing in daylight next to the claw. NOTE: the "prop jumble"/clustering at this cluster is a PLACEMENT issue — Round-2/5 territory, not touched here)
 
 ## Round 5 — OPEN: placement/content (larger passes)
@@ -66,14 +66,14 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 
 ## Batch 3 (uncatalogued -> assigned)
 - mreegamp (-140,43) placement bad — R5
-- mreegvj0 (-157,20) leaf cluster + missing alpha — IN-AGENT (round4-render)
+- mreegvj0 (-157,20) leaf cluster + missing alpha — LIKELY-COVERED@v1.66.1 (if it's a ground leaf/foliage DECAL it's now blend-keyed by the GKEY ground-decal fix; airborne leaves_scatter was already luminance-keyed. Could not isolate a still-broken quad on re-inspection at this spot — RE-CHECK on current build; if a specific hedge/bush billboard still shows a hard alpha edge, it's a density-prop KEY addition)
 - mreehkm9 (-142,-9) lemonade stand wants kid vendor + dialogue — R5 feature
 - mreei0of (-142,-30) flower bed out of place — R5
 - mreeipmy (-161,-76) ice cream truck wants vendor — R5 feature
 - mreejak5 (-158,-86) fences should break in panels under cars — R5 feature
 - mreejycz (-112,-48) whole swing rocks; odd placement — R4 anim
 - mreekjjq (-7,-57) walker accessory abandoned in street — R2 anim overlap
-- mreelboe (-70,-115) big green blob — IN-AGENT (round4-render)
+- mreelboe (-70,-115) big green blob — DEFERRED→R5 content (round4-render probed the Publix-lot spot: no bad-material/untextured mesh found; the "green blob" is a low-detail procedural shrub (USPH flattened-blob) — a content/geometry look issue, not a material/normals bug. Belongs with the R5 vegetation pass)
 - mreelusq (-113,-114) cop left arm buggy + walks into building — R3
 - mreemd0e (-194,-110) garage door between windows on facade — FIXED@v1.66.8 (townhouseRow front ground floor recomposed: plain stucco cover hides the shared-tex ground window row, 2-car garage on the left + entry door on the right; upper-floor windows kept)
 - mreendej (-8,-330) purple-home roof texture + overhangs sidewalk — OVERHANG FIXED@v1.66.5 (houseSidewalkNudge cleared house #239 @-24,-316.8 off the nine_eagles_dr walk). ROOF-TEXTURE sub-issue is a material/UV problem (hip-roof ConeGeometry shingle stretch on the hue-shifted variant) → HANDOFF to round4-render, out of structure lane.
@@ -84,7 +84,7 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mreeq7nj (150,193) random barrier — R3 (re-probe post-OBB fix)
 - mreeqqbh (298,235) road looks awful — R5
 - mreer5b4 (419,172) houses riding the sidewalk — FIXED@v1.66.5 (same houseSidewalkNudge shared fix)
-- mreesgtd (238,516) parked cars with lights on — IN-AGENT (round4-render)
+- mreesgtd (238,516) parked cars with lights on — FIXED@v1.66.13 (parked cars' PAINTED head/taillights glow at night via the shared nightEmis emissiveMap material with no parked check — the additive glow quads were already gated but this wasn't. Parked cars now swap their body mesh to a cloned material with emissive killed; restored on carjack. Verified: 30 parked cars emissiveIntensity 0 / emissiveMap null at night, 48 moving cars still 1.35)
 - mreet1el (273,474) NPC pacing left-right loop — R3 (check whisker ping-pong)
 - mreetig1 (233,306) secondary intersection looks bad — R5
 
