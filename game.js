@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.59';
+var GAME_VERSION = 'v1.66.61';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -69,6 +69,10 @@ var yaw = 0, pitch = 0;
 var player = { x: -72, z: -97, y: EYE, vy: 0, grounded: true };   // Publix lot, next to the dealer
 var spawnX = -72, spawnZ = -97;   // where death respawns you — overridden to the real spawn per world
 var lastShot = -99, punchT = -99, recoil = 0, punchSide = false, punchSlap = false, gunBloom = 0, equipT = -99;
+// FP viewmodel idle sway state: eased look-lag (weapon trails a beat behind the
+// turn) + a remembered view angle to diff against. Breathing itself is a pure
+// sin(T) term computed inline — no state needed.
+var vmSwayX = 0, vmSwayY = 0, vmSwayYaw = 0, vmSwayPit = 0;
 var lastShotBy = {};   // per-weapon last-fire time so a fast gun can't lock out a slow one you switch to — and a weapon's own reload (the RPG's 5s) can't be dodged by switching away and back
 var recentAtmCash = [];   // host-side dedup of client atmCash spawns (per-peer prop breaks can double-report one meter)
 var recoilPitch = 0;   // camera kick from firing, decays back to the aim pitch (separate from mouse-look pitch)
@@ -18683,7 +18687,27 @@ function updatePlayer(dt) {
   }
   if (state.sitting) camera.position.y -= 0.55;   // seated eye height
   camera.position.y += diveDip;                    // dumpster-dive head dip
-  recoil = Math.max(0, recoil - dt * 8); vm.position.z = recoil * 0.07; vm.position.y = bob * 0.5; vm.rotation.x = recoil * 0.06;
+  recoil = Math.max(0, recoil - dt * 8);
+  // ---- idle breathing + weapon look-sway ----
+  // The FP viewmodel used to sit dead-static at rest (only recoil + walk-bob
+  // moved it). Give it a life-signal: a two-axis breathing wobble driven by T
+  // (eased down while sprinting so the walk-bob reads clean), plus a little
+  // counter-lag so the gun trails the view for a beat when you turn. All cheap
+  // scalar math, no per-frame allocation.
+  var swayAmt = moving ? 0.4 : 1;
+  var brY = Math.sin(T * 1.6) * 0.0085 * swayAmt;
+  var brX = Math.sin(T * 1.1 + 0.7) * 0.006 * swayAmt;
+  var dYaw = yaw - vmSwayYaw; if (dYaw > Math.PI) dYaw -= 2 * Math.PI; else if (dYaw < -Math.PI) dYaw += 2 * Math.PI;
+  var dPit = pitch - vmSwayPit; vmSwayYaw = yaw; vmSwayPit = pitch;
+  var swK = Math.min(1, dt * 10);
+  vmSwayX += (-dYaw * 0.9 - vmSwayX) * swK;      // ease toward the turn-lag target
+  vmSwayY += (dPit * 0.9 - vmSwayY) * swK;
+  vm.position.x = brX + vmSwayX * 0.06;
+  vm.position.z = recoil * 0.10;                 // snappier muzzle kick back toward the shoulder
+  vm.position.y = bob * 0.5 + brY + vmSwayY * 0.05 + recoil * 0.012;   // slight muzzle-rise lift
+  vm.rotation.x = recoil * 0.095 + brY * 0.7 + vmSwayY * 0.18;         // more visible barrel-climb
+  vm.rotation.y = vmSwayX * 0.14;
+  vm.rotation.z = brX * 0.5 - vmSwayX * 0.25;
   gunBloom = Math.max(0, gunBloom - dt * 0.06);   // spread recovers ~0.7s after easing off
   // weapon draw + rocket reload animations (procedural, PS1-cheap)
   var wg = vmMap[state.equipped];
