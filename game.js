@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.10';
+var GAME_VERSION = 'v1.66.15';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -1192,15 +1192,40 @@ function palm(x, z) {
   registerBreakable(g, x, z, 0.8, 'tree', null, 0.3);
 }
 
+// A small road-grazing forest leaf used to be dropped whole (no collider), but
+// expForestFill still plants instanced trees across the entire original rect —
+// so the player could walk straight through solid-looking forest (bug mree6h2d
+// @ -260,271, where a road clips only the leaf's SW corner yet the whole leaf
+// lost its collider). Tile the leaf's road-CLEAR interior with small colliders
+// so those fill trees block, without ever walling off the pavement. The pad-5
+// clearance keeps each 2.5u half-extent cell well clear of the road edge.
+function forestPatchClearTiles(x0, x1, z0, z1) {
+  if (inLake((x0 + x1) / 2, (z0 + z1) / 2) && (x1 - x0) < 90 && (z1 - z0) < 90) return;
+  var cell = 5;
+  for (var cx = x0 + cell / 2; cx < x1 + cell / 2; cx += cell) {
+    var ccx = Math.min(cx, x1 - cell / 2);
+    for (var cz = z0 + cell / 2; cz < z1 + cell / 2; cz += cell) {
+      var ccz = Math.min(cz, z1 - cell / 2);
+      if (WC_REMAP && !remapPointClear(ccx, ccz, 5)) continue;
+      if (inLake(ccx, ccz)) continue;
+      addCollider(ccx, ccz, cell, cell);
+    }
+  }
+}
 function forestPatch(x0, x1, z0, z1, count) {
   // remap: forest rects were authored/pre-clipped against the AXIS roads —
   // several now straddle the true diagonals (their colliders would wall off
-  // the road). Split rects that touch a true road and keep the clear halves.
+  // the road). Split rects that touch a true road and keep the clear halves;
+  // once a non-clear leaf is too small to usefully halve, tile its clear part
+  // (see forestPatchClearTiles) instead of dropping it and leaving walk-through
+  // forest fill behind.
   if (WC_REMAP && !remapRectClear(x0, x1, z0, z1, 2.5)) {
-    if (Math.max(x1 - x0, z1 - z0) > 56) {
+    if (Math.max(x1 - x0, z1 - z0) > 22) {
       var cnt2 = count === undefined ? undefined : Math.ceil(count / 2);
       if (x1 - x0 >= z1 - z0) { forestPatch(x0, (x0 + x1) / 2, z0, z1, cnt2); forestPatch((x0 + x1) / 2, x1, z0, z1, cnt2); }
       else { forestPatch(x0, x1, z0, (z0 + z1) / 2, cnt2); forestPatch(x0, x1, (z0 + z1) / 2, z1, cnt2); }
+    } else {
+      forestPatchClearTiles(x0, x1, z0, z1);
     }
     return;
   }
@@ -1581,7 +1606,7 @@ function makeCar() {
   // if ggbotvehs.js is ever missing.
   var nMeshy = (typeof GGBOT_VEHS !== 'undefined' && GG_TRAFFIC.length) ? 0 : (typeof MESHY_VEHS !== 'undefined' && MESHY_VEHS.length ? MESHY_VEHS.length : 0);
   var pickN = (Math.random() * (nMeshy + GG_TRAFFIC.length)) | 0;
-  var e = null, s = 1, ends = null, ggw = null, vname = 'PROC';
+  var e = null, s = 1, ends = null, ggw = null, vname = 'PROC', bodyMesh = null;
   if (pickN >= nMeshy && GG_TRAFFIC.length) {
     // GGBot body: shipped variant texture, own wheel mesh at TRUE pivots
     var gi = GG_TRAFFIC[pickN - nMeshy];
@@ -1593,7 +1618,7 @@ function makeCar() {
     var gmat = getGGMat(gi, ti);
     var vm3 = new THREE.Mesh(getGGGeo(gi), gmat);
     vm3.scale.set(s, s, s);
-    body.add(vm3);
+    body.add(vm3); bodyMesh = vm3;
     ggw = { geo: getGGWheel(gi), mat: gmat };
     wheelSpots = e.wheels.map(function (w) { return [w[0] * s, w[1] * s, w[2] * s, w[3] * s]; });
     ends = ggEnds(gi);
@@ -1604,7 +1629,7 @@ function makeCar() {
     s = VEH_LEN / e.dims[0];
     var vm2 = new THREE.Mesh(getVehGeo(vi), getVehMat(vi, (Math.random() * VEH_COLS.length) | 0));
     vm2.scale.set(s, s, s);
-    body.add(vm2);
+    body.add(vm2); bodyMesh = vm2;
     ends = vehEnds(vi);
     vname = e.n;
     // spinning/steering wheel props must fully cover the baked wheels
@@ -1688,7 +1713,7 @@ function makeCar() {
   var head1 = glowQuad(headGlowM, glNX, hY, hZ, 0.26), head2 = glowQuad(headGlowM, glNX, hY, -hZ, 0.26);
   var tail1 = glowQuad(tailM, glTX, tY, tZ, 0.2), tail2 = glowQuad(tailM, glTX, tY, -tZ, 0.2);
   g.add(blobShadow(2.4, 1.15, 0.1)); scene.add(g);
-  return { group: g, body: body, wheels: wheels, pivots: pivots, beam: beam, head1: head1, head2: head2, tail1: tail1, tail2: tail2, tailM: tailM, tailS: 0.15, vname: vname };
+  return { group: g, body: body, wheels: wheels, pivots: pivots, beam: beam, head1: head1, head2: head2, tail1: tail1, tail2: tail2, tailM: tailM, tailS: 0.15, vname: vname, bodyMesh: bodyMesh };
 }
 function staticCar(x, z, ry) { var c = makeCar(); c.group.position.set(x, 0, z); c.group.rotation.y = ry || 0; }
 // suspension spring + accel pitch + steer roll + front-wheel steering (visual only)
@@ -1725,6 +1750,15 @@ function updateCarLights(c, dt, braking) {
   if (cc.head1.visible !== on) { cc.head1.visible = on; cc.head2.visible = on; }
   var tv = on || brk;
   if (cc.tail1.visible !== tv) { cc.tail1.visible = tv; cc.tail2.visible = tv; }
+  // the body's PAINTED head/taillights glow via the shared nightEmis material —
+  // a parked car (engine off) must not; swap it to a clone with emissive killed
+  // so parked cars don't sit lit up at night (bug mreesgtd).
+  if (cc.bodyMesh) {
+    var wantDark = !!(c.parked || c.exploded);
+    if (wantDark && !cc.darkMat) { cc.litMat = cc.bodyMesh.material; cc.darkMat = cc.litMat.clone(); cc.darkMat.emissive = new THREE.Color(0x000000); cc.darkMat.emissiveIntensity = 0; cc.darkMat.emissiveMap = null; }
+    var wantMat = wantDark ? cc.darkMat : (cc.litMat || cc.bodyMesh.material);
+    if (wantMat && cc.bodyMesh.material !== wantMat) cc.bodyMesh.material = wantMat;
+  }
   if (cc.brkOn !== brk) {
     cc.brkOn = brk;
     var ts = brk ? cc.tailS * 2 : cc.tailS;
@@ -2321,6 +2355,17 @@ function remapPointClear(x, z, pad) {
       if (px * px + pz * pz < lim * lim) return false;
     }
   }
+  // junction pads (built after RM exists): a disc of asphalt filling the
+  // intersection throat. Props/trees/grass placed on the pad overhang read as
+  // sitting on the road, so treat the pad like asphalt too. Guarded — this
+  // helper is also called at load before RM is built (raw REMAP_ROADS only).
+  if (typeof RM !== 'undefined' && RM && RM.pads) {
+    var pm = pad > 0 ? pad : 0;
+    for (var pi = 0; pi < RM.pads.length; pi++) {
+      var pd = RM.pads[pi], pdx = x - pd.x, pdz = z - pd.z, plim = pd.r + pm;
+      if (pdx * pdx + pdz * pdz < plim * plim) return false;
+    }
+  }
   return true;
 }
 // true when the axis rect keeps `pad` clearance from every true road
@@ -2489,9 +2534,9 @@ function buildRemapRoads() {
     for (j = 0; j < RM.pads.length; j++) {
       var pd = RM.pads[j];
       var ddx = pd.x - st.x, ddz = pd.z - st.z;
-      if (ddx * ddx + ddz * ddz < 64) { pd.r = Math.max(pd.r, st.hw * 1.8); merged = true; break; }
+      if (ddx * ddx + ddz * ddz < 64) { pd.r = Math.max(pd.r, st.hw * 1.5); merged = true; break; }
     }
-    if (!merged) RM.pads.push({ x: st.x, z: st.z, r: st.hw * 1.8 });
+    if (!merged) RM.pads.push({ x: st.x, z: st.z, r: st.hw * 1.5 });
   }
   // ---- render ribbons + registers ----
   for (i = 0; i < RM.roads.length; i++) {
@@ -4017,7 +4062,7 @@ function streetlight(x, z, ax, az) {
   g.add(arm);
   g.position.set(x, 0, z);
   scene.add(g);
-  var entry = { head: head, glow: glow, pool: pool, broken: false };
+  var entry = { head: head, glow: glow, pool: pool, broken: false, x: x, z: z };
   streetLights.push(entry);
   registerBreakable(g, x, z, 0.6, 'light', entry, 0.22);
 }
@@ -5065,6 +5110,18 @@ function spotClear(x, z) {
   var p = pushOut(x, z, 0.5);
   var mx = p.x - x, mz = p.z - z;
   return mx * mx + mz * mz < 0.01;
+}
+// a tree/prop this close to a streetlight base would overlap the pole/canopy —
+// lamp colliders are only 0.22r so spotClear alone lets a canopy engulf a lamp
+function nearStreetlight(x, z, r) {
+  var r2 = r * r;
+  for (var i = 0; i < streetLights.length; i++) {
+    var L = streetLights[i];
+    if (L.x === undefined) continue;
+    var dx = L.x - x, dz = L.z - z;
+    if (dx * dx + dz * dz < r2) return true;
+  }
+  return false;
 }
 // full accept test for an expansion sidewalk spot: collider-free AND at least
 // a curb width (0.6) off the asphalt of every road incl. CROSSING ones — the
@@ -7267,9 +7324,13 @@ if (WC_REMAP) (function densityLayer() {
   }
   // a sign mounted on a fresh pole/stake
   function poleSign(name, x, z, ry, mountY, poleH, poleR) {
+    poleR = poleR || 0.11;
     pole(x, z, poleH, poleR);
     var a = dAsset[name]; if (!a) return;
-    dSign(name, x + Math.sin(ry) * 0.06, mountY, z + Math.cos(ry) * 0.06, ry);
+    // seat the placard clear of the pole SURFACE — a 0.06 offset was inside the
+    // 0.11 pole radius, so the post speared through the sign face (mref48hy)
+    var off = poleR + 0.1;
+    dSign(name, x + Math.sin(ry) * off, mountY, z + Math.cos(ry) * off, ry);
   }
 
   // ---- surface geometry references ----
@@ -7297,6 +7358,7 @@ if (WC_REMAP) (function densityLayer() {
         var pt = rmAt(r.pts, r.cum, sc), off = r.hw + (r.cls <= 1 ? 4.5 : 3.2);
         var tx = pt.x - pt.uz * off * side, tz = pt.z + pt.ux * off * side; side = -side;
         if (!remapPointClear(tx, tz, 2) || inLake(tx, tz) || houseBlocksSpot(tx, tz) || remapInClear(tx, tz, 1) || !spotClear(tx, tz)) continue;
+        if (nearStreetlight(tx, tz, 4)) continue;   // tree canopy would swallow the lamp (mreeosgw)
         if (treeRnd() < 0.34) palm(tx, tz); else oak(tx, tz, 0.78 + treeRnd() * 0.42);
         densityStats.trees++;
       }
@@ -7434,7 +7496,7 @@ if (WC_REMAP) (function densityLayer() {
         var py = rmAt(ry3.pts, ry3.cum, yv), oy = ry3.hw + rnd(3, 6);
         var yx = py.x - py.uz * oy * yd, yz = py.z + py.ux * oy * yd; yd = -yd;
         if (!spotClear(yx, yz) || inLake(yx, yz) || remapInClear(yx, yz, 0)) continue;
-        if (Math.random() < 0.55) { var yk = pick(['for_sale_sign', 'yard_sign', 'garage_sale_sign', 'lost_pet_flyer']); pole(yx, yz, 0.9, 0.05); dSign(yk, yx, 0.9, yz, rnd(0, 6.28)); }
+        if (Math.random() < 0.55) { var yk = pick(['for_sale_sign', 'yard_sign', 'garage_sale_sign', 'lost_pet_flyer']); var yry = rnd(0, 6.28); pole(yx, yz, 0.9, 0.05); dSign(yk, yx + Math.sin(yry) * 0.14, 0.9, yz + Math.cos(yry) * 0.14, yry); }   // placard in front of its stake, not speared
       }
     }
   }
@@ -7572,7 +7634,10 @@ if (WC_REMAP) (function densityLayer() {
         if (hr.cls === 0 && lenH > 120) {
           var pbs = rmAt(hr.pts, hr.cum, lenH * 0.5), ofb = hr.hw + 3.4;
           var bsx = pbs.x - pbs.uz * ofb, bsz = pbs.z + pbs.ux * ofb;
-          if (spotClear(bsx, bsz)) spFull('busshelter', bsx, bsz, Math.atan2(pbs.ux, pbs.uz));
+          // shelter sits on the LEFT sidewalk (offset by (-uz,+ux)); its opening
+          // (front = (-cos,sin)) must face BACK toward the road, so add PI —
+          // Math.atan2(ux,uz) alone points the opening away from the street.
+          if (spotClear(bsx, bsz)) spFull('busshelter', bsx, bsz, Math.atan2(pbs.ux, pbs.uz) + Math.PI);
         }
       }
     }
@@ -8066,9 +8131,9 @@ if (WC_REMAP) (function fenceSystem() {
   }
 
   // ---- panel + post builders (bake into the right batch) ----
-  function cardPanel(key, meta, cx, cz, ry, len, h, rep) {
+  function cardPanel(key, meta, cx, cz, ry, len, h, rep, repV) {
     var pg = new THREE.PlaneGeometry(len, h), uv = pg.attributes.uv;
-    for (var i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * rep);
+    for (var i = 0; i < uv.count; i++) { uv.setX(i, uv.getX(i) * rep); if (repV) uv.setY(i, uv.getY(i) * repV); }
     fbake(key, meta, pg, mtx(cx, h / 2 + 0.02, cz, ry));
   }
   function boxPanel(key, meta, cx, cz, ry, len, h, thick) {
@@ -8108,7 +8173,12 @@ if (WC_REMAP) (function fenceSystem() {
         if (type === 'picket') {
           cardPanel('fence_picket', { map: picketMap(), alpha: 0.45 }, pcx, pcz, ry, pl, h, pl / (h * 1.0));
         } else if (type === 'chainlink') {
-          cardPanel('fence_chain', { map: chainMap(), alpha: 0.25 }, pcx, pcz, ry, pl, h, pl / h);
+          // The chainlink data-URL is a 2m strip with coarse native diamonds;
+          // tiling it once over the fence height rendered comically large links
+          // (bug mree1rcg). Tile at a fixed ~0.7u square period so diamonds read
+          // as fine ~0.2u chainlink, U and V matched to keep them square.
+          var ct = 0.7;
+          cardPanel('fence_chain', { map: chainMap(), alpha: 0.25 }, pcx, pcz, ry, pl, h, pl / ct, h / ct);
           railBox('fence_chainpost', { color: postClr }, pcx, pcz, ry, pl, h - 0.06, 0.035);   // top rail
         } else {   // wood
           boxPanel('fence_wood', { map: woodMap() }, pcx, pcz, ry, pl, h, 0.06);
@@ -11249,8 +11319,12 @@ function updateNPCs(dt) {
       else if ((npcAnimF + i) % 3 === 0 && d > 2.2 && (n.doorSeek === undefined || d > 6)) {
         var lookA = 1.5 + spd * 0.22;
         if (!pointFree(n.x + vx * lookA, n.z + vz * lookA, 0.45)) {
-          for (var aw = 0; aw < 4; aw++) {
-            var ang = (aw < 2 ? 0.66 : 1.25) * (aw % 2 === 0 ? 1 : -1);   // ±38°, then ±72°
+          for (var aw = 0; aw < 6; aw++) {
+            // ±38°, then ±72°, then ±112° — the widest tier lets an NPC that
+            // met a long wall head-on (e.g. the self-storage chainlink at
+            // 54,84 — bug mree1rcg) turn far enough to slide ALONG it and
+            // clear the corner instead of grinding until the stuck timer.
+            var ang = (aw < 2 ? 0.66 : aw < 4 ? 1.25 : 1.95) * (aw % 2 === 0 ? 1 : -1);
             var ca2 = Math.cos(ang), sa2 = Math.sin(ang);
             var wx = vx * ca2 - vz * sa2, wz = vx * sa2 + vz * ca2;
             if (pointFree(n.x + wx * lookA, n.z + wz * lookA, 0.45)) { n.avoidVX = wx; n.avoidVZ = wz; n.avoidT = 0.35; vx = wx; vz = wz; break; }
@@ -11275,6 +11349,26 @@ function updateNPCs(dt) {
         n.fleeDX = -vx; n.fleeDZ = -vz;   // fleeing NPCs bounce back the way they came
       }
     } else n.stuckT = 0;
+    // wall-slide watchdog: the whisker can steer an NPC ALONG a long fence, so
+    // stepGot stays high (the zero-progress timer above never trips) yet it just
+    // hugs the wall into a concave corner and never nears its goal (self-storage
+    // chainlink, bug mree1rcg). While rubbing a collider (pushOut ate part of the
+    // step) and still far from target, watch net gain toward the goal; if ~2.2s
+    // pass with under 2.5u of real progress, abandon that target for a fresh one.
+    if (n.state === 'walk' && spd > 0.2 && stepGot < spd * dt * 0.85) {
+      var dtg = Math.sqrt((n.tx - n.x) * (n.tx - n.x) + (n.tz - n.z) * (n.tz - n.z));
+      if (dtg > 2.5) {
+        if (n.wallBaseD === undefined) { n.wallBaseD = dtg; n.wallProgT = 0; }
+        n.wallProgT += dt;
+        if (n.wallProgT > 2.2) {
+          if (dtg > n.wallBaseD - 2.5) {
+            var bk = npcTargetFor(n);
+            n.tx = bk[0]; n.tz = bk[1]; n.wayX = undefined; n.wayZ = undefined; n.doorSeek = undefined;
+          }
+          n.wallBaseD = undefined;
+        }
+      } else n.wallBaseD = undefined;
+    } else n.wallBaseD = undefined;
     // sidewalk discipline: loitering on road asphalt (off the intersection /
     // crosswalk area) for 2s steers the target to the nearest sidewalk band
     if (n.state === 'walk' && WC_REMAP && n.doorSeek === undefined) {

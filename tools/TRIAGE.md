@@ -26,8 +26,8 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mree5z0n (-223,225) invisible barrier — FIXED@v1.65.3 (rotated houses now use ORIENTED colliders; the axis-aligned AABB was swallowing driveways)
 - mreealh2 (-415,262) invisible wall — FIXED@v1.65.3 (same OBB fix — the gap between two houses is drivable again)
 - mreee1df (-207,31)  invisible wall — IN-AGENT (round3-collision); note: likely the lakeside chain-post row (visible but thin), OBB fix may already help
-- mree6h2d (-260,271) walk through tree — IN-AGENT (round3-collision)
-- mree1rcg (55,79)    chainlink: NPCs stuck + links comically large — IN-AGENT (round3-collision)
+- mree6h2d (-260,271) walk through tree — FIXED@v1.66.11 (forestPatch dropped a whole small leaf's collider when a road merely clipped its SW corner, but expForestFill still planted instanced trees across the entire rect -> walk-through forest. Non-clear leaves now split finer + tile their road-clear interior with colliders via forestPatchClearTiles; +0 new road blocks vs baseline)
+- mree1rcg (55,79)    chainlink: NPCs stuck + links comically large — FIXED@v1.66.12 (LINKS: the chainlink data-URL is a 2m strip with coarse native diamonds, tiled once over height -> giant lattice; now tiled at a fixed ~0.7u square period so links read as fine ~0.2u mesh. NPCs: whisker steering gained a wide ±112° escape tier + a wall-slide watchdog that abandons a target after ~2.2s of hugging a collider with no real headway; forced cross-fence NPCs went from lingering 3.5-8.5s to <=3s)
 - mredz61g (91,-18)   kids merged spamming tag lines — FIXED@v1.65.4 by fable agent (no tag-backs + fresh-it freeze + pairwise separation) — round3-collision: SKIP, already shipped
 - mree93m6 (-475,353) kid-merge during game — FIXED@v1.65.4 (same) — round3-collision: SKIP, already shipped
 
@@ -37,7 +37,7 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mree8hw2 (-511,421) square shadow patches — FIXED@v1.66.1 (same — asphalt/mud_patch hard rectangle now blends); ALSO covers Batch4 mreewls4 (-467,332) dark square under trees
 - mree2yur (11,127)   porto-potty black mesh artifacts — FIXED@v1.66.6 (env-prop material was smooth-shaded; smooth-averaged corner normals on the low-poly boxy mesh smeared faces dark. flatShading:true on env-prop materials → clean facets. Residual dark top is the asset's baked roof-vent opening, not a bug)
 - mree3tg7 (-70,133)  two props glowing oddly — FIXED@v1.66.6 (the 'glow' anim strobed emissive 0.02-0.54 at FULL strength in daylight; now gated by wcNightGlow — faint ~0.05 daytime accent, ramps up after dark)
-- mree59kf (-108,158) hair has transparent chunks — IN-AGENT (round4-render)
+- mree59kf (-108,158) hair has transparent chunks — DEFERRED→asset-pipeline (round4-render investigated exhaustively: EVERY character hair path is opaque or side:DoubleSide with NO transparent/alphaTest — verified across PSX presets, Meshy skinned civs, kids, staff, quest chars. So see-through hair is NOT a code material bug; it's a geometry GAP in one specific AI-generated head mesh (Meshy remesh can drop tris). Needs the offending character identified + hair mesh regenerated via tools/chargen. Not code-fixable surgically.)
 - mree0ii7 (79,1)     claw machine flashing red — FIXED@v1.66.6 (same glow-gating fix; the red 'flash' was the soda_machine's emissive strobing in daylight next to the claw. NOTE: the "prop jumble"/clustering at this cluster is a PLACEMENT issue — Round-2/5 territory, not touched here)
 
 ## Round 5 — OPEN: placement/content (larger passes)
@@ -50,8 +50,8 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mreedozu (-199,33)  unidentifiable mesh
 - mreeelik (-118,75)  car placement weird
 - mredwjpp (213,-160) house clips sidewalk — FIXED@v1.66.5 (survey houses now nudged clear of the sidewalk ribbon: houseSidewalkNudge pushes any footprint intruding the walk band outward; 30 instances, ~4.5u max)
-- mredxzx6 (140,-89)  houses with no visible roads — IN-AGENT (round5-structure)
-- mredtppi (184,-172) missing raised curb divider — IN-AGENT (round5-structure)
+- mredxzx6 (140,-89)  houses with no visible roads — DEFER-LARGER-PASS (round5-structure): the SE pocket beyond race_track_rd has ~8-10 survey houses (incl two 60x35 buildings ~240,-135 & 304,-136) with NO internal street — the only road is race_track_rd 30-60u away. Genuinely needs a residential loop/cul-de-sac added to REMAP_ROADS; too big for a surgical nudge/driveway (houses are too far from any road to stub). Road-network pass.
+- mredtppi (184,-172) missing raised curb divider — ALREADY PRESENT (r3Medians): race_track_rd DOES build a raised landscaped median+curbs; verified a continuous run [chainage 941-1170] covers (184,-172)@1047. Report predates r3Medians (stale session). RE-CHECK if refiled.
 - mreduh7z (187,-178) "looks awful" (see screenshot)
 - mreea4we (-469,275) road ends with no curb — FIXED@v1.66.6 (remapDeadEndCurbs caps genuine street dead-ends — incl the SW industrial stub — with a low concrete curb bar + side returns; non-colliding, skips loops/junctions/exits/venue-ends)
 - mredw3ho (237,-175) palm canopy too sparse; want variants
@@ -61,30 +61,41 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mree9kv6 (-477,355) umbrella grip pose
 - mreed9ar (-194,21)  smoke/fire: redo as AI sprite sheets (research game VFX)
 
+## Round 5 — IN-AGENT (round5-props) — prop placement/quality slice
+- mree10qu (62,32)    person clipping inside yellow prop — IN-AGENT (round5-props)
+- mreedozu (-199,33)  unidentifiable mesh — IN-AGENT (round5-props)
+- mreeelik (-118,75)  car placement weird — IN-AGENT (round5-props)
+- mreeccpr/mreebnfk (-226,152) prop set jarring in front of office tower (placement only) — IN-AGENT (round5-props)
+- mreegamp (-140,43)  placement bad — IN-AGENT (round5-props)
+- mreei0of (-142,-30) flower bed out of place — IN-AGENT (round5-props)
+- mreeuu2g (-136,230) unclear props — IN-AGENT (round5-props)
+- mreelboe (-70,-115) big green blob shrub — IN-AGENT (round5-props)
+- mreds4nw (90,-131) + mref3ibd (535,126) AC props: big rooftop industrial HVAC — IN-AGENT (round5-props)
+
 ## Notes
 - mrdphrsv is Claude's own deploy test, ignore.
 
 ## Batch 3 (uncatalogued -> assigned)
 - mreegamp (-140,43) placement bad — R5
-- mreegvj0 (-157,20) leaf cluster + missing alpha — IN-AGENT (round4-render)
+- mreegvj0 (-157,20) leaf cluster + missing alpha — LIKELY-COVERED@v1.66.1 (if it's a ground leaf/foliage DECAL it's now blend-keyed by the GKEY ground-decal fix; airborne leaves_scatter was already luminance-keyed. Could not isolate a still-broken quad on re-inspection at this spot — RE-CHECK on current build; if a specific hedge/bush billboard still shows a hard alpha edge, it's a density-prop KEY addition)
 - mreehkm9 (-142,-9) lemonade stand wants kid vendor + dialogue — R5 feature
 - mreei0of (-142,-30) flower bed out of place — R5
 - mreeipmy (-161,-76) ice cream truck wants vendor — R5 feature
 - mreejak5 (-158,-86) fences should break in panels under cars — R5 feature
 - mreejycz (-112,-48) whole swing rocks; odd placement — R4 anim
 - mreekjjq (-7,-57) walker accessory abandoned in street — R2 anim overlap
-- mreelboe (-70,-115) big green blob — IN-AGENT (round4-render)
+- mreelboe (-70,-115) big green blob — DEFERRED→R5 content (round4-render probed the Publix-lot spot: no bad-material/untextured mesh found; the "green blob" is a low-detail procedural shrub (USPH flattened-blob) — a content/geometry look issue, not a material/normals bug. Belongs with the R5 vegetation pass)
 - mreelusq (-113,-114) cop left arm buggy + walks into building — R3
 - mreemd0e (-194,-110) garage door between windows on facade — FIXED@v1.66.8 (townhouseRow front ground floor recomposed: plain stucco cover hides the shared-tex ground window row, 2-car garage on the left + entry door on the right; upper-floor windows kept)
-- mreendej (-8,-330) purple-home roof texture + overhangs sidewalk — R5 — IN-AGENT (round5-structure)
-- mreenqoe (-25,-347) homes with no road/walkway — R5 (same class as mredxzx6) — IN-AGENT (round5-structure)
+- mreendej (-8,-330) purple-home roof texture + overhangs sidewalk — OVERHANG FIXED@v1.66.5 (houseSidewalkNudge cleared house #239 @-24,-316.8 off the nine_eagles_dr walk). ROOF-TEXTURE sub-issue is a material/UV problem (hip-roof ConeGeometry shingle stretch on the hue-shifted variant) → HANDOFF to round4-render, out of structure lane.
+- mreenqoe (-25,-347) homes with no road/walkway — DEFER-LARGER-PASS (round5-structure): same class as mredxzx6 — the S pocket west of nine_eagles_dr has a house cluster (~-42,-360 / -62,-360 …) sitting in open field with no street/walkway; the eastern homes front nine_eagles but the western cluster is roadless. Needs a residential street added to REMAP_ROADS (road-network pass), not a surgical fix.
 - mreeoimw (-1,-517) traffic too uniform; want occasional honks — R5 feature
-- mreeosgw (-10,-492) lamp post + tree clipping — R5 — IN-AGENT (round5-structure)
+- mreeosgw (-10,-492) lamp post + tree clipping — FIXED@v1.66.10 (street-tree pass now rejects spots within 4u of a streetlight base via nearStreetlight; lamp colliders are only 0.22r so spotClear alone let a canopy swallow the pole)
 - mreepojo (157,-74) 'half ass gas station' — R5
 - mreeq7nj (150,193) random barrier — R3 (re-probe post-OBB fix)
 - mreeqqbh (298,235) road looks awful — R5
 - mreer5b4 (419,172) houses riding the sidewalk — FIXED@v1.66.5 (same houseSidewalkNudge shared fix)
-- mreesgtd (238,516) parked cars with lights on — IN-AGENT (round4-render)
+- mreesgtd (238,516) parked cars with lights on — FIXED@v1.66.13 (parked cars' PAINTED head/taillights glow at night via the shared nightEmis emissiveMap material with no parked check — the additive glow quads were already gated but this wasn't. Parked cars now swap their body mesh to a cloned material with emissive killed; restored on carjack. Verified: 30 parked cars emissiveIntensity 0 / emissiveMap null at night, 48 moving cars still 1.35)
 - mreet1el (273,474) NPC pacing left-right loop — R3 (check whisker ping-pong)
 - mreetig1 (233,306) secondary intersection looks bad — R5
 
@@ -112,7 +123,7 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mreeuf0c (-97,338) random wall — same class, RE-CHECK on current build
 - mref3ibd (535,126) AC unit 3x size wanted — R5 (with mreds4nw rooftop AC)
 - mref3wds (391,191) backwards bus stop — R5 (with mref0pwi)
-- mref48hy (374,195) sign clipping post — R5 — IN-AGENT (round5-structure)
+- mref48hy (374,195) sign clipping post — FIXED@v1.66.10 (poleSign seated the placard only 0.06 in front of center — inside the 0.11 pole radius, so the post speared the sign face; now offset by poleR+0.1. Same fix for random-rotation yard signs which sat exactly on their stake)
 
 ## Batch 6
 - mrefkx0p (-49,17) pavement lines shimmer with camera motion — FIXED@v1.66.3 (logarithmicDepthBuffer on the main renderer; near-plane raise was rejected — viewmodels hug the camera)
@@ -143,3 +154,17 @@ Clusters:
 - mregenli NIA walk — FIXED@v1.66.10 (MESHY_LEG_FIX NIA:1.2, lat 0.77->0.32); bike texture + xander voice parts still OPEN
 - mregajgt GARY walk — OPEN: same class but Y-yaw alone insufficient (lat stuck 0.62 @0.9rad) — needs axis/mirror sweep in _animtuneY
 - mreghm0l floating idle / mreg77qb boombox / mregcwvd luggage — OPEN: accessory grip/placement class, use the poseWalkerGrip pattern (see anim round notes)
+
+## Round 5 — IN-AGENT (round5-roads) — roads/junctions/sidewalks/bus-stops/no-road-homes
+Slice: mreeqqbh, mreetig1, mref0zmv, mreexjvh, mreexz4c, mref1n8n (road/junction/sidewalk quality);
+mref0pwi, mref3wds (bus stops backwards); mredxzx6, mreenqoe (no-road homes).
+- mref0pwi (205,272) bus stop facing wrong way — FIXED@v1.66.13 (runtime arterial-midpoint shelters faced AWAY from the road; the yaw Math.atan2(ux,uz) points the opening (front=(-cos,sin)) to the same side as the sidewalk offset. +PI so it opens toward the street. Fixes all 3 arterial shelters.)
+- mref3wds (391,191) backwards bus stop — FIXED@v1.66.13 (same +PI shelter-yaw fix)
+- mreetig1 (233,306) secondary intersection — FIXED@v1.66.13 (countryway/citrus Y-junction: oaks/shrubs/grass were planting on the junction-pad asphalt overhang — remapPointClear now excludes RM.pads; pad radius mult 1.8->1.5 shrinks the grass bulge + reduces sidewalk fragmentation. No throat gaps at 4-ways/Y/residential — verified top-down.)
+- mref0zmv (205,272) ugly road junction — FIXED@v1.66.13 (same junction-pad clearance + radius fix; same Y-junction)
+- mref1n8n (321,186) sidewalk looks bad — FIXED@v1.66.13 (same pad-radius fix tightens the sv_66/citrus junction pad so sidewalks are less chopped; props off the pad)
+- mreeqqbh (298,235) road looks awful — FIXED@v1.66.14 (citrus_park_dr centerline had an S-kink: 4 authored points reversed in z (218.9->219.7->220.3 then dived to 209), so the hw=14 ribbon mitred into a lumpy widening + the double-yellow zigzagged. Replaced with 3 monotone-curvature points [302,219.4],[307,217.6],[312,214.6] — smooth ease from 220.6 to 209. Verified top-down.)
+- mreexjvh (-178,170) road/tile seam — IN-AGENT
+- mreexz4c (-163,120) road area bad — IN-AGENT
+- mredxzx6 (140,-89) no-road homes — IN-AGENT (add minimal residential lane to REMAP_ROADS)
+- mreenqoe (-25,-347) no-road homes — IN-AGENT (same)
