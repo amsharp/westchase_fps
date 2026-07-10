@@ -473,7 +473,11 @@ WASD to drive, **E** to get out. You can't shoot from the driver's seat,
 but the car itself is the weapon — mow down pedestrians and cops, and
 ram traffic to send it spinning out of control like you'd shot it up.
 Trees and street lights snap and topple if you plow through them, in a
-shower of leaves or sparks — they grow back about a minute later.
+shower of leaves or sparks — they grow back about a minute later. Fences
+break the same way, one panel at a time: plow a car through a picket,
+chainlink or wood-privacy fence and the panels you hit clatter flat in a
+puff of splinters, leaving a driveable gap while the rest stays standing
+(they mend after about a minute too).
 
 Your stolen ride isn't bulletproof: police fire chews through it. When
 it catches **fire you have ~5 seconds to bail** before it explodes.
@@ -489,11 +493,29 @@ cards with alpha cutouts, from the free "retro nature pack" by
 **ElegantCrow** — and the median crepe myrtles bloom pink off the same
 leaves. They still snap like twigs if you drive through them.
 
+The town is landscaped like real Florida suburbia. **Sabal palms** now
+carry full three-tier canopies — a dozen-plus fronds arcing up, out and
+drooping — in four variants (tall, standard, young and wind-leaned) so no
+two are identical. **Crepe myrtles** grow as proper multi-stem vases,
+several slender trunks fanning up into a rounded pink-and-white bloom.
+Every commercial front has a foundation bed (low hedge, mulch strip,
+shrubs and fountain grass split around the door), the bigger parking lots
+have curbed landscape islands with a palm and a shrub ring, and now **every
+house** gets its own foundation planting hugging the front wall. Street
+trees sit in curbed **tree wells** — a soil cutout with a cast-iron grate
+— instead of poking straight through the sidewalk, and low shrubs keep to
+the planting strip rather than the walk.
+
 The main intersection is dressed like the real one: galvanized mast-arm
 **traffic signals that actually cycle** — and now **traffic obeys them**:
 cars slow and queue bumper-to-bumper at a red, wait out the cycle, and
 pull away on green. They also keep a safe following gap on the open road
 and tap the brakes for a beat at the smaller uncontrolled intersections.
+Drivers aren't clones anymore — they cruise at different speeds, and the
+impatient ones tuck in closer and **lean on the horn** when they've been
+stuck behind someone or sitting at a red too long. Step into a moving
+car's path and you'll get an angry blast, too (tasteful cooldowns keep it
+from turning into a horn symphony).
 The streets are busy now — roughly triple the old traffic and pedestrian
 counts — and walkers who see a car bearing down on them bolt sideways out
 of the lane, whether it's an NPC car or one another player is driving.

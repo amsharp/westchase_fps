@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.22';
+var GAME_VERSION = 'v1.66.30';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -532,6 +532,35 @@ var venCapM = lamb({ color: 0xcfc7b4 });                  // parapet capstone
 var venAcM = lamb({ color: 0x9a9a94 });                   // rooftop AC
 var orangeMetalM = lamb2(seamMetalTex('#e8862e'));        // Dunkin orange metal awning
 var grayBlockM = lamb2(stuccoTex('#bcbab4'));             // Dunkin gray split-face block
+// ---- industrial rooftop HVAC (mreds4nw / mref3ibd: businesses want big
+// commercial condensers, not the tiny 0.9m residential unit). Canvas-textured
+// galvanized panels + radial fan-guard grilles. ----
+var acRibTex = tex(128, function (g, s) {                 // ribbed condenser-coil side panels
+  g.fillStyle = '#9a9d99'; g.fillRect(0, 0, s, s);
+  for (var x = 0; x < s; x += 6) { g.fillStyle = 'rgba(255,255,255,0.10)'; g.fillRect(x, 0, 1, s); g.fillStyle = 'rgba(0,0,0,0.22)'; g.fillRect(x + 3, 0, 2, s); }
+  g.fillStyle = 'rgba(0,0,0,0.30)'; for (var y = 0; y < s; y += 42) g.fillRect(0, y, s, 2);
+  g.fillStyle = 'rgba(255,255,255,0.13)'; for (var y2 = 3; y2 < s; y2 += 42) g.fillRect(0, y2, s, 1);
+  g.fillStyle = 'rgba(0,0,0,0.35)'; for (var yy = 0; yy < s; yy += 42) for (var xx = 5; xx < s; xx += 15) g.fillRect(xx, yy + 1, 2, 2);
+  for (var r = 0; r < 7; r++) { g.fillStyle = 'rgba(115,80,52,' + (0.03 + Math.random() * 0.05) + ')'; g.fillRect(Math.random() * s, Math.random() * s * 0.5, 2, s * 0.5); }
+  noise(g, s, 120, 0.05, 0.04);
+}, 2, 1);
+var venAcRibM = lamb2(acRibTex);
+var acTopTex = tex(64, function (g, s) {                  // galvanized top deck / curb
+  g.fillStyle = '#8f938f'; g.fillRect(0, 0, s, s);
+  g.strokeStyle = 'rgba(0,0,0,0.22)'; g.lineWidth = 2; g.strokeRect(3, 3, s - 6, s - 6);
+  noise(g, s, 90, 0.06, 0.05);
+});
+var venAcTopM = lamb2(acTopTex);
+var fanGrilleTex = tex(64, function (g, s) {              // radial fan-guard over a dark shroud
+  var c = s / 2;
+  g.fillStyle = '#33352f'; g.fillRect(0, 0, s, s);
+  g.strokeStyle = '#b9bdb8'; g.lineWidth = 2;
+  for (var rr = 4; rr < c - 1; rr += 5) { g.beginPath(); g.arc(c, c, rr, 0, 6.29); g.stroke(); }
+  g.strokeStyle = '#c7cbc6'; g.lineWidth = 2;
+  for (var a = 0; a < 6.28; a += Math.PI / 4) { g.beginPath(); g.moveTo(c, c); g.lineTo(c + Math.cos(a) * c, c + Math.sin(a) * c); g.stroke(); }
+  g.fillStyle = '#1c1e1a'; g.beginPath(); g.arc(c, c, 5, 0, 6.29); g.fill();
+});
+var fanGrilleM = lamb2(fanGrilleTex);
 var stuccoMatCache = {};
 function stuccoMat(color) { if (!stuccoMatCache[color]) stuccoMatCache[color] = lamb2(stuccoTex(color)); return stuccoMatCache[color]; }
 
@@ -573,10 +602,23 @@ function vCanopy(x, wallZ, dir, w, out, y, mat, postM) {
 function vParapet(cx, cz, w, d, topY, mat) {
   scene.add(box(w + 0.6, 0.7, d + 0.6, mat || venCapM, cx, topY + 0.35, cz));
 }
-// rooftop AC unit on a curb
+// big commercial rooftop HVAC unit (packaged RTU / condenser) on a curb:
+// ribbed galvanized cabinet + galvanized top deck + twin radial fan-guard
+// grilles + an end control panel. Reads as real industrial HVAC (mreds4nw).
 function vAC(x, cz, topY, mat) {
-  scene.add(box(2.4, 0.22, 1.8, venCapM, x, topY + 0.11, cz));
-  scene.add(box(2.1, 0.9, 1.5, mat || venAcM, x, topY + 0.57, cz));
+  var body = mat || venAcRibM;
+  scene.add(box(3.3, 0.28, 2.5, venAcTopM, x, topY + 0.14, cz));       // curb pad
+  var bh = 1.5, by = topY + 0.28;
+  scene.add(box(3.0, bh, 2.2, body, x, by + bh / 2, cz));              // ribbed cabinet
+  var ty = by + bh;
+  scene.add(box(3.02, 0.14, 2.22, venAcTopM, x, ty + 0.07, cz));       // top deck cap
+  for (var i = -1; i <= 1; i += 2) {                                   // twin fans
+    var fx = x + i * 0.72;
+    scene.add(cyl(0.64, 0.64, 0.2, 14, venAcTopM, fx, ty + 0.14 + 0.10, cz));   // shroud lip
+    var gr = new THREE.Mesh(new THREE.CircleGeometry(0.6, 18), fanGrilleM);
+    gr.rotation.x = -Math.PI / 2; gr.position.set(fx, ty + 0.26, cz); scene.add(gr);
+  }
+  scene.add(box(0.7, 1.05, 0.3, venAcTopM, x + 1.28, by + 0.55, cz + 1.02));   // end control panel
 }
 // eave soffit + fascia band for a hip/pitched roof
 function vEave(cx, cz, w, d, y, mat) {
@@ -1195,15 +1237,67 @@ var frondGeo = (function () {
   for (i = 0; i < pos.count; i++) { var x2 = pos.getX(i), t2 = x2 / 3.2; pos.setY(i, pos.getY(i) - 1.35 * t2 * t2); }
   g.computeVertexNormals(); return g;
 })();
+// A palm canopy used to be 8 flat fronds (thin, sparse — report mredw3ho/
+// mrefts2d). Bake a DENSER 3-tier crown (up / mid / drooping fronds) into ONE
+// merged BufferGeometry per variant, so every palm draws its whole canopy in a
+// single call (fewer draws than the old 8 frond-meshes) while reading full.
+function bakePalmCrown(specs) {
+  var fg = frondGeo, pos = fg.attributes.position, uv = fg.attributes.uv, nm = fg.attributes.normal, idx = fg.index;
+  var cnt = idx ? idx.count : pos.count;
+  var P = [], U = [], N = [], m = new THREE.Matrix4(), v = new THREE.Vector3(), nn = new THREE.Vector3(), nmat = new THREE.Matrix3();
+  for (var f = 0; f < specs.length; f++) {
+    var ry = specs[f][0], rzA = specs[f][1], s = specs[f][2];
+    m.makeRotationFromEuler(new THREE.Euler(0, ry, rzA));   // match mesh.rotation.set(0,ry,rzA)
+    m.multiply(new THREE.Matrix4().makeScale(s, s, s));
+    nmat.getNormalMatrix(m);
+    for (var i = 0; i < cnt; i++) {
+      var vi = idx ? idx.getX(i) : i;
+      v.set(pos.getX(vi), pos.getY(vi), pos.getZ(vi)).applyMatrix4(m); P.push(v.x, v.y, v.z);
+      nn.set(nm.getX(vi), nm.getY(vi), nm.getZ(vi)).applyMatrix3(nmat).normalize(); N.push(nn.x, nn.y, nn.z);
+      U.push(uv.getX(vi), uv.getY(vi));
+    }
+  }
+  var g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(P), 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(U), 2));
+  g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(N), 3));
+  return g;
+}
+function makePalmCrown(counts, scl, droop) {
+  // counts = [nUp, nMid, nDroop]; three interleaved rings of fronds
+  var specs = [], tiers = [[0.2, 0.82], [-0.1, 1.0], [-droop, 1.07]];
+  for (var t = 0; t < 3; t++) {
+    for (var i = 0; i < counts[t]; i++) {
+      var ry = i / counts[t] * Math.PI * 2 + t * 0.55 + (Math.random() - 0.5) * 0.25;
+      specs.push([ry, tiers[t][0] + (Math.random() - 0.5) * 0.1, scl * tiers[t][1] * (0.93 + Math.random() * 0.14)]);
+    }
+  }
+  return bakePalmCrown(specs);
+}
+var PALM_CROWNS = [
+  makePalmCrown([5, 4, 4], 1.0, 0.5),    // standard, 13 fronds
+  makePalmCrown([6, 5, 5], 1.12, 0.55),  // tall/full, 16 fronds
+  makePalmCrown([4, 3, 4], 0.88, 0.42),  // young/short, 11 fronds
+  makePalmCrown([5, 5, 4], 1.05, 0.6)    // leaning, 14 fronds, deeper droop
+];
+var PALM_VARIANTS = [
+  { c: 0, hMin: 5.0, hMax: 6.5, lean: 0 },
+  { c: 1, hMin: 6.5, hMax: 8.6, lean: 0.045 },
+  { c: 2, hMin: 4.2, hMax: 5.5, lean: 0 },
+  { c: 3, hMin: 5.4, hMax: 7.4, lean: 0.13 }
+];
 function palm(x, z) {
   // v1.65.5 prop-placement fix: same building-clearance guard as oak().
   if (typeof WC_REMAP !== 'undefined' && WC_REMAP && typeof remapInClear === 'function' && remapInClear(x, z, 3.5)) return;
-  var g = new THREE.Group(); var h = 5.5 + Math.random() * 2.5;
+  var pv = PALM_VARIANTS[(Math.random() * PALM_VARIANTS.length) | 0];
+  var g = new THREE.Group(); var h = pv.hMin + Math.random() * (pv.hMax - pv.hMin);
   g.add(cyl(0.17, 0.26, h, 7, lamb2(barkT2), 0, h / 2, 0));
-  var crown = new THREE.Group(); crown.position.y = h;
-  for (var i = 0; i < 8; i++) { var f = new THREE.Mesh(frondGeo, frondMat); f.rotation.y = i / 8 * Math.PI * 2 + Math.random() * 0.4; f.rotation.z = (Math.random() - 0.5) * 0.2; crown.add(f); }
-  g.add(crown); g.add(blobShadow(1.1, 1.1, 0.05));
-  g.position.set(x, 0, z); g.rotation.y = Math.random() * Math.PI; scene.add(g);
+  var crownMesh = new THREE.Mesh(PALM_CROWNS[pv.c], frondMat);
+  crownMesh.position.y = h; crownMesh.rotation.y = Math.random() * Math.PI * 2;
+  g.add(crownMesh); g.add(blobShadow(1.1, 1.1, 0.05));
+  g.position.set(x, 0, z); g.rotation.y = Math.random() * Math.PI;
+  if (pv.lean) g.rotation.z = (Math.random() < 0.5 ? 1 : -1) * pv.lean * (0.7 + Math.random() * 0.5);   // some palms lean
+  scene.add(g);
   registerBreakable(g, x, z, 0.8, 'tree', null, 0.3);
 }
 
@@ -2383,6 +2477,27 @@ function remapPointClear(x, z, pad) {
   }
   return true;
 }
+// true when (x,z) sits on a road's flanking SIDEWALK ribbon (between the curb
+// and the walk's outer edge). remapPointClear only rejects the asphalt (hw+pad),
+// so bushes/grass placed just past the curb landed ON the sidewalk (report
+// mredxgss) — landscape plantings reject this band so they stay on the grass.
+function onSidewalk(x, z) {
+  if (typeof REMAP_ROADS === 'undefined') return false;
+  for (var i = 0; i < REMAP_ROADS.length; i++) {
+    var r = REMAP_ROADS[i]; if (r.cls > 2 || r.dirt) continue;
+    var sw = r.cls === 0 ? 5 : 3.4, inner = r.hw + 0.2, outer = r.hw + sw + 1.0, pts = r.pts;
+    for (var j = 0; j < pts.length - 1; j++) {
+      var ax = pts[j][0], az = pts[j][1], bx = pts[j + 1][0], bz = pts[j + 1][1];
+      if (x < (ax < bx ? ax : bx) - outer || x > (ax > bx ? ax : bx) + outer ||
+          z < (az < bz ? az : bz) - outer || z > (az > bz ? az : bz) + outer) continue;
+      var dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz || 1;
+      var t = ((x - ax) * dx + (z - az) * dz) / L2; t = t < 0 ? 0 : (t > 1 ? 1 : t);
+      var px = ax + dx * t - x, pz = az + dz * t - z, d = Math.sqrt(px * px + pz * pz);
+      if (d >= inner && d <= outer) return true;
+    }
+  }
+  return false;
+}
 // true when the axis rect keeps `pad` clearance from every true road
 // (segments sampled every 4u — load-time checks only)
 function remapRectClear(x0, x1, z0, z1, pad) {
@@ -3390,6 +3505,7 @@ function houseSidewalkNudge(x, z, w, d, rot) {
 }
 var houseStats = { instances: 0, meshes: 0, tris: 0, colliders: 0, skipped: 0 };
 var houseMeshesRef = [];   // merged house meshes (perf A/B toggle hook)
+var houseFronts = [];      // final (post-nudge) house-front frames for the landscaping pass (foundation shrubs)
 (function buildSurveyHouses() {
   if (!STAMP_SURVEY_HOUSES || typeof HOUSE_CLUSTERS === 'undefined') return;   // editor map has no survey-house fill
   var chunks = {};   // 'ci|vi' -> {pos:[],norm:[],uv:[]}
@@ -3428,6 +3544,9 @@ var houseMeshesRef = [];   // merged house meshes (perf A/B toggle hook)
     if (!cl.spec.canopy && cl.spec.feat && cl.spec.feat.door) {
       var dxl = (cl.spec.feat.door.x - 0.5) * w;
       registerDoor(dxl * ca + (d / 2) * sa + x, -dxl * sa + (d / 2) * ca + z, sa, ca, 2.2);
+      // front-face frame for foundation plantings: centre on the front wall, with
+      // outward normal (sa,ca) and along-wall right (ca,-sa). x,z are post-nudge.
+      houseFronts.push({ fcx: x + (d / 2) * sa, fcz: z + (d / 2) * ca, nx: sa, nz: ca, rgx: ca, rgz: -sa, w: w, doorX: dxl });
     }
     if (cl.spec.canopy) {
       // hollow: collide the columns only (walk/drive under the slab)
@@ -3590,23 +3709,33 @@ function bush(x, z, scale) {
   registerBreakable(g, x, z, 0.6, 'tree');
 }
 var thinTrunkM = lamb({ color: 0x7a5a3a });
+var crepeBloomMats = [lamb({ color: 0xd76a9e }), lamb({ color: 0xe08ab4 }), lamb({ color: 0xc85a86 }), lamb({ color: 0xf1efe4 })];  // pink/white crepe-myrtle blossom
+// A crepe myrtle is not a single ball on a stick (report mree6ten: "unnatural")
+// — it's a multi-stem VASE: several slender trunks fanning from the base into a
+// rounded, blossoming crown. Build 3-4 leaning trunks + a mound of overlapping
+// bloom/leaf blobs so the silhouette reads as the real ornamental.
 function crepeMyrtle(x, z) {
-  var g = new THREE.Group(); var h = 3 + Math.random() * 1.6;
-  g.add(cyl(0.11, 0.16, h, 6, thinTrunkM, 0, h / 2, 0));
-  var bn = Math.random() < 0.5 ? 'bush1' : 'bush2';
-  var pb = Math.random() < 0.4 ? getPackPropPink(bn) : getPackProp(bn);
-  if (pb) {
-    var cm = new THREE.Mesh(pb.geo, pb.mat);
-    var cs = 2.7 / pb.h;
-    cm.scale.set(cs, cs, cs);
-    cm.position.y = h - 1.0;   // canopy card cluster caps the trunk
-    cm.rotation.y = Math.random() * Math.PI * 2;
-    g.add(cm);
-  } else {
-    var lm = Math.random() < 0.4 ? lamb({ color: 0xd98fb0 }) : bushMats[(Math.random() * 3) | 0];
-    for (var i = 0; i < 4; i++) { var c = new THREE.Mesh(bushGeo, lm); var r = 0.8 + Math.random() * 0.5; c.scale.set(r, r * 0.9, r); c.position.set((Math.random() - 0.5) * 1.2, h + (Math.random() - 0.3), (Math.random() - 0.5) * 1.2); g.add(c); }
+  var g = new THREE.Group(); var h = 2.8 + Math.random() * 1.6;
+  var nt = 3 + (Math.random() * 2 | 0), baseA = Math.random() * 6.28;
+  for (var t = 0; t < nt; t++) {
+    var ta = baseA + t / nt * 6.28 + (Math.random() - 0.5) * 0.5, lean = 0.11 + Math.random() * 0.13;
+    var tg = new THREE.Group();
+    tg.add(cyl(0.045, 0.085, h, 5, thinTrunkM, 0, h / 2, 0));
+    tg.rotation.z = Math.cos(ta) * lean; tg.rotation.x = -Math.sin(ta) * lean;
+    g.add(tg);
   }
-  g.add(blobShadow(1, 1, 0.05)); g.position.set(x, 0, z); scene.add(g);
+  var pinkTree = Math.random() < 0.7, canY = h - 0.2, spread = 0.9 + Math.random() * 0.5;
+  var nb = 5 + (Math.random() * 3 | 0);
+  for (var i = 0; i < nb; i++) {
+    var lm = (pinkTree && Math.random() < 0.72) ? crepeBloomMats[(Math.random() * crepeBloomMats.length) | 0] : bushMats[(Math.random() * 3) | 0];
+    var c = new THREE.Mesh(bushGeo, lm);
+    var a2 = i / nb * 6.28, rad = i === 0 ? 0 : (0.45 + Math.random() * 0.7) * spread;
+    var rr = (i === 0 ? 0.95 : 0.6 + Math.random() * 0.45) * spread;
+    c.scale.set(rr, rr * 0.92, rr);
+    c.position.set(Math.cos(a2) * rad, canY + Math.cos(a2 * 1.3) * 0.35 + Math.random() * 0.5, Math.sin(a2) * rad);
+    g.add(c);
+  }
+  g.add(blobShadow(1.3, 1.3, 0.05)); g.position.set(x, 0, z); g.rotation.y = Math.random() * 6.28; scene.add(g);
   registerBreakable(g, x, z, 0.7, 'tree', null, 0.18);
 }
 
@@ -3758,10 +3887,35 @@ function updateSignals(dt) {
 var carSignals = [];
 var CAR_STOP_D = 5.6;     // center-to-center spacing when queued (car len 4.64 + gap)
 var CAR_HEADWAY = 0.85;   // time-headway (s) turning gap into a target speed
+// ---- traffic honks + personality (mreeoimw): drivers get a per-car impatience
+// (imp), a cruising-speed multiplier (spdMul) and a horn pitch, so traffic is no
+// longer uniform. A tasteful, doubly-cooldowned positional horn toots when a car
+// has been held behind a leader / at a light too long (impatient sooner), the odd
+// random cruise toot, and an angry blast when the player jaywalks in front. One
+// town-wide gap keeps it from becoming a cacophony. Host-local audio flavour. ----
+var lastHornT = -99, carHornCount = 0;
+function carPersona(c) {
+  if (c.imp !== undefined) return;
+  c.imp = Math.random();                       // 0 patient .. 1 impatient
+  c.spdMul = 0.82 + Math.random() * 0.46;      // 0.82..1.28 cruising-speed spread
+  c._hornHz = (Math.random() * 150 - 55) | 0;  // horn pitch variety
+}
+function carHorn(c, angry) {
+  if (T - lastHornT < 1.1) return;                          // town-wide anti-cacophony gap
+  if (T - (c._hornT || -99) < (angry ? 2.4 : 5.5)) return;  // per-car gap
+  var m = c.car.group.position, dx = m.x - player.x, dz = m.z - player.z, dist = Math.sqrt(dx * dx + dz * dz);
+  if (dist > 62) return;                                    // too far to hear -> skip (saves audio nodes)
+  lastHornT = T; c._hornT = T; carHornCount++;
+  var g = 0.15 * (1 - dist / 62), f = angry ? 300 : 380 + (c._hornHz || 0);
+  beep(f, angry ? 0.5 : 0.26, g, 'sawtooth'); beep(f * 1.5, angry ? 0.5 : 0.26, g * 0.5, 'square');   // beep() self-guards when audio is off
+  if (angry) setTimeout(function () { beep(f, 0.34, g, 'sawtooth'); beep(f * 1.5, 0.34, g * 0.5, 'square'); }, 240);
+}
 // desired speed for a remap traffic car: the min of free-flow cruise, the gap
 // to the leader ahead, the distance to a red light, and any stop-sign hold.
 function carDesiredSpeed(c, idx, dt) {
-  var des = c.cruise !== undefined ? c.cruise : c.speed;
+  carPersona(c);
+  c._holdKind = '';
+  var des = (c.cruise !== undefined ? c.cruise : c.speed) * (c.spdMul || 1);
   var m = c.car.group.position;
   var hx = c.rTx, hz = c.rTz;
   if (hx === undefined) { var hr = c.car.group.rotation.y; hx = Math.cos(hr); hz = -Math.sin(hr); }
@@ -3783,7 +3937,12 @@ function carDesiredSpeed(c, idx, dt) {
     if (!o.parked && (hx * ohx + hz * ohz) < 0.1) continue;
     if (fwd < bestGap) bestGap = fwd;
   }
-  if (bestGap < Infinity) des = Math.min(des, Math.max(0, bestGap - CAR_STOP_D) / CAR_HEADWAY);
+  if (bestGap < Infinity) {
+    // impatient drivers tuck in closer + accept a shorter headway
+    var ls = Math.max(0, bestGap - (CAR_STOP_D - c.imp * 1.1)) / (CAR_HEADWAY * (1 - c.imp * 0.28));
+    if (ls < des) des = ls;
+    if (ls < 1.0) c._holdKind = 'lead';
+  }
   // (b) red lights: stop at the bar of the approach we're driving toward
   for (var s = 0; s < carSignals.length; s++) {
     var lg = carSignals[s];
@@ -3797,7 +3956,9 @@ function carDesiredSpeed(c, idx, dt) {
     if (bl > lg.hw + 2) continue;                     // not on this approach lane
     // on yellow only start stopping if there's comfortable room; else clear it
     if (col === 'y' && bf < 6) continue;
-    des = Math.min(des, Math.max(0, bf - 1.8) / 0.65);
+    var lsd = Math.max(0, bf - 1.8) / 0.65;
+    if (lsd < des) des = lsd;
+    if (lsd < 1.0 && !c._holdKind) c._holdKind = 'light';
   }
   // (c) stop signs: brief hold at uncontrolled 3+ leg nodes (never the central
   // signal Y near the origin). Per-node one-shot with a hard timeout -> no deadlock.
@@ -3820,6 +3981,16 @@ function applyCarGovernor(c, idx, dt) {
   var d = des - c.speed, step = rate * dt;
   c.speed += d < -step ? -step : (d > step ? step : d);
   if (c.speed < 0) c.speed = 0;
+  // honk: held behind a leader / at a red for longer than this driver's patience
+  if (des < 1.0 && c.speed < 1.2) {
+    c._waitT = (c._waitT || 0) + dt;
+    var thresh = 3.4 - c.imp * 2.1;             // impatient ~1.3s, patient ~3.4s
+    if (!c._honkedStop && c._waitT > thresh && c._holdKind) { carHorn(c, false); c._honkedStop = true; }
+    else if (c._honkedStop && c.imp > 0.6 && c._waitT > thresh + 4) { c._waitT = thresh - 0.5; c._honkedStop = false; }   // impatient re-honk on a long hold
+  } else {
+    c._waitT = 0; c._honkedStop = false;
+    if (c.imp > 0.55 && c.speed > 3 && Math.random() < dt * 0.004) carHorn(c, false);   // rare "just because" cruise toot
+  }
 }
 
 // corner sabal-palm clusters — 3 per junction corner island (staggered heights
@@ -7232,6 +7403,7 @@ if (WC_REMAP) (function densityLayer() {
   var UDECAL = new THREE.PlaneGeometry(1, 1); UDECAL.rotateX(-Math.PI / 2);   // faces +y (XZ plane)
   var USIGN = new THREE.PlaneGeometry(1, 1);                                    // faces +z (XY plane)
   var UBOX = new THREE.BoxGeometry(1, 1, 1);
+  var UBLOB = new THREE.IcosahedronGeometry(0.5, 1);   // lumpy unit blob (trash-bag pile)
   var UCYL = new THREE.CylinderGeometry(0.5, 0.5, 1, 10);
   function mtx(px, py, pz, ry, sx, sy, sz) {
     var m = new THREE.Matrix4();
@@ -7318,6 +7490,7 @@ if (WC_REMAP) (function densityLayer() {
       g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(e.uv), 2));
       var o = e.meta, mo = {};
       if (o.texName) { var t = dTex(o.texName); if (t) { mo.map = t.tex; if (t.keyed) { mo.transparent = true; mo.alphaTest = 0.5; mo.side = THREE.DoubleSide; } else if (t.blend) { mo.transparent = true; mo.depthWrite = false; mo.alphaTest = 0.02; } } }
+      if (o.mapTex) mo.map = o.mapTex;   // pre-built canvas texture (e.g. tree wells)
       if (o.color !== undefined) mo.color = o.color;
       if (o.double) mo.side = THREE.DoubleSide;
       var mat = lamb(mo);
@@ -7330,7 +7503,20 @@ if (WC_REMAP) (function densityLayer() {
   // helpers to place one asset instance into the right batch
   function dDecal(name, x, z, y, ry, scale) { if (!dAsset[name]) return; var a = dAsset[name]; var w = a.dims[0] * (scale || 1), d = a.dims[1] * (scale || 1); bake('d_' + name, { texName: name, decal: true }, UDECAL, mtx(x, y, z, ry || 0, w, 1, d)); densityStats.decals++; }
   function dSign(name, x, y, z, ry, scale) { if (!dAsset[name]) return; var a = dAsset[name]; bake('d_' + name, { texName: name, double: true }, USIGN, mtx(x, y, z, ry, a.dims[0] * (scale || 1), a.dims[1] * (scale || 1), 1)); densityStats.signs++; }
-  function dBoxAsset(name, x, y, z, ry) { if (!dAsset[name]) return; var a = dAsset[name]; bake('d_' + name, { texName: name }, UBOX, mtx(x, y, z, ry || 0, a.dims[0], a.dims[1], a.dims[2])); densityStats.clutter++; }
+  function dBoxAsset(name, x, y, z, ry, sc) { if (!dAsset[name]) return; sc = sc || 1; var a = dAsset[name]; bake('d_' + name, { texName: name }, UBOX, mtx(x, y, z, ry || 0, a.dims[0] * sc, a.dims[1] * sc, a.dims[2] * sc)); densityStats.clutter++; }
+  // a flat textured box read as "2D trash" (report mredr84j); pile 3-4 lumpy,
+  // squashed blobs instead so it reads as bulging plastic bags. Reuses the
+  // trash_bags texture on the shared 'd_trash_bags' batch (still one draw call).
+  function dTrashPile(x, z) {
+    if (!dAsset['trash_bags']) return;
+    var n = 3 + (Math.random() * 2 | 0);
+    for (var i = 0; i < n; i++) {
+      var lead = i === 0, r = lead ? 0.4 + Math.random() * 0.08 : 0.26 + Math.random() * 0.14;
+      var ang = i / n * 6.28 + Math.random(), rad = lead ? 0 : 0.2 + Math.random() * 0.2;
+      bake('d_trash_bags', { texName: 'trash_bags' }, UBLOB, mtx(x + Math.cos(ang) * rad, r * 0.82, z + Math.sin(ang) * rad, Math.random() * 6.28, r * 1.9, r * (1.5 + Math.random() * 0.4), r * 1.7));
+    }
+    densityStats.clutter++;
+  }
   function dCylAsset(name, x, y, z) { if (!dAsset[name]) return; var a = dAsset[name]; bake('d_' + name, { texName: name }, UCYL, mtx(x, y, z, 0, a.dims[0], a.dims[1], a.dims[0])); densityStats.clutter++; }
   // waist-high+ poles (roadside sign posts, billboard legs) block the player;
   // short yard-sign stakes (h < 1.5) stay pass-through
@@ -7382,6 +7568,19 @@ if (WC_REMAP) (function densityLayer() {
   function rectPt(s, u, v) { var r = (s.rot || 0) * deg, c = Math.cos(r), sn = Math.sin(r); return [s.x + u * c + v * sn, s.z - u * sn + v * c]; }
 
   // ============ 1. STREET / YARD TREES + FRONTAGE LANDSCAPING ============
+  // Street trees sit on the verge/sidewalk band — a bare trunk poking through
+  // the concrete slab read as broken (report mredt4y2). Give every street tree
+  // a curbed tree-WELL: a square soil cutout with a cast-iron grate + concrete
+  // frame, baked once into a single merged decal batch.
+  var treeWellTex = tex(64, function (g, s) {
+    g.fillStyle = '#918e86'; g.fillRect(0, 0, s, s);                          // concrete frame
+    var m = s * 0.12; g.fillStyle = '#3a2b1b'; g.fillRect(m, m, s - 2 * m, s - 2 * m);   // soil
+    for (var i = 0; i < 46; i++) { g.fillStyle = ['#2c2013', '#4a3826', '#241a0f'][(Math.random() * 3) | 0]; g.beginPath(); g.arc(m + Math.random() * (s - 2 * m), m + Math.random() * (s - 2 * m), 1 + Math.random() * 1.6, 0, 6.29); g.fill(); }
+    var cx = s / 2, cy = s / 2; g.strokeStyle = 'rgba(110,110,112,0.6)'; g.lineWidth = 2;   // grate bars
+    for (var a = 0; a < 8; a++) { var an = a / 8 * 6.28; g.beginPath(); g.moveTo(cx + Math.cos(an) * s * 0.1, cy + Math.sin(an) * s * 0.1); g.lineTo(cx + Math.cos(an) * s * 0.38, cy + Math.sin(an) * s * 0.38); g.stroke(); }
+    for (var rr = 0.17; rr < 0.4; rr += 0.11) { g.beginPath(); g.arc(cx, cy, s * rr, 0, 6.29); g.stroke(); }
+  }, 1, 1);
+  function treeWell(x, z) { bake('d_treewell', { mapTex: treeWellTex, decal: true }, UDECAL, mtx(x, 0.14, z, Math.random() * 1.57, 1.7, 1, 1.7)); }
   var TREE_CAP = 130, side = 1;
   if (RM) {
     for (var ri = 0; ri < RM.roads.length; ri++) {
@@ -7393,6 +7592,7 @@ if (WC_REMAP) (function densityLayer() {
         if (!remapPointClear(tx, tz, 2) || inLake(tx, tz) || houseBlocksSpot(tx, tz) || remapInClear(tx, tz, 1) || !spotClear(tx, tz)) continue;
         if (nearStreetlight(tx, tz, 4)) continue;   // tree canopy would swallow the lamp (mreeosgw)
         if (treeRnd() < 0.34) palm(tx, tz); else oak(tx, tz, 0.78 + treeRnd() * 0.42);
+        treeWell(tx, tz);
         densityStats.trees++;
       }
     }
@@ -7565,11 +7765,14 @@ if (WC_REMAP) (function densityLayer() {
       if (!jok) continue;
       jcPlaced.push([jx, jz]);
       if (cn === 'bucket') dCylAsset(cn, jx, ca.dims[1] / 2 + 0.02, jz);
+      else if (cn === 'trash_bags') dTrashPile(jx, jz);
       else dBoxAsset(cn, jx, ca.dims[1] / 2 + 0.02, jz, rnd(0, 6.28));
     }
-    // AC condenser + utility box against a side wall
-    var sidex = vv3.x + f3.rx * (vv3.w / 2 + 0.6), sidez = vv3.z + f3.rz * (vv3.w / 2 + 0.6);
-    dBoxAsset('ac_condenser', sidex, 0.4, sidez, f3.yaw);
+    // AC condenser + utility box against a side wall. The base ac_condenser
+    // asset is a tiny 0.75m residential cube; businesses want a big commercial
+    // ground condenser (mref3ibd), so upsize it ~2.4x (-> ~1.8m).
+    var sidex = vv3.x + f3.rx * (vv3.w / 2 + 1.0), sidez = vv3.z + f3.rz * (vv3.w / 2 + 1.0);
+    dBoxAsset('ac_condenser', sidex, 0.9, sidez, f3.yaw, 2.4);
     dBoxAsset('utility_box', sidex + f3.fx * 2, 0.5, sidez + f3.fz * 2, f3.yaw);
     if (Math.random() < 0.6) dCylAsset('propane_tank', sidex - f3.fx * 2, 0.6, sidez - f3.fz * 2);
     // potted plants + mulch bed flanking the entrance
@@ -7674,12 +7877,11 @@ if (WC_REMAP) (function densityLayer() {
         }
       }
     }
-    // mailboxes at townhouse rows
-    for (var mp = 0; mp < VENUES.length; mp++) {
-      var vv6 = VENUES[mp]; if (vv6.type !== 'townhouse') continue;
-      var f7 = vFront(vv6), mfx = vv6.x + f7.fx * (vv6.d / 2 + 1.2), mfz = vv6.z + f7.fz * (vv6.d / 2 + 1.2);
-      for (var me = -1; me <= 1; me += 2) { var mx = mfx + f7.rx * (vv6.w / 2 - 4) * me, mz = mfz + f7.rz * (vv6.w / 2 - 4) * me; spFull('homemailbox', mx, mz, Math.atan2(f7.fx, f7.fz), 0.02); }
-    }
+    // (removed: per-townhouse-venue homemailbox pair. It stamped a mailbox at
+    //  BOTH front ends of every townhouse — the -end collided with the yard
+    //  raised_bed flower bed (mreei0of @-141,-32) and the +end doubled up with
+    //  the mailbox_cluster env decor. Each townhouse already gets ONE
+    //  rummageable mailbox_cluster, so these were pure clutter/clips.)
   }
 
   flush();
@@ -7700,7 +7902,7 @@ if (WC_REMAP) (function densityLayer() {
 // collider: per CLAUDE.md, bushes/shrubs/beds stay PASS-THROUGH (only tree
 // trunks collide, via their own systems).
 // ============================================================
-var landscapeStats = { hedge: 0, shrub: 0, mulch: 0, grass: 0, myrtle: 0, palm: 0, island: 0, tris: 0, draws: 0 };
+var landscapeStats = { hedge: 0, shrub: 0, mulch: 0, grass: 0, myrtle: 0, palm: 0, island: 0, foundation: 0, tris: 0, draws: 0 };
 var landscapeMeshes = [];
 if (WC_REMAP) (function landscapePass() {
   var deg = Math.PI / 180;
@@ -7795,23 +7997,32 @@ if (WC_REMAP) (function landscapePass() {
     lbake('ls_hedge', hedgeMat, geo, mtx((ax + bx) / 2, h / 2 + 0.02, (az + bz) / 2, ry, 1, 1, 1));
     landscapeStats.hedge++;
   }
-  // shrub clump: 1-3 flattened blobs, colour by species key
+  // shrub clump: a bushy mound of 3-5 overlapping blobs (a lone flattened dome
+  // read as a featureless "green blob" — report mreelboe). A slightly lower/
+  // wider lead blob + satellites clustered around it and lifted give an organic
+  // rounded silhouette; per-blob scale/rotation jitter breaks the ball look.
   var SHRUB_KEYS = ['dark', 'mid', 'olive'];
-  function shrub(x, z, scale, key) {
+  function shrub(x, z, scale, key, lite) {
     // never on asphalt: frontage math near the diagonal junction landed
-    // flower beds mid-road (report mrefti0d) — guard at the source
-    if (WC_REMAP && !remapPointClear(x, z, 1.0)) return;
+    // flower beds mid-road (report mrefti0d) — guard at the source. Also keep
+    // shrubs off the flanking sidewalk (report mredxgss) so they read as
+    // planting-strip greenery, not obstacles blocking the walk.
+    if (WC_REMAP && (!remapPointClear(x, z, 1.0) || onSidewalk(x, z))) return;
     scale = scale || rnd(0.75, 1.25); key = key || pick(SHRUB_KEYS);
-    var n = 1 + (Math.random() * 2.5 | 0);
+    var n = lite ? 2 + (Math.random() * 2 | 0) : 3 + (Math.random() * 3 | 0);   // lite: 2-3, else 3-5 blobs
     for (var i = 0; i < n; i++) {
-      var r = scale * rnd(0.55, 0.9), ox = n > 1 ? rnd(-scale * 0.5, scale * 0.5) : 0, oz = n > 1 ? rnd(-scale * 0.5, scale * 0.5) : 0;
-      lbake('ls_shrub_' + key, shrubMats[key], USPH, mtx(x + ox, r * 0.72, z + oz, rnd(0, 6.28), r * 2, r * 1.7, r * 2));
+      var lead = i === 0;
+      var r = scale * (lead ? rnd(0.62, 0.84) : rnd(0.38, 0.62));
+      var ang = i / n * 6.28 + rnd(-0.5, 0.5), rad = lead ? scale * rnd(0, 0.14) : scale * rnd(0.26, 0.52);
+      var ox = Math.cos(ang) * rad, oz = Math.sin(ang) * rad;
+      var oy = lead ? r * 0.82 : r * rnd(0.55, 0.98);
+      lbake('ls_shrub_' + key, shrubMats[key], USPH, mtx(x + ox, oy, z + oz, rnd(0, 6.28), r * rnd(1.9, 2.2), r * rnd(1.65, 2.05), r * rnd(1.9, 2.2)));
     }
     landscapeStats.shrub++;
   }
   // ornamental fountain-grass tuft: 2 crossed alpha cards
   function grass(x, z, scale) {
-    if (WC_REMAP && !remapPointClear(x, z, 0.6)) return;
+    if (WC_REMAP && (!remapPointClear(x, z, 0.6) || onSidewalk(x, z))) return;
     scale = scale || rnd(0.7, 1.15); var ry = rnd(0, 3.14);
     lbake('ls_grass', grassMat, UCARD, mtx(x, 0.02, z, ry, scale * 1.3, scale, 1));
     lbake('ls_grass', grassMat, UCARD, mtx(x, 0.02, z, ry + Math.PI / 2, scale * 1.3, scale, 1));
@@ -8004,6 +8215,34 @@ if (WC_REMAP) (function landscapePass() {
     }
   }
 
+  // ============ WAVE 4: RESIDENTIAL FOUNDATION SHRUBS ============
+  // Low manicured foundation plantings hugging each survey-house FRONT wall,
+  // split around the entry. The earlier pass (#51) never landed these (a naive
+  // attempt put them ~22u off the front); we key off houseFronts, which stores
+  // the post-nudge front-wall frame, so shrubs sit right against the wall. A
+  // thin mulch strip anchors the bed. Capped to keep the merge modest.
+  if (typeof houseFronts !== 'undefined' && houseFronts.length) {
+    var HF_CAP = 1600, hfDone = 0, bedOff2 = 1.15;
+    for (var hi = 0; hi < houseFronts.length && hfDone < HF_CAP; hi++) {
+      var hf = houseFronts[hi];
+      if (hf.w < 4) continue;
+      var halfW = hf.w / 2 - 0.9, doorHalf = 1.5, cxF = hf.fcx + hf.nx * bedOff2, czF = hf.fcz + hf.nz * bedOff2;
+      // mulch strip along the whole front (one quad; yaw so d spans the bed depth)
+      mulchBed(cxF, czF, hf.w - 0.6, 1.35, Math.atan2(hf.nx, hf.nz));
+      for (var tt = -halfW; tt <= halfW + 0.01 && hfDone < HF_CAP; tt += 1.85) {
+        if (Math.abs(tt - hf.doorX) < doorHalf) continue;   // keep the entry walk clear
+        var sx = cxF + hf.rgx * tt + hf.nx * rnd(-0.15, 0.2), sz = czF + hf.rgz * tt + hf.nz * rnd(-0.15, 0.2);
+        if (Math.random() < 0.82) shrub(sx, sz, rnd(0.45, 0.72), pick(SHRUB_KEYS), true);   // lite foundation shrub
+        else grass(sx, sz, rnd(0.55, 0.8));
+        hfDone++;
+      }
+      // a flowering accent shrub flanking one side of the door
+      var da = hf.doorX + (Math.random() < 0.5 ? 1 : -1) * (doorHalf + 0.5);
+      if (Math.abs(da) <= halfW + 0.5) { shrub(cxF + hf.rgx * da, czF + hf.rgz * da, rnd(0.55, 0.8), 'bloom', true); hfDone++; }
+    }
+    landscapeStats.foundation = hfDone;
+  }
+
   lflush();
 })();
 
@@ -8132,6 +8371,15 @@ if (WC_REMAP) (function fenceSystem() {
   function picketMap() { return _picketTex || (_picketTex = picketTex()); }
   function chainMap() { return _chainTex || (_chainTex = dRec.chainlink_fence ? loadTex(dRec.chainlink_fence.tex, 46) : chainProcTex()); }
   function woodMap() { return _woodTex || (_woodTex = dRec.privacy_fence ? loadTex(dRec.privacy_fence.tex, 0) : woodProcTex()); }
+  // ---- shared panel-body materials (mreejak5: fence panels break per-panel
+  // under a speeding car, so each panel BODY is its own toppleable Group mesh
+  // instead of a merged batch. One material per fence type is reused across all
+  // panels — many meshes, but only 3 materials; posts stay merged/static). ----
+  var _picketMat, _chainMat, _woodMat, _railMats = {};
+  function picketBodyMat() { return _picketMat || (_picketMat = lamb({ map: picketMap(), transparent: true, alphaTest: 0.45, side: THREE.DoubleSide })); }
+  function chainBodyMat() { return _chainMat || (_chainMat = lamb({ map: chainMap(), transparent: true, alphaTest: 0.25, side: THREE.DoubleSide })); }
+  function woodBodyMat() { return _woodMat || (_woodMat = lamb({ map: woodMap() })); }
+  function railMat(col) { return _railMats[col] || (_railMats[col] = lamb({ color: col })); }
 
   // ---- merged batches: one draw call per material key ----
   var FB = {}, _NM = new THREE.Matrix3(), _V = new THREE.Vector3(), _N = new THREE.Vector3();
@@ -8183,6 +8431,32 @@ if (WC_REMAP) (function fenceSystem() {
     fbake(key, meta, new THREE.BoxGeometry(len, r * 2, r * 2), mtx(cx, y, cz, ry));
   }
 
+  // ---- one breakable fence panel (own Group so it topples like a tree) ----
+  // Body(+chainlink rail) live in the group; a thin per-panel OBB collider
+  // blocks the player until a car snaps it (breakProp deactivates b.col →
+  // drivable gap). Registered as a 'fence' breakable so updateWorldFx runs the
+  // topple/puff/60s-respawn path for free.
+  function buildFencePanel(type, pcx, pcz, ry, pl, h, postClr) {
+    var g = new THREE.Group(), body;
+    if (type === 'picket') {
+      var pg = new THREE.PlaneGeometry(pl, h), uv = pg.attributes.uv, rep = pl / (h * 1.0);
+      for (var i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * rep);
+      body = new THREE.Mesh(pg, picketBodyMat()); body.position.y = h / 2 + 0.02;
+    } else if (type === 'chainlink') {
+      var ct = 0.7, cg = new THREE.PlaneGeometry(pl, h), cuv = cg.attributes.uv;
+      for (var j = 0; j < cuv.count; j++) { cuv.setX(j, cuv.getX(j) * (pl / ct)); cuv.setY(j, cuv.getY(j) * (h / ct)); }
+      body = new THREE.Mesh(cg, chainBodyMat()); body.position.y = h / 2 + 0.02;
+      var rail = new THREE.Mesh(new THREE.BoxGeometry(pl, 0.07, 0.07), railMat(postClr)); rail.position.y = h - 0.06; g.add(rail);
+    } else {   // wood
+      body = new THREE.Mesh(new THREE.BoxGeometry(pl, h, 0.06), woodBodyMat()); body.position.y = h / 2 + 0.02;
+    }
+    g.add(body); g.position.set(pcx, 0, pcz); g.rotation.y = ry; scene.add(g);
+    registerBreakable(g, pcx, pcz, Math.max(1.3, pl / 2), 'fence', null, 0);
+    var bk = breakables[breakables.length - 1];
+    bk.col = addColliderOBB(pcx, pcz, pl / 2, 0.14, ry);   // thin wall the player leans on; car-snap frees it
+    bk.fenceType = type;
+  }
+
   // ---- the public builder ----
   function buildRun(pts, type, opts) {
     opts = opts || {};
@@ -8203,29 +8477,16 @@ if (WC_REMAP) (function fenceSystem() {
       var panels = Math.max(1, Math.round(L / spacing)), pl = L / panels;
       for (var q = 0; q < panels; q++) {
         var t = (q + 0.5) * pl, pcx = ax + ux * t, pcz = az + uz * t;
-        if (type === 'picket') {
-          cardPanel('fence_picket', { map: picketMap(), alpha: 0.45 }, pcx, pcz, ry, pl, h, pl / (h * 1.0));
-        } else if (type === 'chainlink') {
-          // The chainlink data-URL is a 2m strip with coarse native diamonds;
-          // tiling it once over the fence height rendered comically large links
-          // (bug mree1rcg). Tile at a fixed ~0.7u square period so diamonds read
-          // as fine ~0.2u chainlink, U and V matched to keep them square.
-          var ct = 0.7;
-          cardPanel('fence_chain', { map: chainMap(), alpha: 0.25 }, pcx, pcz, ry, pl, h, pl / ct, h / ct);
-          railBox('fence_chainpost', { color: postClr }, pcx, pcz, ry, pl, h - 0.06, 0.035);   // top rail
-        } else {   // wood
-          boxPanel('fence_wood', { map: woodMap() }, pcx, pcz, ry, pl, h, 0.06);
-        }
+        buildFencePanel(type, pcx, pcz, ry, pl, h, postClr);
       }
-      // posts at every panel boundary (incl. both ends)
+      // posts at every panel boundary (incl. both ends) — posts stay merged +
+      // static (they don't topple; they mark where a smashed panel used to be)
       for (var b = 0; b <= panels; b++) {
         var pt2 = b * pl, px2 = ax + ux * pt2, pz2 = az + uz * pt2;
         if (type === 'chainlink') postCyl('fence_chainpost', { color: postClr }, px2, pz2, h + 0.12, 0.05);
         else if (type === 'wood') postBox('fence_woodpost', { color: postClr }, px2, pz2, h + 0.15, 0.06);
         else postBox('fence_picketpost', { color: postClr }, px2, pz2, h + 0.14, 0.05);
       }
-      // one thin OBB collider spanning the whole edge (fences are solid to the player)
-      addColliderOBB(mx, mz, L / 2, 0.14, ry);
     }
   }
   // expose for tests / future callers
@@ -8550,7 +8811,7 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
     rec.phase = Math.random() * 6.28;
     if (a === 'spin') {
       if (rec.name === 'barber_pole') { rec.spinMesh = mesh; rec.spinSpd = 2.4; }
-      else if (rec.name === 'pizza_sign') { var top = splitMesh(mesh, function (x, y, z) { return y > d[1] * 0.74; }, 0); rec.g.add(top); rec.spinChild = top; rec.spinAxis = 'y'; rec.spinSpd = 1.6; }
+      else if (rec.name === 'pizza_sign') { var top = splitMesh(mesh, function (x, y, z) { return y > d[1] * 0.74; }, 0); top.geometry.computeBoundingBox(); var pcy = (top.geometry.boundingBox.min.y + top.geometry.boundingBox.max.y) / 2; top.geometry.translate(0, -pcy, 0); var ppv = new THREE.Group(); ppv.position.y = pcy; ppv.add(top); rec.g.add(ppv); rec.spinChild = ppv; rec.spinAxis = 'z'; rec.spinSpd = 1.6; }   // round disc faces +z: spin in-plane (about its face-normal) like a wheel, not edge-on around Y
       else { var hy = d[1] * 0.6; var bl = splitMesh(mesh, function (x, y, z) { return y > hy; }, hy); var piv = new THREE.Group(); piv.position.y = hy; piv.add(bl); rec.g.add(piv); rec.spinChild = piv; rec.spinAxis = 'x'; rec.spinSpd = 1.9; }   // windmill blades
     } else if (a === 'wave') {   // flagpole cloth
       var fl = splitMesh(mesh, function (x, y, z) { return y > d[1] * 0.62 && (Math.abs(x) > 0.25 || Math.abs(z) > 0.25); }, 0);
@@ -8742,8 +9003,19 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
     if (th === 0) { var _lx = fx + tf.rx * 5, _lz = fz + tf.rz * 5; place('lemonade_stand', _lx, _lz, tout, { instance: true }); pendingVendors.push({ voice: 'LEMONADE', build: 'kid', prop: 'lemonade_stand', x: _lx, z: _lz, ry: tout, side: -1 }); place('fire_pit', tv.x - tf.fx * 4, tv.z - tf.fz * 4, 0, { instance: true }); }
     if (th === 2) place('bbq_grill', tv.x - tf.fx * 4, tv.z - tf.fz * 4, tout, { instance: true });
   }
-  // red-house ornamental yard
-  if (byId.red_house) { var rh = byId.red_house, rf = vFront(rh); place('windmill', rh.x + rf.fx * (rh.d / 2 + 4), rh.z + rf.fz * (rh.d / 2 + 4), 0, { instance: true }); place('garden_gnome', rh.x + rf.fx * (rh.d / 2 + 3) + rf.rx * 3, rh.z + rf.fz * (rh.d / 2 + 3) + rf.rz * 3, rnd(0, 6.28)); place('bird_bath', rh.x + rf.fx * (rh.d / 2 + 3) - rf.rx * 3, rh.z + rf.fz * (rh.d / 2 + 3) - rf.rz * 3, 0); }
+  // red-house ornamental yard — a tidy planting bed tucked against the front
+  // corner (off the entrance axis) reads as intentional landscaping instead of
+  // whimsical ornaments scattered across the tall building's plaza frontage.
+  // The spinning garden windmill is dropped here (the lake already has one; a
+  // windmill in front of the 5-storey building read as jarring). mreeccpr/mreebnfk
+  if (byId.red_house) {
+    var rh = byId.red_house, rf = vFront(rh), rout = faceDir(rf.fx, rf.fz);
+    var bx = rh.x + rf.fx * (rh.d / 2 + 1.8) + rf.rx * (rh.w / 2 - 3.5);
+    var bz = rh.z + rf.fz * (rh.d / 2 + 1.8) + rf.rz * (rh.w / 2 - 3.5);
+    place('raised_bed', bx, bz, rout);
+    place('bird_bath', bx - rf.rx * 2.4, bz - rf.rz * 2.4, 0);
+    place('garden_gnome', bx - rf.rx * 4.0, bz - rf.rz * 4.0, rnd(0, 6.28));
+  }
 
   // ---------- 8. FOOD TRUCKS / CARTS / TUBE-MAN in lots + forecourts ----------
   var lots = surfById('parking', 900);
@@ -9720,6 +9992,12 @@ function updateCars(dt) {
     var edx = player.x - m.position.x, edz = player.z - m.position.z;
     var ed = Math.sqrt(edx * edx + edz * edz);
     if (c.eng) engineTick(c, dt, c.speed, 0, ed, false);
+    // angry blast when the player jaywalks into a moving car's path
+    if (!driving && !state.dead && !c.berserk && !(c.shoveT > 0) && !c.parked && !c.stolen && c.speed > 3 && ed < 10) {
+      var jhr = m.rotation.y, jfx = Math.cos(jhr), jfz = -Math.sin(jhr);
+      var pf = edx * jfx + edz * jfz, plat = edx * jfz - edz * jfx;
+      if (pf > 1 && pf < 8 && (plat < 0 ? -plat : plat) < 2.2) carHorn(c, true);
+    }
     // smoke when shot up
     if (c.dmgT > 1.2) {
       c.smokeT -= dt;
@@ -10798,7 +11076,8 @@ function spawnDumpsterBum(p) {
   sfx('grunt', { x: p.x, z: p.z, range: 32 });
 }
 // ---- dumpster flies (cooldown "readiness" tell) + critter motion ----
-var flyGeo = new THREE.SphereGeometry(0.05, 4, 3), flyMat = new THREE.MeshBasicMaterial({ color: 0x1a1712 });
+var flyGeo = new THREE.SphereGeometry(0.024, 4, 3), flyMat = new THREE.MeshBasicMaterial({ color: 0x1a1712 });
+var FLY_N = 9;   // swarm size (was 3; smaller sprites, ~3x count for a proper cloud)
 function updateScavengeFx(dt) {
   var i, c;
   for (i = critters.length - 1; i >= 0; i--) {
@@ -10813,11 +11092,11 @@ function updateScavengeFx(dt) {
   for (i = 0; i < sp.length; i++) {
     var p = sp[i]; if (p.kind !== 'dumpster') continue;
     var dxp = p.x - player.x, dzp = p.z - player.z, near = dxp * dxp + dzp * dzp < 1600;   // within 40u
-    if (!p.flies) { if (!near) continue; p.flies = []; for (var k = 0; k < 3; k++) { var m = new THREE.Mesh(flyGeo, flyMat); m.visible = false; scene.add(m); p.flies.push(m); } }
+    if (!p.flies) { if (!near) continue; p.flies = []; for (var k = 0; k < FLY_N; k++) { var m = new THREE.Mesh(flyGeo, flyMat); m.visible = false; scene.add(m); p.flies.push({ m: m, rad: 0.28 + Math.random() * 0.5, ph: Math.random() * 6.28, sp: 4.5 + Math.random() * 4, hz: 1.4 + Math.random() * 0.8, hy: 1.5 + Math.random() * 0.55 }); } }
     var ready = T >= p.cd;
     for (var k2 = 0; k2 < p.flies.length; k2++) {
-      var fm = p.flies[k2]; fm.visible = ready && near;
-      if (fm.visible) { var a = T * 6 + k2 * 2.1; fm.position.set(p.x + Math.cos(a) * 0.55, 1.75 + Math.sin(a * 1.7) * 0.22, p.z + Math.sin(a) * 0.55); }
+      var f = p.flies[k2], fm = f.m; fm.visible = ready && near;
+      if (fm.visible) { var a = T * f.sp + f.ph; fm.position.set(p.x + Math.cos(a) * f.rad, f.hy + Math.sin(a * f.hz) * 0.26, p.z + Math.sin(a * 0.9 + f.ph) * f.rad); }
     }
   }
 }
@@ -13261,15 +13540,18 @@ function breakProp(b, dirX, dirZ) {
   b.fx = dirX / d; b.fz = dirZ / d;
   if (b.col) b.col.active = false;   // toppled trunk stops blocking until respawn
   if (b.light) { b.light.broken = true; b.light.glow.visible = false; b.light.pool.visible = false; }
-  var cols = b.type === 'tree' ? [0x4c8038, 0x3f6f2e, 0x7a5a3a] : [0xffe9a8, 0x8a8f94, 0xd8d8d4];
-  var n = b.type === 'tree' ? 14 : 9;
+  var cols = b.type === 'tree' ? [0x4c8038, 0x3f6f2e, 0x7a5a3a]
+    : b.type === 'fence' ? (b.fenceType === 'wood' ? [0x8a7150, 0x6e5636, 0xb59a72] : b.fenceType === 'chainlink' ? [0x8a8f94, 0xb8bdc2, 0x6e7276] : [0xf0f0ea, 0xd8d8d4, 0xbfbfb8])
+    : [0xffe9a8, 0x8a8f94, 0xd8d8d4];
+  var n = b.type === 'tree' ? 14 : b.type === 'fence' ? 8 : 9;
   for (var i = 0; i < n; i++) {
     puff(new THREE.Vector3(
-      b.x + (Math.random() - 0.5) * 2.4,
-      0.6 + Math.random() * (b.type === 'tree' ? 4.5 : 6.5),
-      b.z + (Math.random() - 0.5) * 2.4), cols[i % 3]);
+      b.x + (Math.random() - 0.5) * (b.type === 'fence' ? 1.8 : 2.4),
+      0.4 + Math.random() * (b.type === 'tree' ? 4.5 : b.type === 'fence' ? 1.6 : 6.5),
+      b.z + (Math.random() - 0.5) * (b.type === 'fence' ? 1.8 : 2.4)), cols[i % 3]);
   }
   sfx('crash', { x: b.x, z: b.z, range: 90 });
+  if (b.type === 'fence') noiseBurst(0.16, b.fenceType === 'chainlink' ? 1400 : 600, 0.18);   // splinter/clatter tell
   if (b.kind) onStreetPropBreak(b);   // parking meters spill change, hydrants gush
 }
 // OBB push keeping the on-foot player out of a still car shell (parked cars,
@@ -17068,6 +17350,8 @@ window.__wc = {
   landCollidersRef: function () { return landColliders; }, pushOut: pushOut,
   solidMeshesReg: solidMeshes,
   buildFenceRun: function (pts, type, opts) { return buildFenceRun(pts, type, opts); }, fenceRuns: FENCE_RUNS,
+  carHornStats: function () { return { count: carHornCount, lastHornT: lastHornT }; },
+  carHorn: function (i, angry) { if (cars[i]) carHorn(cars[i], angry); },
   remapPointClear: function (x, z, pad) { return remapPointClear(x, z, pad); },
   oakInfo: function () { return { count: oakCount, cap: OAK_CAP }; },
   densityInfo: function () { return densityStats; },

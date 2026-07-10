@@ -62,35 +62,41 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mreed9ar (-194,21)  smoke/fire: redo as AI sprite sheets (research game VFX)
 
 ## Round 5 — IN-AGENT (round5-vegetation) — trees/palms/bushes/sidewalk-greenery/flies/pizza-sign + task#51 landscaping
-- mreelboe (-70,-115) big green blob shrub — IN-AGENT (round5-vegetation)
-- mredw3ho (237,-175) palm canopy too sparse; want variants — IN-AGENT (round5-vegetation)
-- mree6ten (-276,261) crepe myrtle looks unnatural — IN-AGENT (round5-vegetation)
-- mredt4y2 (151,-143) sidewalk trees need pavement cutouts — IN-AGENT (round5-vegetation)
-- mredxgss (180,-125) bushes on sidewalk (skinnier-sidewalk part logged larger) — IN-AGENT (round5-vegetation)
-- mredznws (98,12) flies smaller + 2-3x count — IN-AGENT (round5-vegetation)
-- mredr84j (52,-120) 2D trashbags look bad — IN-AGENT (round5-vegetation)
-- mree4o24 (-82,148) pizza sign rotates on wrong axis — IN-AGENT (round5-vegetation)
-- task#51 finish landscaping: parking-lot islands + residential foundation shrubs + house-front bed placement — IN-AGENT (round5-vegetation)
+- mreelboe (-70,-115) big green blob shrub — FIXED@v1.66.22 (landscape shrub() was a single flattened icosahedron dome = featureless blob; now a bushy mound of 3-5 overlapping size/rotation-jittered blobs, lead blob lower+wider with lifted satellites. Applies town-wide to every landscape shrub)
+- mredw3ho (237,-175) palm canopy too sparse; want variants — FIXED@v1.66.23 (palm crown was 8 thin flat fronds as 8 separate meshes; now a DENSER 3-tier crown — up/mid/drooping fronds, 11-16 per palm — baked into ONE merged geo per variant = 1 draw call each (~660 fewer draws town-wide). 4 variants: standard / tall-full / young-short / leaning, per-palm height + trunk lean. Also covers mrefts2d "ugly palms")
+- mree6ten (-276,261) crepe myrtle looks unnatural — FIXED@v1.66.23 (was a single ball/card on one stick; now a multi-stem VASE — 3-4 slender leaning trunks fanning from the base + a rounded mound of overlapping pink/white bloom + green leaf blobs)
+- mredt4y2 (151,-143) sidewalk trees need pavement cutouts — FIXED@v1.66.26 (street trees sit on the verge/sidewalk band; every street tree now gets a curbed tree-WELL — square soil cutout + cast-iron grate + concrete frame — baked into one merged decal batch so the trunk reads as planted in a cutout, not spearing the slab)
+- mredxgss (180,-125) bushes on sidewalk — FIXED@v1.66.26 (root cause: landscape shrub()/grass() only rejected the road asphalt (hw+1), so plantings past the curb landed on the flanking sidewalk ribbon. New onSidewalk() test rejects the walk band (hw+0.2..hw+sw+1) so shrubs/grass stay on the planting strip. SKINNIER single-slab sidewalk restyle = LOGGED as larger sidewalk-geometry pass, see Notes)
+- mredznws (98,12) flies smaller + 2-3x count — FIXED@v1.66.22 (dumpster fly sprite radius 0.05->0.024, swarm 3->9 with per-fly orbit radius/height/speed/phase so it reads as a buzzing cloud, not a 3-dot ring)
+- mredr84j (52,-120) 2D trashbags look bad — FIXED@v1.66.26 (trash_bags rendered as a flat photo-textured box; now a pile of 3-4 lumpy squashed blobs (icosphere) reusing the trash_bags texture on the same merged batch = one draw call, reads as bulging plastic bags)
+- mree4o24 (-82,148) pizza sign rotates on wrong axis — FIXED@v1.66.22 (round pizza disc faces +z but spun around Y = edge-on revolving-door that vanished each half-turn. Now the disc is re-centered on a pivot at its own centre and spins about its face-normal Z, so the pizza rotates in-plane like a wheel, always face-on)
+- task#51 finish landscaping — DONE@v1.66.29. Parking-lot islands + arterial frontage strips + corner beds were ALREADY shipped (commits ecfdda2/d7f9e7e — task desc was stale). Added the missing WAVE 4: RESIDENTIAL FOUNDATION SHRUBS — every survey house gets a mulch strip + a row of lite manicured shrubs + a bloom accent hugging its FRONT wall, split around the entry. Uses new houseFronts registry (post-nudge front-wall frames from buildSurveyHouses) so shrubs land AGAINST the wall (fixes the killed agent's ~22u-off bug); 37/40 sampled houses verified with shrubs <4.5u of the front. 1600 foundation shrubs, landscape still 8 merged draw calls (~87K tris, ~3% of the 2.6M-tri scene). Also lite mode added to shrub() (2-3 vs 3-5 blobs) for foundation rows.
 
 ## Round 5 — IN-AGENT (round5-features) — quirky vendor/fence/traffic slice
 - mreehkm9 (-142,-9) lemonade KID VENDOR — CEDED TO gen-tts (fable agent, launched earlier, voice lines already generating) — round5-features SKIP
 - mreeipmy (-161,-76) ice cream VENDOR — CEDED TO gen-tts (same) — round5-features SKIP
-- mreejak5 (-158,-86) fences should BREAK IN PANELS under cars — IN-AGENT (round5-features)
-- mreeoimw (-1,-517) traffic too uniform; want occasional HONKS + variety — IN-AGENT (round5-features)
+- mreejak5 (-158,-86) fences should BREAK IN PANELS under cars — FIXED@v1.66.24 (each fence panel BODY is now its own toppleable Group breakable (type 'fence') with a thin per-panel OBB collider, instead of a merged batch + one big edge OBB. A car moving >3u/s snaps the struck panel(s) via the existing breakProp/updateWorldFx path — ease-out topple + splinter/clatter puff+noiseBurst (wood=brown, chainlink=metallic, picket=white), collider deactivates -> drivable gap, 60s respawn. Per-panel (neighbours stay standing); posts stay merged/static to mark the gap. Local-only like other breakables. Cars only collided with fences when berserk, so nothing wrongly blocks a car that should smash through. 321 panels: 127 chainlink / 126 wood / 68 picket.)
+- mreeoimw (-1,-517) traffic too uniform; want occasional HONKS + variety — FIXED@v1.66.27 (each traffic driver now gets a persona (carPersona): impatience 0..1, a cruising-speed multiplier 0.82..1.28 applied to cruise so speeds vary, and a horn pitch. carHorn() is a tasteful, doubly-cooldowned (town-wide 1.1s + per-car 5.5s/2.4s) positional two-tone horn. Triggers: held behind a leader / at a red longer than the driver's patience (impatient ~1.3s, patient ~3.4s; impatient drivers also tuck in closer via a shorter headway), a rare "just because" cruise toot, and an ANGRY blast when the player jaywalks into a moving car's forward cone (<8u ahead, <2.2u lateral). Host-local audio flavour; verified: personas span imp 0..0.97 / spd 0.82..1.28, honks fire on hold + jaywalk without spamming.)
 
 ## Round 5 — IN-AGENT (round5-props) — prop placement/quality slice
 - mree10qu (62,32)    person clipping inside yellow prop — FIXED@v1.66.18 (the "yellow prop" is the amber quest-giver beacon; the worried-spouse giver ped stood inside its ground-level pole. Beacon now FLOATS above head height (pole y 3.3-5.5, orb 5.7, downward pointer cone) so no ped clips it — applies to all 10 giver beacons)
 - mreedozu (-199,33)  unidentifiable mesh — FIXED@v1.66.18 (the decorative lakeside pond_fence arc placed 8 SOLID panels at ~8u spacing -> isolated dark frames stranded in the lawn 30-50u from the water, reading as garbage + stray colliders. Removed the arc; the lakeside keeps benches/umbrellas/bbq/fire-pit/bird-bath/lamps/fountain/windmill/flamingos)
 - mreeelik (-118,75)  car placement weird — FIXED@v1.66.20 (WC_REMAP parking rows filled diagonal editor lots at 3.4u stall pitch; vans/trucks (~5.5x2.6) clipped their neighbours — 3 overlapping pairs at the WEST PARK lot. Widened pitch 3.4->5.2 + aisle 6.6->8.0; 0 overlaps there now, 26 parked cars map-wide preserved)
-- mreeccpr/mreebnfk (-226,152) prop set jarring in front of office tower (placement only) — IN-AGENT (round5-props)
-- mreegamp (-140,43)  placement bad — IN-AGENT (round5-props)
-- mreei0of (-142,-30) flower bed out of place — IN-AGENT (round5-props)
-- mreeuu2g (-136,230) unclear props — IN-AGENT (round5-props)
+- mreeccpr/mreebnfk (-226,152) prop set jarring in front of office tower (placement only) — FIXED@v1.66.25 (red_house's whimsical yard trio — a spinning garden windmill + gnome + birdbath — was dumped across the FRONT-CENTRE of the 5-storey building's plaza frontage. Windmill dropped (the lake already has one; a windmill before a tall building read as jarring); gnome+birdbath+a raised_bed now form a tidy planting bed tucked to the front corner off the entrance axis. ANIM sub-issue left to round2-anim per scope.)
+- mreegamp (-140,43)  placement bad — FIXED@v1.66.25 (same townhouse-strip declutter as mreei0of: the redundant per-townhouse homemailbox pair stamped a mailbox at both front ends; at th_d's -end (-150,41) it clipped the yard raised_bed and doubled the mailbox_cluster. Loop removed -> the strip frontage reads clean.)
+- mreei0of (-142,-30) flower bed out of place — FIXED@v1.66.25 (the flower bed = townhouse yard raised_bed; a redundant homemailbox street prop (placed at BOTH front ends of every townhouse venue, line 7664) landed exactly on the -end bed at th_a (-141,-32) and jammed into it. Removed the homemailbox pair — every townhouse already gets ONE rummageable mailbox_cluster — so the bed now sits alone + intentional.)
+- mreeuu2g (-136,230) unclear props — IN-AGENT (round5-tail) (strip_a barren plaza — curated storefront prop set pass)
 - mreelboe (-70,-115) big green blob shrub — REASSIGNED→round5-vegetation (shrub geometry/look, not placement; round5-props not touching it)
-- mreds4nw (90,-131) + mref3ibd (535,126) AC props: big rooftop industrial HVAC — IN-AGENT (round5-props)
+- mreds4nw (90,-131) + mref3ibd (535,126) AC props: big rooftop industrial HVAC — FIXED@v1.66.28 (1) rewrote vAC() — the rooftop AC used on EVERY commercial venue (publix/school/banks/strips/shops incl. Sakura Sushi) — from a plain 2-box gray lump into a proper industrial packaged RTU: big ribbed galvanized cabinet + galvanized top deck + TWIN radial fan-guard grilles + an end control panel, all canvas-textured (acRibTex condenser louvers/seams/rivets/weather + fanGrilleTex concentric-ring/spoke guards). (2) upsized the ground ac_condenser density prop 2.4x (0.75m residential cube -> ~1.8m commercial condenser) via a new dBoxAsset scale arg. Verified on the sushi roof + pharmacy side wall.)
 
 ## Notes
 - mrdphrsv is Claude's own deploy test, ignore.
+- LOGGED LARGER PASS (round5-vegetation, mredxgss part 2): "skinnier, single-slab
+  sidewalk style". Current sidewalks are wide flanking ribbons (sw=5 arterials /
+  3.4 others, built in the remap sidewalk-ribbon block ~game.js:2638 + the core
+  sidewalk() slabs). Making them skinnier single-slab is a road/sidewalk-geometry
+  redesign (affects widths, NPC sidewalk bias targets, junction clipping, street-
+  tree offsets) — out of surgical vegetation scope. Belongs with round5-roads.
 
 ## Batch 3 (uncatalogued -> assigned)
 - mreegamp (-140,43) placement bad — R5
@@ -108,7 +114,7 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mreenqoe (-25,-347) homes with no road/walkway — DEFER-LARGER-PASS (round5-structure): same class as mredxzx6 — the S pocket west of nine_eagles_dr has a house cluster (~-42,-360 / -62,-360 …) sitting in open field with no street/walkway; the eastern homes front nine_eagles but the western cluster is roadless. Needs a residential street added to REMAP_ROADS (road-network pass), not a surgical fix.
 - mreeoimw (-1,-517) traffic too uniform; want occasional honks — R5 feature
 - mreeosgw (-10,-492) lamp post + tree clipping — FIXED@v1.66.10 (street-tree pass now rejects spots within 4u of a streetlight base via nearStreetlight; lamp colliders are only 0.22r so spotClear alone let a canopy swallow the pole)
-- mreepojo (157,-74) 'half ass gas station' — R5
+- mreepojo (157,-74) 'half ass gas station' — IN-AGENT (round5-tail)
 - mreeq7nj (150,193) random barrier — stale@v1.66.16 (re-probed: the point is open; blockers are a correct house OBB SW at (137,205) + one tiny prop point-collider at (157,192). No phantom wall)
 - mreeqqbh (298,235) road looks awful — R5
 - mreer5b4 (419,172) houses riding the sidewalk — FIXED@v1.66.5 (same houseSidewalkNudge shared fix)
@@ -157,7 +163,7 @@ Clusters:
 - mreggwii (42,0)   wendel glitchy in MP — FIXED@v1.66.5 (world-snapshot interpolation for NPC/car/cop mirrors; was 8Hz exp-chase)
 - mregi4tl (128,-5) stuttery walking NPC in MP — FIXED@v1.66.5 (same)
 - mreghm0l (92,-48) floating idle anim — R2-anim extras
-- mregiwcv (-47,17) unidentifiable thing — R5
+- mregiwcv (-47,17) unidentifiable thing — IN-AGENT (round5-tail)
 - mregjcuz (-27,-4) should be lit at night — R5 lighting
 - mregk7im/mregkhdi/mregli5y/mregma9f (Dunkin interior: workers not facing, stretched counter, room-bounds wall, menu clipping, voice ask) — other agent interiors
 - mregn84n (-45,11) held-item grip botched — R2-anim extras
