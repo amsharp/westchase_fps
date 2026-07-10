@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.45';
+var GAME_VERSION = 'v1.66.46';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -4596,7 +4596,13 @@ var DAY_LEN = 360;             // full day/night cycle (6 min)
 var envT = 60;                 // start in daylight
 var wcNightGlow = 0;           // 0 = full day, 1 = full night (drives self-lit prop glows)
 var raining = false, rainLeft = 0, nextRainCheck = 25;
-var rainIntensity = 1;   // 0..1 drizzle→heavier (weather-variety pass); full-wired below
+// weather-variety pass: rain has a live INTENSITY (drizzle↔steady↔heavier) that
+// scales particle density / sound / fog; independent overcast/haze spells thicken
+// fog + desaturate the sky; weatherMode !== 'auto' pins a forced state (setWeather).
+var rainIntensity = 0, rainTargetInten = 0, weatherMode = 'auto', wasRaining = false, wasHeavy = false;
+var overcast = 0, overcastTarget = 0, overcastCheck = 45, rainbowT = 0;
+var C_HAZE = new THREE.Color(0x9aa6ad);
+function rollInten() { var r = Math.random(); return r < 0.4 ? 0.35 : (r < 0.8 ? 0.65 : 1.0); }
 var fogTmp = new THREE.Color(), skyTmp = new THREE.Color();
 var C_DAY_FOG = new THREE.Color(0xcfe4ee), C_NIGHT_FOG = new THREE.Color(0x0b1018);
 var C_RAIN_FOG = new THREE.Color(0x6a7580), C_RAINNIGHT_FOG = new THREE.Color(0x05070a);
@@ -4671,7 +4677,10 @@ function updateRainFx(dt) {
   splashPts.visible = show;
   if (!show) return;
   var pos = rainLines.geometry.attributes.position.array;
+  // particle density tracks rain intensity — drizzle shows a fraction of the drops
+  var activeN = Math.max(24, Math.round(RAIN_N * Math.max(0.1, Math.min(1, rainIntensity))));
   for (var i = 0; i < RAIN_N; i++) {
+    if (i >= activeN) { pos[i * 6 + 1] = -999; pos[i * 6 + 4] = -999; continue; }
     var d = rainDrops[i];
     d.y -= d.speed * dt;
     if (d.y <= d.landH) {
@@ -4694,13 +4703,51 @@ function updateRainFx(dt) {
   }
   splashPts.geometry.attributes.position.needsUpdate = true;
 }
+// faint additive rainbow arc — a single billboard shown briefly after heavier
+// rain clears on a bright day. One draw call; hidden (visible=false) otherwise.
+var rainbow = (function () {
+  var c = document.createElement('canvas'); c.width = 128; c.height = 128;
+  var g = c.getContext('2d');
+  var grd = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grd.addColorStop(0.0, 'rgba(0,0,0,0)');
+  grd.addColorStop(0.80, 'rgba(0,0,0,0)');
+  grd.addColorStop(0.85, 'rgba(80,90,220,0.5)');    // violet/blue inner
+  grd.addColorStop(0.885, 'rgba(70,180,120,0.52)'); // green
+  grd.addColorStop(0.915, 'rgba(240,220,90,0.55)'); // yellow
+  grd.addColorStop(0.945, 'rgba(240,150,60,0.55)'); // orange
+  grd.addColorStop(0.975, 'rgba(230,80,70,0.45)');  // red outer
+  grd.addColorStop(1.0, 'rgba(230,80,70,0)');
+  g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
+  var t = new THREE.CanvasTexture(c);
+  var geo = new THREE.RingGeometry(176, 224, 48, 1, 0, Math.PI);
+  var mat = new THREE.MeshBasicMaterial({ map: t, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false });
+  var m = new THREE.Mesh(geo, mat);
+  m.visible = false; m.frustumCulled = false; m.renderOrder = -1;
+  scene.add(m);
+  return m;
+})();
+var RB_DIR = new THREE.Vector3(0.35, 0, -1).normalize();
+function updateRainbow(dt) {
+  if (rainbowT > 0) rainbowT -= dt;
+  var f = dayFactor();
+  var op = Math.max(0, Math.min(1, rainbowT / 3)) * 0.26 * Math.max(0, Math.min(1, (f - 0.4) / 0.6));
+  if (op <= 0.002 && rainbow.material.opacity <= 0.004) { rainbow.visible = false; rainbow.material.opacity = 0; return; }
+  rainbow.visible = true;
+  rainbow.material.opacity += (op - rainbow.material.opacity) * Math.min(1, dt * 2);
+  var cx = camera.position.x, cz = camera.position.z;
+  rainbow.position.set(cx + RB_DIR.x * 300, 2, cz + RB_DIR.z * 300);
+  rainbow.lookAt(cx, 55, cz);   // stand upright, arc facing back toward the player
+}
 function updateEnv(dt) {
   envT += dt;
   // the sky dome (r=520) is smaller than the expanded map — keep it centered
   // on the camera so the far corners never poke outside it
   if (skyDome) { skyDome.position.x = camera.position.x; skyDome.position.z = camera.position.z; }
-  // rain scheduling (clients follow the host's weather instead)
-  if (!isClient()) {
+  // rain + weather scheduling. weatherMode !== 'auto' pins a forced state; else
+  // the host/SP rolls rain on/off (with a random intensity) plus occasional
+  // independent overcast/haze spells. Clients follow the host's on/off flag but
+  // roll their own local intensity/haze (weather variety is local flavor).
+  if (weatherMode === 'auto' && !isClient()) {
     if (raining) {
       rainLeft -= dt;
       if (rainLeft <= 0) { raining = false; nextRainCheck = 30 + Math.random() * 40; }
@@ -4708,10 +4755,24 @@ function updateEnv(dt) {
       nextRainCheck -= dt;
       if (nextRainCheck <= 0) {
         nextRainCheck = 25 + Math.random() * 35;
-        if (Math.random() < 0.4) { raining = true; rainLeft = 35 + Math.random() * 35; }
+        if (Math.random() < 0.4) { raining = true; rainLeft = 35 + Math.random() * 35; rainTargetInten = rollInten(); }
       }
     }
+    overcastCheck -= dt;
+    if (overcastCheck <= 0) {
+      overcastCheck = 40 + Math.random() * 70;
+      overcastTarget = (overcast > 0.06) ? 0 : (Math.random() < 0.5 ? 0.32 + Math.random() * 0.42 : 0);
+    }
   }
+  // rain transitions (from any source) — roll a local intensity on start, and
+  // pop a rainbow after heavier rain clears on a bright day
+  if (raining && !wasRaining && rainTargetInten <= 0) rainTargetInten = rollInten();
+  if (raining && rainTargetInten >= 0.85) wasHeavy = true;
+  if (!raining && wasRaining) { if (wasHeavy && dayFactor() > 0.55) rainbowT = 15 + Math.random() * 8; wasHeavy = false; rainTargetInten = 0; }
+  wasRaining = raining;
+  // smooth the live intensity + overcast (rain builds/eases; haze drifts in/out)
+  rainIntensity += ((raining ? rainTargetInten : 0) - rainIntensity) * Math.min(1, dt * 0.8);
+  overcast += (overcastTarget - overcast) * Math.min(1, dt * 0.4);
   var f = dayFactor();
   var night = f < 0.3;
   setLamps(night);
@@ -4729,21 +4790,28 @@ function updateEnv(dt) {
   for (var ne = 0; ne < nightEmis.length; ne++) nightEmis[ne].emissiveIntensity = nightGlow * (nightEmis[ne].userData.emisBase || 0.24);
   if (raining) skyTmp.copy(C_RAINNIGHT_SKY).lerp(C_RAIN_SKY, f);
   else skyTmp.copy(C_NIGHT_SKY).lerp(C_DAY_SKY, f);
+  if (overcast > 0.01) skyTmp.lerp(C_HAZE, 0.5 * overcast * f);   // desaturate a touch, day only
   if (skyDome) skyDome.material.color.lerp(skyTmp, k);
   // rain brings a dense fog the color of the rain sky; both fade with the
   // same lerp when the rain stops
   if (raining) fogTmp.copy(skyTmp);
   else fogTmp.copy(C_NIGHT_FOG).lerp(C_DAY_FOG, f);
+  if (overcast > 0.01) fogTmp.lerp(C_HAZE, 0.4 * overcast * f);
   scene.fog.color.lerp(fogTmp, k);
-  var farT = (raining ? 95 : (120 + 400 * f)) * viewDistScale;   // draw-distance quality knob
+  // fog draw distance: heavier rain AND overcast/haze both thicken it
+  var rainFar = 135 - 55 * Math.max(0, Math.min(1, rainIntensity));   // drizzle ~118 .. heavy ~80
+  var farT = (raining ? rainFar : (120 + 400 * f)) * viewDistScale * (1 - 0.32 * overcast);
   scene.fog.far += (farT - scene.fog.far) * k;
-  scene.fog.near += ((raining ? 12 : 60 + 60 * f) - scene.fog.near) * k;
-  // rain sound
+  var nearT = (raining ? 12 : 60 + 60 * f) * (1 - 0.3 * overcast);
+  scene.fog.near += (nearT - scene.fog.near) * k;
+  // rain sound — level scales with intensity
   if (rainGain) {
-    var tgt = raining ? (inside ? 0.02 : 0.07) : 0;
+    var wetLv = Math.max(0, Math.min(1, rainIntensity));
+    var tgt = raining ? (inside ? 0.02 : 0.075) * (0.35 + 0.65 * wetLv) : 0;
     rainGain.gain.value += (tgt - rainGain.gain.value) * Math.min(1, dt * 2);
   }
   updateRainFx(dt);
+  updateRainbow(dt);
   if (typeof updateAmbient === 'function') updateAmbient(dt);
 }
 
@@ -17985,7 +18053,19 @@ window.__wc = {
   pressKey: function (code, down) { keys[code] = down; },
   setMinimapZoom: setMinimapZoom, cycleMinimapZoom: cycleMinimapZoom,
   minimapState: function () { if (!mmVenues) buildMMVenues(); return { zoom: mmZoom, scale: MM_ZOOMS[mmZoom], name: MM_ZOOM_NAMES[mmZoom], levels: MM_ZOOMS.length, venues: mmVenues.length }; },
-  setRain: function (on) { raining = on; rainLeft = on ? 9999 : 0; },
+  setRain: function (on) { raining = on; rainLeft = on ? 9999 : 0; if (on && rainTargetInten <= 0) rainTargetInten = rollInten(); },
+  // force a weather mode: auto | clear | drizzle | rain | storm | overcast | rainbow
+  setWeather: function (mode) {
+    var m = ('' + mode).toLowerCase();
+    if (m === 'clear') { weatherMode = m; raining = false; rainLeft = 0; overcastTarget = 0; }
+    else if (m === 'drizzle') { weatherMode = m; raining = true; rainLeft = 9999; rainTargetInten = 0.35; overcastTarget = 0.1; }
+    else if (m === 'rain') { weatherMode = m; raining = true; rainLeft = 9999; rainTargetInten = 0.65; overcastTarget = 0.25; }
+    else if (m === 'storm') { weatherMode = m; raining = true; rainLeft = 9999; rainTargetInten = 1.0; overcastTarget = 0.55; }
+    else if (m === 'overcast') { weatherMode = m; raining = false; rainLeft = 0; overcastTarget = 0.7; }
+    else if (m === 'rainbow') { weatherMode = 'auto'; rainbowT = 20; }
+    else { weatherMode = 'auto'; }
+    return weatherMode;
+  },
   setClock: function (t2) { envT = t2; },
   envState: function () { return { envT: envT, raining: raining, dayFactor: dayFactor(), lampsOn: lampsOn, sun: sun.intensity, fogFar: scene.fog.far }; },
   ambientState: function () {
