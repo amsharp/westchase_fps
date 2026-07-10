@@ -140,6 +140,60 @@ async function doGen(only) {
   }
 }
 
+// even 3x3 slice + use EXISTING alpha (for grids gpt-image returns transparent
+// instead of magenta): largest alpha component -> trim -> center -> posterize -> harden.
+const ALPHA_FN = `async (arg) => {
+  const img = new Image();
+  await new Promise((ok,bad)=>{img.onload=ok;img.onerror=bad;img.src=arg.src;});
+  const cw=img.width, ch=img.height;
+  const cell=document.createElement('canvas'); cell.width=cw; cell.height=ch;
+  const cg=cell.getContext('2d'); cg.drawImage(img,0,0);
+  const im=cg.getImageData(0,0,cw,ch), d=im.data;
+  const OUT=arg.out||64, PAD=arg.pad||3, N=cw*ch;
+  // largest connected component of alpha>60 (drop specks + bled-in neighbor bits)
+  const lbl=new Int32Array(N).fill(-1), comps=[]; const st=[];
+  for(let s=0;s<N;s++){ if(d[s*4+3]<=60||lbl[s]!==-1)continue; const id=comps.length; lbl[s]=id; st.push(s); let cnt=0,minx=cw,maxx=0,miny=ch,maxy=0,sx=0,sy=0;
+    while(st.length){ const q=st.pop(); cnt++; const x=q%cw,y=(q/cw)|0; sx+=x; sy+=y; if(x<minx)minx=x;if(x>maxx)maxx=x;if(y<miny)miny=y;if(y>maxy)maxy=y;
+      if(x>0&&d[(q-1)*4+3]>60&&lbl[q-1]===-1){lbl[q-1]=id;st.push(q-1);}
+      if(x<cw-1&&d[(q+1)*4+3]>60&&lbl[q+1]===-1){lbl[q+1]=id;st.push(q+1);}
+      if(y>0&&d[(q-cw)*4+3]>60&&lbl[q-cw]===-1){lbl[q-cw]=id;st.push(q-cw);}
+      if(y<ch-1&&d[(q+cw)*4+3]>60&&lbl[q+cw]===-1){lbl[q+cw]=id;st.push(q+cw);} }
+    comps.push({cnt,minSide:Math.min(maxx-minx+1,maxy-miny+1),sx,sy}); }
+  if(!comps.length) return {src:null,empty:true};
+  // record centroid + size per component
+  for(const c of comps){ c.cx=c.sx/c.cnt; c.cy=c.sy/c.cnt; }
+  let big=0; for(let k=1;k<comps.length;k++) if(comps[k].cnt>comps[big].cnt) big=k;
+  const minCell=Math.min(cw,ch);
+  // KEEP a component if it's the largest OR its centroid sits in the central
+  // region of the cell (the gpt layout centers each item; edge slivers are
+  // bleed from adjacent cells). Handles multi-part items (shoes/keys/binoculars).
+  const keep=new Uint8Array(comps.length);
+  for(let k=0;k<comps.length;k++){ const c=comps[k];
+    const central = Math.abs(c.cx-cw/2) < cw*0.30 && Math.abs(c.cy-ch/2) < ch*0.30;
+    const chunky = c.minSide > minCell*0.10;
+    if(k===big || (central && chunky) || (central && c.cnt>comps[big].cnt*0.12)) keep[k]=1; }
+  for(let p=0;p<N;p++){ const id=lbl[p]; if(id===-1)continue; if(!keep[id]) d[p*4+3]=0; }
+  let minX=cw,minY=ch,maxX=-1,maxY=-1;
+  for(let y=0;y<ch;y++)for(let x=0;x<cw;x++) if(d[(y*cw+x)*4+3]>60){if(x<minX)minX=x;if(x>maxX)maxX=x;if(y<minY)minY=y;if(y>maxY)maxY=y;}
+  if(maxX<0) return {src:null,empty:true};
+  minX=Math.max(0,minX-PAD);minY=Math.max(0,minY-PAD);maxX=Math.min(cw-1,maxX+PAD);maxY=Math.min(ch-1,maxY+PAD);
+  cg.putImageData(im,0,0);
+  const bw=maxX-minX+1, bh=maxY-minY+1, inner=OUT-4, sc=Math.min(inner/bw,inner/bh);
+  const dw=Math.max(1,Math.round(bw*sc)), dh=Math.max(1,Math.round(bh*sc));
+  const oc=document.createElement('canvas'); oc.width=OUT; oc.height=OUT;
+  const og=oc.getContext('2d'); og.imageSmoothingEnabled=true; og.drawImage(cell,minX,minY,bw,bh,(OUT-dw)/2,(OUT-dh)/2,dw,dh);
+  const od=og.getImageData(0,0,OUT,OUT), p=od.data, lv=arg.levels||6, qz=255/(lv-1);
+  for(let i=0;i<p.length;i+=4){ p[i]=Math.round(Math.round(p[i]/qz)*qz); p[i+1]=Math.round(Math.round(p[i+1]/qz)*qz); p[i+2]=Math.round(Math.round(p[i+2]/qz)*qz); p[i+3]=p[i+3]>110?255:0; }
+  og.putImageData(od,0,0);
+  let cov=0; for(let i=3;i<p.length;i+=4) if(p[i]===255) cov++;
+  return {src:oc.toDataURL('image/png'), opFrac:0, cov:cov/(OUT*OUT)};
+}`;
+// even 3x3 slice of a transparent grid into 9 cell data-URLs
+const EVEN_SLICE_FN = `async (arg)=>{ const img=new Image();
+  await new Promise((ok,bad)=>{ img.onload=ok; img.onerror=bad; img.src=arg.src; });
+  const W=img.width,H=img.height, cw=Math.floor(W/3), chh=Math.floor(H/3), out=[];
+  for(let r=0;r<3;r++)for(let c=0;c<3;c++){ const cv=document.createElement('canvas'); cv.width=cw; cv.height=chh; cv.getContext('2d').drawImage(img,c*cw,r*chh,cw,chh,0,0,cw,chh); out.push(cv.toDataURL('image/png')); } return out; }`;
+
 async function doProc() {
   const map = {};
   const stats = [];
@@ -149,11 +203,18 @@ async function doProc() {
       const f = path.join(WORK, 'grid' + gi + '.png');
       if (!fs.existsSync(f)) { console.log('skip grid', gi, '(no png)'); continue; }
       const src = 'data:image/png;base64,' + fs.readFileSync(f).toString('base64');
-      const cellSrcs = await page.evaluate('(' + SLICE_FN + ')(' + JSON.stringify({ src, rows: 3, cols: 3 }) + ')');
+      // detect format: magenta (intended) vs transparent (gpt returned alpha)
+      const magPct = await page.evaluate(async (src) => { const im = new Image(); im.src = src; await new Promise(r => im.onload = r); const c = document.createElement('canvas'); c.width = im.width; c.height = im.height; const g = c.getContext('2d'); g.drawImage(im, 0, 0); const d = g.getImageData(0, 0, c.width, c.height).data; let m = 0, N = c.width * c.height; for (let i = 0; i < d.length; i += 4) { const R = d[i], G = d[i + 1], B = d[i + 2]; if (R > 60 && B > 60 && G < 95 && Math.abs(R - B) < 70 && R - G > 45 && B - G > 45) m++; } return m / N * 100; }, src);
+      const magenta = magPct > 12;
+      console.log('grid', gi, magenta ? '(magenta)' : '(transparent alpha)');
+      const cellSrcs = magenta
+        ? await page.evaluate('(' + SLICE_FN + ')(' + JSON.stringify({ src, rows: 3, cols: 3 }) + ')')
+        : await page.evaluate('(' + EVEN_SLICE_FN + ')(' + JSON.stringify({ src }) + ')');
       for (let idx = 0; idx < 9; idx++) {
         const it = GRIDS[gi][idx];
         if (!it) continue;
-        const c = await page.evaluate('(' + KEY_FN + ')(' + JSON.stringify({ src: cellSrcs[idx], out: 64, levels: 6 }) + ')');
+        const fn = magenta ? KEY_FN : ALPHA_FN;
+        const c = await page.evaluate('(' + fn + ')(' + JSON.stringify({ src: cellSrcs[idx], out: 64, levels: 6 }) + ')');
         if (c.empty || !c.src) { console.log('  EMPTY', it.id); stats.push({ id: it.id, empty: true }); continue; }
         fs.writeFileSync(path.join(ICONS, it.id + '.png'), Buffer.from(c.src.split(',')[1], 'base64'));
         map[it.id] = c.src;
