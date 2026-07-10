@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.21';
+var GAME_VERSION = 'v1.66.22';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -8817,6 +8817,20 @@ function updateEnvProps(dt) {
     }
   }
   if (typeof updateEnvToys === 'function') updateEnvToys(dt);   // gumball/claw prize balls
+  updateVendors(dt);
+}
+// static vendors: idle-animate in place + call out (pitch/idle) when the player
+// lingers nearby. Purely local flavor; never simulates or nets.
+function updateVendors(dt) {
+  for (var i = 0; i < envVendors.length; i++) {
+    var vd = envVendors[i], dx = vd.x - player.x, dz = vd.z - player.z, d2 = dx * dx + dz * dz;
+    if (d2 > ENV_ANIM_FAR) continue;
+    animPerson(vd.mesh, 0, dt);                    // idle pose
+    if (d2 < 20 * 20 && !inside && !driving) {
+      vd.chirpT -= dt;
+      if (vd.chirpT <= 0) { vd.chirpT = 9 + Math.random() * 9; playVendVoice(vd.voice, Math.random() < 0.6 ? 'pitch' : 'idle', 0.6, 8, vd); }
+    }
+  }
 }
 // fountain / drinking-fountain water spray (mirrors the lake fountainDrops loop)
 function updateEnvFlow(r, dt) {
@@ -8923,10 +8937,12 @@ function envPropInteract() {
   }
   if (k === 'buy') {
     var b = ENV_BUY[p.name]; if (!b) return true;
+    var vv = p.name === 'lemonade_stand' ? 'LEMONADE' : (p.name === 'icecream_truck' ? 'ICECREAM' : null);
     if (state.money < b.price) { sfx('deny'); popup2('Need $' + b.price); return true; }
     state.money -= b.price; sfx('buy');
     state.hp = Math.min(100, state.hp + b.heal);
     toast('Bought a <b>' + b.item + '</b> — +' + b.heal + ' hp', 2600);
+    if (vv) { playVendVoice(vv, 'sale', 0.75, 0, { x: p.x, z: p.z }); setTimeout(function () { playVendVoice(vv, 'thanks', 0.7, 0, { x: p.x, z: p.z }); }, 1400); }
     return true;
   }
   if (k === 'play') {
@@ -12200,6 +12216,35 @@ function mirrorKids(dt) {
   }
 }
 spawnKids();
+// ---- static street vendors (lemonade kid + ice-cream adult). Kept OUT of
+// npcs[]/kids[] so no wander/follow/tag/combat AI touches them: they stand,
+// idle-animate, call out when the player nears, and voice-bark on a buy. ----
+function spawnVendors() {
+  if (typeof buildKid !== 'function' || typeof buildPerson !== 'function') return;
+  for (var i = 0; i < pendingVendors.length; i++) {
+    var v = pendingVendors[i], mesh = null;
+    if (v.build === 'kid') {
+      if (!KID_LOOKS.length) continue;
+      var girls = [];
+      for (var j = 0; j < KID_LOOKS.length; j++) if (KID_LOOKS[j].sex === 'girl') girls.push(j);
+      var li = girls.length ? girls[(Math.random() * girls.length) | 0] : 0;
+      mesh = buildKid(li);
+    } else {
+      mesh = buildPerson('#f2f6f8', '#37507a', CSKIN[(Math.random() * CSKIN.length) | 0], { cap: true });
+    }
+    if (!mesh) continue;
+    var e = ENV_BY_NAME[v.prop], dep = e ? e.dims[2] : 1.2;
+    var fx = -Math.cos(v.ry), fz = Math.sin(v.ry);              // prop front normal
+    var off = dep / 2 + (v.build === 'kid' ? 0.5 : 0.6);
+    var vx = v.x + fx * off * v.side, vz = v.z + fz * off * v.side;
+    mesh.position.set(vx, 0, vz);
+    mesh.rotation.y = Math.atan2(fx, fz);                        // face the customer (outward)
+    scene.add(mesh);
+    envVendors.push({ mesh: mesh, x: vx, z: vz, px: v.x, pz: v.z, voice: v.voice, chirpT: 3 + Math.random() * 7 });
+  }
+  pendingVendors.length = 0;
+}
+spawnVendors();
 
 // ---------------- collision ----------------
 // cheap boolean "is this point clear of colliders" — used by the NPC steer-ahead
@@ -13707,7 +13752,7 @@ function sfx(kind, at) {
     case 'alarm': bp(760, 0.18, 0.2, 'square'); setTimeout(function () { bp(560, 0.18, 0.2, 'square'); }, 180); setTimeout(function () { bp(760, 0.18, 0.2, 'square'); }, 360); break;
     case 'copshot': nb(0.12, 1500, 0.3); break;
     case 'copsmg': nb(0.08, 1900, 0.22); break;
-    case 'grunt': { var gf = at && at.fem; bp(gf ? 265 : 150, gf ? 0.24 : 0.28, 0.4, 'sawtooth', gf ? 130 : 55); nb(0.1, gf ? 950 : 600, gf ? 0.12 : 0.18); } break;
+    case 'grunt': { var gf = at && at.fem; bp(gf ? 265 : 150, gf ? 0.24 : 0.28, 0.4, 'sawtooth', gf ? 130 : 55); nb(0.1, gf ? 950 : 600, gf ? 0.12 : 0.18); if (window.__voiceLog) { window.__voiceLog.push({ kind: 'grunt', role: gf ? 'F' : 'M', cat: 'grunt', len: 1, t: 0 }); if (window.__voiceLog.length > 240) window.__voiceLog.shift(); } } break;
     case 'auto': nb(0.11, 1300, 0.5); break;
     case 'eat': nb(0.09, 2500, 0.2); setTimeout(function () { nb(0.09, 2200, 0.18); }, 140); setTimeout(function () { nb(0.09, 2400, 0.15); }, 280); break;
     case 'rocketfire': nb(0.5, 800, 0.7); bp(220, 0.4, 0.3, 'sawtooth', 50); break;
@@ -16904,7 +16949,7 @@ window.__wc = {
   kids: kids, adultRace: adultRace, spawnKids: spawnKids, updateKids: updateKids, playKidVoice: playKidVoice, kidVoiceDbg: function () { return kidVoiceDbg; },
   getKidPlaysets: getKidPlaysets, nearestPlayset: nearestPlayset, startKidPlay: startKidPlay,
   kidGames: function () { return kidGames; }, tryStartKidGame: tryStartKidGame, endKidGame: endKidGame,
-  setWanted: setWanted, damageCop: damageCop,
+  setWanted: setWanted, damageCop: damageCop, damageNPC: damageNPC, ragdollNPC: (typeof ragdollNPC === 'function' ? ragdollNPC : null),
   start: function () { startScreen.classList.add('hidden'); state.running = true; },
   setYaw: function (y) { yaw = y; camera.position.set(player.x, player.y, player.z); camera.rotation.y = yaw; camera.rotation.x = pitch; },
   setPitch: function (p2) { pitch = p2; camera.rotation.x = pitch; },
@@ -16915,6 +16960,9 @@ window.__wc = {
   enterDunkin: function () { enterInterior('dunkin'); }, enterStarbucks: function () { enterInterior('starbucks'); },
   enterSakura: function () { enterInterior('sakura'); }, enterDollarTree: function () { enterInterior('dollar_tree'); }, enterBank: function () { enterInterior('bank'); },
   listInteriors: function () { var o = []; for (var id in interiors) o.push(id); return o; },
+  interiorInteractE: interiorInteractE, envPropInteract: envPropInteract, playShopVoice: playShopVoice, playVendVoice: playVendVoice,
+  envVendors: function () { return envVendors.map(function (v) { return { voice: v.voice, x: Math.round(v.x * 10) / 10, z: Math.round(v.z * 10) / 10, px: v.px, pz: v.pz }; }); },
+  voiceLog: function () { return window.__voiceLog || []; },
   interiorState: function () { return { inside: inside, id: curInterior ? curInterior.id : (inside ? 'gas' : null), staff: curInterior ? curInterior.staff.length : 0, colliders: curInterior ? curInterior.colliders.length : 0, box: curInterior ? curInterior.box : null }; },
   shopPopulation: function () { return shopCust.length; },
   spawnCustomer: function () { return !!spawnCustomer(true); },
