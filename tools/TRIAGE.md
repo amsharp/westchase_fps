@@ -75,7 +75,7 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 ## Round 5 — IN-AGENT (round5-features) — quirky vendor/fence/traffic slice
 - mreehkm9 (-142,-9) lemonade KID VENDOR — CEDED TO gen-tts (fable agent, launched earlier, voice lines already generating) — round5-features SKIP
 - mreeipmy (-161,-76) ice cream VENDOR — CEDED TO gen-tts (same) — round5-features SKIP
-- mreejak5 (-158,-86) fences should BREAK IN PANELS under cars — IN-AGENT (round5-features)
+- mreejak5 (-158,-86) fences should BREAK IN PANELS under cars — FIXED@v1.66.24 (each fence panel BODY is now its own toppleable Group breakable (type 'fence') with a thin per-panel OBB collider, instead of a merged batch + one big edge OBB. A car moving >3u/s snaps the struck panel(s) via the existing breakProp/updateWorldFx path — ease-out topple + splinter/clatter puff+noiseBurst (wood=brown, chainlink=metallic, picket=white), collider deactivates -> drivable gap, 60s respawn. Per-panel (neighbours stay standing); posts stay merged/static to mark the gap. Local-only like other breakables. Cars only collided with fences when berserk, so nothing wrongly blocks a car that should smash through. 321 panels: 127 chainlink / 126 wood / 68 picket.)
 - mreeoimw (-1,-517) traffic too uniform; want occasional HONKS + variety — IN-AGENT (round5-features)
 
 ## Round 5 — IN-AGENT (round5-props) — prop placement/quality slice

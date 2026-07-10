@@ -471,7 +471,11 @@ WASD to drive, **E** to get out. You can't shoot from the driver's seat,
 but the car itself is the weapon — mow down pedestrians and cops, and
 ram traffic to send it spinning out of control like you'd shot it up.
 Trees and street lights snap and topple if you plow through them, in a
-shower of leaves or sparks — they grow back about a minute later.
+shower of leaves or sparks — they grow back about a minute later. Fences
+break the same way, one panel at a time: plow a car through a picket,
+chainlink or wood-privacy fence and the panels you hit clatter flat in a
+puff of splinters, leaving a driveable gap while the rest stays standing
+(they mend after about a minute too).
 
 Your stolen ride isn't bulletproof: police fire chews through it. When
 it catches **fire you have ~5 seconds to bail** before it explodes.

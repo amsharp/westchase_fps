@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.23';
+var GAME_VERSION = 'v1.66.24';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -8201,6 +8201,15 @@ if (WC_REMAP) (function fenceSystem() {
   function picketMap() { return _picketTex || (_picketTex = picketTex()); }
   function chainMap() { return _chainTex || (_chainTex = dRec.chainlink_fence ? loadTex(dRec.chainlink_fence.tex, 46) : chainProcTex()); }
   function woodMap() { return _woodTex || (_woodTex = dRec.privacy_fence ? loadTex(dRec.privacy_fence.tex, 0) : woodProcTex()); }
+  // ---- shared panel-body materials (mreejak5: fence panels break per-panel
+  // under a speeding car, so each panel BODY is its own toppleable Group mesh
+  // instead of a merged batch. One material per fence type is reused across all
+  // panels — many meshes, but only 3 materials; posts stay merged/static). ----
+  var _picketMat, _chainMat, _woodMat, _railMats = {};
+  function picketBodyMat() { return _picketMat || (_picketMat = lamb({ map: picketMap(), transparent: true, alphaTest: 0.45, side: THREE.DoubleSide })); }
+  function chainBodyMat() { return _chainMat || (_chainMat = lamb({ map: chainMap(), transparent: true, alphaTest: 0.25, side: THREE.DoubleSide })); }
+  function woodBodyMat() { return _woodMat || (_woodMat = lamb({ map: woodMap() })); }
+  function railMat(col) { return _railMats[col] || (_railMats[col] = lamb({ color: col })); }
 
   // ---- merged batches: one draw call per material key ----
   var FB = {}, _NM = new THREE.Matrix3(), _V = new THREE.Vector3(), _N = new THREE.Vector3();
@@ -8252,6 +8261,32 @@ if (WC_REMAP) (function fenceSystem() {
     fbake(key, meta, new THREE.BoxGeometry(len, r * 2, r * 2), mtx(cx, y, cz, ry));
   }
 
+  // ---- one breakable fence panel (own Group so it topples like a tree) ----
+  // Body(+chainlink rail) live in the group; a thin per-panel OBB collider
+  // blocks the player until a car snaps it (breakProp deactivates b.col →
+  // drivable gap). Registered as a 'fence' breakable so updateWorldFx runs the
+  // topple/puff/60s-respawn path for free.
+  function buildFencePanel(type, pcx, pcz, ry, pl, h, postClr) {
+    var g = new THREE.Group(), body;
+    if (type === 'picket') {
+      var pg = new THREE.PlaneGeometry(pl, h), uv = pg.attributes.uv, rep = pl / (h * 1.0);
+      for (var i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * rep);
+      body = new THREE.Mesh(pg, picketBodyMat()); body.position.y = h / 2 + 0.02;
+    } else if (type === 'chainlink') {
+      var ct = 0.7, cg = new THREE.PlaneGeometry(pl, h), cuv = cg.attributes.uv;
+      for (var j = 0; j < cuv.count; j++) { cuv.setX(j, cuv.getX(j) * (pl / ct)); cuv.setY(j, cuv.getY(j) * (h / ct)); }
+      body = new THREE.Mesh(cg, chainBodyMat()); body.position.y = h / 2 + 0.02;
+      var rail = new THREE.Mesh(new THREE.BoxGeometry(pl, 0.07, 0.07), railMat(postClr)); rail.position.y = h - 0.06; g.add(rail);
+    } else {   // wood
+      body = new THREE.Mesh(new THREE.BoxGeometry(pl, h, 0.06), woodBodyMat()); body.position.y = h / 2 + 0.02;
+    }
+    g.add(body); g.position.set(pcx, 0, pcz); g.rotation.y = ry; scene.add(g);
+    registerBreakable(g, pcx, pcz, Math.max(1.3, pl / 2), 'fence', null, 0);
+    var bk = breakables[breakables.length - 1];
+    bk.col = addColliderOBB(pcx, pcz, pl / 2, 0.14, ry);   // thin wall the player leans on; car-snap frees it
+    bk.fenceType = type;
+  }
+
   // ---- the public builder ----
   function buildRun(pts, type, opts) {
     opts = opts || {};
@@ -8272,29 +8307,16 @@ if (WC_REMAP) (function fenceSystem() {
       var panels = Math.max(1, Math.round(L / spacing)), pl = L / panels;
       for (var q = 0; q < panels; q++) {
         var t = (q + 0.5) * pl, pcx = ax + ux * t, pcz = az + uz * t;
-        if (type === 'picket') {
-          cardPanel('fence_picket', { map: picketMap(), alpha: 0.45 }, pcx, pcz, ry, pl, h, pl / (h * 1.0));
-        } else if (type === 'chainlink') {
-          // The chainlink data-URL is a 2m strip with coarse native diamonds;
-          // tiling it once over the fence height rendered comically large links
-          // (bug mree1rcg). Tile at a fixed ~0.7u square period so diamonds read
-          // as fine ~0.2u chainlink, U and V matched to keep them square.
-          var ct = 0.7;
-          cardPanel('fence_chain', { map: chainMap(), alpha: 0.25 }, pcx, pcz, ry, pl, h, pl / ct, h / ct);
-          railBox('fence_chainpost', { color: postClr }, pcx, pcz, ry, pl, h - 0.06, 0.035);   // top rail
-        } else {   // wood
-          boxPanel('fence_wood', { map: woodMap() }, pcx, pcz, ry, pl, h, 0.06);
-        }
+        buildFencePanel(type, pcx, pcz, ry, pl, h, postClr);
       }
-      // posts at every panel boundary (incl. both ends)
+      // posts at every panel boundary (incl. both ends) — posts stay merged +
+      // static (they don't topple; they mark where a smashed panel used to be)
       for (var b = 0; b <= panels; b++) {
         var pt2 = b * pl, px2 = ax + ux * pt2, pz2 = az + uz * pt2;
         if (type === 'chainlink') postCyl('fence_chainpost', { color: postClr }, px2, pz2, h + 0.12, 0.05);
         else if (type === 'wood') postBox('fence_woodpost', { color: postClr }, px2, pz2, h + 0.15, 0.06);
         else postBox('fence_picketpost', { color: postClr }, px2, pz2, h + 0.14, 0.05);
       }
-      // one thin OBB collider spanning the whole edge (fences are solid to the player)
-      addColliderOBB(mx, mz, L / 2, 0.14, ry);
     }
   }
   // expose for tests / future callers
@@ -13282,15 +13304,18 @@ function breakProp(b, dirX, dirZ) {
   b.fx = dirX / d; b.fz = dirZ / d;
   if (b.col) b.col.active = false;   // toppled trunk stops blocking until respawn
   if (b.light) { b.light.broken = true; b.light.glow.visible = false; b.light.pool.visible = false; }
-  var cols = b.type === 'tree' ? [0x4c8038, 0x3f6f2e, 0x7a5a3a] : [0xffe9a8, 0x8a8f94, 0xd8d8d4];
-  var n = b.type === 'tree' ? 14 : 9;
+  var cols = b.type === 'tree' ? [0x4c8038, 0x3f6f2e, 0x7a5a3a]
+    : b.type === 'fence' ? (b.fenceType === 'wood' ? [0x8a7150, 0x6e5636, 0xb59a72] : b.fenceType === 'chainlink' ? [0x8a8f94, 0xb8bdc2, 0x6e7276] : [0xf0f0ea, 0xd8d8d4, 0xbfbfb8])
+    : [0xffe9a8, 0x8a8f94, 0xd8d8d4];
+  var n = b.type === 'tree' ? 14 : b.type === 'fence' ? 8 : 9;
   for (var i = 0; i < n; i++) {
     puff(new THREE.Vector3(
-      b.x + (Math.random() - 0.5) * 2.4,
-      0.6 + Math.random() * (b.type === 'tree' ? 4.5 : 6.5),
-      b.z + (Math.random() - 0.5) * 2.4), cols[i % 3]);
+      b.x + (Math.random() - 0.5) * (b.type === 'fence' ? 1.8 : 2.4),
+      0.4 + Math.random() * (b.type === 'tree' ? 4.5 : b.type === 'fence' ? 1.6 : 6.5),
+      b.z + (Math.random() - 0.5) * (b.type === 'fence' ? 1.8 : 2.4)), cols[i % 3]);
   }
   sfx('crash', { x: b.x, z: b.z, range: 90 });
+  if (b.type === 'fence') noiseBurst(0.16, b.fenceType === 'chainlink' ? 1400 : 600, 0.18);   // splinter/clatter tell
   if (b.kind) onStreetPropBreak(b);   // parking meters spill change, hydrants gush
 }
 // OBB push keeping the on-foot player out of a still car shell (parked cars,
