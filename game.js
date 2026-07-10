@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.11';
+var GAME_VERSION = 'v1.66.12';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -8108,9 +8108,9 @@ if (WC_REMAP) (function fenceSystem() {
   }
 
   // ---- panel + post builders (bake into the right batch) ----
-  function cardPanel(key, meta, cx, cz, ry, len, h, rep) {
+  function cardPanel(key, meta, cx, cz, ry, len, h, rep, repV) {
     var pg = new THREE.PlaneGeometry(len, h), uv = pg.attributes.uv;
-    for (var i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * rep);
+    for (var i = 0; i < uv.count; i++) { uv.setX(i, uv.getX(i) * rep); if (repV) uv.setY(i, uv.getY(i) * repV); }
     fbake(key, meta, pg, mtx(cx, h / 2 + 0.02, cz, ry));
   }
   function boxPanel(key, meta, cx, cz, ry, len, h, thick) {
@@ -8150,7 +8150,12 @@ if (WC_REMAP) (function fenceSystem() {
         if (type === 'picket') {
           cardPanel('fence_picket', { map: picketMap(), alpha: 0.45 }, pcx, pcz, ry, pl, h, pl / (h * 1.0));
         } else if (type === 'chainlink') {
-          cardPanel('fence_chain', { map: chainMap(), alpha: 0.25 }, pcx, pcz, ry, pl, h, pl / h);
+          // The chainlink data-URL is a 2m strip with coarse native diamonds;
+          // tiling it once over the fence height rendered comically large links
+          // (bug mree1rcg). Tile at a fixed ~0.7u square period so diamonds read
+          // as fine ~0.2u chainlink, U and V matched to keep them square.
+          var ct = 0.7;
+          cardPanel('fence_chain', { map: chainMap(), alpha: 0.25 }, pcx, pcz, ry, pl, h, pl / ct, h / ct);
           railBox('fence_chainpost', { color: postClr }, pcx, pcz, ry, pl, h - 0.06, 0.035);   // top rail
         } else {   // wood
           boxPanel('fence_wood', { map: woodMap() }, pcx, pcz, ry, pl, h, 0.06);
@@ -11291,8 +11296,12 @@ function updateNPCs(dt) {
       else if ((npcAnimF + i) % 3 === 0 && d > 2.2 && (n.doorSeek === undefined || d > 6)) {
         var lookA = 1.5 + spd * 0.22;
         if (!pointFree(n.x + vx * lookA, n.z + vz * lookA, 0.45)) {
-          for (var aw = 0; aw < 4; aw++) {
-            var ang = (aw < 2 ? 0.66 : 1.25) * (aw % 2 === 0 ? 1 : -1);   // ±38°, then ±72°
+          for (var aw = 0; aw < 6; aw++) {
+            // ±38°, then ±72°, then ±112° — the widest tier lets an NPC that
+            // met a long wall head-on (e.g. the self-storage chainlink at
+            // 54,84 — bug mree1rcg) turn far enough to slide ALONG it and
+            // clear the corner instead of grinding until the stuck timer.
+            var ang = (aw < 2 ? 0.66 : aw < 4 ? 1.25 : 1.95) * (aw % 2 === 0 ? 1 : -1);
             var ca2 = Math.cos(ang), sa2 = Math.sin(ang);
             var wx = vx * ca2 - vz * sa2, wz = vx * sa2 + vz * ca2;
             if (pointFree(n.x + wx * lookA, n.z + wz * lookA, 0.45)) { n.avoidVX = wx; n.avoidVZ = wz; n.avoidT = 0.35; vx = wx; vz = wz; break; }
@@ -11317,6 +11326,26 @@ function updateNPCs(dt) {
         n.fleeDX = -vx; n.fleeDZ = -vz;   // fleeing NPCs bounce back the way they came
       }
     } else n.stuckT = 0;
+    // wall-slide watchdog: the whisker can steer an NPC ALONG a long fence, so
+    // stepGot stays high (the zero-progress timer above never trips) yet it just
+    // hugs the wall into a concave corner and never nears its goal (self-storage
+    // chainlink, bug mree1rcg). While rubbing a collider (pushOut ate part of the
+    // step) and still far from target, watch net gain toward the goal; if ~2.2s
+    // pass with under 2.5u of real progress, abandon that target for a fresh one.
+    if (n.state === 'walk' && spd > 0.2 && stepGot < spd * dt * 0.85) {
+      var dtg = Math.sqrt((n.tx - n.x) * (n.tx - n.x) + (n.tz - n.z) * (n.tz - n.z));
+      if (dtg > 2.5) {
+        if (n.wallBaseD === undefined) { n.wallBaseD = dtg; n.wallProgT = 0; }
+        n.wallProgT += dt;
+        if (n.wallProgT > 2.2) {
+          if (dtg > n.wallBaseD - 2.5) {
+            var bk = npcTargetFor(n);
+            n.tx = bk[0]; n.tz = bk[1]; n.wayX = undefined; n.wayZ = undefined; n.doorSeek = undefined;
+          }
+          n.wallBaseD = undefined;
+        }
+      } else n.wallBaseD = undefined;
+    } else n.wallBaseD = undefined;
     // sidewalk discipline: loitering on road asphalt (off the intersection /
     // crosswalk area) for 2s steers the target to the nearest sidewalk band
     if (n.state === 'walk' && WC_REMAP && n.doorSeek === undefined) {
