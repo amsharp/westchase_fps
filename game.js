@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.41';
+var GAME_VERSION = 'v1.66.42';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -17571,9 +17571,54 @@ function drawSprite(rows, x, y, px, color) {
   for (r = 0; r < 9; r++) for (c = 0; c < 9; c++) if (rows[r] & (256 >> c))
     hudCx.fillRect(x + c * px, y + r * px, px, px);
 }
+// ---- weapon-specific crosshair (#47): PS1-chunky reticle drawn on the HUD
+// canvas per equipped weapon. The hidden #crosshair element's inline
+// style.display is the visibility flag (setZoom/driving toggle it); we read it
+// so a scoped rifle / driving view hides the reticle exactly as before.
+function drawCrosshair(W, H) {
+  var crossEl = document.getElementById('crosshair');
+  if (crossEl && crossEl.style.display === 'none') return;   // scoped / driving / hidden
+  var cx = Math.round(W / 2), cy = Math.round(H / 2), w = state.equipped, col = '#eef4ff';
+  function bar(x, y, bw, bh) { hudCx.fillStyle = '#000'; hudCx.fillRect(x - 1, y - 1, bw + 2, bh + 2); hudCx.fillStyle = col; hudCx.fillRect(x, y, bw, bh); }
+  function dot(r) { bar(cx - r, cy - r, r * 2, r * 2); }
+  var wd = WEAPONS[w] || {};
+  // minimal marker for melee / consumables
+  if (w === 'fists' || w === 'snack' || w === 'soda') { dot(2); return; }
+  // rocket launcher: four corner brackets framing the blast
+  if (w === 'rocket') {
+    var g = 11, L = 6, t = 2, cs = [[-1, -1], [1, -1], [-1, 1], [1, 1]];
+    for (var i = 0; i < cs.length; i++) {
+      var sx = cs[i][0], sy = cs[i][1], ccx = cx + sx * g, ccy = cy + sy * g;
+      bar(sx > 0 ? ccx : ccx - L, ccy - t / 2, L, t);       // horizontal arm
+      bar(ccx - t / 2, sy > 0 ? ccy : ccy - L, t, L);       // vertical arm
+    }
+    dot(2); return;
+  }
+  // alien/laser guns: boxed reticle + center dot
+  if (wd.laser) {
+    var b = 7, t2 = 2;
+    bar(cx - b, cy - b, 2 * b, t2); bar(cx - b, cy + b - t2, 2 * b, t2);   // top/bottom edges
+    bar(cx - b, cy - b, t2, 2 * b); bar(cx + b - t2, cy - b, t2, 2 * b);   // left/right edges
+    dot(2); return;
+  }
+  // cross-hair weapons: gap+arm length varies by spread class
+  var gap, len, th = 2, showDot = true;
+  if (w === 'rifle') { gap = 5, len = 9, showDot = false; }   // fine precision cross, no dot
+  else if (w === 'auto') { gap = 9, len = 8; }                // AK: wide
+  else if (w === 'smg') { gap = 8, len = 7; }                 // SMG: wide-ish
+  else { gap = 6, len = 6; }                                  // pistol / silenced
+  if (wd.auto) gap += Math.min(10, (gunBloom || 0) * 260);    // spray blooms the reticle open
+  gap = Math.round(gap);
+  bar(cx - th / 2, cy - gap - len, th, len);   // top
+  bar(cx - th / 2, cy + gap, th, len);         // bottom
+  bar(cx - gap - len, cy - th / 2, len, th);   // left
+  bar(cx + gap, cy - th / 2, len, th);         // right
+  if (showDot) dot(1.5);
+}
 function drawHudCanvas() {
   var W = hudW, H = hudH, M = 14;
   hudCx.clearRect(0, 0, W, H);
+  drawCrosshair(W, H);
   // ---- directional damage indicators: red chevrons around screen center
   // pointing at whoever hurt you, fading over 0.9s (report mregrr51) ----
   for (var di = dmgDirs.length - 1; di >= 0; di--) {
@@ -17827,6 +17872,7 @@ window.__wc = {
   footSurface: function () { return footSurface(player.x, player.z); },
   footStepStats: function () { return { count: footStepCount }; },
   footStep: footStep,
+  drawHud: function () { drawHudCanvas(); },
   carHorn: function (i, angry) { if (cars[i]) carHorn(cars[i], angry); },
   playerHorn: playerHorn,
   playerHornStats: function () { return { count: playerHornCount, lastT: lastPlayerHornT }; },

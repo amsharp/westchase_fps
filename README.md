@@ -231,6 +231,11 @@ Westchase Guns & Ammo. He sells three guns:
 | AK-47  | $1000 | full-auto, long range, accurate |
 | Rocket launcher | $2000 | 5s reload; the blast doesn't care whose side you're on |
 
+Each weapon carries its own **crosshair**: a tight cross-and-dot for the
+pistol, a wider spread for the SMG and AK (it blooms open as you spray), a
+fine cross for the scoped rifle (which vanishes at the scope), corner
+brackets for the rocket launcher, and a boxed reticle for alien tech.
+
 Die and you drop every gun you own — run back within 2 minutes to grab
 them off the pavement. Picking up a gun you already own sells it for half
 its price. In multiplayer the pavement is shared: anyone can scoop up your
