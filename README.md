@@ -589,6 +589,22 @@ bed runs under everything.
 - **F8** — report a bug (grabs a screenshot + your note, sent for triage)
 - **Esc** — release mouse / close menus
 
+## Settings
+
+Hit **SETTINGS** on the main menu — or open it from the pause screen mid-game —
+to tune the game to your taste. Everything applies live and saves automatically
+(stored in your browser), so it's the way you left it next time:
+
+- **Mouse sensitivity** and **Invert Look Y** — dial in your aim.
+- **Field of view** — 70–100°, wider if you like more on screen.
+- **Master / SFX / Voice volume** — three sliders. Master scales everything;
+  SFX covers world and UI sounds; Voice controls the characters' dialogue.
+- **Draw distance** — Low / Medium / High. Higher pushes the fog back for a
+  longer view; Low trims the render detail for smoother performance on slower
+  machines.
+- **CRT filter** — the scanline-and-vignette TV look, on or off.
+- **Reset to defaults** — puts everything back the way it shipped.
+
 ## Rumors
 
 Old-timers at the Dunkin swear that folks who get *seriously* rich around

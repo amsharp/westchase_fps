@@ -148,6 +148,17 @@
   .panel .footer { margin-top:18px; font-size:15px; color:#8a8470; text-align:center; letter-spacing:1px; }
   .panel .cash { color:#8ee87f; }
   .equipped { color:#ffd98a; }
+  /* ---------- settings panel controls (PS1 chunky sliders + toggles) ---------- */
+  #settingsPanel { min-width:600px; }
+  .panel .setctl { display:flex; align-items:center; gap:14px; flex:none; }
+  .panel .setval { display:inline-block; min-width:62px; text-align:right; color:#ffd98a; font-size:18px; letter-spacing:1px; }
+  .panel input[type=range] { -webkit-appearance:none; appearance:none; width:220px; height:16px; margin:0;
+    background:#0d1017; border:3px solid #4a4436; box-shadow:inset 2px 2px 0 #05070b; outline:none; cursor:pointer; }
+  .panel input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; appearance:none; width:18px; height:24px;
+    background:#ffd98a; border:2px solid #000; box-shadow:2px 2px 0 rgba(0,0,0,.5); cursor:pointer; }
+  .panel input[type=range]::-moz-range-thumb { width:18px; height:24px; background:#ffd98a; border:2px solid #000; cursor:pointer; border-radius:0; }
+  .panel button.toggleBtn { min-width:130px; }
+  .panel button.toggleBtn.on { background:#2a5f3a; border-color:#8ee87f; }
   /* ---------- grid item inventory — chunky PS1 slot bevels ---------- */
   .invSection { margin-top:18px; border-top:3px solid #3a3f4d; padding-top:14px; }
   .invSection .hdr { color:#ffd98a; font-size:16px; letter-spacing:4px; margin-bottom:11px; text-shadow:2px 2px 0 #000; }
@@ -282,6 +293,7 @@
     <button class="menuBtn" id="btnPlay">PLAY ONLINE</button>
     <div id="onlineCount">&nbsp;</div>
     <button class="menuBtn" id="btnSP">SINGLEPLAYER</button>
+    <button class="menuBtn" id="btnSettings">SETTINGS</button>
     <!-- legacy coded-room elements: hidden, kept for the headless test harness
          (and because game.js wires listeners to them at load) -->
     <div class="hidden">
@@ -294,7 +306,7 @@
   <div id="gameVer"></div>
 </div>
 
-<div id="pauseScreen" class="overlay hidden"><h1>PAUSED</h1><p style="margin-top:10px">click to resume</p></div>
+<div id="pauseScreen" class="overlay hidden"><h1>PAUSED</h1><p style="margin-top:10px">click to resume</p><button class="menuBtn" id="btnPauseSettings" style="width:320px; margin-top:22px">SETTINGS</button></div>
 <div id="deadScreen" class="overlay hidden"><h1>KNOCKED OUT</h1><p id="deadInfo"></p></div>
 
 <div id="shopPanel" class="panel hidden">
@@ -337,6 +349,16 @@
   <p id="clerkSay" style="margin-bottom:12px; color:#cfc9b4; font-size:15px;"></p>
   <div id="clerkRows"></div>
   <div class="footer">[ESC] walk away</div>
+</div>
+
+<div id="settingsPanel" class="panel hidden">
+  <h1>SETTINGS</h1>
+  <div id="settingsRows"></div>
+  <div class="footer">
+    <button id="btnSettingsReset">RESET TO DEFAULTS</button> &nbsp;
+    <button id="btnSettingsDone">DONE</button>
+    &nbsp;·&nbsp; [ESC] to close &nbsp;·&nbsp; changes save automatically
+  </div>
 </div>
 
 <!-- boot loading bar: scripts load sequentially, each onload advances the bar

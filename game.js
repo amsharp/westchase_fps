@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.65.6';
+var GAME_VERSION = 'v1.66.2';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -109,6 +109,12 @@ scene.fog = new THREE.Fog(0xcfe4ee, 110, 520);
 
 var camera = new THREE.PerspectiveCamera(72, 16 / 9, 0.1, 1000);
 camera.rotation.order = 'YXZ';
+// ---- user settings runtime knobs (driven by the SETTINGS panel; see loadSettings) ----
+// safe defaults so anything that reads them before applySettings() still works
+var lookSens = 1.0;      // mouse-look multiplier
+var lookInvert = false;  // invert vertical look
+var baseFov = 72;        // un-zoomed camera FOV (setZoom restores to this)
+var viewDistScale = 1.0; // fog-far / draw-distance multiplier (quality preset)
 
 var hemi = new THREE.HemisphereLight(0xcfe8ff, 0x8a7a58, 0.85);
 scene.add(hemi);
@@ -4270,7 +4276,7 @@ function updateEnv(dt) {
   if (raining) fogTmp.copy(skyTmp);
   else fogTmp.copy(C_NIGHT_FOG).lerp(C_DAY_FOG, f);
   scene.fog.color.lerp(fogTmp, k);
-  var farT = raining ? 95 : (120 + 400 * f);
+  var farT = (raining ? 95 : (120 + 400 * f)) * viewDistScale;   // draw-distance quality knob
   scene.fog.far += (farT - scene.fog.far) * k;
   scene.fog.near += ((raining ? 12 : 60 + 60 * f) - scene.fog.near) * k;
   // rain sound
@@ -6987,26 +6993,53 @@ if (WC_REMAP) (function densityLayer() {
   var KEY = {};
   ['billboard_ad', 'storefront_sign', 'grand_opening_banner', 'flyer_sheet', 'for_sale_sign', 'menu_board', 'bus_route_sign', 'graffiti_panel', 'wall_mural', 'roadwork_sign', 'stop_sign', 'gas_price_sign', 'yard_sign', 'lost_pet_flyer', 'neon_bar_sign', 'parking_sign', 'speed_limit_sign', 'garage_sale_sign'].forEach(function (n) { KEY[n] = 40; });
   ['grass_tuft', 'leaves_scatter', 'litter_scatter', 'crosswalk', 'center_line', 'road_arrow', 'skid_marks', 'chainlink_fence', 'potted_plant'].forEach(function (n) { KEY[n] = 46; });
+  // Ground stain/crack/fixture decals are authored on a full asphalt/concrete
+  // tile: rendered as an opaque quad they show a hard rectangular "box/shadow
+  // patch" (bug reports mree7hy2/mree84pq/mree8hw2). BLEND-key them: the tile's
+  // dominant border (surface) colour fades to transparent so only the mark
+  // shows, plus a soft edge vignette so the quad boundary never reads as a box.
+  var GKEY = {};
+  ['oil_stain', 'asphalt_cracks', 'asphalt_patch', 'cracked_slab', 'sidewalk_gum', 'manhole', 'storm_drain', 'utility_plate', 'mud_patch', 'puddle'].forEach(function (n) { GKEY[n] = 1; });
   var dTexCache = {};
   function dTex(name) {
     if (dTexCache[name] !== undefined) return dTexCache[name];
     var a = dAsset[name]; if (!a) return (dTexCache[name] = null);
-    var keyed = KEY[name], cnv = document.createElement('canvas'); cnv.width = cnv.height = 256;
+    var keyed = KEY[name], blend = GKEY[name], cnv = document.createElement('canvas'); cnv.width = cnv.height = 256;
     var tx = new THREE.CanvasTexture(cnv);
     tx.wrapS = tx.wrapT = THREE.RepeatWrapping;
     tx.magFilter = THREE.LinearFilter; tx.minFilter = THREE.LinearMipmapLinearFilter;
     var im = new Image();
-    im.onload = (function (tx, cnv, keyed, im) { return function () {
+    im.onload = (function (tx, cnv, keyed, blend, im) { return function () {
       var g = cnv.getContext('2d'); g.drawImage(im, 0, 0, 256, 256);
       if (keyed) {
         var d = g.getImageData(0, 0, 256, 256), p = d.data;
         for (var k = 0; k < p.length; k += 4) { if (p[k] * 0.299 + p[k + 1] * 0.587 + p[k + 2] * 0.114 < keyed) p[k + 3] = 0; }
         g.putImageData(d, 0, 0);
+      } else if (blend) {
+        var d2 = g.getImageData(0, 0, 256, 256), q = d2.data, x, y, o, br = 0, bgc = 0, bb = 0, bn = 0;
+        // background colour = average of the outer 4px border ring (the tile's surface)
+        for (y = 0; y < 256; y++) for (x = 0; x < 256; x++) {
+          if (x > 3 && x < 252 && y > 3 && y < 252) continue;
+          o = (y * 256 + x) * 4; br += q[o]; bgc += q[o + 1]; bb += q[o + 2]; bn++;
+        }
+        br /= bn; bgc /= bn; bb /= bn;
+        for (y = 0; y < 256; y++) for (x = 0; x < 256; x++) {
+          o = (y * 256 + x) * 4;
+          var dr = q[o] - br, dg = q[o + 1] - bgc, db = q[o + 2] - bb;
+          var dist = Math.sqrt(dr * dr + dg * dg + db * db);
+          // surface (dist<18) barely visible, mark (dist>55) fully opaque
+          var al = dist < 18 ? 0.10 : (dist > 55 ? 1 : 0.10 + (dist - 18) / 37 * 0.90);
+          // soft edge vignette over the outer ~28px so the quad never reads as a box
+          var em = Math.min(Math.min(x, 255 - x), Math.min(y, 255 - y)) / 28;
+          if (em < 1) al *= em;
+          q[o + 3] = Math.round(al * 255);
+        }
+        g.putImageData(d2, 0, 0);
       }
       tx.needsUpdate = true;
-    }; })(tx, cnv, keyed, im);
+    }; })(tx, cnv, keyed, blend, im);
     im.src = a.tex;
-    return (dTexCache[name] = { tex: tx, keyed: !!keyed });
+    return (dTexCache[name] = { tex: tx, keyed: !!keyed, blend: !!blend });
   }
   // ---- merged batches: one draw call per key ----
   var BATCH = {}, _NM = new THREE.Matrix3(), _V = new THREE.Vector3(), _N = new THREE.Vector3();
@@ -7032,7 +7065,7 @@ if (WC_REMAP) (function densityLayer() {
       g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(e.norm), 3));
       g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(e.uv), 2));
       var o = e.meta, mo = {};
-      if (o.texName) { var t = dTex(o.texName); if (t) { mo.map = t.tex; if (t.keyed) { mo.transparent = true; mo.alphaTest = 0.5; mo.side = THREE.DoubleSide; } } }
+      if (o.texName) { var t = dTex(o.texName); if (t) { mo.map = t.tex; if (t.keyed) { mo.transparent = true; mo.alphaTest = 0.5; mo.side = THREE.DoubleSide; } else if (t.blend) { mo.transparent = true; mo.depthWrite = false; mo.alphaTest = 0.02; } } }
       if (o.color !== undefined) mo.color = o.color;
       if (o.double) mo.side = THREE.DoubleSide;
       var mat = lamb(mo);
@@ -11333,7 +11366,7 @@ function playKidVoice(persona, cat, gain, cd, at) {
   if (host) netBroadcast({ t: 'voice', kv: 1, nm: persona, ct: cat, ix: idx, g: gain || 0.5, x: Math.round(at.x * 10), z: Math.round(at.z * 10), yl: at.yell ? 1 : 0 });
   if (!ac || !heard) return true;
   var id = 'kv_' + persona + '_' + cat + '_' + idx;
-  function playBuf(buf) { var src = ac.createBufferSource(); src.buffer = buf; src.connect(voiceOut(gain || 0.5, at)); src.start(); trackVoice(src, at); }
+  function playBuf(buf) { var src = ac.createBufferSource(); src.buffer = buf; src.connect(voiceOut(gain || 0.5, at, voiceBus)); src.start(); trackVoice(src, at); }
   if (kidVoiceBufs[id]) { playBuf(kidVoiceBufs[id]); return true; }
   var bytes = b64Bytes(arr[idx].split(',')[1]);
   ac.decodeAudioData(bytes.buffer, function (buf) { kidVoiceBufs[id] = buf; playBuf(buf); }, function () { });
@@ -12412,7 +12445,7 @@ var zoomed = false;
 function setZoom(on) {
   if (on === zoomed) return;
   zoomed = on;
-  camera.fov = on ? 20 : 72;
+  camera.fov = on ? 20 : baseFov;
   camera.updateProjectionMatrix();
   vm.visible = !on && !driving;
   document.getElementById('scope').classList.toggle('hidden', !on);
@@ -12861,7 +12894,29 @@ function updateWorldFx(dt) {
 
 // ---------------- audio ----------------
 var ac = null, ambientStarted = false, rainGain = null, uwGain = null;
-function initAudio() { if (ac) return; try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { } startAmbient(); }
+// ---- central gain bus (SETTINGS volume sliders) ----
+// Everything in the game connects to `ac.destination`; we SHADOW that property
+// with a per-instance getter that returns the SFX bus, so all existing sound
+// code routes through it with ZERO churn. Voice lines pass `voiceBus` explicitly
+// (see voiceOut). Both feed masterBus -> the real hardware sink.
+//   masterBus.gain = master volume, sfxBus.gain = sfx, voiceBus.gain = voice.
+var masterBus = null, sfxBus = null, voiceBus = null, audioReal = null;
+function setupAudioBus() {
+  if (!ac || audioReal) return;
+  try {
+    audioReal = ac.destination;            // capture the true hardware sink first
+    masterBus = ac.createGain();
+    sfxBus = ac.createGain();
+    voiceBus = ac.createGain();
+    masterBus.connect(audioReal);
+    sfxBus.connect(masterBus);
+    voiceBus.connect(masterBus);
+    // own-property getter shadows BaseAudioContext.prototype.destination
+    Object.defineProperty(ac, 'destination', { get: function () { return sfxBus; }, configurable: true });
+    applyAudioSettings();                  // push saved slider values onto the buses
+  } catch (e) { audioReal = null; masterBus = sfxBus = voiceBus = null; }
+}
+function initAudio() { if (ac) return; try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { } setupAudioBus(); startAmbient(); }
 function startAmbient() {
   if (!ac || ambientStarted) return;
   ambientStarted = true;
@@ -12911,7 +12966,7 @@ function playVoice(id, gain, cd, at) {
   if (!ac || !heard) return;
   function playBuf(buf) {
     var src = ac.createBufferSource(); src.buffer = buf;
-    src.connect(voiceOut(gain || 0.5, at)); src.start();
+    src.connect(voiceOut(gain || 0.5, at, voiceBus)); src.start();
     trackVoice(src, at); dbgVoiceLocal++;
   }
   if (voiceBufs[id]) { playBuf(voiceBufs[id]); return; }
@@ -12987,7 +13042,7 @@ function playNpcVoice(name, cat, gain, cd, at) {
     var prev = npcVoiceSrc[name];
     if (prev) { try { prev.stop(); } catch (e) { } }
     var src = ac.createBufferSource(); src.buffer = buf;
-    src.connect(voiceOut(gain || 0.45, at)); src.start();
+    src.connect(voiceOut(gain || 0.45, at, voiceBus)); src.start();
     trackVoice(src, at); dbgVoiceLocal++;
     npcVoiceSrc[name] = src;
     src.onended = function () { if (npcVoiceSrc[name] === src) npcVoiceSrc[name] = null; };
@@ -13020,7 +13075,7 @@ function playNetVoice(m) {
   var gain = m.g || 0.5;
   function playBuf(buf) {
     var src = ac.createBufferSource(); src.buffer = buf;
-    src.connect(voiceOut(gain, at)); src.start();
+    src.connect(voiceOut(gain, at, voiceBus)); src.start();
     trackVoice(src, at); dbgVoiceNet++;
   }
   if (cache[cacheId]) { playBuf(cache[cacheId]); return; }
@@ -13067,11 +13122,13 @@ function voiceEarshot(at) {
   return dx * dx + dz * dz + dy * dy <= range * range;
 }
 var voiceOutPan = null;   // panner of the most recent voiceOut() — trackVoice claims it
-function voiceOut(gain, at) {
-  // entry node for a voice chain: plain gain, or gain -> panner when placed
+function voiceOut(gain, at, bus) {
+  // entry node for a voice chain: plain gain, or gain -> panner when placed.
+  // `bus` = output node (voiceBus for TTS dialogue); defaults to the sfx bus.
+  var out = bus || ac.destination;
   var g = ac.createGain(); g.gain.value = gain;
   voiceOutPan = null;
-  if (!at) { g.connect(ac.destination); return g; }
+  if (!at) { g.connect(out); return g; }
   voicePos(at);
   var range = at.range || (at.yell ? VOICE_RANGE * 2 : VOICE_RANGE);
   var y = at.y === undefined ? 1.6 : at.y;
@@ -13081,7 +13138,7 @@ function voiceOut(gain, at) {
   p.refDistance = 3; p.maxDistance = range; p.rolloffFactor = 1;
   if (p.positionX) { p.positionX.value = at.x; p.positionY.value = y; p.positionZ.value = at.z; }
   else p.setPosition(at.x, y, at.z);
-  g.connect(p); p.connect(ac.destination);
+  g.connect(p); p.connect(out);
   voiceOutPan = p;
   return g;
 }
@@ -15324,6 +15381,149 @@ function creditPvpKill() {
 }
 
 // menu wiring
+// ================= SETTINGS (localStorage 'wc_settings') =================
+// Live-applied, persisted user prefs: look sensitivity / invert / FOV,
+// master+sfx+voice volume, draw-distance quality, CRT filter. Restored on
+// boot (applySettings() runs in the boot handoff, before the first frame).
+var SETTINGS_KEY = 'wc_settings';
+var SETTINGS_DEF = { sens: 1.0, invert: 0, fov: 72, volMaster: 1.0, volSfx: 1.0, volVoice: 1.0, quality: 2, crt: 1 };
+var QUALITY_NAMES = ['LOW', 'MEDIUM', 'HIGH'];
+var settings = null;
+function loadSettings() {
+  settings = {};
+  var saved = null;
+  try { saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null'); } catch (e) { saved = null; }
+  for (var k in SETTINGS_DEF) settings[k] = (saved && saved[k] !== undefined) ? saved[k] : SETTINGS_DEF[k];
+  settings.fov = Math.max(70, Math.min(100, settings.fov | 0));
+  settings.quality = Math.max(0, Math.min(2, settings.quality | 0));
+  settings.invert = settings.invert ? 1 : 0;
+  settings.crt = settings.crt ? 1 : 0;
+  settings.sens = Math.max(0.2, Math.min(3, +settings.sens || 1));
+  settings.volMaster = Math.max(0, Math.min(1, +settings.volMaster));
+  settings.volSfx = Math.max(0, Math.min(1, +settings.volSfx));
+  settings.volVoice = Math.max(0, Math.min(1, +settings.volVoice));
+  return settings;
+}
+function saveSettings() { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch (e) { } }
+function getSettings() { if (!settings) loadSettings(); var o = {}; for (var k in settings) o[k] = settings[k]; return o; }
+function applyAudioSettings() {
+  if (masterBus) masterBus.gain.value = settings.volMaster;
+  if (sfxBus) sfxBus.gain.value = settings.volSfx;
+  if (voiceBus) voiceBus.gain.value = settings.volVoice;
+}
+var _lastPixRatio = -1;
+function applyQuality() {
+  var q = settings.quality;
+  viewDistScale = q === 0 ? 0.45 : q === 1 ? 0.72 : 1.0;   // fed into updateEnv's fog.far target
+  var pr = q === 0 ? 0.75 : 1.0;
+  if (!WC_BOT && pr !== _lastPixRatio) { _lastPixRatio = pr; try { renderer.setPixelRatio(pr); sizeRenderer(); } catch (e) { } }
+}
+function applyCRT() {
+  CRT_FX = !!settings.crt;
+  var f = document.getElementById('crtFx');
+  if (f) f.classList.toggle('hidden', !CRT_FX);
+}
+function applySettings() {
+  if (!settings) loadSettings();
+  lookSens = settings.sens;
+  lookInvert = !!settings.invert;
+  baseFov = settings.fov;
+  if (!zoomed) { camera.fov = baseFov; camera.updateProjectionMatrix(); }
+  applyAudioSettings();
+  applyQuality();
+  applyCRT();
+}
+function setSetting(k, v) {
+  if (!settings) loadSettings();
+  if (settings[k] === undefined) return;
+  settings[k] = v;
+  saveSettings();
+  applySettings();
+}
+function resetSettings() {
+  settings = {};
+  for (var k in SETTINGS_DEF) settings[k] = SETTINGS_DEF[k];
+  saveSettings();
+  applySettings();
+  if (settingsOpen) buildSettingsRows();
+}
+// --- settings panel UI (PS1 panel; rows built in JS like the char creator) ---
+var settingsOpen = false, settingsFromPause = false;
+function buildSettingsRows() {
+  var hostEl = document.getElementById('settingsRows');
+  if (!hostEl) return;
+  if (!settings) loadSettings();
+  hostEl.innerHTML = '';
+  function mkRow(label, sub) {
+    var row = document.createElement('div'); row.className = 'row';
+    var d = document.createElement('span'); d.className = 'desc'; d.appendChild(document.createTextNode(label));
+    if (sub) { var s = document.createElement('small'); s.textContent = sub; d.appendChild(s); }
+    var ctl = document.createElement('span'); ctl.className = 'setctl';
+    row.appendChild(d); row.appendChild(ctl); hostEl.appendChild(row);
+    return ctl;
+  }
+  function slider(label, sub, key, min, max, step, fmt) {
+    var ctl = mkRow(label, sub);
+    var inp = document.createElement('input');
+    inp.type = 'range'; inp.min = min; inp.max = max; inp.step = step; inp.value = settings[key];
+    var val = document.createElement('span'); val.className = 'setval'; val.textContent = fmt(settings[key]);
+    inp.addEventListener('input', function () { var v = parseFloat(inp.value); setSetting(key, v); val.textContent = fmt(v); });
+    ctl.appendChild(inp); ctl.appendChild(val);
+  }
+  function toggle(label, sub, key, onTxt, offTxt) {
+    var ctl = mkRow(label, sub);
+    var b = document.createElement('button');
+    function paint() { var on = !!settings[key]; b.textContent = on ? (onTxt || 'ON') : (offTxt || 'OFF'); b.className = 'toggleBtn' + (on ? ' on' : ''); }
+    b.addEventListener('click', function () { setSetting(key, settings[key] ? 0 : 1); paint(); });
+    paint(); ctl.appendChild(b);
+  }
+  function cycle(label, sub, key, names) {
+    var ctl = mkRow(label, sub);
+    var b = document.createElement('button'); b.className = 'toggleBtn';
+    function paint() { b.textContent = names[settings[key]] || String(settings[key]); }
+    b.addEventListener('click', function () { setSetting(key, (settings[key] + 1) % names.length); paint(); });
+    paint(); ctl.appendChild(b);
+  }
+  var pct = function (v) { return Math.round(v * 100) + '%'; };
+  slider('MOUSE SENSITIVITY', 'how fast the camera turns', 'sens', 0.2, 3.0, 0.05, function (v) { return v.toFixed(2) + 'x'; });
+  toggle('INVERT LOOK Y', 'flip vertical aim', 'invert');
+  slider('FIELD OF VIEW', '70 to 100 degrees', 'fov', 70, 100, 1, function (v) { return (v | 0) + '°'; });
+  slider('MASTER VOLUME', 'scales all game sound', 'volMaster', 0, 1, 0.05, pct);
+  slider('SFX VOLUME', 'world & UI sounds', 'volSfx', 0, 1, 0.05, pct);
+  slider('VOICE VOLUME', 'character dialogue', 'volVoice', 0, 1, 0.05, pct);
+  cycle('DRAW DISTANCE', 'fog range & render detail', 'quality', QUALITY_NAMES);
+  toggle('CRT FILTER', 'scanlines & vignette', 'crt');
+}
+function openSettings() {
+  buildSettingsRows();
+  var p = document.getElementById('settingsPanel'); if (p) p.classList.remove('hidden');
+  settingsOpen = true;
+  settingsFromPause = !!state.running;
+  if (state.running) state.menu = 'settings';   // gates look/attack input while open
+  var ps = document.getElementById('pauseScreen'); if (ps) ps.classList.add('hidden');
+}
+function closeSettings() {
+  var p = document.getElementById('settingsPanel'); if (p) p.classList.add('hidden');
+  settingsOpen = false;
+  if (state.running && state.menu === 'settings') state.menu = null;
+  var fromPause = settingsFromPause; settingsFromPause = false;
+  if (fromPause && state.running) lockPointer();   // re-lock = resume the game
+}
+// Escape closes the settings panel (capture-phase so the game's own Esc handler
+// doesn't clear state.menu while the panel is still up)
+document.addEventListener('keydown', function (e) {
+  if (settingsOpen && e.code === 'Escape') { e.preventDefault(); e.stopPropagation(); closeSettings(); }
+}, true);
+(function () {
+  var b;
+  if ((b = document.getElementById('btnSettings'))) b.addEventListener('click', openSettings);
+  if ((b = document.getElementById('btnPauseSettings'))) b.addEventListener('click', function (e) { e.stopPropagation(); openSettings(); });
+  if ((b = document.getElementById('btnSettingsDone'))) b.addEventListener('click', closeSettings);
+  if ((b = document.getElementById('btnSettingsReset'))) b.addEventListener('click', resetSettings);
+})();
+loadSettings();   // populate `settings` at load; applySettings() runs in the boot handoff
+
+// menu wiring
 document.getElementById('btnChar').addEventListener('click', openCreator);
 document.getElementById('btnCharDone').addEventListener('click', closeCreator);
 document.getElementById('btnCharRandom').addEventListener('click', function () {
@@ -15365,7 +15565,7 @@ if (location.hash.indexOf('#join=') === 0) {
 pauseScreen.addEventListener('click', function () { pauseScreen.classList.add('hidden'); lockPointer(); });
 document.addEventListener('pointerlockchange', function () { var locked = document.pointerLockElement === canvas; if (!locked && state.running && !state.menu && !chatOpen && !bugOpen) pauseScreen.classList.remove('hidden'); else if (locked) pauseScreen.classList.add('hidden'); });
 document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
-document.addEventListener('mousemove', function (e) { if (document.pointerLockElement !== canvas || state.menu) return; var sens = 0.0022 * (zoomed ? 0.35 : 1); yaw -= e.movementX * sens; pitch -= e.movementY * sens; pitch = Math.max(-1.45, Math.min(1.45, pitch)); });
+document.addEventListener('mousemove', function (e) { if (document.pointerLockElement !== canvas || state.menu) return; var sens = 0.0022 * (zoomed ? 0.35 : 1) * lookSens; yaw -= e.movementX * sens; pitch -= (lookInvert ? -1 : 1) * e.movementY * sens; pitch = Math.max(-1.45, Math.min(1.45, pitch)); });
 document.addEventListener('mousedown', function (e) {
   if (document.pointerLockElement !== canvas || state.menu) return;
   if (e.button === 0) { mouseDown = true; tryAttack(); }
@@ -16337,6 +16537,12 @@ window.__wc = {
   encodeCC: encodeCC, decodeCC: decodeCC, seededRng: seededRng,
   openCreator: openCreator, closeCreator: closeCreator,
   creatorSpin: function (v) { if (cprev) cprev.spin = v; },
+  // ---- settings (#43) ----
+  getSettings: getSettings, setSetting: setSetting, applySettings: applySettings,
+  resetSettings: resetSettings, openSettings: openSettings, closeSettings: closeSettings,
+  loadSettings: loadSettings, saveSettings: saveSettings,
+  settingsBus: function () { return { master: masterBus ? masterBus.gain.value : null, sfx: sfxBus ? sfxBus.gain.value : null, voice: voiceBus ? voiceBus.gain.value : null }; },
+  settingsView: function () { return { lookSens: lookSens, lookInvert: lookInvert, baseFov: baseFov, camFov: camera.fov, viewDistScale: viewDistScale, crt: CRT_FX, crtHidden: (document.getElementById('crtFx') || {}).className, settingsOpen: settingsOpen }; },
   getPlayerChar: function () { return playerChar; },
   setPlayerChar: function (c) { playerChar = c; },
   // --- quest system debug hooks ---
@@ -16372,6 +16578,9 @@ window.__wc = {
 };
 
 // ---------------- boot screen handoff + menu cover art ----------------
+// apply saved user settings before the first frame (after CRT_FX default is
+// declared above, so the CRT toggle honours the persisted value)
+applySettings();
 (function () {
   var bs = document.getElementById('bootScreen');
   if (bs) { var bb = document.getElementById('bootBar'); if (bb) bb.style.width = '100%'; setTimeout(function () { bs.classList.add('hidden'); }, 250); }
