@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.44';
+var GAME_VERSION = 'v1.66.45';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -4596,6 +4596,7 @@ var DAY_LEN = 360;             // full day/night cycle (6 min)
 var envT = 60;                 // start in daylight
 var wcNightGlow = 0;           // 0 = full day, 1 = full night (drives self-lit prop glows)
 var raining = false, rainLeft = 0, nextRainCheck = 25;
+var rainIntensity = 1;   // 0..1 drizzle→heavier (weather-variety pass); full-wired below
 var fogTmp = new THREE.Color(), skyTmp = new THREE.Color();
 var C_DAY_FOG = new THREE.Color(0xcfe4ee), C_NIGHT_FOG = new THREE.Color(0x0b1018);
 var C_RAIN_FOG = new THREE.Color(0x6a7580), C_RAINNIGHT_FOG = new THREE.Color(0x05070a);
@@ -4743,6 +4744,7 @@ function updateEnv(dt) {
     rainGain.gain.value += (tgt - rainGain.gain.value) * Math.min(1, dt * 2);
   }
   updateRainFx(dt);
+  if (typeof updateAmbient === 'function') updateAmbient(dt);
 }
 
 // ---------------- people ----------------
@@ -14045,6 +14047,113 @@ function startAmbient() {
   uwGain = ac.createGain(); uwGain.gain.value = 0;
   us.connect(uf); uf.connect(uwGain); uwGain.connect(ac.destination); us.start();
   if (underwater) uwGain.gain.value = 0.65;
+  // ---- day/night ambient life beds (atmosphere pass) ----
+  // Two persistent looping beds cross-faded by the day fraction: a faint daytime
+  // suburban hum and a night cicada/cricket shimmer. Built ONCE here; updateAmbient
+  // only nudges their gains + fires sparse one-shots (no per-frame node alloc for
+  // the beds). Routed through ac.destination (= sfxBus) so the SFX slider governs
+  // them; levels are deliberately tiny (ambience, not foreground).
+  var dl = ac.sampleRate * 3, dbf = ac.createBuffer(1, dl, ac.sampleRate), dd = dbf.getChannelData(0), dlast = 0;
+  for (i = 0; i < dl; i++) { var dw = Math.random() * 2 - 1; dlast = (dlast + 0.04 * dw) / 1.04; dd[i] = dlast * 3; }
+  var dsrc = ac.createBufferSource(); dsrc.buffer = dbf; dsrc.loop = true;
+  var dfl = ac.createBiquadFilter(); dfl.type = 'bandpass'; dfl.frequency.value = 420; dfl.Q.value = 0.7;
+  ambDayGain = ac.createGain(); ambDayGain.gain.value = 0;
+  dsrc.connect(dfl); dfl.connect(ambDayGain); ambDayGain.connect(ac.destination); dsrc.start();
+  // night cicada/cricket bed: narrow high-band noise with a fast tremolo shimmer
+  var nl = ac.sampleRate * 3, nbf = ac.createBuffer(1, nl, ac.sampleRate), ndat = nbf.getChannelData(0);
+  for (i = 0; i < nl; i++) ndat[i] = Math.random() * 2 - 1;
+  var nsrc = ac.createBufferSource(); nsrc.buffer = nbf; nsrc.loop = true;
+  var nfl = ac.createBiquadFilter(); nfl.type = 'bandpass'; nfl.frequency.value = 4600; nfl.Q.value = 7;
+  var ntrem = ac.createGain(); ntrem.gain.value = 0.55;              // tremolo centre
+  var nlfo = ac.createOscillator(); nlfo.type = 'sine'; nlfo.frequency.value = 9;   // ~9 Hz shimmer
+  var nlg = ac.createGain(); nlg.gain.value = 0.42;
+  nlfo.connect(nlg); nlg.connect(ntrem.gain); nlfo.start();
+  ambNightGain = ac.createGain(); ambNightGain.gain.value = 0;
+  nsrc.connect(nfl); nfl.connect(ntrem); ntrem.connect(ambNightGain); ambNightGain.connect(ac.destination); nsrc.start();
+  ambReady = true;
+}
+// ---- ambient bed state (cross-fade + sparse one-shot scheduling) ----
+var ambDayGain = null, ambNightGain = null, ambReady = false;
+var ambBirdT = 4, ambDogT = 30, ambCarT = 22, ambFlutterT = 18, ambLive = 0;
+function ambTrack(src) { ambLive++; try { src.onended = function () { if (ambLive > 0) ambLive--; }; } catch (e) { } }
+// one-shot: a short bird warble (2-4 quick sine notes)
+function ambChirp() {
+  if (!ac) return;
+  var g = ac.createGain(); g.connect(ac.destination);
+  var o = ac.createOscillator(); o.type = 'sine';
+  var base = 2600 + Math.random() * 1800, t0 = ac.currentTime, notes = 2 + (Math.random() * 3 | 0), t = t0;
+  g.gain.setValueAtTime(0.0001, t0);
+  for (var ci = 0; ci < notes; ci++) {
+    var fr = base * (0.85 + Math.random() * 0.5);
+    o.frequency.setValueAtTime(fr, t);
+    o.frequency.exponentialRampToValueAtTime(fr * (1.1 + Math.random() * 0.5), t + 0.05);
+    g.gain.setValueAtTime(0.03, t);
+    g.gain.exponentialRampToValueAtTime(0.0006, t + 0.07);
+    t += 0.09 + Math.random() * 0.06;
+  }
+  o.connect(g); o.start(t0); o.stop(t + 0.05); ambTrack(o);
+}
+// one-shot: distant dog bark (dull low-passed saw yaps)
+function ambDog() {
+  if (!ac) return;
+  var barks = 2 + (Math.random() * 2 | 0), t = ac.currentTime;
+  for (var bi = 0; bi < barks; bi++) {
+    var o = ac.createOscillator(); o.type = 'sawtooth';
+    var fr = 175 + Math.random() * 60, g = ac.createGain();
+    var lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 850;   // distant = muffled
+    o.frequency.setValueAtTime(fr * 1.6, t); o.frequency.exponentialRampToValueAtTime(fr, t + 0.12);
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.04, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0006, t + 0.16);
+    o.connect(lp); lp.connect(g); g.connect(ac.destination); o.start(t); o.stop(t + 0.2); ambTrack(o);
+    t += 0.22 + Math.random() * 0.1;
+  }
+}
+// one-shot: far car pass (band-swept noise swell)
+function ambCarPass() {
+  if (!ac) return;
+  var dur = 1.6 + Math.random() * 0.8, t = ac.currentTime;
+  var n = ac.sampleRate * dur | 0, buf = ac.createBuffer(1, n, ac.sampleRate), d = buf.getChannelData(0), last = 0;
+  for (var i = 0; i < n; i++) { var w = Math.random() * 2 - 1; last = (last + 0.05 * w) / 1.05; d[i] = last * 3; }
+  var src = ac.createBufferSource(); src.buffer = buf;
+  var bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 0.8;
+  bp.frequency.setValueAtTime(300, t); bp.frequency.linearRampToValueAtTime(1200, t + dur * 0.5); bp.frequency.linearRampToValueAtTime(300, t + dur);
+  var g = ac.createGain();
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.045, t + dur * 0.5); g.gain.linearRampToValueAtTime(0.0001, t + dur);
+  src.connect(bp); bp.connect(g); g.connect(ac.destination); src.start(t); src.stop(t + dur); ambTrack(src);
+}
+// one-shot: quick bird wing flutter (high-passed noise bursts)
+function ambFlutter() {
+  if (!ac) return;
+  var t = ac.currentTime, n = ac.sampleRate * 0.3 | 0, buf = ac.createBuffer(1, n, ac.sampleRate), d = buf.getChannelData(0);
+  for (var i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (i % 900 < 220 ? 1 : 0.18);   // fluttery bursts
+  var src = ac.createBufferSource(); src.buffer = buf;
+  var hp = ac.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1800;
+  var g = ac.createGain(); g.gain.value = 0.03;
+  src.connect(hp); hp.connect(g); g.connect(ac.destination); src.start(t); src.stop(t + 0.3); ambTrack(src);
+}
+// cross-fade the beds by day fraction + schedule sparse ambient flavor. Cheap:
+// two gain nudges + a few countdown timers per frame; one-shots are rare.
+function updateAmbient(dt) {
+  if (!ac || !ambReady) return;
+  var f = dayFactor();                                  // 0 night .. 1 day
+  var wet = raining ? Math.min(1, rainIntensity) : 0;   // nature hushes in rain
+  var muffle = inside ? 0.32 : (underwater ? 0.18 : 1);
+  var quiet = 1 - 0.6 * wet;
+  var dayLv = 0.014 * Math.max(0, Math.min(1, (f - 0.2) / 0.5)) * quiet * muffle;
+  var nightLv = 0.02 * Math.max(0, Math.min(1, (0.45 - f) / 0.4)) * quiet * muffle;
+  var kk = Math.min(1, dt * 1.5);
+  ambDayGain.gain.value += (dayLv - ambDayGain.gain.value) * kk;
+  ambNightGain.gain.value += (nightLv - ambNightGain.gain.value) * kk;
+  // sparse one-shot flavor — long randomized cooldowns so it never gets busy
+  if (!inside && !underwater) {
+    ambBirdT -= dt;
+    if (ambBirdT <= 0) { ambBirdT = 1.6 + Math.random() * 4.5; if (f > 0.4 && wet < 0.4) ambChirp(); }
+    ambFlutterT -= dt;
+    if (ambFlutterT <= 0) { ambFlutterT = 22 + Math.random() * 40; if (f > 0.35 && wet < 0.5 && Math.random() < 0.6) ambFlutter(); }
+    ambDogT -= dt;
+    if (ambDogT <= 0) { ambDogT = 35 + Math.random() * 70; if (wet < 0.7 && Math.random() < 0.7) ambDog(); }
+    ambCarT -= dt;
+    if (ambCarT <= 0) { ambCarT = 26 + Math.random() * 55; if (Math.random() < 0.7) ambCarPass(); }
+  }
 }
 // ---- PS1-crunched TTS dialogue (optional voicelines.js) ----
 var voiceBufs = {}, voiceLastT = {}, dealerMet = false, shopBought = false, clerkScaredT = -99;
@@ -17879,6 +17988,19 @@ window.__wc = {
   setRain: function (on) { raining = on; rainLeft = on ? 9999 : 0; },
   setClock: function (t2) { envT = t2; },
   envState: function () { return { envT: envT, raining: raining, dayFactor: dayFactor(), lampsOn: lampsOn, sun: sun.intensity, fogFar: scene.fog.far }; },
+  ambientState: function () {
+    var r4 = function (v) { return Math.round(v * 1e4) / 1e4; };
+    return {
+      ac: !!ac, ready: ambReady,
+      day: ambDayGain ? r4(ambDayGain.gain.value) : 0,
+      night: ambNightGain ? r4(ambNightGain.gain.value) : 0,
+      rain: rainGain ? r4(rainGain.gain.value) : 0,
+      live: ambLive, dayFactor: Math.round(dayFactor() * 100) / 100,
+      weather: (typeof weatherMode !== 'undefined' ? weatherMode : 'auto'),
+      intensity: Math.round(rainIntensity * 100) / 100,
+      overcast: (typeof overcast !== 'undefined' ? Math.round(overcast * 100) / 100 : 0)
+    };
+  },
   sigState: function () { return { t: sigClock, main: sigMain, cross: sigCross }; },
   setSigClock: function (t2) { sigClock = t2; updateSignals(0); },   // force a phase for tests
   carSignalsRef: function () { return carSignals; },
