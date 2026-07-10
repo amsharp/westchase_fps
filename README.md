@@ -719,6 +719,19 @@ here start seeing strange lights over town. They also swear it only ever
 happens once — and that whatever falls out of the sky belongs to whoever
 gets to it first, not to whoever made it show up. Probably nothing.
 
+The same regulars will tell you the town keeps a few smaller secrets, too.
+Somebody's been tucking little **gold glints** away in the parts of town
+nobody looks twice at — round the *backs* of the big stores, down a service
+alley, out where the tree line closes in, along the far shore. Walk close
+enough to one and it's yours. Nobody's ever found them all in one afternoon.
+
+And if you're the sort who remembers *old* secrets — the kind you'd punch
+into a controller, up and down and left and right, a couple of letters to
+finish — well. Try it standing still sometime and see what falls out of the
+air. Every so often, if you're just wandering, you might also catch a stray
+knot of **party balloons** that got away from somebody, drifting up over the
+rooftops and gone. Wave if you see them.
+
 ## Notes
 
 - Some vehicles (station wagon, sedan, taxi, step van, and the burned

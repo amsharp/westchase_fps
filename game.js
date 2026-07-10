@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.55';
+var GAME_VERSION = 'v1.66.56';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -10969,6 +10969,52 @@ document.addEventListener('keydown', function (e) {
   }
 });
 
+// --- Rare ambient surprise: a lost cluster of party balloons drifts up and
+// away over town. Cosmetic, cheap, on a multi-minute cooldown. Reuses the
+// game's soft lambert look; despawns on its own when it clears the skyline.
+var balloons = [], balloonGeo = null, balloonStrGeo = null;
+var balloonCD = 130 + Math.random() * 90;   // first check well after boot
+function ensureBalloonGeo() {
+  if (balloonGeo) return;
+  balloonGeo = new THREE.SphereGeometry(0.5, 10, 8);
+  balloonStrGeo = new THREE.CylinderGeometry(0.015, 0.015, 1.4, 4);
+}
+function spawnBalloonCluster() {
+  ensureBalloonGeo();
+  var ang = Math.random() * Math.PI * 2, dist = 16 + Math.random() * 12;
+  var ox = player.x + Math.cos(ang) * dist, oz = player.z + Math.sin(ang) * dist;
+  var cols = [0xff5a5a, 0x5aa0ff, 0xffd24a, 0x6aff8a, 0xff8ad6, 0xb07aff];
+  var n = 3 + (Math.random() * 3 | 0);
+  for (var i = 0; i < n; i++) {
+    var g = new THREE.Group();
+    var bod = new THREE.Mesh(balloonGeo, lamb({ color: cols[(Math.random() * cols.length) | 0] }));
+    bod.scale.set(0.82, 1.0, 0.82);
+    g.add(bod);
+    var str = new THREE.Mesh(balloonStrGeo, lamb({ color: 0x333333 }));
+    str.position.y = -1.1; g.add(str);
+    g.position.set(ox + (Math.random() - 0.5) * 2.2, 3 + Math.random() * 2, oz + (Math.random() - 0.5) * 2.2);
+    scene.add(g);
+    balloons.push({ g: g, vy: 1.4 + Math.random() * 0.8, ph: Math.random() * 6.28, swx: (Math.random() - 0.5) * 0.6, swz: (Math.random() - 0.5) * 0.6 });
+  }
+  // soft ascending chime the moment they appear
+  beep(660, 0.16, 0.06, 'sine'); setTimeout(function () { beep(880, 0.18, 0.055, 'sine'); }, 140);
+}
+function disposeBalloon(b) { scene.remove(b.g); b.g.traverse(function (o) { if (o.material && o.material.dispose) o.material.dispose(); }); }
+function updateBalloons(dt) {
+  if (!inside) {
+    balloonCD -= dt;
+    if (balloonCD <= 0) { balloonCD = 150 + Math.random() * 180; if (Math.random() < 0.5) spawnBalloonCluster(); }
+  }
+  for (var i = balloons.length - 1; i >= 0; i--) {
+    var b = balloons[i]; b.ph += dt;
+    b.g.position.y += b.vy * dt;
+    b.g.position.x += Math.sin(b.ph) * b.swx * dt;
+    b.g.position.z += Math.cos(b.ph * 0.8) * b.swz * dt;
+    b.g.rotation.z = Math.sin(b.ph) * 0.12;
+    if (b.g.position.y > 46) { disposeBalloon(b); balloons.splice(i, 1); }
+  }
+}
+
 function updateSecrets(dt) {
   if (!state.running) return;
   if (!stashInit) initStashes();
@@ -10985,6 +11031,7 @@ function updateSecrets(dt) {
     }
   }
   updateConfetti(dt);
+  updateBalloons(dt);
 }
 
 // ---------------- blood decals / scorch marks ----------------
@@ -18735,6 +18782,8 @@ window.__wc = {
   secretState: function () { var left = 0; for (var i = 0; i < SECRET_STASHES.length; i++) if (!SECRET_STASHES[i].taken) left++; return { stashesLeft: left, stashTotal: SECRET_STASHES.length, confetti: confetti.length, comboIdx: konamiIdx }; },
   secretParty: function () { return triggerParty(); },
   konamiSeq: function () { return KONAMI; },
+  spawnBalloons: function () { spawnBalloonCluster(); return balloons.length; },
+  balloonCount: function () { return balloons.length; },
   setMinimapZoom: setMinimapZoom, cycleMinimapZoom: cycleMinimapZoom,
   minimapState: function () { if (!mmVenues) buildMMVenues(); return { zoom: mmZoom, scale: MM_ZOOMS[mmZoom], name: MM_ZOOM_NAMES[mmZoom], levels: MM_ZOOMS.length, venues: mmVenues.length }; },
   setRain: function (on) { raining = on; rainLeft = on ? 9999 : 0; if (on && rainTargetInten <= 0) rainTargetInten = rollInten(); },
