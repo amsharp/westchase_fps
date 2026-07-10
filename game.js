@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.54';
+var GAME_VERSION = 'v1.66.55';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -10915,6 +10915,60 @@ function collectStash(s) {
   // little ascending jingle so a find feels rewarding
   beep(880, 0.09, 0.12, 'square'); setTimeout(function () { beep(1320, 0.09, 0.12, 'square'); }, 80); setTimeout(function () { beep(1760, 0.12, 0.12, 'square'); }, 170);
 }
+// --- Konami combo -> harmless confetti + jingle party. Purely cosmetic and
+// self-cleaning (particles despawn) so it never touches gameplay balance.
+var confetti = [], confettiGeo = null, confettiMats = null, comboCD = 0;
+function ensureConfettiAssets() {
+  if (confettiGeo) return;
+  confettiGeo = new THREE.PlaneGeometry(0.14, 0.2);
+  var cols = [0xff5a5a, 0xffd24a, 0x5ad1ff, 0x6aff8a, 0xff8ad6, 0xffffff];
+  confettiMats = [];
+  for (var i = 0; i < cols.length; i++) confettiMats.push(new THREE.MeshBasicMaterial({ color: cols[i], side: THREE.DoubleSide }));
+}
+function burstConfetti() {
+  ensureConfettiAssets();
+  var cx = player.x, cy = (player.y || 1.5) + 2.4, cz = player.z, n = 46;
+  for (var i = 0; i < n; i++) {
+    var m = new THREE.Mesh(confettiGeo, confettiMats[(Math.random() * confettiMats.length) | 0]);
+    m.position.set(cx + (Math.random() - 0.5) * 1.2, cy, cz + (Math.random() - 0.5) * 1.2);
+    m.rotation.set(Math.random() * 6.28, Math.random() * 6.28, Math.random() * 6.28);
+    scene.add(m);
+    confetti.push({ mesh: m, life: 2.6, vx: (Math.random() - 0.5) * 3.4, vy: 2.2 + Math.random() * 2.6, vz: (Math.random() - 0.5) * 3.4, spin: (Math.random() - 0.5) * 9 });
+  }
+}
+function updateConfetti(dt) {
+  if (comboCD > 0) comboCD -= dt;
+  for (var i = confetti.length - 1; i >= 0; i--) {
+    var p = confetti[i]; p.life -= dt; p.vy -= 5.5 * dt;
+    p.mesh.position.x += p.vx * dt; p.mesh.position.y += p.vy * dt; p.mesh.position.z += p.vz * dt;
+    p.mesh.rotation.z += p.spin * dt; p.mesh.rotation.x += p.spin * 0.6 * dt;
+    if (p.mesh.position.y < 0.05) { p.mesh.position.y = 0.05; p.vy = 0; p.vx *= 0.68; p.vz *= 0.68; }
+    if (p.life <= 0) { scene.remove(p.mesh); confetti.splice(i, 1); }   // shared mats, no dispose
+  }
+}
+function triggerParty() {
+  if (comboCD > 0) return false;
+  comboCD = 4;
+  burstConfetti();
+  var notes = [523, 659, 784, 1047];
+  for (var i = 0; i < notes.length; i++) (function (f, d) { setTimeout(function () { beep(f, 0.14, 0.13, 'square'); }, d); })(notes[i], i * 110);
+  popup('PARTY MODE!');
+  return true;
+}
+// Classic Konami sequence. A dedicated read-only listener: never preventDefault,
+// never writes `keys`, so normal input is untouched. Ignored unless in-play.
+var KONAMI = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'KeyB', 'KeyA'];
+var konamiIdx = 0;
+document.addEventListener('keydown', function (e) {
+  if (!state.running || state.menu || state.dead) { konamiIdx = 0; return; }
+  if (e.code === KONAMI[konamiIdx]) {
+    konamiIdx++;
+    if (konamiIdx >= KONAMI.length) { konamiIdx = 0; triggerParty(); }
+  } else {
+    konamiIdx = (e.code === KONAMI[0]) ? 1 : 0;   // allow a fresh restart
+  }
+});
+
 function updateSecrets(dt) {
   if (!state.running) return;
   if (!stashInit) initStashes();
@@ -10930,6 +10984,7 @@ function updateSecrets(dt) {
       if (dx * dx + dz * dz < STASH_R2) collectStash(s);
     }
   }
+  updateConfetti(dt);
 }
 
 // ---------------- blood decals / scorch marks ----------------
@@ -18559,7 +18614,9 @@ window.__wc = {
   pressKey: function (code, down) { keys[code] = down; },
   // --- easter-egg / secret test hooks ---
   stashes: function () { return SECRET_STASHES; },
-  secretState: function () { var left = 0; for (var i = 0; i < SECRET_STASHES.length; i++) if (!SECRET_STASHES[i].taken) left++; return { stashesLeft: left, stashTotal: SECRET_STASHES.length }; },
+  secretState: function () { var left = 0; for (var i = 0; i < SECRET_STASHES.length; i++) if (!SECRET_STASHES[i].taken) left++; return { stashesLeft: left, stashTotal: SECRET_STASHES.length, confetti: confetti.length, comboIdx: konamiIdx }; },
+  secretParty: function () { return triggerParty(); },
+  konamiSeq: function () { return KONAMI; },
   setMinimapZoom: setMinimapZoom, cycleMinimapZoom: cycleMinimapZoom,
   minimapState: function () { if (!mmVenues) buildMMVenues(); return { zoom: mmZoom, scale: MM_ZOOMS[mmZoom], name: MM_ZOOM_NAMES[mmZoom], levels: MM_ZOOMS.length, venues: mmVenues.length }; },
   setRain: function (on) { raining = on; rainLeft = on ? 9999 : 0; if (on && rainTargetInten <= 0) rainTargetInten = rollInten(); },
