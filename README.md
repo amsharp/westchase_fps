@@ -109,6 +109,11 @@ pedestrians leave a trail of blood drips that slows and clots; kills
 leave real blood pools on the pavement. Only the ambient bed — wind,
 rain — is everywhere at once.
 
+Your own feet make noise too: footsteps play in time with your stride and
+change with the ground underfoot — a dull thud on asphalt, a harder click
+on the sidewalk, a soft scuff on grass, a wet splash through the lake
+shallows, and a hollow tap indoors. They speed up when you sprint.
+
 Engines got real too: every car runs a layered synth with gears — revs
 climb as it accelerates, drop on each upshift, and settle to a low
 idle rumble at a stop. Your own stolen ride is louder and richer, and

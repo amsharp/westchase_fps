@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.39';
+var GAME_VERSION = 'v1.66.40';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2494,6 +2494,25 @@ function onSidewalk(x, z) {
       var t = ((x - ax) * dx + (z - az) * dz) / L2; t = t < 0 ? 0 : (t > 1 ? 1 : t);
       var px = ax + dx * t - x, pz = az + dz * t - z, d = Math.sqrt(px * px + pz * pz);
       if (d >= inner && d <= outer) return true;
+    }
+  }
+  return false;
+}
+// true when (x,z) sits on the paved carriageway of any true road (within its
+// half-width). Used by footSurface for the asphalt timbre.
+function onRoad(x, z) {
+  if (typeof REMAP_ROADS === 'undefined') return false;
+  for (var i = 0; i < REMAP_ROADS.length; i++) {
+    var r = REMAP_ROADS[i]; if (r.cls > 2) continue;
+    var lim = r.hw + 0.4, pts = r.pts;
+    for (var j = 0; j < pts.length - 1; j++) {
+      var ax = pts[j][0], az = pts[j][1], bx = pts[j + 1][0], bz = pts[j + 1][1];
+      if (x < (ax < bx ? ax : bx) - lim || x > (ax > bx ? ax : bx) + lim ||
+          z < (az < bz ? az : bz) - lim || z > (az > bz ? az : bz) + lim) continue;
+      var dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz || 1;
+      var t = ((x - ax) * dx + (z - az) * dz) / L2; t = t < 0 ? 0 : (t > 1 ? 1 : t);
+      var px = ax + dx * t - x, pz = az + dz * t - z;
+      if (px * px + pz * pz <= lim * lim) return true;
     }
   }
   return false;
@@ -14258,6 +14277,42 @@ function sfx(kind, at) {
     case 'boom': nb(0.8, 320, 1.3); bp(60, 0.6, 0.6, 'sine', 24); setTimeout(function () { nb(0.4, 700, 0.4); }, 120); break;
   }
 }
+// ---- surface footsteps (#47): cheap per-surface noise blips synced to the
+// walk/run cadence in updatePlayer. All route through ac.destination (= sfxBus)
+// so the settings SFX slider controls them. Kept subtle (low gains).
+var footStepCount = 0;
+function footStep(surf, run) {
+  footStepCount++;
+  if (!ac) return;
+  var g = run ? 1.35 : 1;   // heavier stomp at a run
+  switch (surf) {
+    case 'water':                                     // wet splash
+      noiseBurst(0.11, 2200, 0.16 * g); beep(520, 0.06, 0.05 * g, 'sine', 190);
+      setTimeout(function () { noiseBurst(0.08, 1500, 0.09 * g); }, 45); break;
+    case 'grass':                                     // soft muffled scuff
+      noiseBurst(0.06, 480, 0.085 * g); break;
+    case 'interior':                                  // hollow wood/tile tap
+      noiseBurst(0.045, 900, 0.10 * g); beep(150, 0.05, 0.055 * g, 'sine', 90); break;
+    case 'concrete':                                  // hard sidewalk click
+      noiseBurst(0.04, 1600, 0.11 * g); beep(210, 0.04, 0.05 * g, 'square', 120); break;
+    default:                                          // asphalt: dull road thud
+      noiseBurst(0.05, 1050, 0.10 * g); beep(140, 0.05, 0.05 * g, 'sine', 80); break;
+  }
+}
+// classify the ground under (x,z) for footstep timbre. order matters:
+// interior floor > lake water > sidewalk concrete > road asphalt > grass.
+function footSurface(x, z) {
+  if (inside || qLoc) return 'interior';
+  if (typeof inLake === 'function' && inLake(x, z)) return 'water';
+  var az = x < 0 ? -x : x, aze = z < 0 ? -z : z;
+  // main axis carriageways (E-W @ z=0, N-S @ x=0) + their flanking sidewalks
+  if (aze <= MAIN_HW || az <= CROSS_HW) return 'asphalt';
+  if (aze <= MAIN_HW + 5.5 || az <= CROSS_HW + 5.5) return 'concrete';
+  // true-geometry secondary roads/sidewalks (REMAP set)
+  if (onSidewalk(x, z)) return 'concrete';
+  if (onRoad(x, z)) return 'asphalt';
+  return 'grass';
+}
 
 // ---------------- UI ----------------
 function popup(txt) { var el = document.createElement('div'); el.className = 'pop'; el.textContent = txt; document.getElementById('popups').appendChild(el); setTimeout(function () { el.remove(); }, 900); }
@@ -17143,6 +17198,7 @@ window.addEventListener('blur', function () { voiceStop(); });
 document.addEventListener('pointerlockchange', function () { if (document.pointerLockElement !== canvas) voiceStop(); });
 
 // ---------------- player update ----------------
+var stepPhase = 0;   // footstep cadence accumulator (#47)
 function updatePlayer(dt) {
   if (state.menu || state.dead) return;
   if (driving) {
@@ -17227,6 +17283,13 @@ function updatePlayer(dt) {
   recoilPitch += -recoilPitch * Math.min(1, dt * 5);   // recoil recovers back to the aim over ~0.4s (was: pitch climbed and stuck)
   camera.position.set(player.x, player.y, player.z); camera.rotation.y = yaw; camera.rotation.x = Math.max(-1.45, Math.min(1.45, pitch + recoilPitch + divePitch));
   var moving = (f || s) && player.grounded; var bob = moving ? Math.sin(T * (spd > 6 ? 13 : 9)) * 0.035 : 0; camera.position.y += bob;
+  // ---- surface footsteps (#47): advance a step phase by cadence; each wrap
+  // plays one footstep whose timbre matches the ground underfoot ----
+  if (moving && !state.sitting) {
+    var runStep = spd > 6;
+    stepPhase += dt * (runStep ? 3.5 : 2.5);
+    if (stepPhase >= 1) { stepPhase -= 1; footStep(footSurface(player.x, player.z), runStep); }
+  } else { stepPhase = 0.72; }   // primed so the first stride sounds promptly
   if (state.sitting) camera.position.y -= 0.55;   // seated eye height
   camera.position.y += diveDip;                    // dumpster-dive head dip
   recoil = Math.max(0, recoil - dt * 8); vm.position.z = recoil * 0.07; vm.position.y = bob * 0.5; vm.rotation.x = recoil * 0.06;
@@ -17688,6 +17751,9 @@ window.__wc = {
   solidMeshesReg: solidMeshes,
   buildFenceRun: function (pts, type, opts) { return buildFenceRun(pts, type, opts); }, fenceRuns: FENCE_RUNS,
   carHornStats: function () { return { count: carHornCount, lastHornT: lastHornT }; },
+  footSurface: function () { return footSurface(player.x, player.z); },
+  footStepStats: function () { return { count: footStepCount }; },
+  footStep: footStep,
   carHorn: function (i, angry) { if (cars[i]) carHorn(cars[i], angry); },
   remapPointClear: function (x, z, pad) { return remapPointClear(x, z, pad); },
   oakInfo: function () { return { count: oakCount, cap: OAK_CAP }; },
