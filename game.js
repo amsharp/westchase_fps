@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.35';
+var GAME_VERSION = 'v1.66.36';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -7981,7 +7981,22 @@ if (WC_REMAP) (function densityLayer() {
   for (var vh = 0; vh < VENUES.length; vh++) {
     var vv4 = VENUES[vh];
     if (vv4.type === 'storage') fenceRect(vv4.x, vv4.z, vv4.w + 6, vv4.d + 6, vv4.rot || 0, 'chainlink_fence', true);
-    if (vv4.type === 'farnell') fenceRect(vv4.x, vv4.z, vv4.w + 10, vv4.d + 14, vv4.rot || 0, 'chainlink_fence', true);
+    // Farnell school: the NEW per-panel breakable run FENCE_RUNS[0] (chainlink,
+    // "W+front") sits directly on the W + front(N) edges of this old solid ring.
+    // Building BOTH z-fought the diamond cards AND the old merged-solid OBB never
+    // deactivated, so ramming a panel there never opened a drivable gap
+    // (mreejak5 per-panel break defeated). Build ONLY the two sides the breakable
+    // run does NOT cover (S back + E) so the field stays enclosed, no double fence.
+    if (vv4.type === 'farnell') {
+      var fr = (vv4.rot || 0) * deg, fc = Math.cos(fr), fs = Math.sin(fr);
+      var fhw = (vv4.w + 10) / 2, fhd = (vv4.d + 14) / 2;
+      // rect corners (mirror fenceRect's cp): p0=(-hw,-hd) p1=(hw,-hd) p2=(hw,hd)
+      var q0x = vv4.x - fhw * fc - fhd * fs, q0z = vv4.z + fhw * fs - fhd * fc;
+      var q1x = vv4.x + fhw * fc - fhd * fs, q1z = vv4.z - fhw * fs - fhd * fc;
+      var q2x = vv4.x + fhw * fc + fhd * fs, q2z = vv4.z - fhw * fs + fhd * fc;
+      fenceRun(q0x, q0z, q1x, q1z, 'chainlink_fence', true);   // S / back edge
+      fenceRun(q1x, q1z, q2x, q2z, 'chainlink_fence', true);   // E edge
+    }
     // hedge along the back of each townhouse row
     if (vv4.type === 'townhouse') {
       var f4 = vFront(vv4), hw2 = vv4.w / 2 - 1, bx2 = vv4.x - f4.fx * (vv4.d / 2 + 1.2), bz2 = vv4.z - f4.fz * (vv4.d / 2 + 1.2);
