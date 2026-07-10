@@ -10080,16 +10080,20 @@ function vfxIsFire(col) { if (col === undefined) return false; var r = (col >> 1
 function puff(p, col) {
   var fire = vfxIsFire(col);
   if (fire && fireFrames) {
-    var fm = new THREE.Mesh(puffGeo, new THREE.MeshBasicMaterial({ map: fireFrames[(Math.random() * VFX_NF) | 0], transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
-    fm.position.copy(p); fm.scale.setScalar(1.5 + Math.random() * 0.9); scene.add(fm);
-    puffs.push({ mesh: fm, life: 0.34, max: 0.34, fire: true, start: (Math.random() * VFX_NF) | 0, frames: fireFrames });
+    // depthTest:false (like the muzzle flash) so flames read as engulfing the
+    // wreck instead of hiding inside the opaque car body / behind other geo.
+    var fm = new THREE.Mesh(puffGeo, new THREE.MeshBasicMaterial({ map: fireFrames[(Math.random() * VFX_NF) | 0], transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false }));
+    fm.position.copy(p); fm.scale.setScalar(2.7 + Math.random() * 1.3); scene.add(fm);
+    puffs.push({ mesh: fm, life: 0.42, max: 0.42, fire: true, start: (Math.random() * VFX_NF) | 0, frames: fireFrames });
     return;
   }
   if (!fire && smokeFrames) {
-    var sm = new THREE.Mesh(puffGeo, new THREE.MeshBasicMaterial({ map: smokeFrames[0], transparent: true, depthWrite: false, opacity: 0.9 }));
-    if (col) sm.material.color.setHex(col);
-    sm.position.copy(p); sm.scale.setScalar(1.3 + Math.random() * 0.8); scene.add(sm);
-    puffs.push({ mesh: sm, life: 0.7, max: 0.7, fire: false, frames: smokeFrames });
+    var sm = new THREE.Mesh(puffGeo, new THREE.MeshBasicMaterial({ map: smokeFrames[0], transparent: true, depthWrite: false, opacity: 0.92 }));
+    // brightness floor so "black diesel smoke" tints (0x222/0x333) still read
+    // against dark asphalt instead of vanishing.
+    if (col) { var cr = Math.max(70, (col >> 16) & 255), cg = Math.max(70, (col >> 8) & 255), cb = Math.max(70, col & 255); sm.material.color.setRGB(cr / 255, cg / 255, cb / 255); }
+    sm.position.copy(p); sm.scale.setScalar(1.7 + Math.random() * 0.9); scene.add(sm);
+    puffs.push({ mesh: sm, life: 0.72, max: 0.72, fire: false, frames: smokeFrames });
     return;
   }
   var m = new THREE.Mesh(puffGeo, puffM.clone()); if (col) m.material.color.setHex(col); m.position.copy(p); scene.add(m); puffs.push({ mesh: m, life: 0.22, max: 0.22 });
