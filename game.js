@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.62.3';
+var GAME_VERSION = 'v1.62.5';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -7527,6 +7527,9 @@ function spawnInteriorCops(n) {
 function maxWanted() {
   var w = (state.dead || inside) ? 0 : (state.wanted || 0);
   for (var id in net.remotes) { var r = net.remotes[id]; if (r && !r.dead && (r.w || 0) > w) w = r.w; }
+  // #78 Q10 ending town-perks: signet (inherit) = cops ignore minor crimes;
+  // leniency (expose/Whistleblower) = one star cooler baseline
+  if (state.unlocks) { if (state.unlocks.perk_signet) w = Math.max(0, w - 2); else if (state.unlocks.perk_leniency) w = Math.max(0, w - 1); }
   return w;
 }
 function desiredCops() { var w = maxWanted(); return w === 0 ? 2 : 2 + w * 2; }
@@ -12438,6 +12441,9 @@ function finishQuest(id) {
 var UNLOCK_GUN = { reflexes: 'neon_blaster', ghost: 'silenced' };
 function grantReward(id) {
   var d = questDef(id); if (!d || !d.reward) return;
+  // #78 finale: the Q10 reward is the ending the player chose (perk applied at
+  // choice time via applyEnding); make sure it's applied even on a direct finish.
+  if (id === 'q10_beneath') { if (typeof applyEnding === 'function') applyEnding(state.unlocks.ending || 'expose'); saveQuests(); return; }
   var r = d.reward;
   if (r.unlock) {
     state.unlocks[r.unlock] = true;
@@ -12673,7 +12679,7 @@ function updateQuests(dt) {
   var b = questBeat(q); if (!b) return;
   // pseudo-interact beats (a "search here" spot, not a room hatch) auto-satisfy
   // on proximity so they never soft-lock; room-hatch interacts fire on enterPOI.
-  if (b.type === 'interact' && b.poi && !QPOI[b.poi] && !questFlags(q)['b' + q.stage] && within(b.waypoint, b.r || 5)) questFlagBeat(q);
+  if (b.type === 'interact' && b.poi && b.poi !== 'q10_choice' && !QPOI[b.poi] && !questFlags(q)['b' + q.stage] && within(b.waypoint, b.r || 5)) questFlagBeat(q);
   if (b.type === 'timed' && q.timerEnd && T > q.timerEnd && !questFlags(q)['b' + q.stage]) {
     // ran out of time — restart the timed window (fail-forward, not a hard fail)
     q.timerEnd = T + (b.secs || 30);
@@ -12830,6 +12836,7 @@ function questActorTalk() {
 // cellar/manhole/hollow_oak/stormdrain/arcade open freely (their quests point
 // you there); boardroom needs the lantern; facility needs the three keys.
 function questHatchUnlocked(id) {
+  if (state.unlocks && state.unlocks.perk_signet) return true;   // #78 inherit: every secret door stays open
   if (id === 'facility') return bagCount('etched_lake_key') > 0 && bagCount('tunnel_fragment') > 0 && bagCount('alien_keycard') > 0;
   if (id === 'boardroom') return hasUnlock('lantern') || (state.activeQuest === 'q3_redhouse');
   return true;
@@ -12989,9 +12996,47 @@ function updateQActors(dt) {
     try { animPerson(a.mesh, 0, dt, a.phase); } catch (e) { }
   }
 }
+// ---- Q10 ending forks (D): expose / burn / inherit. The finale choice beat
+// (interact poi 'q10_choice') no longer auto-satisfies; the player selects an
+// ending (keys 1/2/3 or __wc.chooseEnding), which applies a distinct town-perk,
+// reward, and denouement toast, then advances the quest to its payoff beat.
+var q10Prompted = false;
+function q10ChoiceActive() {
+  var q = activeQuestEntry(); if (!q || q.completed || q.id !== 'q10_beneath') return false;
+  var b = questBeat(q); return !!(b && b.type === 'interact' && b.poi === 'q10_choice');
+}
+function applyEnding(kind) {
+  if (kind !== 'expose' && kind !== 'burn' && kind !== 'inherit') return false;
+  state.unlocks.ending = kind;
+  if (kind === 'expose') {
+    state.unlocks.perk_leniency = true;
+    toast('<b style="color:#8ee87f">THE WHISTLEBLOWER.</b> You surface the records. The lights over the lake go dark and Westchase becomes an ordinary town — cops run a star cooler and every shop greets a hero.', 8000);
+  } else if (kind === 'burn') {
+    state.unlocks.perk_scorched = true; state.owned.rocket = true;
+    try { if (typeof boomAt === 'function') boomAt(new THREE.Vector3(QPOI.facility.cx || QPOI.facility.x, (QPOI.facility.y || 0) + 1.4, QPOI.facility.cz || QPOI.facility.z), 7); } catch (e) { }
+    toast('<b style="color:#ff6a3d">SCORCHED EARTH.</b> You blow the facility and the thing with it. The Pact ends in fire — the Rocket Launcher is yours, and the town runs wilder now.', 8000);
+  } else {
+    state.unlocks.perk_signet = true;
+    for (var i = 0; i < GUN_LIST.length; i++) state.owned[GUN_LIST[i]] = true;   // free dealer stock tier
+    toast('<b style="color:#ffd24a">THE BOARD SIGNET.</b> You take Thorne\'s chair. You run Westchase now: cops look away, the dealer\'s whole stock is yours, every secret door stays open, and the lights over the lake answer to you.', 8000);
+  }
+  sfx('cash'); saveQuests();
+  return kind;
+}
+function chooseEnding(kind) {
+  if (!q10ChoiceActive()) { toast('There is no choice to make right now.', 1600); return false; }
+  var ok = applyEnding(kind); if (!ok) return false;
+  q10Prompted = false;
+  var q = activeQuestEntry(); if (q) questFlagBeat(q);   // advance past the choice beat
+  return ok;
+}
 // ---- master capability update (called from the loop + __wc.tick) ----
 function updateQuestCaps(dt) {
   updateLoupe(dt); updateLantern(dt); updateReflex(dt); updateBiscuit(dt); updateQActors(dt);
+  // present the finale choice prompt once the player reaches the choice beat
+  if (q10ChoiceActive()) {
+    if (!q10Prompted) { q10Prompted = true; toast('<b style="color:#ffd98a">THE CHOICE — press a key:</b><br><b>[1] EXPOSE</b> the Pact · <b>[2] BURN</b> it down · <b>[3] INHERIT</b> the chair', 9000); }
+  } else q10Prompted = false;
 }
 // debug: force-grant a capability (and its item) without playing the quest
 function giveUnlock(flag) {
@@ -14207,6 +14252,11 @@ document.addEventListener('keydown', function (e) {
     if (e.code === 'KeyL' && hasUnlock('loupe')) { toggleLoupe(); return; }
     if (e.code === 'KeyG' && hasUnlock('lantern')) { toggleLantern(); return; }
     if (e.code === 'KeyB' && hasUnlock('dogwhistle')) { toggleBiscuit(); return; }
+    if (q10ChoiceActive()) {
+      if (e.code === 'Digit1' || e.code === 'Numpad1') { chooseEnding('expose'); return; }
+      if (e.code === 'Digit2' || e.code === 'Numpad2') { chooseEnding('burn'); return; }
+      if (e.code === 'Digit3' || e.code === 'Numpad3') { chooseEnding('inherit'); return; }
+    }
   }
   if (e.code === 'KeyE') {
     // dead-guard matters: E during the 2.6s death window could enterStore
@@ -14806,6 +14856,8 @@ window.__wc = {
   biscuitState: function () { return biscuit ? { x: Math.round(biscuit.x * 10) / 10, z: Math.round(biscuit.z * 10) / 10, dist: Math.round(Math.sqrt((biscuit.x - player.x) * (biscuit.x - player.x) + (biscuit.z - player.z) * (biscuit.z - player.z)) * 10) / 10 } : null; },
   ghostActive: ghostActive, ghostBuy: ghostBuy, ghostSell: ghostSell,
   qActorsRef: function () { return qActors; }, updateQActors: updateQActors,
+  chooseEnding: chooseEnding, applyEnding: applyEnding, q10ChoiceActive: q10ChoiceActive,
+  endingState: function () { return { ending: state.unlocks.ending || null, leniency: !!state.unlocks.perk_leniency, scorched: !!state.unlocks.perk_scorched, signet: !!state.unlocks.perk_signet, maxWanted: maxWanted() }; },
   ownWeapon: function (k) { if (WEAPONS[k]) { state.owned[k] = true; return true; } return false; },
   setAdsDown: function (v) { adsDown = !!v; },
   questGiverNear: questGiverNear, questGiverTalk: questGiverTalk, refreshQuestPanel: refreshQuestPanel,

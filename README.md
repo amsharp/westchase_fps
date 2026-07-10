@@ -239,6 +239,40 @@ beneath the fountain. Each drops one tile of the story and grants a tool:
 Quests 1, 2, 5, 7 and 9 open early with no prerequisites; the finale only
 unlocks once you're holding all three keys.
 
+### Earned capabilities — how to use them
+
+Each reward is a real, usable power once you finish its quest:
+
+- **Detective's Loupe** (Q1) — press **L** to toggle. Nearby quest clues and
+  interactable props glow amber, and rigged/false-bottom containers get a trap
+  warning before you open them.
+- **Police Scanner** (Q2) — passive: rings the nearest patrol on your minimap
+  whenever you're wanted.
+- **Spirit Lantern** (Q3) — press **G** to toggle a green dark-vision light that
+  follows you, lights the sealed rooms, and pushes scripted apparitions back.
+- **Lockpick Set** (Q4) / **Bait Car + Slim Jim** (Q5) — silent openings and
+  instant hotwiring; no jimmy timer on locked cars.
+- **Neon Blaster + 8-Bit Reflexes** (Q6) — a ray-tech blaster in your inventory
+  (**Tab** to equip); **hold right-mouse to aim** and time slows on a drainable
+  meter (recharges when you let go).
+- **Sprint Shoes** (Q7) — faster run + a double jump.
+- **Silenced Pistol + "Ghost"** (Q8) — a suppressed pistol (**Tab** to equip);
+  clean kills with it **don't raise your wanted level**, and the dealer gives you
+  a Cleaners fence discount (buy −10%, sell +15%).
+- **Dog Whistle → Biscuit** (Q9) — press **B** to whistle Biscuit to your side;
+  he heels, catches up when you run, and noses dropped cash toward you. Press
+  **B** again to send him home. He can't be harmed.
+
+**The finale, three ways.** At the end of *What Lies Beneath* you choose an
+ending — press **[1] EXPOSE**, **[2] BURN**, or **[3] INHERIT**:
+
+- **Expose (The Whistleblower)** — the Pact ends honestly; cops run a star
+  cooler town-wide.
+- **Burn (Scorched Earth)** — you blow the facility; you keep the Rocket
+  Launcher and the town runs wilder.
+- **Inherit (The Board Signet)** — you take the chair: cops ignore minor crimes,
+  the dealer's whole stock is yours, and every secret door stays open.
+
 ## Items & your bag
 
 Beyond guns, the world is full of **loose items** — food, drinks, medkits,
@@ -465,6 +499,9 @@ bed runs under everything.
   item to use it, right-click or **Q** to drop one)
 - **J** — quest log (see your active quest, all beats, and set which quest
   you're tracking)
+- **L / G / B** — toggle earned quest gear (Detective's Loupe / Spirit Lantern /
+  whistle Biscuit), once you've unlocked them
+- **1 / 2 / 3** — pick your ending at the Q10 finale (Expose / Burn / Inherit)
 - **Enter** — open text chat (multiplayer), **Esc** to cancel
 - **Hold V** — push-to-talk voice chat (multiplayer)
 - **F8** — report a bug (grabs a screenshot + your note, sent for triage)
