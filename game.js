@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.64.1';
+var GAME_VERSION = 'v1.65.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -3965,6 +3965,149 @@ function streetlight(x, z, ax, az) {
     streetlight(-116, 22, 0, 1);                                      // Dunkin
   }
 })();
+
+// ---------------- power distribution (WC_REMAP): poles + sagging wires ----------------
+// Runs AFTER the roads (buildRemapRoads → RM) and the streetlights are placed,
+// so poles yield to lamp colliders via spotClear. Poles are individual
+// breakable Groups (cars topple them, same contract as lamps/trees); every
+// wire in town is baked into ONE hand-merged BufferGeometry (single draw call)
+// so the town-wide spans never balloon the draw count. Wires are overhead and
+// carry NO collider (you walk/drive under them). woodPoleM/wireM/xfmrM are the
+// materials declared with the legacy powerline() block above.
+var powerPoles = [], powerWireCount = 0, powerSpanCount = 0, powerServiceDrops = 0;
+// merge indexed geometries sharing position+normal (uv dropped — color mats)
+function pwMergeGeos(list) {
+  var pos = [], nrm = [], idx = [], base = 0;
+  for (var i = 0; i < list.length; i++) {
+    var gp = list[i].getAttribute('position'), gn = list[i].getAttribute('normal'), gi = list[i].getIndex(), v, k;
+    for (v = 0; v < gp.count; v++) { pos.push(gp.getX(v), gp.getY(v), gp.getZ(v)); nrm.push(gn.getX(v), gn.getY(v), gn.getZ(v)); }
+    if (gi) { for (k = 0; k < gi.count; k++) idx.push(gi.getX(k) + base); }
+    else { for (k = 0; k < gp.count; k++) idx.push(k + base); }
+    base += gp.count; if (list[i].dispose) list[i].dispose();
+  }
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+  geo.setIndex(idx);
+  return geo;
+}
+var PWR_H = 10.6, PWR_ARM_Y = 9.85, PWR_ARM_HALF = 1.35, PWR_ATTACH_Y = 10.2;
+// shared local pole geometry (built once, reused by every pole Group)
+var pwPoleGeo = pwMergeGeos([
+  new THREE.CylinderGeometry(0.17, 0.30, PWR_H, 6).translate(0, PWR_H / 2, 0),
+  new THREE.BoxGeometry(PWR_ARM_HALF * 2 + 0.5, 0.17, 0.17).translate(0, PWR_ARM_Y, 0),
+  new THREE.CylinderGeometry(0.055, 0.055, 0.3, 5).translate(-PWR_ARM_HALF, PWR_ARM_Y + 0.22, 0),
+  new THREE.CylinderGeometry(0.055, 0.055, 0.3, 5).translate(PWR_ARM_HALF, PWR_ARM_Y + 0.22, 0),
+  new THREE.CylinderGeometry(0.05, 0.05, 0.26, 5).translate(0, PWR_ARM_Y + 0.2, 0)
+]);
+var pwXfmrGeo = new THREE.BoxGeometry(0.5, 0.82, 0.44).translate(0.34, PWR_ARM_Y - 2.5, 0.3);
+// a pole: crossarm spans the road normal (nx,nz). Returns its 3 world attach pts.
+function powerPole(x, z, nx, nz, xfmr) {
+  var g = new THREE.Group();
+  g.add(new THREE.Mesh(pwPoleGeo, woodPoleM));
+  if (xfmr) g.add(new THREE.Mesh(pwXfmrGeo, xfmrM));
+  g.position.set(x, 0, z);
+  g.rotation.y = Math.atan2(-nz, nx);   // local +X → world normal (nx,nz)
+  scene.add(g);
+  registerBreakable(g, x, z, 0.5, 'light', null, 0.34);
+  var pole = { x: x, z: z, a: [
+    { x: x - nx * PWR_ARM_HALF, y: PWR_ATTACH_Y, z: z - nz * PWR_ARM_HALF },
+    { x: x,                     y: PWR_ATTACH_Y, z: z },
+    { x: x + nx * PWR_ARM_HALF, y: PWR_ATTACH_Y, z: z + nz * PWR_ARM_HALF }
+  ] };
+  powerPoles.push(pole);
+  return pole;
+}
+// accumulate a sagging catenary wire (parabolic droop) into shared arrays as a
+// thin 3-sided tube — cheap and reads as a line from every angle
+var _pwPos = [], _pwNrm = [], _pwIdx = [], _pwBase = 0, PWR_WR = 0.05;
+function sagWire(a, b) {
+  var dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
+  var span = Math.sqrt(dx * dx + dz * dz);
+  var sag = Math.max(0.55, Math.min(2.3, span * 0.06));
+  var lx = dx / (span || 1), lz = dz / (span || 1);         // horizontal dir
+  var sx = -lz, sz = lx;                                     // side axis (horizontal)
+  var SEG = 5, k, j, ang;
+  var ring0 = _pwBase;
+  for (k = 0; k <= SEG; k++) {
+    var t = k / SEG;
+    var cx = a.x + dx * t, cy = a.y + dy * t - sag * 4 * t * (1 - t), cz = a.z + dz * t;
+    for (j = 0; j < 3; j++) {
+      ang = j / 3 * Math.PI * 2 + 0.5;
+      var ox = sx * Math.cos(ang) * PWR_WR, oy = Math.sin(ang) * PWR_WR, oz = sz * Math.cos(ang) * PWR_WR;
+      _pwPos.push(cx + ox, cy + oy, cz + oz);
+      var nl = Math.sqrt(ox * ox + oy * oy + oz * oz) || 1;
+      _pwNrm.push(ox / nl, oy / nl, oz / nl);
+    }
+  }
+  for (k = 0; k < SEG; k++) {
+    var r0 = ring0 + k * 3, r1 = ring0 + (k + 1) * 3;
+    for (j = 0; j < 3; j++) {
+      var jn = (j + 1) % 3;
+      _pwIdx.push(r0 + j, r1 + j, r0 + jn, r0 + jn, r1 + j, r1 + jn);
+    }
+  }
+  _pwBase += (SEG + 1) * 3;
+  powerWireCount++;
+}
+(function r3Powerlines() {
+  if (!WC_REMAP || typeof RM === 'undefined' || !RM || !RM.roads) return;
+  var i, s, q;
+  for (i = 0; i < RM.roads.length; i++) {
+    var r = RM.roads[i];
+    if (r.cls > 1 || r.dirt) continue;                       // arterials + collectors only
+    var len = r.cum[r.cum.length - 1];
+    var side = (i % 2) ? 1 : -1;                              // consistent per road
+    var off = r.hw + 6.2, prev = null, xf = 0;
+    for (s = 22; s < len - 16; s += 40) {
+      var p = rmAt(r.pts, r.cum, s);
+      var nx = -p.uz, nz = p.ux;                              // left unit normal
+      var px = p.x + nx * off * side, pz = p.z + nz * off * side;
+      if (Math.abs(px) > HALF - 6 || Math.abs(pz) > HALF - 6) { prev = null; continue; }
+      // break spans across junction pads (no wires over intersections at head height)
+      var nearPad = false;
+      for (q = 0; q < RM.pads.length; q++) {
+        var pd = RM.pads[q], ddx = px - pd.x, ddz = pz - pd.z, rr = pd.r + 7;
+        if (ddx * ddx + ddz * ddz < rr * rr) { nearPad = true; break; }
+      }
+      if (nearPad || !remapPointClear(px, pz, 1.2) || !spotClear(px, pz)) { prev = null; continue; }
+      var pole = powerPole(px, pz, nx * side, nz * side, (xf++ % 3) === 0);
+      if (prev) { sagWire(prev.a[0], pole.a[0]); sagWire(prev.a[1], pole.a[1]); sagWire(prev.a[2], pole.a[2]); powerSpanCount++; }
+      prev = pole;
+    }
+  }
+  // service drops: one wire from the nearest roadside pole to each commercial
+  // venue's roofline (realism — kept sparse, commercial only, drop must fall)
+  if (typeof REMAP_VENUES !== 'undefined') {
+    var COMMERCIAL = { racetrac: 1, publix: 1, dunkin: 1, starbucks: 1, sushi: 1, pharmacy: 1, bank: 1, strip: 1, dollar_tree: 1, offices: 1, yoga: 1, shop: 1 };
+    for (i = 0; i < REMAP_VENUES.length; i++) {
+      var v = REMAP_VENUES[i];
+      if (!COMMERCIAL[v.type]) continue;
+      var best = null, bd = 34 * 34;
+      for (q = 0; q < powerPoles.length; q++) {
+        var pl = powerPoles[q], dxp = pl.x - v.x, dzp = pl.z - v.z, d2 = dxp * dxp + dzp * dzp;
+        if (d2 < bd) { bd = d2; best = pl; }
+      }
+      if (!best) continue;
+      var roofY = groundHeightAt(v.x, v.z) - 0.2;              // building height at center
+      if (roofY < 2 || roofY > best.a[1].y - 0.6) continue;    // drop must actually descend
+      var tox = best.x - v.x, toz = best.z - v.z, tl = Math.sqrt(tox * tox + toz * toz) || 1;
+      var edge = Math.min(v.w, v.d) * 0.42;                    // attach just inside the roof edge
+      var rx = v.x + tox / tl * edge, rz = v.z + toz / tl * edge;
+      sagWire(best.a[1], { x: rx, y: roofY + 0.25, z: rz });
+      powerServiceDrops++;
+    }
+  }
+  if (_pwPos.length) {
+    var geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(_pwPos, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(_pwNrm, 3));
+    geo.setIndex(_pwIdx);
+    scene.add(new THREE.Mesh(geo, wireM));
+    _pwPos = _pwNrm = _pwIdx = null;   // release the builder arrays
+  }
+})();
+
 var lampsOn = false;
 function setLamps(on) {
   if (on === lampsOn) return;
@@ -4150,6 +4293,17 @@ var HATN = ['NONE', 'CAP', 'BEANIE', 'COWBOY', 'POLICE'];
 var GLASSN = ['NONE', 'SHADES', 'GLASSES'];
 var GEARN = ['NONE', 'PURSE', 'BACKPACK', 'CHAIN'];
 var CC_FIELDS = ['skin', 'hair', 'hairC', 'eyes', 'mouth', 'faceX', 'shirt', 'shirtC', 'shirtC2', 'pants', 'pantsC', 'shoeC', 'hat', 'hatC', 'glasses', 'extra', 'build', 'preset'];
+// social-groups (#67): XANDER ships as a standalone deliverable (xanderchar.js,
+// loaded before game.js). Merge his entry onto the END of the civ roster so he
+// spawns as a normal pedestrian AND is buildable by name — appending last keeps
+// every existing preset index (and saved wc_char) stable. Idempotent + guarded.
+if (typeof MESHY_CHARS !== 'undefined' && typeof XANDER_CHARS !== 'undefined') {
+  for (var xci = 0; xci < XANDER_CHARS.length; xci++) {
+    var xcHave = false;
+    for (var xcj = 0; xcj < MESHY_CHARS.length; xcj++) if (MESHY_CHARS[xcj].n === XANDER_CHARS[xci].n) { xcHave = true; break; }
+    if (!xcHave) MESHY_CHARS.push(XANDER_CHARS[xci]);
+  }
+}
 var CC_MAX = { skin: CSKIN.length, hair: HAIRN.length, hairC: CHAIRC.length, eyes: EYESN.length, mouth: MOUTHN.length, faceX: FACEXN.length, shirt: SHIRTN.length, shirtC: CSHIRT.length, shirtC2: CSHIRT.length, pants: LEGSN.length, pantsC: CPANTS.length, shoeC: CSHOE.length, hat: HATN.length, hatC: CHAT.length, glasses: GLASSN.length, extra: GEARN.length, build: 5, preset: 4 + ((typeof MESHY_CHARS !== 'undefined') ? MESHY_CHARS.filter(function (m) { return !m.role || m.role === 'civ'; }).length : 0) };
 function seededRng(seed) { var s = seed >>> 0; return function () { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
 function randomCharConfig(rng) {
@@ -4857,6 +5011,18 @@ function setNpcTarget(n) {
       }
     }
   }
+  // social-groups (#67): a group FOLLOWER always heads for a ring slot around
+  // its leader instead of a free wander target — reusing all the movement +
+  // obstacle steering below, this just biases WHERE it walks so the cluster
+  // stays together without stacking (pushOut keeps the ~1.8-3.6u spacing).
+  if (n.grp && !n.grpLead && n.grp.lead && n.grp.lead !== n) {
+    var Ld = n.grp.lead;
+    if (Ld.state !== 'down' && Ld.state !== 'ragdoll') {
+      var ga = Math.random() * 6.2832, gr = 1.8 + Math.random() * 1.8;
+      n.tx = Ld.x + Math.cos(ga) * gr; n.tz = Ld.z + Math.sin(ga) * gr;
+      n.wayX = undefined; n.wayZ = undefined; n.doorSeek = undefined;
+    }
+  }
 }
 // scan traffic for a car bearing down on this NPC; returns the unit
 // perpendicular (away from the car's path) to sprint along, or null
@@ -5191,6 +5357,285 @@ function spawnNPC() {
   scene.add(mesh); npcs.push(n); setNpcTarget(n); maybeAttachAccessory(n); return n;
 }
 for (var ni = 0; ni < NPC_COUNT; ni++) spawnNPC();
+
+// ============================ SOCIAL GROUPS (#67) ============================
+// A few NAMED civilians roam town as a cohesive GROUP: followers glue to a
+// leader (the Sharp father DON) with cheap ring-offset steering that reuses the
+// normal wander + obstacle avoidance, and the group periodically halts to run a
+// scripted CONVERSATION — alternating speakers, the right voice per line where a
+// voice pack exists, plus a readable speech bubble for the wholesome/funny
+// flavor. Two flavours: the SHARP FAMILY (DON + a subset of his sons DYLAN /
+// DERIK / ALEX, with dad-to-son and brother banter) and the XANDER-DERIK gamer
+// friend pair. Group members are ordinary civilians (targetable, mortal) — the
+// group + conversation state cleans up on death / flee / combat so nothing ever
+// paths to a dead anchor or orphans a half-finished chat. Host/singleplayer
+// only: the cohesion + chat sim rides inside updateNPCs (which early-returns for
+// clients), voices play local (net:0), and members stay ordinary `npcs` entries.
+var socialGroups = [];
+var SHARP_SONS = ['DYLAN', 'DERIK', 'ALEX'];
+var GRP_LEASH2 = 6 * 6;      // a follower re-aims at its leader beyond this (sq dist)
+var GRP_CLUSTER2 = 8 * 8;    // every member within this of the leader → a chat may start
+function grpPick(a) { return a[(Math.random() * a.length) | 0]; }
+function meshyCivIndexByName(name) {
+  for (var i = 0; i < MESHY_CIVS.length; i++) if (MESHY_LIST[MESHY_CIVS[i]].n === name) return i;
+  return -1;
+}
+// a randomCharConfig pinned to a specific roster look (scale/build stay random;
+// Meshy heads ignore hats/glasses so keep those clear)
+function cfgForName(name) {
+  var cfg = randomCharConfig();
+  var ci = meshyCivIndexByName(name);
+  if (ci >= 0) cfg.preset = 1 + PSX_SKINS.length + ci;
+  cfg.hat = 0; cfg.glasses = 0; cfg.extra = 0;
+  return cfg;
+}
+function nameInAnyGroup(name) {
+  for (var i = 0; i < socialGroups.length; i++) {
+    var mm = socialGroups[i].members;
+    for (var j = 0; j < mm.length; j++) if (mm[j].vname === name && mm[j].state !== 'down' && mm[j].state !== 'ragdoll') return true;
+  }
+  return false;
+}
+function hasGroupType(type) { for (var i = 0; i < socialGroups.length; i++) if (socialGroups[i].type === type) return true; return false; }
+function grpSummary(g) { return g ? { type: g.type, members: g.members.map(function (m) { return m.vname; }), lead: g.lead && g.lead.vname } : null; }
+function memberByName(grp, name) { for (var i = 0; i < grp.members.length; i++) if (grp.members[i].vname === name) return grp.members[i]; return null; }
+function groupCenter(grp) { var x = 0, z = 0, m = grp.members, i; if (!m.length) return [0, 0]; for (i = 0; i < m.length; i++) { x += m[i].x; z += m[i].z; } return [x / m.length, z / m.length]; }
+
+// build a named civilian NPC at (x,z); homes it locally so the group wanders as
+// a cluster instead of trekking cross-map. Mirrors spawnNPC's npc shape.
+function spawnNamedNPC(name, x, z) {
+  var mesh = buildCharacter(cfgForName(name));
+  var n = { mesh: mesh, x: x, z: z, tx: x, tz: z, hp: 100, state: 'walk', speed: 1.4 + Math.random() * 0.5, phase: Math.random() * 9, pause: 0, fleeT: 0, fleeDX: 0, fleeDZ: 0, downT: 0, hurtFlash: 0, vname: name, fem: MESHY_FEM.indexOf(name) >= 0 };
+  n.homeX = x; n.homeZ = z; n.zone = 0; n.turf = null;
+  mesh.position.set(x, 0, z); mesh.userData.npc = n;
+  scene.add(mesh); npcs.push(n); setNpcTarget(n);
+  return n;
+}
+function groupSpawnCenter() {
+  var s = sidewalkSpot();
+  for (var t = 0; t < 16 && !spotClear(s[0], s[1]); t++) s = sidewalkSpot();
+  return s;
+}
+function makeGroup(type, names, cx, cz) {
+  var members = [], i;
+  for (i = 0; i < names.length; i++) {
+    var ang = (i / names.length) * 6.2832, rad = i === 0 ? 0 : 2 + (i % 2) * 0.8;
+    var sp = pushOut(cx + Math.cos(ang) * rad, cz + Math.sin(ang) * rad, 0.45);
+    members.push(spawnNamedNPC(names[i], sp.x, sp.z));
+  }
+  var grp = { type: type, members: members, lead: members[0], talking: false, chatCD: 5 + Math.random() * 7, curSpeaker: null, beats: null, beatI: 0, beatT: 0 };
+  for (i = 0; i < members.length; i++) { members[i].grp = grp; members[i].grpLead = (i === 0); }
+  socialGroups.push(grp);
+  return grp;
+}
+// tear a group down and (optionally) remove its members from the world — used
+// when a fresh __wc spawn must replace a conflicting one. Safe BETWEEN frames.
+function disbandGroup(grp, removeMeshes) {
+  if (!grp) return;
+  endGroupChat(grp);
+  for (var i = 0; i < grp.members.length; i++) {
+    var m = grp.members[i]; m.grp = null; m.grpLead = false; m.grpTalk = false;
+    if (removeMeshes) { if (m.mesh) scene.remove(m.mesh); var k = npcs.indexOf(m); if (k >= 0) npcs.splice(k, 1); }
+  }
+  var gi = socialGroups.indexOf(grp); if (gi >= 0) socialGroups.splice(gi, 1);
+}
+// a member died / left: pull it from its group; promote a new leader or disband
+// the remainder (a lone member becomes a normal wanderer — never a dead anchor).
+function leaveGroup(n) {
+  var grp = n.grp; if (!grp) return;
+  endGroupChat(grp);
+  var mi = grp.members.indexOf(n); if (mi >= 0) grp.members.splice(mi, 1);
+  n.grp = null; n.grpLead = false; n.grpTalk = false;
+  if (!grp.members.length) { var gi = socialGroups.indexOf(grp); if (gi >= 0) socialGroups.splice(gi, 1); return; }
+  if (grp.lead === n) { grp.lead = grp.members[0]; grp.members[0].grpLead = true; }
+  if (grp.members.length < 2) {
+    var last = grp.members[0]; last.grp = null; last.grpLead = false;
+    var gj = socialGroups.indexOf(grp); if (gj >= 0) socialGroups.splice(gj, 1);
+  }
+}
+function spawnSharpGroup(sons) {
+  for (var i = socialGroups.length - 1; i >= 0; i--) if (socialGroups[i].type === 'sharp') disbandGroup(socialGroups[i], true);
+  if (!sons) {
+    var pool = SHARP_SONS.slice();
+    for (var s = pool.length - 1; s > 0; s--) { var j = Math.random() * (s + 1) | 0; var t = pool[s]; pool[s] = pool[j]; pool[j] = t; }
+    sons = pool.slice(0, 1 + (Math.random() * 3 | 0));   // 1..3 sons → group of 2..4
+  }
+  var names = ['DON'];
+  for (var k = 0; k < sons.length; k++) if (names.indexOf(sons[k]) < 0 && !nameInAnyGroup(sons[k])) names.push(sons[k]);
+  if (names.length < 2) names.push('DYLAN');
+  var c = groupSpawnCenter();
+  return makeGroup('sharp', names, c[0], c[1]);
+}
+function spawnXanderDerik() {
+  for (var i = socialGroups.length - 1; i >= 0; i--) if (socialGroups[i].type === 'friends') disbandGroup(socialGroups[i], true);
+  // DERIK belongs to whichever group exists: evict him from the family if he's there
+  for (var gi = 0; gi < socialGroups.length; gi++) {
+    var mm = socialGroups[gi].members, done = false;
+    for (var mj = 0; mj < mm.length; mj++) if (mm[mj].vname === 'DERIK') { var d = mm[mj]; leaveGroup(d); scene.remove(d.mesh); var ki = npcs.indexOf(d); if (ki >= 0) npcs.splice(ki, 1); done = true; break; }
+    if (done) break;
+  }
+  var c = groupSpawnCenter();
+  return makeGroup('friends', ['XANDER', 'DERIK'], c[0], c[1]);
+}
+
+// ---- conversation scripts (text always shown; `v` = voice category to play if
+// the speaker's pack has it — DON/DYLAN/DERIK/ALEX carry chatQ/chatA/story/quirk;
+// XANDER has no NPC voice pack, so his lines are text-only bubbles) ----
+var DAD_LINES = {
+  DYLAN: ["Dylan, you still dumping quarters in that arcade?", "How's the job hunt, Dylan? Your mother asks.", "Stand up straight, Dylan — you're a Sharp."],
+  DERIK: ["Derik, did you eat today? You're skin and bones.", "Off the games by midnight, Derik, you hear me?", "In my day, Derik, I had TWO paper routes."],
+  ALEX: ["Alex, my boy, help your old man with the gutters later.", "You're the sensible one, Alex — mind your brothers.", "That haircut cost more than my first car, Alex."]
+};
+var SON_REPLY = {
+  DYLAN: ["Dad, it's called an investment.", "I'm on it, Pop, relax."],
+  DERIK: ["I ate a whole pizza, Dad.", "One more level and I'm done, I swear."],
+  ALEX: ["Always do, Dad.", "You say that every Sunday, Pop."]
+};
+var BRO_BANTER = ["Bet I beat you to the RaceTrac.", "Mom's making meatloaf, losers.", "You still owe me twenty bucks.", "Quit hogging the controller.", "Dad likes me best, admit it."];
+var DON_WRAP = ["Alright, alright — love you boys.", "Good talk. Now who's driving?", "Your mother's holding dinner for us."];
+var XAN_LINES = ["Derik! I paused my game for this, better be good.", "New patch dropped — it's totally busted.", "You bringing your controller Friday?", "Hit Diamond last night. No big deal.", "RaceTrac's got the good energy drinks."];
+var DERIK_FRIEND = ["You're gonna get carpal tunnel, man.", "Let's grab snacks and grind.", "Diamond? Nah, you got carried.", "Friday's locked in, Xander.", "One more ranked and I'm out."];
+function sharpScript(grp) {
+  var sons = [], i;
+  for (i = 0; i < grp.members.length; i++) if (grp.members[i].vname !== 'DON') sons.push(grp.members[i].vname);
+  if (!sons.length) return null;
+  var beats = [], son = grpPick(sons);
+  beats.push({ who: 'DON', text: grpPick(DAD_LINES[son] || ['Come here, son.']), v: 'chatQ' });
+  beats.push({ who: son, text: grpPick(SON_REPLY[son] || ['Sure, Dad.']), v: 'chatA' });
+  if (sons.length >= 2 && Math.random() < 0.85) {
+    var a = grpPick(sons), b = a, guard = 0; while (b === a && guard++ < 6) b = grpPick(sons);
+    beats.push({ who: a, text: grpPick(BRO_BANTER), v: 'quirk' });
+    beats.push({ who: b, text: grpPick(BRO_BANTER), v: 'chatA' });
+  }
+  if (Math.random() < 0.55) beats.push({ who: 'DON', text: grpPick(DON_WRAP), v: 'story' });
+  return beats;
+}
+function friendsScript(grp) {
+  var beats = [], turn = Math.random() < 0.5 ? 'XANDER' : 'DERIK', n = 3 + (Math.random() * 2 | 0), i;
+  for (i = 0; i < n; i++) {
+    if (turn === 'XANDER') { beats.push({ who: 'XANDER', text: grpPick(XAN_LINES), v: null }); turn = 'DERIK'; }
+    else { beats.push({ who: 'DERIK', text: grpPick(DERIK_FRIEND), v: i % 2 ? 'chatA' : 'quirk' }); turn = 'XANDER'; }
+  }
+  return beats;
+}
+// player-facing group-aware barks (the crew name-drops each other when you
+// stroll up). DON brags about his boys; a son name-drops his dad/brothers;
+// the gamer duo hype their duo.
+var grpAwareT = -99;
+var DON_ABOUT = ["That's my boy right there.", "Out with all my sons today.", "Three boys — never a dull minute.", "Sharp family, together as always."];
+var SON_ABOUT = ["That's my old man, Don Sharp.", "Out with my dad and my brothers.", "My brother's around here somewhere.", "Whole family's out today."];
+var XAN_ABOUT = ["Me and Derik run ranked later.", "That's my boy Derik — best duo in town.", "Derik and me, we don't lose."];
+var DERIK_ABOUT = ["Xander and me go way back.", "Gaming sesh with Xander tonight.", "That's my guy Xander."];
+function groupAwareLines(n) {
+  if (n.grp && n.grp.type === 'friends') return n.vname === 'XANDER' ? XAN_ABOUT : DERIK_ABOUT;
+  if (n.grp && n.grp.type === 'sharp') return n.vname === 'DON' ? DON_ABOUT : SON_ABOUT;
+  return null;
+}
+function groupClusteredIdle(grp) {
+  var L = grp.lead; if (!L) return false;
+  for (var i = 0; i < grp.members.length; i++) {
+    var m = grp.members[i];
+    if (m.state !== 'walk' && m.state !== 'stand') return false;
+    var dx = m.x - L.x, dz = m.z - L.z; if (dx * dx + dz * dz > GRP_CLUSTER2) return false;
+  }
+  return true;
+}
+function startGroupChat(grp) {
+  var beats = grp.type === 'sharp' ? sharpScript(grp) : friendsScript(grp);
+  if (!beats || !beats.length) { grp.chatCD = 4; return; }
+  grp.beats = beats; grp.beatI = 0; grp.beatT = 0.25; grp.talking = true; grp.curSpeaker = null;
+  var ctr = groupCenter(grp);
+  for (var i = 0; i < grp.members.length; i++) {
+    var m = grp.members[i];
+    m.state = 'chat'; m.grpTalk = true; m.animT = Math.random() * 2; m.stateT = 40;
+    m.mesh.rotation.y = Math.atan2(ctr[0] - m.x, ctr[1] - m.z);
+    m.wayX = undefined; m.wayZ = undefined; m.doorSeek = undefined;
+  }
+}
+function grpNextBeat(grp) {
+  if (!grp.beats || grp.beatI >= grp.beats.length) { endGroupChat(grp); return; }
+  var beat = grp.beats[grp.beatI++];
+  var sp = memberByName(grp, beat.who);
+  if (!sp || sp.state !== 'chat') { grpNextBeat(grp); return; }   // speaker gone — skip ahead
+  grp.curSpeaker = sp; sp.animT = 0;
+  if (beat.v) playNpcVoice(sp.vname, beat.v, 0.6, 1, { x: sp.x, z: sp.z, ref: sp });
+  speechBubble(sp, beat.text);
+  grp.beatT = 2.5 + Math.min(2.2, beat.text.length * 0.045) + Math.random() * 0.5;
+}
+function endGroupChat(grp) {
+  if (!grp) return;
+  for (var i = 0; i < grp.members.length; i++) {
+    var m = grp.members[i];
+    if (m.grpTalk) { m.grpTalk = false; if (m.state === 'chat') { m.state = 'walk'; m.stateT = 0; setNpcTarget(m); } stopNpcVoice(m.vname); }
+  }
+  grp.talking = false; grp.beats = null; grp.curSpeaker = null; grp.beatI = 0; grp.chatCD = 12 + Math.random() * 12;
+}
+function updateGroups(dt) {
+  for (var i = socialGroups.length - 1; i >= 0; i--) {
+    var grp = socialGroups[i];
+    for (var j = grp.members.length - 1; j >= 0; j--) {   // safety prune (death paths already detach)
+      var mb = grp.members[j];
+      if ((mb.state === 'down' || mb.state === 'ragdoll' || mb.state === 'hidden') && mb.grp === grp) leaveGroup(mb);
+    }
+    if (socialGroups.indexOf(grp) < 0) continue;
+    if (grp.talking) continue;   // beats advance in the chat-state handler (leader side)
+    grp.chatCD -= dt;
+    var L = grp.lead;
+    for (var k = 0; k < grp.members.length; k++) {   // cohesion: tug strayed followers back
+      var m = grp.members[k];
+      if (m === L || m.state !== 'walk') continue;
+      var dx = m.x - L.x, dz = m.z - L.z;
+      if (dx * dx + dz * dz > GRP_LEASH2) setNpcTarget(m);   // setNpcTarget tail re-aims at the leader
+    }
+    if (grp.chatCD <= 0) { if (!state.dead && groupClusteredIdle(grp)) startGroupChat(grp); else grp.chatCD = 2; }
+  }
+}
+// ---- speech bubbles (world-space text above a speaker; pooled, host-local) ----
+var speechBubbles = [];
+function makeSpeechSprite() {
+  var c = document.createElement('canvas'); c.width = 340; c.height = 64;
+  var t = new THREE.CanvasTexture(c); t.magFilter = THREE.LinearFilter;
+  var sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthTest: false, transparent: true }));
+  sp.scale.set(5.2, 0.98, 1); sp.renderOrder = 999; sp.visible = false; scene.add(sp);
+  sp.userData.canvas = c; sp.userData.tex = t;
+  return sp;
+}
+function drawSpeech(sp, text) {
+  var c = sp.userData.canvas, g = c.getContext('2d'), fs = 22;
+  g.clearRect(0, 0, c.width, c.height);
+  do { g.font = 'bold ' + fs + 'px Georgia'; fs -= 2; } while (fs > 11 && g.measureText(text).width > c.width - 26);
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  var w = Math.min(c.width - 4, g.measureText(text).width + 24), x0 = (c.width - w) / 2, y0 = c.height / 2 - 17;
+  g.fillStyle = 'rgba(16,14,20,0.85)'; g.fillRect(x0, y0, w, 34);
+  g.strokeStyle = 'rgba(255,255,255,0.16)'; g.lineWidth = 1; g.strokeRect(x0 + 0.5, y0 + 0.5, w - 1, 33);
+  g.fillStyle = '#f4efe6'; g.fillText(text, c.width / 2, c.height / 2 + 1);
+  sp.userData.tex.needsUpdate = true;
+}
+function speechBubble(n, text) {
+  if (!n || !n.mesh) return;
+  var b = null, i;
+  for (i = 0; i < speechBubbles.length; i++) if (speechBubbles[i].ref === n) { b = speechBubbles[i]; break; }
+  if (!b) for (i = 0; i < speechBubbles.length; i++) if (speechBubbles[i].t <= 0) { b = speechBubbles[i]; break; }
+  if (!b) { if (speechBubbles.length < 8) { b = { spr: makeSpeechSprite(), ref: null, t: 0 }; speechBubbles.push(b); } else { b = speechBubbles[0]; for (i = 1; i < speechBubbles.length; i++) if (speechBubbles[i].t < b.t) b = speechBubbles[i]; } }
+  b.ref = n; b.t = 2.6; drawSpeech(b.spr, text); b.spr.material.opacity = 1; b.spr.visible = true;
+}
+function updateSpeech(dt) {
+  for (var i = 0; i < speechBubbles.length; i++) {
+    var b = speechBubbles[i]; if (b.t <= 0) { if (b.spr.visible) b.spr.visible = false; continue; }
+    b.t -= dt;
+    var n = b.ref;
+    if (b.t <= 0 || !n || n.state === 'down' || n.state === 'ragdoll' || n.state === 'hidden' || !n.mesh.visible) { b.t = 0; b.spr.visible = false; continue; }
+    b.spr.position.set(n.x, 3.05, n.z);
+    b.spr.material.opacity = b.t < 0.5 ? b.t / 0.5 : 1;
+  }
+}
+// seed the town with one Sharp family (sons DYLAN+ALEX so DERIK stays free for
+// the friend pair) + the XANDER-DERIK gamer duo. Wrapped so a spawn hiccup can
+// never abort the load.
+(function seedSocialGroups() {
+  try { spawnSharpGroup(['DYLAN', 'ALEX']); spawnXanderDerik(); }
+  catch (e) { if (window.console && console.warn) console.warn('social-group seed failed', e); }
+})();
 
 // dealer
 var dealer = MESHY_ROLE.dealer !== undefined ? buildMeshySkinned(randomCharConfig(), MESHY_ROLE.dealer) : buildPerson('#1b1b1f', '#141418', 0xc98d5e, { shades: true, hairColor: 0x111111, chain: true });
@@ -6668,6 +7113,216 @@ if (WC_REMAP) (function densityLayer() {
   }
 
   flush();
+})();
+
+// ============================================================
+// LANDSCAPING PASS (#51)  (WC_REMAP)
+// ------------------------------------------------------------
+// Dense, manicured Florida-suburban plantings: foundation shrub beds + low
+// hedges hugging venue fronts, curbed parking-lot islands (palm + mulch ring
+// + shrubs), arterial frontage-strip ornamentals (grasses / crepe myrtles /
+// hedges), signature corner plantings, and residential foundation shrubs.
+//
+// PERFORMANCE: every shrub/hedge/mulch/grass instance is baked (matrix-
+// transformed) into a handful of MERGED BufferGeometries — one draw call per
+// species/colour — like the powerlines + densityLayer merges. Palms and crepe
+// myrtles reuse the existing (capped) tree builders. Nothing here carries a
+// collider: per CLAUDE.md, bushes/shrubs/beds stay PASS-THROUGH (only tree
+// trunks collide, via their own systems).
+// ============================================================
+var landscapeStats = { hedge: 0, shrub: 0, mulch: 0, grass: 0, myrtle: 0, palm: 0, island: 0, tris: 0, draws: 0 };
+var landscapeMeshes = [];
+if (WC_REMAP) (function landscapePass() {
+  var deg = Math.PI / 180;
+  function rnd(a, b) { return a + Math.random() * (b - a); }
+  function pick(a) { return a[(Math.random() * a.length) | 0]; }
+  var VENUES = (typeof REMAP_VENUES !== 'undefined') ? REMAP_VENUES : [];
+  var SURF = (typeof REMAP_SURFACES !== 'undefined') ? REMAP_SURFACES : [];
+  // front-face + rotated-rect helpers (mirror densityLayer — keyed off rot alone)
+  function vFront(v) { var yaw = (v.rot || 0) * deg; return { yaw: yaw, fx: Math.sin(yaw), fz: Math.cos(yaw), rx: Math.cos(yaw), rz: -Math.sin(yaw) }; }
+  function rectPt(s, u, v) { var r = (s.rot || 0) * deg, c = Math.cos(r), sn = Math.sin(r); return [s.x + u * c + v * sn, s.z - u * sn + v * c]; }
+
+  // ---- textures (all canvas-generated) ----
+  function rep(t) { t.wrapS = t.wrapT = THREE.RepeatWrapping; return t; }
+  var hedgeTex = rep(tex(64, function (g, s) {
+    g.fillStyle = '#2c5a26'; g.fillRect(0, 0, s, s);
+    for (var i = 0; i < 320; i++) { g.fillStyle = ['#234b20', '#356a2e', '#1d4019', '#417a37', '#2f5f29'][(Math.random() * 5) | 0]; var r = 1 + Math.random() * 2.4; g.beginPath(); g.arc(Math.random() * s, Math.random() * s, r, 0, 6.29); g.fill(); }
+  }, 1, 1));
+  function foliageTex(base, flecks) {
+    return tex(48, function (g, s) {
+      g.fillStyle = base; g.fillRect(0, 0, s, s);
+      for (var i = 0; i < 200; i++) { g.fillStyle = flecks[(Math.random() * flecks.length) | 0]; var r = 1 + Math.random() * 2.2; g.beginPath(); g.arc(Math.random() * s, Math.random() * s, r, 0, 6.29); g.fill(); }
+    }, 1, 1);
+  }
+  var mulchTex = rep(tex(64, function (g, s) {
+    g.fillStyle = '#4a3320'; g.fillRect(0, 0, s, s);
+    for (var i = 0; i < 260; i++) { g.fillStyle = ['#3a2717', '#5a3d24', '#6b4a2c', '#33220f'][(Math.random() * 4) | 0]; var w = 2 + Math.random() * 4, h = 1 + Math.random() * 2, x = Math.random() * s, y = Math.random() * s; g.save(); g.translate(x, y); g.rotate(Math.random() * 3.14); g.fillRect(-w / 2, -h / 2, w, h); g.restore(); }
+  }, 1, 1));
+  var grassTex = tex(48, function (g, s) {
+    g.clearRect(0, 0, s, s);
+    for (var b = 0; b < 46; b++) {
+      var x0 = Math.random() * s, len = s * (0.45 + Math.random() * 0.5), lean = (Math.random() - 0.5) * 10;
+      g.strokeStyle = ['#6f9a3a', '#7fae44', '#5c8a30', '#93b85a', '#8a7d33'][(Math.random() * 5) | 0];
+      g.lineWidth = 1 + Math.random() * 1.5; g.beginPath(); g.moveTo(x0, s); g.quadraticCurveTo(x0 + lean * 0.5, s - len * 0.5, x0 + lean, s - len); g.stroke();
+    }
+  }, 1, 1);
+
+  // ---- materials (one per merged batch key) ----
+  var hedgeMat = lamb({ map: hedgeTex });
+  var shrubMats = {
+    dark: lamb({ map: foliageTex('#2c5323', ['#234420', '#376a30', '#1c3a17', '#40773a']) }),
+    mid: lamb({ map: foliageTex('#3d6e30', ['#315a28', '#4c8542', '#264d22', '#5a9048']) }),
+    olive: lamb({ map: foliageTex('#556f34', ['#48602c', '#6a854a', '#3e5626', '#7a9856']) }),
+    bloom: lamb({ map: foliageTex('#3f7038', ['#e57ab0', '#f2f0e8', '#d94f8a', '#356030', '#f4c542']) })
+  };
+  var mulchMat = lamb({ map: mulchTex }); mulchMat.polygonOffset = true; mulchMat.polygonOffsetFactor = -1.5; mulchMat.polygonOffsetUnits = -1.5;
+  var grassMat = lamb({ map: grassTex, transparent: true, alphaTest: 0.4, side: THREE.DoubleSide });
+  var curbMat = lamb({ color: 0xb9b6ad });
+
+  // ---- merged-batch bake system (one Mesh/draw call per key) ----
+  var BAT = {}, _NM = new THREE.Matrix3(), _V = new THREE.Vector3(), _N = new THREE.Vector3();
+  function lbatch(key, mat) { var e = BAT[key]; if (!e) e = BAT[key] = { pos: [], norm: [], uv: [], mat: mat }; return e; }
+  function lbake(key, mat, geo, m) {
+    var e = lbatch(key, mat); _NM.getNormalMatrix(m);
+    var p = geo.attributes.position, u = geo.attributes.uv, nm = geo.attributes.normal, idx = geo.index;
+    var count = idx ? idx.count : p.count;
+    for (var i = 0; i < count; i++) {
+      var vi = idx ? idx.getX(i) : i;
+      _V.set(p.getX(vi), p.getY(vi), p.getZ(vi)).applyMatrix4(m); e.pos.push(_V.x, _V.y, _V.z);
+      if (nm) { _N.set(nm.getX(vi), nm.getY(vi), nm.getZ(vi)).applyMatrix3(_NM).normalize(); e.norm.push(_N.x, _N.y, _N.z); } else e.norm.push(0, 1, 0);
+      e.uv.push(u ? u.getX(vi) : 0, u ? u.getY(vi) : 0);
+    }
+  }
+  function lflush() {
+    var draws = 0, tris = 0;
+    for (var key in BAT) {
+      var e = BAT[key]; if (!e.pos.length) continue;
+      var g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(e.pos), 3));
+      g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(e.norm), 3));
+      g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(e.uv), 2));
+      var mesh = new THREE.Mesh(g, e.mat); mesh.frustumCulled = false;
+      scene.add(mesh); landscapeMeshes.push(mesh); draws++; tris += e.pos.length / 9;
+    }
+    landscapeStats.draws = draws; landscapeStats.tris = Math.round(tris);
+  }
+  function mtx(px, py, pz, ry, sx, sy, sz) {
+    return new THREE.Matrix4().compose(new THREE.Vector3(px, py, pz), new THREE.Quaternion().setFromAxisAngle(Y_UP, ry || 0), new THREE.Vector3(sx, sy, sz));
+  }
+
+  // ---- shared unit geometries ----
+  var USPH = new THREE.IcosahedronGeometry(0.5, 0);          // 20-tri shrub blob
+  var UQUAD = new THREE.PlaneGeometry(1, 1); UQUAD.rotateX(-Math.PI / 2);   // ground quad, faces +y
+  var UCARD = new THREE.PlaneGeometry(1, 1); UCARD.translate(0, 0.5, 0);    // upright card, base at y0
+
+  // ---- species builders ----
+  // low manicured hedge run A->B, height h, thickness th
+  function hedge(ax, az, bx, bz, h, th) {
+    var dx = bx - ax, dz = bz - az, L = Math.sqrt(dx * dx + dz * dz); if (L < 0.4) return;
+    th = th || 0.7; var ry = Math.atan2(dx, dz);
+    var geo = new THREE.BoxGeometry(th, h, L), uv = geo.attributes.uv, repN = Math.max(1, Math.round(L / h));
+    for (var i = 0; i < uv.count; i++) uv.setY(i, uv.getY(i) * repN);   // tile foliage along the run
+    lbake('ls_hedge', hedgeMat, geo, mtx((ax + bx) / 2, h / 2 + 0.02, (az + bz) / 2, ry, 1, 1, 1));
+    landscapeStats.hedge++;
+  }
+  // shrub clump: 1-3 flattened blobs, colour by species key
+  var SHRUB_KEYS = ['dark', 'mid', 'olive'];
+  function shrub(x, z, scale, key) {
+    scale = scale || rnd(0.75, 1.25); key = key || pick(SHRUB_KEYS);
+    var n = 1 + (Math.random() * 2.5 | 0);
+    for (var i = 0; i < n; i++) {
+      var r = scale * rnd(0.55, 0.9), ox = n > 1 ? rnd(-scale * 0.5, scale * 0.5) : 0, oz = n > 1 ? rnd(-scale * 0.5, scale * 0.5) : 0;
+      lbake('ls_shrub_' + key, shrubMats[key], USPH, mtx(x + ox, r * 0.72, z + oz, rnd(0, 6.28), r * 2, r * 1.7, r * 2));
+    }
+    landscapeStats.shrub++;
+  }
+  // ornamental fountain-grass tuft: 2 crossed alpha cards
+  function grass(x, z, scale) {
+    scale = scale || rnd(0.7, 1.15); var ry = rnd(0, 3.14);
+    lbake('ls_grass', grassMat, UCARD, mtx(x, 0.02, z, ry, scale * 1.3, scale, 1));
+    lbake('ls_grass', grassMat, UCARD, mtx(x, 0.02, z, ry + Math.PI / 2, scale * 1.3, scale, 1));
+    landscapeStats.grass++;
+  }
+  // mulch/planting bed ground quad (rotated to a wall/island)
+  function mulchBed(x, z, w, d, ry) {
+    lbake('ls_mulch', mulchMat, UQUAD, mtx(x, 0.045, z, ry || 0, w, 1, d));
+    landscapeStats.mulch++;
+  }
+  // thin light-grey curb ring around an island (4 low boxes, no collider)
+  function curbRing(x, z, w, d, ry) {
+    var hw = w / 2, hd = d / 2, t = 0.2, hy = 0.16, r = ry || 0;
+    // build in local frame then rotate via mtx around the island centre
+    var edges = [[0, hd, w, t], [0, -hd, w, t], [hw, 0, t, d], [-hw, 0, t, d]];
+    for (var e = 0; e < edges.length; e++) {
+      var ux = edges[e][0], uz = edges[e][1], ew = edges[e][2], ed = edges[e][3];
+      var wx = x + ux * Math.cos(r) + uz * Math.sin(r), wz = z - ux * Math.sin(r) + uz * Math.cos(r);
+      lbake('ls_curb', curbMat, new THREE.BoxGeometry(ew, hy, ed), mtx(wx, hy / 2 + 0.02, wz, r, 1, 1, 1));
+    }
+  }
+
+  // reuse existing (capped) tree builders for woody ornamentals
+  function myrtle(x, z) { if (typeof crepeMyrtle === 'function' && landscapeStats.myrtle < CAP.myrtle) { crepeMyrtle(x, z); landscapeStats.myrtle++; } }
+  function ipalm(x, z) { if (typeof palm === 'function' && landscapeStats.palm < CAP.palm) { palm(x, z); landscapeStats.palm++; } }
+
+  var CAP = { shrub: 1200, hedge: 360, grass: 500, mulch: 400, myrtle: 60, palm: 40 };
+  function okShrub() { return landscapeStats.shrub < CAP.shrub; }
+
+  // guards: reuse the world's placement checks; front-hugging beds trust the
+  // vFront geometry (spotClear would reject anything near a building collider).
+  function openClear(x, z) { return spotClear(x, z) && !inLake(x, z) && (typeof remapInClear === 'undefined' || !remapInClear(x, z, 1)) && (typeof houseBlocksSpot === 'undefined' || !houseBlocksSpot(x, z)); }
+
+  var COMM = { racetrac: 1, publix: 1, dollar_tree: 1, storage: 1, starbucks: 1, bank: 1, strip: 1, dunkin: 1, offices: 1, yoga: 1, pharmacy: 1, sushi: 1, farnell: 1, shop: 1 };
+
+  // ============ WAVE 1: BUILDING-FRONTAGE FOUNDATION BEDS ============
+  // Low hedge + mulch strip + foundation shrubs/grasses hugging each commercial
+  // front face, split around a central entrance gap; flowering accent shrubs at
+  // the door flanks. Bigger footprints also get a side-wall bed.
+  for (var vf = 0; vf < VENUES.length; vf++) {
+    var v = VENUES[vf]; if (!COMM[v.type]) continue;
+    var f = vFront(v);
+    var fcx = v.x + f.fx * (v.d / 2), fcz = v.z + f.fz * (v.d / 2);   // front wall centre
+    var hwv = v.w / 2 - 1.0;                                          // usable half-width
+    var doorH = Math.min(3.2, Math.max(1.6, hwv * 0.32));            // half entrance gap
+    var bedOff = 1.35;                                               // hedge/mulch distance from wall
+    var bx0 = fcx + f.fx * bedOff, bz0 = fcz + f.fz * bedOff;
+    if (inLake(bx0, bz0)) continue;
+    // two hedge segments (left/right of the door) with a mulch strip beneath each
+    var segs = [[-hwv, -doorH], [doorH, hwv]];
+    for (var sgi = 0; sgi < segs.length; sgi++) {
+      var la = segs[sgi][0], lb = segs[sgi][1]; if (lb - la < 1.2) continue;
+      var ax = bx0 + f.rx * la, az = bz0 + f.rz * la, bx = bx0 + f.rx * lb, bz = bz0 + f.rz * lb;
+      var hgt = rnd(0.6, 0.85);
+      hedge(ax, az, bx, bz, hgt, rnd(0.6, 0.85));
+      var mcx = (ax + bx) / 2, mcz = (az + bz) / 2;
+      mulchBed(mcx, mcz, Math.abs(lb - la) + 0.6, 1.9, f.yaw);
+      // foundation shrubs + grasses along the segment, in front of the hedge
+      var stp = 2.0, foff = bedOff + 0.75;
+      for (var t = la + 0.6; t < lb - 0.4 && okShrub(); t += stp) {
+        var jit = rnd(-0.35, 0.35);
+        var sx = fcx + f.fx * foff + f.rx * (t + jit), sz = fcz + f.fz * foff + f.rz * (t + jit);
+        if (Math.random() < 0.78) shrub(sx, sz, rnd(0.6, 1.0), pick(SHRUB_KEYS));
+        else grass(sx, sz, rnd(0.7, 1.0));
+      }
+    }
+    // flowering accent shrubs flanking the entrance
+    for (var ds = -1; ds <= 1; ds += 2) {
+      var dx2 = fcx + f.fx * (bedOff + 0.7) + f.rx * (doorH * ds), dz2 = fcz + f.fz * (bedOff + 0.7) + f.rz * (doorH * ds);
+      shrub(dx2, dz2, rnd(0.85, 1.15), 'bloom');
+    }
+    // side-wall bed for the larger footprints
+    if (v.w >= 40 || v.d >= 26) {
+      for (var side = -1; side <= 1; side += 2) {
+        var sw = v.w / 2 + 1.2, sdA = -v.d / 2 + 1.5, sdB = v.d / 2 - 1.5;
+        var pAx = v.x + f.rx * sw * side + f.fx * sdA, pAz = v.z + f.rz * sw * side + f.fz * sdA;
+        var pBx = v.x + f.rx * sw * side + f.fx * sdB, pBz = v.z + f.rz * sw * side + f.fz * sdB;
+        if (inLake(pAx, pAz) || inLake(pBx, pBz)) continue;
+        hedge(pAx, pAz, pBx, pBz, rnd(0.55, 0.75), 0.6);
+        mulchBed((pAx + pBx) / 2, (pAz + pBz) / 2, 1.6, Math.abs(sdB - sdA) + 0.5, f.yaw);
+      }
+    }
+  }
+
+  lflush();
 })();
 
 // ============================================================
@@ -8705,6 +9360,7 @@ function killNpcRagdoll(n, dx, dz, power) {
   if (n.qtag && typeof questKillTag === 'function') questKillTag(n.qtag);   // quest kill-beat credit
   breakNpcChat(n);   // free the chat partner before this one goes flying
   n.state = 'ragdoll'; n.hp = 0;
+  if (n.grp) leaveGroup(n);   // #67: detach from its social group before it goes flying
   stopNpcVoice(n.vname);
   if (n.mesh.userData.shadow) n.mesh.userData.shadow.visible = false;
   n.vx = dx * power + (Math.random() - 0.5) * 3;
@@ -9647,6 +10303,7 @@ function damageNPC(n, dmg, kx, kz, silent) {
   lastCrimeT = T;
   if (n.hp <= 0) {
     n.state = 'down'; n.downT = 8; if (n.mesh.userData.shadow) n.mesh.userData.shadow.visible = false;
+    if (n.grp) leaveGroup(n);   // #67: detach from its social group so no follower paths to a corpse
     stopNpcVoice(n.vname);
     spawnCash(n.x, n.z, 5 + ((Math.random() * 18) | 0)); sfx('ko', { x: n.x, z: n.z, range: 50 }); sfx('grunt', { x: n.x, z: n.z, range: 50 });
     maybeNpcItemDrop(n.x, n.z);
@@ -9674,7 +10331,9 @@ var npcSocialT = 0, npcBumpT = -99, meleeHit = false, npcAnimF = 0;
 // car): both sides go back to wandering, the turn timer dies with the pair
 // owner, and any in-flight chat/story line is cut short.
 function breakNpcChat(n) {
-  if (!n || n.state !== 'chat') return;
+  if (!n) return;
+  if (n.grpTalk && n.grp) { endGroupChat(n.grp); return; }   // #67: a hit/flee/car ends the whole GROUP conversation
+  if (n.state !== 'chat') return;
   n.state = 'walk'; n.convT = 0; stopNpcVoice(n.vname);
   var pr = npcs[n.partner];
   if (pr && pr.state === 'chat') { pr.state = 'walk'; pr.convT = 0; stopNpcVoice(pr.vname); }
@@ -9699,6 +10358,7 @@ function updateNPCs(dt) {
     if (vc._nx !== undefined) { vc._pvx = (vm.x - vc._nx) / dt; vc._pvz = (vm.z - vc._nz) / dt; }
     vc._nx = vm.x; vc._nz = vm.z;
   }
+  updateGroups(dt);   // #67: social-group cohesion + conversation triggers (before the NPC loop so new chat states animate this frame)
   npcSocialT -= dt;
   if (npcSocialT <= 0) {
     npcSocialT = 1.2;
@@ -9739,6 +10399,22 @@ function updateNPCs(dt) {
         if (!qn.vname || qn.state !== 'walk') continue;
         var qdx = qn.x - player.x, qdz = qn.z - player.z;
         if (qdx * qdx + qdz * qdz < 20) { playNpcVoice(qn.vname, 'quirk', 0.55, 25, { x: qn.x, z: qn.z, ref: qn }); break; }
+      }
+    }
+    // #67: a GROUP member the player wanders up to name-drops their crew — "that's
+    // my boy over there" etc. Bubble (always readable) + their voice quirk. Own
+    // cooldown so it stays occasional and doesn't fight the signature line above.
+    if (!state.dead && !inside && !driving && T - grpAwareT > 14) {
+      for (var gqi = 0; gqi < npcs.length; gqi++) {
+        var gqn = npcs[gqi];
+        if (!gqn.grp || (gqn.state !== 'walk' && gqn.state !== 'stand')) continue;
+        var gqdx = gqn.x - player.x, gqdz = gqn.z - player.z;
+        if (gqdx * gqdx + gqdz * gqdz < 26 && Math.random() < 0.6) {
+          grpAwareT = T;
+          var lines = groupAwareLines(gqn);
+          if (lines) { speechBubble(gqn, grpPick(lines)); playNpcVoice(gqn.vname, 'quirk', 0.55, 8, { x: gqn.x, z: gqn.z, ref: gqn }); }
+          break;
+        }
       }
     }
     // bump reaction: player shoving through someone
@@ -9838,6 +10514,20 @@ function updateNPCs(dt) {
       continue;
     }
     if (n.state === 'chat') {
+      if (n.grpTalk) {
+        // #67: GROUP conversation member — face the huddle, talk/listen per beat;
+        // the leader drives the scripted beat timer. Cleanup lives in endGroupChat
+        // (called from breakNpcChat / leaveGroup on hit/flee/death).
+        var grp = n.grp;
+        if (!grp || !grp.talking) { n.grpTalk = false; n.state = 'walk'; setNpcTarget(n); m.position.set(n.x, 0, n.z); continue; }
+        n.animT += dt;
+        var gc = groupCenter(grp);
+        m.rotation.y = Math.atan2(gc[0] - n.x, gc[1] - n.z);
+        if (!animSkip) animPersonClip(m, grp.curSpeaker === n ? 'talk' : 'chat', n.animT);
+        if (n.grpLead) { grp.beatT -= dt; if (grp.beatT <= 0) grpNextBeat(grp); }
+        m.position.set(n.x, 0, n.z);
+        continue;
+      }
       n.stateT -= dt; n.animT += dt;
       var pr = npcs[n.partner];
       var prx = pr ? pr.x - n.x : 0, prz = pr ? pr.z - n.z : 0;
@@ -9918,7 +10608,8 @@ function updateNPCs(dt) {
           continue;
         }
         // errands: sometimes head into a nearby building instead of wandering on
-        if (Math.random() < 0.14 && npcDoors.length) {
+        // (#67: grouped members never wander off into a building — they stay with the group)
+        if (!n.grp && Math.random() < 0.14 && npcDoors.length) {
           var bestDoor = -1, bestDD = 32 * 32;
           for (var dsi = 0; dsi < npcDoors.length; dsi++) {
             var dsd = npcDoors[dsi];
@@ -9934,7 +10625,8 @@ function updateNPCs(dt) {
           }
         }
         setNpcTarget(n);
-        if (Math.random() < 0.3) { n.state = 'stand'; n.stateT = 2.5 + Math.random() * 6; n.animT = Math.random() * 3; n.idleVar = Math.random() < 0.4; }
+        // #67: group followers keep pace with the leader rather than randomly halting
+        if (!(n.grp && !n.grpLead) && Math.random() < 0.3) { n.state = 'stand'; n.stateT = 2.5 + Math.random() * 6; n.animT = Math.random() * 3; n.idleVar = Math.random() < 0.4; }
         continue;
       }
       vx = dx / d; vz = dz / d;
@@ -10013,6 +10705,7 @@ function updateNPCs(dt) {
   }
   updateNPCExtras();
   updateAccessories(dt);
+  updateSpeech(dt);   // #67: fade/position group speech bubbles
 }
 var handsUpQ = new THREE.Quaternion();
 var X_AXIS = new THREE.Vector3(1, 0, 0);
@@ -15109,7 +15802,31 @@ window.__wc = {
   copWeapon: copWeapon,
   openMenu: openMenu, closeMenus: closeMenus, spawnCashAt: spawnCash,
   renderer: renderer, scene: scene, camera: camera,
+  listPowerlines: function () { return powerPoles; },
+  powerlineStats: function () { return { poles: powerPoles.length, wires: powerWireCount, spans: powerSpanCount, serviceDrops: powerServiceDrops }; },
   cars: cars, boomAt: boomAt, killNpcRagdoll: killNpcRagdoll,
+  // ---- social groups (#67) ----
+  spawnSharpGroup: function (sons) { return grpSummary(spawnSharpGroup(sons)); },
+  spawnXanderDerik: function () { return grpSummary(spawnXanderDerik()); },
+  listGroups: function () { return socialGroups.map(function (g) { return { type: g.type, members: g.members.map(function (m) { return m.vname; }), talking: g.talking, chatCD: Math.round(g.chatCD * 10) / 10 }; }); },
+  groupState: function () {
+    return socialGroups.map(function (g) {
+      var L = g.lead;
+      return { type: g.type, lead: L && L.vname, talking: g.talking, beat: g.beatI, beats: g.beats ? g.beats.length : 0, speaker: g.curSpeaker && g.curSpeaker.vname,
+        members: g.members.map(function (m) { return { name: m.vname, state: m.state, x: Math.round(m.x), z: Math.round(m.z), d2lead: L ? Math.round((m.x - L.x) * (m.x - L.x) + (m.z - L.z) * (m.z - L.z)) : 0 }; }) };
+    });
+  },
+  forceGroupChat: function (type) {
+    for (var i = 0; i < socialGroups.length; i++) {
+      var g = socialGroups[i]; if (type && g.type !== type) continue;
+      if (g.talking) return g.type;
+      var L = g.lead;   // pull the members together so the cluster gate passes, then start now
+      for (var j = 1; j < g.members.length; j++) { var m = g.members[j]; m.x = L.x + Math.cos(j) * 2.2; m.z = L.z + Math.sin(j) * 2.2; m.state = 'walk'; }
+      g.chatCD = 0; startGroupChat(g); return g.type;
+    }
+    return null;
+  },
+  disbandGroups: function () { for (var i = socialGroups.length - 1; i >= 0; i--) disbandGroup(socialGroups[i], true); return true; },
   drops: drops, rockets: rockets, setZoom: setZoom, hurtPlayer: hurtPlayer,
   bag: function () { return state.bag; }, bagAdd: bagAdd, bagRemove: bagRemove, bagUse: bagUse,
   bagDrop: bagDrop, bagCount: bagCount, spawnItemDrop: spawnItemDrop, itemDef: itemDef,
@@ -15155,6 +15872,8 @@ window.__wc = {
   remapPointClear: function (x, z, pad) { return remapPointClear(x, z, pad); },
   oakInfo: function () { return { count: oakCount, cap: OAK_CAP }; },
   densityInfo: function () { return densityStats; },
+  landscapeStats: function () { return landscapeStats; },
+  listLandscaping: function () { return { meshes: landscapeMeshes.length, byKey: landscapeMeshes.map(function (m) { return m.geometry.attributes.position.count / 3; }), stats: landscapeStats }; },
   forestFillPts: expFillPts,
   streetProps: streetPropInteractables, streetPropInteract: streetPropInteract, getStreetProp: getStreetProp, hydrantJets: hydrantJets,
   // dumpster diving / scavenging test hooks (all local-only)

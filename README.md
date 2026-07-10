@@ -170,6 +170,31 @@ gunfire and blasts send them fleeing, and they scramble out of the path of a
 speeding car. (They ride the same shared-world stream as the adults, so
 every player in town sees the same families.)
 
+## The Sharps (and Xander's gaming buddy)
+
+Some of the townsfolk who know each other travel as a **group**. The **Sharp
+family** — father **Don** and a rotating two or three of his grown sons
+**Dylan, Derik and Alex** — walk the sidewalks together as a loose cluster,
+the boys keeping a natural few-steps' spacing around their dad and closing
+the gap whenever they drift too far. Every so often the family stops for a
+huddle and you'll catch **Don checking in on each son** in his own gravelly
+voice ("Derik, did you eat today? You're skin and bones.") with the son
+firing back ("I ate a whole pizza, Dad."), plus **brother ribbing** ("You
+still owe me twenty bucks."). Stroll up to one of them and they'll name-drop
+the crew — Don brags "that's my boy right there," a son nods to "my old man,
+Don Sharp." Every line shows as a readable bubble over the speaker's head.
+
+Off on his own beat, **Xander** — a laid-back gamer who "paused his game to
+be out here" — hangs with his buddy **Derik**, and the two trade **gaming
+banter** ("Hit Diamond last night, no big deal." / "Diamond? You got
+carried.").
+
+The Sharps and Xander are **ordinary people**, not bosses — a stray bullet or
+a car will drop them like anyone else. When that happens (or a gunfight kicks
+off nearby), the group breaks up cleanly: the conversation cuts out, the
+survivors pick a new leader or go their separate ways, and nobody's left
+trailing a body. No chatting mid-firefight.
+
 ## Out for a walk
 
 About one pedestrian in six is **out doing something** — walking a **dog** on
@@ -470,10 +495,18 @@ and tap the brakes for a beat at the smaller uncontrolled intersections.
 The streets are busy now — roughly triple the old traffic and pedestrian
 counts — and walkers who see a car bearing down on them bolt sideways out
 of the lane, whether it's an NPC car or one another player is driving.
-There are cobra-head streetlights, wood
-utility poles trailing sagging lines down the main road, sabal-palm
+There are cobra-head streetlights, sabal-palm
 clusters on every corner, and proper road paint — stop bars, ladder
-crosswalks, and left-turn arrows in the pockets.
+crosswalks, and left-turn arrows in the pockets. Wood utility poles now
+march down **every arterial and collector** — Race Track Rd, Countryway
+Blvd, Citrus Park Dr, Nine Eagles Dr and the rest — set back on the
+road-edge line about every 40 metres, crossarms and insulators up top and
+a transformer can on every third pole. Two or three power lines sag
+crossarm-to-crossarm in a natural catenary droop between them, with the
+odd service drop peeling off to a shop's roofline. The runs break cleanly
+around the big intersections so nothing crosses the junction at head
+height, and — like the trees and streetlights — a pole will snap and
+topple if you plow a car into it.
 
 ## Street furniture
 
