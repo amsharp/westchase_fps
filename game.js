@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.9';
+var GAME_VERSION = 'v1.66.10';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -4017,7 +4017,7 @@ function streetlight(x, z, ax, az) {
   g.add(arm);
   g.position.set(x, 0, z);
   scene.add(g);
-  var entry = { head: head, glow: glow, pool: pool, broken: false };
+  var entry = { head: head, glow: glow, pool: pool, broken: false, x: x, z: z };
   streetLights.push(entry);
   registerBreakable(g, x, z, 0.6, 'light', entry, 0.22);
 }
@@ -5065,6 +5065,18 @@ function spotClear(x, z) {
   var p = pushOut(x, z, 0.5);
   var mx = p.x - x, mz = p.z - z;
   return mx * mx + mz * mz < 0.01;
+}
+// a tree/prop this close to a streetlight base would overlap the pole/canopy —
+// lamp colliders are only 0.22r so spotClear alone lets a canopy engulf a lamp
+function nearStreetlight(x, z, r) {
+  var r2 = r * r;
+  for (var i = 0; i < streetLights.length; i++) {
+    var L = streetLights[i];
+    if (L.x === undefined) continue;
+    var dx = L.x - x, dz = L.z - z;
+    if (dx * dx + dz * dz < r2) return true;
+  }
+  return false;
 }
 // full accept test for an expansion sidewalk spot: collider-free AND at least
 // a curb width (0.6) off the asphalt of every road incl. CROSSING ones — the
@@ -7267,9 +7279,13 @@ if (WC_REMAP) (function densityLayer() {
   }
   // a sign mounted on a fresh pole/stake
   function poleSign(name, x, z, ry, mountY, poleH, poleR) {
+    poleR = poleR || 0.11;
     pole(x, z, poleH, poleR);
     var a = dAsset[name]; if (!a) return;
-    dSign(name, x + Math.sin(ry) * 0.06, mountY, z + Math.cos(ry) * 0.06, ry);
+    // seat the placard clear of the pole SURFACE — a 0.06 offset was inside the
+    // 0.11 pole radius, so the post speared through the sign face (mref48hy)
+    var off = poleR + 0.1;
+    dSign(name, x + Math.sin(ry) * off, mountY, z + Math.cos(ry) * off, ry);
   }
 
   // ---- surface geometry references ----
@@ -7297,6 +7313,7 @@ if (WC_REMAP) (function densityLayer() {
         var pt = rmAt(r.pts, r.cum, sc), off = r.hw + (r.cls <= 1 ? 4.5 : 3.2);
         var tx = pt.x - pt.uz * off * side, tz = pt.z + pt.ux * off * side; side = -side;
         if (!remapPointClear(tx, tz, 2) || inLake(tx, tz) || houseBlocksSpot(tx, tz) || remapInClear(tx, tz, 1) || !spotClear(tx, tz)) continue;
+        if (nearStreetlight(tx, tz, 4)) continue;   // tree canopy would swallow the lamp (mreeosgw)
         if (treeRnd() < 0.34) palm(tx, tz); else oak(tx, tz, 0.78 + treeRnd() * 0.42);
         densityStats.trees++;
       }
@@ -7434,7 +7451,7 @@ if (WC_REMAP) (function densityLayer() {
         var py = rmAt(ry3.pts, ry3.cum, yv), oy = ry3.hw + rnd(3, 6);
         var yx = py.x - py.uz * oy * yd, yz = py.z + py.ux * oy * yd; yd = -yd;
         if (!spotClear(yx, yz) || inLake(yx, yz) || remapInClear(yx, yz, 0)) continue;
-        if (Math.random() < 0.55) { var yk = pick(['for_sale_sign', 'yard_sign', 'garage_sale_sign', 'lost_pet_flyer']); pole(yx, yz, 0.9, 0.05); dSign(yk, yx, 0.9, yz, rnd(0, 6.28)); }
+        if (Math.random() < 0.55) { var yk = pick(['for_sale_sign', 'yard_sign', 'garage_sale_sign', 'lost_pet_flyer']); var yry = rnd(0, 6.28); pole(yx, yz, 0.9, 0.05); dSign(yk, yx + Math.sin(yry) * 0.14, 0.9, yz + Math.cos(yry) * 0.14, yry); }   // placard in front of its stake, not speared
       }
     }
   }

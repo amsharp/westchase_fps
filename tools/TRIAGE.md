@@ -79,7 +79,7 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mreendej (-8,-330) purple-home roof texture + overhangs sidewalk — R5 — IN-AGENT (round5-structure)
 - mreenqoe (-25,-347) homes with no road/walkway — R5 (same class as mredxzx6) — IN-AGENT (round5-structure)
 - mreeoimw (-1,-517) traffic too uniform; want occasional honks — R5 feature
-- mreeosgw (-10,-492) lamp post + tree clipping — R5 — IN-AGENT (round5-structure)
+- mreeosgw (-10,-492) lamp post + tree clipping — FIXED@v1.66.10 (street-tree pass now rejects spots within 4u of a streetlight base via nearStreetlight; lamp colliders are only 0.22r so spotClear alone let a canopy swallow the pole)
 - mreepojo (157,-74) 'half ass gas station' — R5
 - mreeq7nj (150,193) random barrier — R3 (re-probe post-OBB fix)
 - mreeqqbh (298,235) road looks awful — R5
@@ -112,7 +112,7 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mreeuf0c (-97,338) random wall — same class, RE-CHECK on current build
 - mref3ibd (535,126) AC unit 3x size wanted — R5 (with mreds4nw rooftop AC)
 - mref3wds (391,191) backwards bus stop — R5 (with mref0pwi)
-- mref48hy (374,195) sign clipping post — R5 — IN-AGENT (round5-structure)
+- mref48hy (374,195) sign clipping post — FIXED@v1.66.10 (poleSign seated the placard only 0.06 in front of center — inside the 0.11 pole radius, so the post speared the sign face; now offset by poleR+0.1. Same fix for random-rotation yard signs which sat exactly on their stake)
 
 ## Batch 6
 - mrefkx0p (-49,17) pavement lines shimmer with camera motion — FIXED@v1.66.3 (logarithmicDepthBuffer on the main renderer; near-plane raise was rejected — viewmodels hug the camera)
