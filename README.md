@@ -419,6 +419,23 @@ Five more storefronts open the same way — press **E** at the door:
 Each has its own themed staff and props. Like the others, these interiors are
 personal (never shared in multiplayer).
 
+## The shops are alive
+
+Every one of the six interiors now bustles with **fellow shoppers**. They
+wander in through the door, browse the aisles and cases, then **line up
+single-file at a checkout** — picking the shortest lane when there's more
+than one (Publix has four, the bank two). The front shopper is rung up (a
+quick beat and a register **ka-ching**), the line shuffles forward, and they
+head out the door; a fresh trickle of customers replaces them, so a store is
+never empty and never overcrowded. Browsing shoppers will **stop a staffer to
+ask a question** ("which aisle is that in?" — the staffer answers back), and
+idle staff **trade shop-talk** between themselves, all in their real voices.
+Walk up and press **E** on a customer for a bit of banter of your own.
+
+And they're only human — **draw a weapon inside and the whole store panics**,
+dropping everything to bolt for the door. (Kids who wander in are always
+off-limits.) All of this is personal and local, like the interiors themselves.
+
 ## Wanted system
 
 Crimes earn GTA-style stars (max 5, shown top-center), and each star costs
