@@ -134,3 +134,7 @@ Clusters:
 - mregk7im/mregkhdi/mregli5y/mregma9f (Dunkin interior: workers not facing, stretched counter, room-bounds wall, menu clipping, voice ask) — other agent interiors
 - mregn84n (-45,11) held-item grip botched — R2-anim extras
 - mregnsjz (-28,-6) female NPC used male pain grunt — R5 audio (sex-check the pain voice pick)
+
+## Batch 9
+- mregrr51 (-46,-2) directional damage indicators — SHIPPED@v1.66.8 (red chevrons around screen center pointing at the source: cop shots, PvP, NPC jabs, explosions, car hits, alien beam)
+- mreguavi (-68,9) WALKER NPC still broken (backwards, hands off, not hunched) — escalated: reclaiming from round2-anim if no report this cycle

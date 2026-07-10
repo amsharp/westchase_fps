@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.7';
+var GAME_VERSION = 'v1.66.8';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -5435,7 +5435,7 @@ function poseWalkerGrip(n) {
   if (!_walkerQ) { _walkerQ = new THREE.Quaternion(); _walkerAx = new THREE.Vector3(1, 0, 0); }
   var sp = m.userData.spine;
   if (sp) { _walkerQ.setFromAxisAngle(_walkerAx, 0.3); sp.quaternion.multiply(_walkerQ); }   // hunch forward over the frame
-  _walkerQ.setFromAxisAngle(_walkerAx, -1.3);   // reach both arms forward+down onto the grips
+  _walkerQ.setFromAxisAngle(_walkerAx, -0.95);   // reach both arms forward+down onto the ~0.85m grips
   L.armL.quaternion.multiply(_walkerQ);
   L.armR.quaternion.multiply(_walkerQ);
 }
@@ -9049,7 +9049,7 @@ function copShoot(c, wpn, dt, tgt) {
         puff(new THREE.Vector3(cp2.x + (Math.random() - 0.5) * 2, 1 + Math.random(), cp2.z + (Math.random() - 0.5) * 2), 0xd8c860);
         driving.carHP = (driving.carHP === undefined ? 100 : driving.carHP) - wpn.dmg * 2;
         if (driving.carHP <= 0) igniteCar(driving);
-      } else { hitV = new THREE.Vector3(player.x, player.y - 0.2, player.z); hurtPlayer(wpn.dmg); }
+      } else { hitV = new THREE.Vector3(player.x, player.y - 0.2, player.z); hurtPlayer(wpn.dmg, c.x, c.z); }
     }
   }
   // clients only MIRROR street cops — they never run copShoot — so broadcast
@@ -9595,7 +9595,7 @@ function updateCars(dt) {
     if (Math.abs(edx) < 2.6 && Math.abs(edz) < 2.6 && !state.dead && !driving) {
       var d = ed || 1;
       player.x += (edx / d) * 2.4; player.z += (edz / d) * 2.4;
-      if (T - state.lastCarHit > 0.8) { state.lastCarHit = T; hurtPlayer(12); sfx('thud'); }
+      if (T - state.lastCarHit > 0.8) { state.lastCarHit = T; hurtPlayer(12, m.position.x, m.position.z); sfx('thud'); }
     }
   }
 }
@@ -9992,7 +9992,7 @@ function boomAt(x, z, fromNet, creditConn) {
     panicNear(x, z, 900);   // survivors within ~30m scatter (aborts sidewalk chats too)
   }
   var pdx = player.x - x, pdz = player.z - z, pd = Math.sqrt(pdx * pdx + pdz * pdz);
-  if (pd < 10 && !state.dead) hurtPlayer(Math.round(80 * (1 - pd / 10) + 15));
+  if (pd < 10 && !state.dead) hurtPlayer(Math.round(80 * (1 - pd / 10) + 15), x, z);
   // chain: nearby cars go up too
   if (!isClient()) for (i = 0; i < cars.length; i++) {
     var cx = cars[i];
@@ -10792,7 +10792,7 @@ function updateAlien(dt) {
     } else if (Math.random() < hitChance && !driving) {
       spawnBeam(alien.x, hy, alien.z, player.x, player.y - 0.1, player.z, 0xd050ff);
       netBeam(alien.x, hy, alien.z, player.x, player.y - 0.1, player.z);
-      hurtPlayer(45);
+      hurtPlayer(45, alien.x, alien.z);
     } else {
       // miss (or slammed into your car) — beam goes wide
       var mx = player.x + (Math.random() - 0.5) * 4, mz = player.z + (Math.random() - 0.5) * 4;
@@ -11179,7 +11179,7 @@ function updateNPCs(dt) {
       } else {
         n.animT += dt; n.jabT -= dt;
         animPersonClip(m, 'jab', (n.animT % 1.1), true, 1.1);   // full jab per 1.1s cycle so the strike lands with the damage
-        if (n.jabT <= 0) { n.jabT = 1.1; n.animT = 0; if (fd < 1.9) { hurtPlayer(4 + ((Math.random() * 4) | 0)); sfx('hit', { x: n.x, z: n.z, range: 40 }); } }
+        if (n.jabT <= 0) { n.jabT = 1.1; n.animT = 0; if (fd < 1.9) { hurtPlayer(4 + ((Math.random() * 4) | 0), n.x, n.z); sfx('hit', { x: n.x, z: n.z, range: 40 }); } }
       }
       m.position.set(n.x, 0, n.z);
       continue;
@@ -12808,9 +12808,15 @@ function tryAttack() {
   recoilPitch += 0.012 + Math.random() * 0.008;
 }
 
-function hurtPlayer(d) {
+var dmgDirs = [];   // recent damage sources: {a: world angle to source, t}
+function hurtPlayer(d, sx, sz) {
   if (state.dead) return;
   state.hp -= d; state.lastHurt = T;
+  // directional hit indicator (report mregrr51): remember where it came from
+  if (sx !== undefined) {
+    dmgDirs.push({ a: Math.atan2(sx - player.x, sz - player.z), t: T });
+    if (dmgDirs.length > 6) dmgDirs.shift();
+  }
   var f = document.getElementById('dmgFlash'); f.style.transition = 'none'; f.style.opacity = 0.45;
   requestAnimationFrame(function () { f.style.transition = 'opacity .45s'; f.style.opacity = 0; });
   if (state.hp <= 0) {
@@ -14833,7 +14839,7 @@ function handleNet(m, conn) {
         var cp3 = driving.car.group.position;
         puff(new THREE.Vector3(cp3.x + (Math.random() - 0.5) * 2, 1 + Math.random(), cp3.z + (Math.random() - 0.5) * 2), 0xd8c860);
         if (driving.carHP <= 0) igniteCar(driving);
-      } else hurtPlayer(hdmg);
+      } else { var atk = m.by && net.remotes[m.by]; if (atk) hurtPlayer(hdmg, atk.x, atk.z); else hurtPlayer(hdmg); }
       // this shot from another PLAYER just downed us → credit them the kill
       if (!wasDead && state.dead && m.by) netSendTo(m.by, { t: 'pkill', to: m.by });
     }
@@ -15395,7 +15401,7 @@ function applyWorldSnap(dt) {
     if (!driving && !c.stolen && !c.parked && Math.abs(edx) < 2.6 && Math.abs(edz) < 2.6 && !state.dead) {
       var dd = ed || 1;
       player.x += (edx / dd) * 2.4; player.z += (edz / dd) * 2.4;
-      if (T - state.lastCarHit > 0.8) { state.lastCarHit = T; hurtPlayer(12); sfx('thud'); }
+      if (T - state.lastCarHit > 0.8) { state.lastCarHit = T; hurtPlayer(12, m.position.x, m.position.z); sfx('thud'); }
     }
   }
   while (npcs.length < s.npcs.length) spawnNPC();
@@ -16462,6 +16468,25 @@ function drawSprite(rows, x, y, px, color) {
 function drawHudCanvas() {
   var W = hudW, H = hudH, M = 14;
   hudCx.clearRect(0, 0, W, H);
+  // ---- directional damage indicators: red chevrons around screen center
+  // pointing at whoever hurt you, fading over 0.9s (report mregrr51) ----
+  for (var di = dmgDirs.length - 1; di >= 0; di--) {
+    var hitAge = T - dmgDirs[di].t;
+    if (hitAge > 0.9) { dmgDirs.splice(di, 1); continue; }
+    var rel = dmgDirs[di].a - yaw;               // 0 = straight ahead
+    var alpha2 = 1 - hitAge / 0.9;
+    var rr2 = Math.min(W, H) * 0.24;
+    var cxp = W / 2 + Math.sin(rel) * rr2, cyp = H / 2 - Math.cos(rel) * rr2;
+    hudCx.save();
+    hudCx.translate(cxp, cyp); hudCx.rotate(rel);
+    hudCx.globalAlpha = alpha2;
+    hudCx.fillStyle = '#000';
+    hudCx.beginPath(); hudCx.moveTo(0, -15); hudCx.lineTo(13, 3); hudCx.lineTo(-13, 3); hudCx.closePath(); hudCx.fill();
+    hudCx.fillStyle = '#ff3b28';
+    hudCx.beginPath(); hudCx.moveTo(0, -12); hudCx.lineTo(10, 1); hudCx.lineTo(-10, 1); hudCx.closePath(); hudCx.fill();
+    hudCx.restore();
+    hudCx.globalAlpha = 1;
+  }
   // ---- money: GTA-style counter, top-right under the minimap ----
   var my = hudMmB + 8;
   drawPix('$' + Math.max(0, state.money | 0), W - M, my, 3, '#46e05e', 'right');
