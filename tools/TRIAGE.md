@@ -35,10 +35,10 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mree7hy2 (-370,346) ground decal alpha broken — FIXED@v1.66.1 (ground stain/crack/fixture decals were opaque quads; added bg-colour blend-key + edge vignette in dTex/GKEY, transparent+depthWrite:false)
 - mree84pq (-465,416) pavement-crack decal alpha broken — FIXED@v1.66.1 (same root cause)
 - mree8hw2 (-511,421) square shadow patches — FIXED@v1.66.1 (same — asphalt/mud_patch hard rectangle now blends); ALSO covers Batch4 mreewls4 (-467,332) dark square under trees
-- mree2yur (11,127)   porto-potty black mesh artifacts — IN-AGENT (round4-render)
-- mree3tg7 (-70,133)  two props glowing oddly — IN-AGENT (round4-render)
+- mree2yur (11,127)   porto-potty black mesh artifacts — FIXED@v1.66.6 (env-prop material was smooth-shaded; smooth-averaged corner normals on the low-poly boxy mesh smeared faces dark. flatShading:true on env-prop materials → clean facets. Residual dark top is the asset's baked roof-vent opening, not a bug)
+- mree3tg7 (-70,133)  two props glowing oddly — FIXED@v1.66.6 (the 'glow' anim strobed emissive 0.02-0.54 at FULL strength in daylight; now gated by wcNightGlow — faint ~0.05 daytime accent, ramps up after dark)
 - mree59kf (-108,158) hair has transparent chunks — IN-AGENT (round4-render)
-- mree0ii7 (79,1)     claw machine flashing red (+ prop jumble) — IN-AGENT (round4-render)
+- mree0ii7 (79,1)     claw machine flashing red — FIXED@v1.66.6 (same glow-gating fix; the red 'flash' was the soda_machine's emissive strobing in daylight next to the claw. NOTE: the "prop jumble"/clustering at this cluster is a PLACEMENT issue — Round-2/5 territory, not touched here)
 
 ## Round 5 — OPEN: placement/content (larger passes)
 - mredr84j (52,-120)  2D trashbags look bad
@@ -49,7 +49,7 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mreeccpr/mreebnfk (-226,152) prop set jarring in front of office tower (+anim)
 - mreedozu (-199,33)  unidentifiable mesh
 - mreeelik (-118,75)  car placement weird
-- mredwjpp (213,-160) house clips sidewalk — IN-AGENT (round5-structure)
+- mredwjpp (213,-160) house clips sidewalk — FIXED@v1.66.5 (survey houses now nudged clear of the sidewalk ribbon: houseSidewalkNudge pushes any footprint intruding the walk band outward; 30 instances, ~4.5u max)
 - mredxzx6 (140,-89)  houses with no visible roads — IN-AGENT (round5-structure)
 - mredtppi (184,-172) missing raised curb divider — IN-AGENT (round5-structure)
 - mreduh7z (187,-178) "looks awful" (see screenshot)
@@ -66,14 +66,14 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 
 ## Batch 3 (uncatalogued -> assigned)
 - mreegamp (-140,43) placement bad — R5
-- mreegvj0 (-157,20) leaf cluster + missing alpha — R4
+- mreegvj0 (-157,20) leaf cluster + missing alpha — IN-AGENT (round4-render)
 - mreehkm9 (-142,-9) lemonade stand wants kid vendor + dialogue — R5 feature
 - mreei0of (-142,-30) flower bed out of place — R5
 - mreeipmy (-161,-76) ice cream truck wants vendor — R5 feature
 - mreejak5 (-158,-86) fences should break in panels under cars — R5 feature
 - mreejycz (-112,-48) whole swing rocks; odd placement — R4 anim
 - mreekjjq (-7,-57) walker accessory abandoned in street — R2 anim overlap
-- mreelboe (-70,-115) big green blob — R4
+- mreelboe (-70,-115) big green blob — IN-AGENT (round4-render)
 - mreelusq (-113,-114) cop left arm buggy + walks into building — R3
 - mreemd0e (-194,-110) garage door between windows on facade — R5 — IN-AGENT (round5-structure)
 - mreendej (-8,-330) purple-home roof texture + overhangs sidewalk — R5 — IN-AGENT (round5-structure)
@@ -83,8 +83,8 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mreepojo (157,-74) 'half ass gas station' — R5
 - mreeq7nj (150,193) random barrier — R3 (re-probe post-OBB fix)
 - mreeqqbh (298,235) road looks awful — R5
-- mreer5b4 (419,172) houses riding the sidewalk — R5 (same as mredwjpp) — IN-AGENT (round5-structure)
-- mreesgtd (238,516) parked cars with lights on — R4
+- mreer5b4 (419,172) houses riding the sidewalk — FIXED@v1.66.5 (same houseSidewalkNudge shared fix)
+- mreesgtd (238,516) parked cars with lights on — IN-AGENT (round4-render)
 - mreet1el (273,474) NPC pacing left-right loop — R3 (check whisker ping-pong)
 - mreetig1 (233,306) secondary intersection looks bad — R5
 

@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.5';
+var GAME_VERSION = 'v1.66.7';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -3267,6 +3267,48 @@ function houseOnRoad(x, z, w, d, rot, sc) {
   }
   return hit >= 2;
 }
+// WC_REMAP: the survey planner vetted instances against the true-road ASPHALT
+// only, so a house set just off the pavement can still sit on the SIDEWALK
+// ribbon (offset hw+0.6 .. hw+sw+0.6 from centerline — see the ribbon pass).
+// Players reported house corners/walls riding the walkway (mredwjpp, mreer5b4,
+// mreendej). Deterministic outward nudge: if the footprint intrudes the nearest
+// road's sidewalk band, push the whole instance directly away from that road so
+// the footprint clears the walk (same data every peer → no desync; small pushes
+// only, capped, so nothing teleports across a yard). Returns [dx,dz] or null.
+function houseSidewalkNudge(x, z, w, d, rot) {
+  if (typeof REMAP_ROADS === 'undefined') return null;
+  var a = rot * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a);
+  var hw2 = w / 2, hd2 = d / 2, samp = [];
+  for (var ix = -1; ix <= 1; ix++) for (var iz = -1; iz <= 1; iz++) {
+    var lx = ix * hw2, lz = iz * hd2;
+    samp.push([lx * ca + lz * sa + x, -lx * sa + lz * ca + z]);
+  }
+  var best = 1e9, bpx = 0, bpz = 0, bsx = 0, bsz = 0, bOuter = 0;
+  for (var ri = 0; ri < REMAP_ROADS.length; ri++) {
+    var r = REMAP_ROADS[ri];
+    if (r.cls > 2 || r.dirt) continue;
+    var sw = r.cls === 0 ? 5 : 3.4, outer = r.hw + sw + 0.6;
+    var pts = r.pts;
+    for (var si = 0; si < samp.length; si++) {
+      var qx = samp[si][0], qz = samp[si][1];
+      for (var j = 0; j < pts.length - 1; j++) {
+        var axp = pts[j][0], azp = pts[j][1], dxp = pts[j + 1][0] - axp, dzp = pts[j + 1][1] - azp;
+        var L2 = dxp * dxp + dzp * dzp || 1;
+        var t = ((qx - axp) * dxp + (qz - azp) * dzp) / L2; t = t < 0 ? 0 : (t > 1 ? 1 : t);
+        var cx = axp + dxp * t, cz = azp + dzp * t;
+        var dd = Math.hypot(qx - cx, qz - cz);
+        if (dd < best) { best = dd; bpx = cx; bpz = cz; bsx = qx; bsz = qz; bOuter = outer; }
+      }
+    }
+  }
+  if (best >= bOuter) return null;                 // footprint already clears the walk
+  var nx = bsx - bpx, nz = bsz - bpz, nl = Math.hypot(nx, nz);
+  if (nl < 0.05) return null;                       // dead-centre on a road — leave to houseOnRoad
+  nx /= nl; nz /= nl;
+  var push = (bOuter + 1) - best;                   // +1 so the ~0.6 roof overhang clears too
+  if (push > 6) return null;                         // too far in → not a shoulder graze; leave as-authored
+  return [nx * push, nz * push];
+}
 var houseStats = { instances: 0, meshes: 0, tris: 0, colliders: 0, skipped: 0 };
 var houseMeshesRef = [];   // merged house meshes (perf A/B toggle hook)
 (function buildSurveyHouses() {
@@ -3280,6 +3322,10 @@ var houseMeshesRef = [];   // merged house meshes (perf A/B toggle hook)
     var cl = HOUSE_CLUSTERS[ci];
     if (!cl) continue;
     if (WC_REMAP && houseOnRoad(x, z, cl.spec.dims[0], cl.spec.dims[1], rot, sc)) { houseStats.skipped++; continue; }
+    if (WC_REMAP && !cl.spec.canopy) {
+      var nud = houseSidewalkNudge(x, z, cl.spec.dims[0] * sc, cl.spec.dims[1] * sc, rot);
+      if (nud) { x += nud[0]; z += nud[1]; }
+    }
     var tpl = houseTemplate(ci);
     var key = ci + '|' + vi;
     var ch = chunks[key];
@@ -4143,6 +4189,7 @@ function setLamps(on) {
 // ---------------- day/night + rain ----------------
 var DAY_LEN = 360;             // full day/night cycle (6 min)
 var envT = 60;                 // start in daylight
+var wcNightGlow = 0;           // 0 = full day, 1 = full night (drives self-lit prop glows)
 var raining = false, rainLeft = 0, nextRainCheck = 25;
 var fogTmp = new THREE.Color(), skyTmp = new THREE.Color();
 var C_DAY_FOG = new THREE.Color(0xcfe4ee), C_NIGHT_FOG = new THREE.Color(0x0b1018);
@@ -4272,6 +4319,7 @@ function updateEnv(dt) {
   sunColTmp.copy(C_MOON).lerp(C_SUN, f); sun.color.lerp(sunColTmp, k);   // cool moonlight at night → warm by day
   // lit windows: fade the building/house emissive glow in as it gets dark
   var nightGlow = Math.max(0, Math.min(1, 1 - f * 1.6));
+  wcNightGlow = nightGlow;
   for (var ne = 0; ne < nightEmis.length; ne++) nightEmis[ne].emissiveIntensity = nightGlow * (nightEmis[ne].userData.emisBase || 0.24);
   if (raining) skyTmp.copy(C_RAINNIGHT_SKY).lerp(C_RAIN_SKY, f);
   else skyTmp.copy(C_NIGHT_SKY).lerp(C_DAY_SKY, f);
@@ -8257,7 +8305,10 @@ function envTex(e) {
 function getEnvProp(name) {
   var e = ENV_BY_NAME[name]; if (!e) return null;
   var g = new THREE.Group();
-  var mesh = new THREE.Mesh(envDecodeGeo(e), lamb({ map: envTex(e) }));
+  // flatShading: low-poly hard-surface props (porta_potty etc.) get ugly dark
+  // gradient smears from smooth-averaged corner normals — faceted reads clean
+  // and matches the PSX aesthetic (bug mree2yur "black mesh artifacts").
+  var mesh = new THREE.Mesh(envDecodeGeo(e), lamb({ map: envTex(e), flatShading: true }));
   g.add(mesh);
   g.userData.envDims = e.dims; g.userData.envName = name;
   return g;
@@ -8343,7 +8394,7 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
       else { var by = d[1] * 0.86; var seat = splitMesh(mesh, function (x, y, z) { return y < by * 0.82 && y > by * 0.14; }, by); var sw = new THREE.Group(); sw.position.y = by; sw.add(seat); rec.g.add(sw); rec.swayChild = sw; rec.swayAxis = 'x'; rec.swayAmp = 0.22; rec.swaySpd = 1.7; }   // swing_set seats
     } else if (a === 'glow') {
       var GC = { soda_machine: 0xff3b3b, arcade_cabinet: 0x3aa0ff, jukebox: 0xffb020, claw_machine: 0xff5bd0 };
-      mesh.material = mesh.material.clone(); mesh.material.emissive = new THREE.Color(GC[rec.name] || 0x66ccff); mesh.material.emissiveIntensity = 0.2; rec.glowMat = mesh.material;
+      mesh.material = mesh.material.clone(); mesh.material.emissive = new THREE.Color(GC[rec.name] || 0x66ccff); mesh.material.emissiveIntensity = 0.05; rec.glowMat = mesh.material;
     } else if (a === 'flow') {
       rec.flow = []; var top = d[1] * (rec.name === 'fountain' ? 0.55 : 0.72), spread = rec.name === 'fountain' ? 0.4 : 0.08, up = rec.name === 'fountain' ? 3.4 : 2.0, n = rec.name === 'fountain' ? 16 : 6;
       for (var qi = 0; qi < n; qi++) { var dm = new THREE.Mesh(envDropGeo, envDropMat); rec.g.add(dm); rec.flow.push({ mesh: dm, vx: 0, vy: -1, vz: 0, delay: Math.random() * 0.4, topY: top, spread: spread, up: up }); }
@@ -8541,7 +8592,7 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
     g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(b.pos), 3));
     g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(b.norm), 3));
     g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(b.uv), 2));
-    var bmat = lamb({ map: envTex(ENV_BY_NAME[nm]) });
+    var bmat = lamb({ map: envTex(ENV_BY_NAME[nm]), flatShading: true });
     if (nm === 'park_lamp') nightLit(bmat);   // lamps glow with the rest of the streetlights after dark
     var bm = new THREE.Mesh(g, bmat);
     scene.add(bm);
@@ -8571,7 +8622,10 @@ function updateEnvProps(dt) {
     } else if (a === 'sway') {
       if (r.swayChild) r.swayChild.rotation[r.swayAxis] = Math.sin(t * r.swaySpd + r.phase) * r.swayAmp;
     } else if (a === 'glow') {
-      if (r.glowMat) r.glowMat.emissiveIntensity = 0.28 + 0.26 * Math.sin(t * 3.2 + r.phase);
+      // self-lit machines (soda/arcade/jukebox/claw) must NOT strobe bright in
+      // daylight — that read as "glowing oddly" / "flashing red" (mree3tg7,
+      // mree0ii7). Keep a faint daytime accent, ramp the pulse up after dark.
+      if (r.glowMat) { var gAmp = 0.05 + 0.35 * wcNightGlow; r.glowMat.emissiveIntensity = gAmp * (0.6 + 0.4 * Math.sin(t * 3.2 + r.phase)); }
     } else if (a === 'flow') {
       updateEnvFlow(r, dt);
     } else if (a === 'flames' || a === 'smoke') {
