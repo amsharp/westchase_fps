@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.57.2';
+var GAME_VERSION = 'v1.58.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -12293,7 +12293,10 @@ function sizeHud() {
   // minimap: hold ~26% of screen height on any resolution (TV-overlay consistent)
   var ms = Math.max(150, Math.min(300, Math.round(window.innerHeight * 0.26)));
   mm.style.width = ms + 'px'; mm.style.height = ms + 'px';
+  // minimap bottom edge in HUD-canvas logical units (money/stars stack under it)
+  hudMmB = Math.round((14 + ms + 8) / Math.max(1, window.innerHeight) * HUD_H);
 }
+var hudMmB = 118;
 window.addEventListener('resize', sizeHud); sizeHud();
 // chunky glyph: hard black drop-shadow → reads as an outlined bitmap once upscaled
 function hudText(txt, x, y, size, fill, align) {
@@ -12311,45 +12314,105 @@ function hudBar(x, y, w, h, frac, fill, notches) {
   hudCx.fillStyle = fill; hudCx.fillRect(x, y, Math.round(w * Math.max(0, Math.min(1, frac))), h);
   if (notches) { hudCx.fillStyle = '#000'; for (var s = 1; s < notches; s++) hudCx.fillRect(x + Math.round(w * s / notches), y, 2, h); }
 }
+// ---- true 5x7 bitmap font (PS1 style: hard black outline, zero AA) ----
+// each glyph = 7 rows of 5-bit masks, bit 16 = leftmost column
+var PIX = {
+  '0': [14, 17, 19, 21, 25, 17, 14], '1': [4, 12, 4, 4, 4, 4, 14], '2': [14, 17, 1, 6, 8, 16, 31],
+  '3': [31, 2, 4, 2, 1, 17, 14], '4': [2, 6, 10, 18, 31, 2, 2], '5': [31, 16, 30, 1, 1, 17, 14],
+  '6': [6, 8, 16, 30, 17, 17, 14], '7': [31, 1, 2, 4, 8, 8, 8], '8': [14, 17, 17, 14, 17, 17, 14],
+  '9': [14, 17, 17, 15, 1, 2, 12], '$': [4, 15, 20, 14, 5, 30, 4],
+  'A': [14, 17, 17, 31, 17, 17, 17], 'B': [30, 17, 17, 30, 17, 17, 30], 'C': [14, 17, 16, 16, 16, 17, 14],
+  'D': [30, 17, 17, 17, 17, 17, 30], 'E': [31, 16, 16, 30, 16, 16, 31], 'F': [31, 16, 16, 30, 16, 16, 16],
+  'G': [14, 17, 16, 23, 17, 17, 15], 'H': [17, 17, 17, 31, 17, 17, 17], 'I': [14, 4, 4, 4, 4, 4, 14],
+  'J': [7, 2, 2, 2, 2, 18, 12], 'K': [17, 18, 20, 24, 20, 18, 17], 'L': [16, 16, 16, 16, 16, 16, 31],
+  'M': [17, 27, 21, 21, 17, 17, 17], 'N': [17, 25, 21, 19, 17, 17, 17], 'O': [14, 17, 17, 17, 17, 17, 14],
+  'P': [30, 17, 17, 30, 16, 16, 16], 'Q': [14, 17, 17, 17, 21, 18, 13], 'R': [30, 17, 17, 30, 20, 18, 17],
+  'S': [15, 16, 16, 14, 1, 1, 30], 'T': [31, 4, 4, 4, 4, 4, 4], 'U': [17, 17, 17, 17, 17, 17, 14],
+  'V': [17, 17, 17, 17, 17, 10, 4], 'W': [17, 17, 17, 21, 21, 27, 17], 'X': [17, 17, 10, 4, 10, 17, 17],
+  'Y': [17, 17, 10, 4, 4, 4, 4], 'Z': [31, 1, 2, 4, 8, 16, 31],
+  '-': [0, 0, 0, 14, 0, 0, 0], '.': [0, 0, 0, 0, 0, 12, 12], ' ': [0, 0, 0, 0, 0, 0, 0],
+  "'": [4, 4, 8, 0, 0, 0, 0], '!': [4, 4, 4, 4, 4, 0, 4], '/': [1, 1, 2, 4, 8, 16, 16]
+};
+// draw bitmap text at pixel size px. align 'right' anchors x at the text end.
+// dim = color for the zero-padding run after '$' (GTA-style dimmed leading
+// zeros on the money counter)
+function drawPix(txt, x, y, px, color, align, dim) {
+  txt = ('' + txt).toUpperCase();
+  var adv = 6 * px, wTot = txt.length * adv - px;
+  if (align === 'right') x -= wTot; else if (align === 'center') x -= wTot / 2;
+  var i, r, c, g;
+  hudCx.fillStyle = '#000';   // outline pass
+  for (i = 0; i < txt.length; i++) {
+    g = PIX[txt[i]]; if (!g) continue;
+    for (r = 0; r < 7; r++) for (c = 0; c < 5; c++) if (g[r] & (16 >> c))
+      hudCx.fillRect(x + i * adv + c * px - 1, y + r * px - 1, px + 2, px + 2);
+  }
+  var lead = true;            // color pass
+  for (i = 0; i < txt.length; i++) {
+    g = PIX[txt[i]]; if (!g) continue;
+    var ch = txt[i];
+    if (ch !== '$' && ch !== '0') lead = false;
+    hudCx.fillStyle = (dim && lead && ch === '0') ? dim : color;
+    for (r = 0; r < 7; r++) for (c = 0; c < 5; c++) if (g[r] & (16 >> c))
+      hudCx.fillRect(x + i * adv + c * px, y + r * px, px, px);
+  }
+  return wTot;
+}
+// 9x9 sprites (bit 256 = leftmost)
+var SPR_STAR = [16, 56, 511, 254, 124, 124, 238, 198, 130];
+var SPR_HEART = [0, 108, 254, 254, 254, 124, 56, 16, 0];
+function drawSprite(rows, x, y, px, color) {
+  var r, c;
+  hudCx.fillStyle = '#000';
+  for (r = 0; r < 9; r++) for (c = 0; c < 9; c++) if (rows[r] & (256 >> c))
+    hudCx.fillRect(x + c * px - 1, y + r * px - 1, px + 2, px + 2);
+  hudCx.fillStyle = color;
+  for (r = 0; r < 9; r++) for (c = 0; c < 9; c++) if (rows[r] & (256 >> c))
+    hudCx.fillRect(x + c * px, y + r * px, px, px);
+}
 function drawHudCanvas() {
-  var W = hudW, H = hudH, M = 18;
+  var W = hudW, H = hudH, M = 14;
   hudCx.clearRect(0, 0, W, H);
-  // money + hp plate (top-left)
-  var money = '$' + state.money;
-  hudCx.font = 'bold 26px "Courier New",monospace';
-  var mwid = hudCx.measureText(money).width;
-  var plateW = Math.max(192, mwid) + 14;
-  hudCx.fillStyle = 'rgba(8,11,18,0.5)'; hudCx.fillRect(M - 7, M - 5, plateW, 62);
-  hudText(money, M, M + 22, 26, '#8ee87f', 'left');
-  var hp = Math.max(0, Math.min(100, state.hp)) / 100;
-  var hpcol = hp > 0.5 ? '#d94f3d' : (hp > 0.25 ? '#e0902e' : '#e5533d');
-  hudBar(M, M + 34, 176, 16, hp, hpcol, 10);
-  // wanted stars (top-center)
-  var sw = state.wanted | 0, gap = 32, sx = W / 2 - gap * 2;
-  for (var i = 0; i < 5; i++) hudText('★', sx + i * gap, M + 28, 30, i < sw ? '#ffd94a' : '#39404d', 'center');
-  // weapon box (bottom-right) — mirror the hidden DOM readout (keeps DRIVING/reload subtext)
+  // ---- money: GTA-style zero-padded counter, top-right under the minimap ----
+  var my = hudMmB + 8;
+  var mstr = '$' + ('00000000' + Math.max(0, state.money | 0)).slice(-8);
+  drawPix(mstr, W - M, my, 3, '#46e05e', 'right', '#1d5c30');
+  // ---- wanted stars under the money (lit gold, unlit dark silhouettes) ----
+  var sw = state.wanted | 0, sy = my + 27, spx = 2, sgap = 9 * spx + 5;
+  for (var i = 0; i < 5; i++)
+    drawSprite(SPR_STAR, W - M - (5 - i) * sgap + 5, sy, spx, i < sw ? '#ffd200' : '#242b38');
+  // ---- health: big retro numerals + heart, bottom-left ----
+  var hp = Math.max(0, Math.min(100, Math.round(state.hp)));
+  var hcol = hp > 60 ? '#46e05e' : (hp > 30 ? '#ffd200' : '#ff3b28');
+  if (hp <= 30 && (T * 3) % 1 < 0.45) hcol = '#7e1410';   // low-hp pulse
+  var hy = H - M - 42;
+  drawSprite(SPR_HEART, M, hy + 8, 3, '#ff3b56');
+  drawPix('' + hp, M + 34, hy, 6, hcol, 'left');
+  // ---- weapon (bottom-right): bitmap name, small flavor line under it ----
   var wb = document.getElementById('weaponBox'), main = '', sub = '';
   if (wb) {
     var cn = wb.childNodes;
     main = (cn[0] && cn[0].nodeType === 3) ? cn[0].textContent : (wb.textContent || '');
     var sm = wb.querySelector('small'); sub = sm ? sm.textContent : '';
   }
-  main = (main || '').trim(); sub = (sub || '').replace(/ /g, ' ').trim();
-  var wy = H - M;
-  if (sub) { hudText(sub, W - M, wy, 13, '#b9b19a', 'right'); wy -= 19; }
-  hudText(main, W - M, wy, 24, '#fff', 'right');
+  main = (main || '').trim(); sub = (sub || '').replace(/\u00a0/g, ' ').trim();
+  drawPix(main, W - M, H - M - 38, 3, '#ffd200', 'right');   // 21px glyphs + clear gap above the flavor line
+  if (sub) hudText(sub, W - M, H - M, 12, '#b9b19a', 'right');
   // rocket cooldown (just below the crosshair)
   if (rocketCdEl && !rocketCdEl.classList.contains('hidden')) {
     var pct = (parseFloat(rocketCdBar.style.width) || 0) / 100;
-    hudBar(W / 2 - 44, H / 2 + 22, 88, 9, pct, '#ffd94a', 0);
+    hudBar(W / 2 - 44, H / 2 + 22, 88, 9, pct, '#ffd200', 0);
   }
-  // context prompt (lower-center) — sits well below the crosshair, never over it
+  // context prompt (lower-center): black dialog plate with a light PS1 border
   var pr = document.getElementById('prompt'), pt = pr ? (pr.textContent || '').trim() : '';
   if (pt) {
     hudCx.font = 'bold 19px "Courier New",monospace';
-    var pw = hudCx.measureText(pt).width, px = W / 2, py = Math.round(H * 0.80);
-    hudCx.fillStyle = 'rgba(8,11,18,0.6)'; hudCx.fillRect(px - pw / 2 - 12, py - 20, pw + 24, 30);
-    hudText(pt, px, py, 19, '#ffe9a0', 'center');
+    var pw = hudCx.measureText(pt).width, px2 = W / 2, py = Math.round(H * 0.80);
+    hudCx.fillStyle = '#000'; hudCx.fillRect(px2 - pw / 2 - 14, py - 22, pw + 28, 34);
+    hudCx.fillStyle = 'rgba(10,13,20,0.85)'; hudCx.fillRect(px2 - pw / 2 - 12, py - 20, pw + 24, 30);
+    hudCx.strokeStyle = '#cfc7b0'; hudCx.lineWidth = 2;
+    hudCx.strokeRect(px2 - pw / 2 - 12, py - 20, pw + 24, 30);
+    hudText(pt, px2, py, 19, '#ffe9a0', 'center');
   }
 }
 function updateHUD() { document.getElementById('money').textContent = '$' + state.money; document.getElementById('hpBar').style.width = Math.max(0, state.hp) + '%'; drawHudCanvas(); }
