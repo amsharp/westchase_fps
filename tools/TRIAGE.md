@@ -53,7 +53,7 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mredxzx6 (140,-89)  houses with no visible roads — IN-AGENT (round5-structure)
 - mredtppi (184,-172) missing raised curb divider — IN-AGENT (round5-structure)
 - mreduh7z (187,-178) "looks awful" (see screenshot)
-- mreea4we (-469,275) road ends with no curb — IN-AGENT (round5-structure)
+- mreea4we (-469,275) road ends with no curb — FIXED@v1.66.6 (remapDeadEndCurbs caps genuine street dead-ends — incl the SW industrial stub — with a low concrete curb bar + side returns; non-colliding, skips loops/junctions/exits/venue-ends)
 - mredw3ho (237,-175) palm canopy too sparse; want variants
 - mree6ten (-276,261) crepe myrtle looks unnatural
 - mredznws (98,12)    flies: smaller, 2-3x quantity
