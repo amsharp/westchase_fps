@@ -31,14 +31,14 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mredz61g (91,-18)   kids merged spamming tag lines — FIXED@v1.65.4 by fable agent (no tag-backs + fresh-it freeze + pairwise separation) — round3-collision: SKIP, already shipped
 - mree93m6 (-475,353) kid-merge during game — FIXED@v1.65.4 (same) — round3-collision: SKIP, already shipped
 
-## Round 4 — OPEN: rendering/materials
-- mree7hy2 (-370,346) ground decal alpha broken
-- mree84pq (-465,416) pavement-crack decal alpha broken
-- mree8hw2 (-511,421) square shadow patches
-- mree2yur (11,127)   porto-potty black mesh artifacts
-- mree3tg7 (-70,133)  two props glowing oddly
-- mree59kf (-108,158) hair has transparent chunks
-- mree0ii7 (79,1)     claw machine flashing red (+ prop jumble)
+## Round 4 — IN-AGENT (round4-render)
+- mree7hy2 (-370,346) ground decal alpha broken — IN-AGENT (round4-render)
+- mree84pq (-465,416) pavement-crack decal alpha broken — IN-AGENT (round4-render)
+- mree8hw2 (-511,421) square shadow patches — IN-AGENT (round4-render)
+- mree2yur (11,127)   porto-potty black mesh artifacts — IN-AGENT (round4-render)
+- mree3tg7 (-70,133)  two props glowing oddly — IN-AGENT (round4-render)
+- mree59kf (-108,158) hair has transparent chunks — IN-AGENT (round4-render)
+- mree0ii7 (79,1)     claw machine flashing red (+ prop jumble) — IN-AGENT (round4-render)
 
 ## Round 5 — OPEN: placement/content (larger passes)
 - mredr84j (52,-120)  2D trashbags look bad
