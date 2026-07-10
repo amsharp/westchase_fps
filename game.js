@@ -2971,6 +2971,28 @@ function buildRemapLanes(stitches) {
       e.node[en] = nd;
     }
   }
+  // junction stitch fix (mreft54h): an edge end that missed the 5u clustering
+  // radius spawned its own 1-leg node — a DEAD END sitting inside the junction
+  // (nine_eagles_dr ended 14u from the 4-way origin node), so cars drove up to
+  // the intersection and pivoted 180 on the spot. Merge every 1-leg node into
+  // the nearest REAL junction node (2+ legs) within 16u so those cars turn
+  // onto a continuing leg instead. True dead ends (cul-de-sacs, perimeter
+  // exits with no junction nearby) keep their U-turn behaviour.
+  for (i = 0; i < RM.nodes.length; i++) {
+    var lone = RM.nodes[i];
+    if (lone.legs.length !== 1) continue;
+    var best = null, bd = 16 * 16;
+    for (j = 0; j < RM.nodes.length; j++) {
+      if (j === i || RM.nodes[j].legs.length < 2) continue;
+      var mdx = RM.nodes[j].x - lone.x, mdz = RM.nodes[j].z - lone.z, md2 = mdx * mdx + mdz * mdz;
+      if (md2 < bd) { bd = md2; best = RM.nodes[j]; }
+    }
+    if (!best) continue;
+    var lg = lone.legs[0];
+    RM.edges[lg.e].node[lg.end] = best;
+    best.legs.push(lg);
+    lone.legs = [];   // node stays in the list but is empty/inert
+  }
   for (i = 0; i < RM.edges.length; i++) RM.laneLen += RM.edges[i].len;
 }
 
@@ -3010,6 +3032,20 @@ function remapAdvance(c, dt) {
   var nd = e.node[c.rDir > 0 ? 1 : 0];
   var opts = [];
   if (nd) for (var i = 0; i < nd.legs.length; i++) if (nd.legs[i].e !== c.rEdge) opts.push(nd.legs[i]);
+  if (opts.length > 1) {
+    // never pick a leg that immediately doubles back (near-antiparallel exit):
+    // a snap 180 in the middle of a junction reads as broken (mreft54h). Only
+    // when NOTHING else continues may the reverse leg (or a dead-end U-turn)
+    // be taken.
+    var pe = rmAt(e.pts, e.cum, c.rDir > 0 ? hi : lo);
+    var inx = pe.ux * c.rDir, inz = pe.uz * c.rDir, fwd = [];
+    for (var fi = 0; fi < opts.length; fi++) {
+      var ce = RM.edges[opts[fi].e], cd = opts[fi].end === 0 ? 1 : -1;
+      var cp = rmAt(ce.pts, ce.cum, opts[fi].end === 0 ? ce.m0 : ce.len - ce.m1);
+      if (cp.ux * cd * inx + cp.uz * cd * inz > -0.45) fwd.push(opts[fi]);
+    }
+    if (fwd.length) opts = fwd;
+  }
   if (opts.length) {
     var pk = opts[(Math.random() * opts.length) | 0];
     var ne = RM.edges[pk.e];
@@ -7863,6 +7899,7 @@ function getStreetProp(name) {
   var g = new THREE.Group();
   g.add(new THREE.Mesh(geo, lamb({ map: tx })));
   g.userData.spDims = e.dims;
+  g.userData.spName = name;   // diagnostic: scene scans can identify street props
   streetPropCache[name] = g;
   return g.clone();
 }
@@ -8006,6 +8043,10 @@ function spOverlapsBuilding(x, z, hx, hz) {
 // colliders.
 // ============================================================
 var densityStats = { trees: 0, props: 0, decals: 0, signs: 0, clutter: 0, fence: 0, batches: 0 };
+// diagnostic registry: every baked density-layer clutter/sign placement
+// (name,x,z). Baked props merge into shared geometry with no per-instance
+// record, so QA scans (prop-on-asphalt sweeps etc.) need this to audit them.
+var densityPlaced = [];
 // ---- v1.65.5 shared prop-placement guards (density + env layers) ----
 // Chunky ground props register here so later layers can enforce a de-cluster
 // rule: no more than 2 items inside a 3u radius (bug: gumball/vending/trash/etc.
@@ -8141,8 +8182,8 @@ if (WC_REMAP) (function densityLayer() {
   }
   // helpers to place one asset instance into the right batch
   function dDecal(name, x, z, y, ry, scale) { if (!dAsset[name]) return; var a = dAsset[name]; var w = a.dims[0] * (scale || 1), d = a.dims[1] * (scale || 1); bake('d_' + name, { texName: name, decal: true }, UDECAL, mtx(x, y, z, ry || 0, w, 1, d)); densityStats.decals++; }
-  function dSign(name, x, y, z, ry, scale) { if (!dAsset[name]) return; var a = dAsset[name]; bake('d_' + name, { texName: name, double: true }, USIGN, mtx(x, y, z, ry, a.dims[0] * (scale || 1), a.dims[1] * (scale || 1), 1)); densityStats.signs++; }
-  function dBoxAsset(name, x, y, z, ry, sc) { if (!dAsset[name]) return; sc = sc || 1; var a = dAsset[name]; bake('d_' + name, { texName: name }, UBOX, mtx(x, y, z, ry || 0, a.dims[0] * sc, a.dims[1] * sc, a.dims[2] * sc)); densityStats.clutter++; }
+  function dSign(name, x, y, z, ry, scale) { if (!dAsset[name]) return; var a = dAsset[name]; bake('d_' + name, { texName: name, double: true }, USIGN, mtx(x, y, z, ry, a.dims[0] * (scale || 1), a.dims[1] * (scale || 1), 1)); densityStats.signs++; densityPlaced.push({ n: name, x: x, z: z, y: y }); }
+  function dBoxAsset(name, x, y, z, ry, sc) { if (!dAsset[name]) return; sc = sc || 1; var a = dAsset[name]; bake('d_' + name, { texName: name }, UBOX, mtx(x, y, z, ry || 0, a.dims[0] * sc, a.dims[1] * sc, a.dims[2] * sc)); densityStats.clutter++; densityPlaced.push({ n: name, x: x, z: z }); }
   // a flat textured box read as "2D trash" (report mredr84j); pile 3-4 lumpy,
   // squashed blobs instead so it reads as bulging plastic bags. Reuses the
   // trash_bags texture on the shared 'd_trash_bags' batch (still one draw call).
@@ -8154,9 +8195,9 @@ if (WC_REMAP) (function densityLayer() {
       var ang = i / n * 6.28 + Math.random(), rad = lead ? 0 : 0.2 + Math.random() * 0.2;
       bake('d_trash_bags', { texName: 'trash_bags' }, UBLOB, mtx(x + Math.cos(ang) * rad, r * 0.82, z + Math.sin(ang) * rad, Math.random() * 6.28, r * 1.9, r * (1.5 + Math.random() * 0.4), r * 1.7));
     }
-    densityStats.clutter++;
+    densityStats.clutter++; densityPlaced.push({ n: 'trash_bags', x: x, z: z });
   }
-  function dCylAsset(name, x, y, z) { if (!dAsset[name]) return; var a = dAsset[name]; bake('d_' + name, { texName: name }, UCYL, mtx(x, y, z, 0, a.dims[0], a.dims[1], a.dims[0])); densityStats.clutter++; }
+  function dCylAsset(name, x, y, z) { if (!dAsset[name]) return; var a = dAsset[name]; bake('d_' + name, { texName: name }, UCYL, mtx(x, y, z, 0, a.dims[0], a.dims[1], a.dims[0])); densityStats.clutter++; densityPlaced.push({ n: name, x: x, z: z }); }
   // waist-high+ poles (roadside sign posts, billboard legs) block the player;
   // short yard-sign stakes (h < 1.5) stay pass-through
   function pole(x, z, h, r) { r = r || 0.11; bake('_pole', { color: 0x8a8f94 }, UCYL, mtx(x, h / 2, z, 0, r * 2, h, r * 2)); if (h >= 1.5) addCollider(x, z, Math.max(0.26, r * 2), Math.max(0.26, r * 2)); }
@@ -8397,13 +8438,41 @@ if (WC_REMAP) (function densityLayer() {
         var py = rmAt(ry3.pts, ry3.cum, yv), oy = ry3.hw + rnd(3, 6);
         var yx = py.x - py.uz * oy * yd, yz = py.z + py.ux * oy * yd; yd = -yd;
         if (!spotClear(yx, yz) || inLake(yx, yz) || remapInClear(yx, yz, 0)) continue;
-        if (Math.random() < 0.55) { var yk = pick(['for_sale_sign', 'yard_sign', 'garage_sale_sign', 'lost_pet_flyer']); var yry = rnd(0, 6.28); pole(yx, yz, 0.9, 0.05); dSign(yk, yx + Math.sin(yry) * 0.14, 0.9, yz + Math.cos(yry) * 0.14, yry); }   // placard in front of its stake, not speared
+        // mregdctj: the stake used to be as tall as the placard CENTER (both
+        // 0.9), so the post ran across the whole lower half of the sign face
+        // (visible whenever the stake side faced you) — and the placard read
+        // too small. Now the placard is scaled 1.4x and the stake stops just
+        // behind its bottom edge (tiny 0.08 overlap hidden by the 0.14 offset).
+        if (Math.random() < 0.55) {
+          var yk = pick(['for_sale_sign', 'yard_sign', 'garage_sale_sign', 'lost_pet_flyer']);
+          var ya = dAsset[yk];
+          if (ya) {
+            var ysc = 1.4, ymount = 1.02, yh = ya.dims[1] * ysc, yry = rnd(0, 6.28);
+            pole(yx, yz, ymount - yh / 2 + 0.08, 0.05);
+            dSign(yk, yx + Math.sin(yry) * 0.14, ymount, yz + Math.cos(yry) * 0.14, yry, ysc);   // placard in front of its stake, not speared
+          }
+        }
       }
     }
   }
 
   // ============ 5. CLUTTER (behind commercial, wall units, entrances) ============
   var BACK_CLUTTER = ['cardboard_box', 'wooden_crate', 'trash_bags', 'wood_pallet', 'blue_tarp', 'bucket'];
+  // back-lot clutter surface test (report mrf7rsgx): several venues' BACK walls
+  // abut a road or an open parking lot, so the crate/box pile spilled onto road
+  // asphalt / the middle of the lot drive lanes and read as scattered litter.
+  // Boxes may hug the wall on a service PAVEMENT apron, but never on road
+  // asphalt/junction pads and never on a parking lot's drive surface.
+  function clutterSpotOK(x, z) {
+    if (!remapPointClear(x, z, 0.5)) return false;
+    for (var i = 0; i < SURF.length; i++) {
+      var s = SURF[i]; if (s.kind !== 'parking') continue;
+      var ra = (s.rot || 0) * deg, c = Math.cos(ra), sn = Math.sin(ra);
+      var dx = x - s.x, dz = z - s.z, u = dx * c - dz * sn, v = dx * sn + dz * c;
+      if (Math.abs(u) < s.w / 2 && Math.abs(v) < s.d / 2) return false;
+    }
+    return true;
+  }
   // Banks don't get a loading-dock back yard: the Regions branch's back wall
   // faces the main-intersection pedestrian plaza, so a dumpster + crate pile
   // there reads as random unidentifiable junk (bug mregiwcv). Other commercial
@@ -8429,6 +8498,7 @@ if (WC_REMAP) (function densityLayer() {
         jz = backz - f3.fz * backJ + f3.rz * latJ;
         if (spOverlapsBuilding(jx, jz, chx + 0.3, chz + 0.3)) continue;   // off the wall/columns
         if (breakablePoleNear(jx, jz, Math.max(chx, chz) + 1.2)) continue; // off trees/poles
+        if (!clutterSpotOK(jx, jz)) continue;                              // off road asphalt / parking drive lanes (mrf7rsgx)
         var jclash = false;
         for (var jp = 0; jp < jcPlaced.length; jp++) { var jdx = jcPlaced[jp][0] - jx, jdz = jcPlaced[jp][1] - jz; if (jdx * jdx + jdz * jdz < 2.4 * 2.4) { jclash = true; break; } }
         if (jclash) continue;
@@ -9424,6 +9494,7 @@ function updateStreetProps(dt) {
 // All render-only + singleplayer-local — never simulated or net-synced.
 // ============================================================
 var envProps = [];              // instanced (animated/interactive) records
+var envPlaced = [];             // diagnostic: EVERY env placement incl. merged/baked ones (name,x,z)
 var envPropInteractables = [];  // subset with an interact flag (STEP 3 E-hooks)
 // street vendors (reports mreehkm9 lemonade kid, mreeipmy ice-cream truck):
 // the env-prop pass records spawn requests here (KID_LOOKS/characters aren't
@@ -9492,6 +9563,36 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
   function vFront(v) { var yaw = (v.rot || 0) * deg; return { yaw: yaw, fx: Math.sin(yaw), fz: Math.cos(yaw), rx: Math.cos(yaw), rz: -Math.sin(yaw) }; }
   // yaw that points the authored front (-x) toward world dir (dx,dz)
   function faceDir(dx, dz) { return Math.atan2(dz, -dx); }
+  // inside any editor-authored parking/pavement slab (mirrors landscape onPavedSurf)
+  function onPavedRect(x, z) {
+    for (var i = 0; i < SURF.length; i++) {
+      var s = SURF[i], ra = (s.rot || 0) * deg, c = Math.cos(ra), sn = Math.sin(ra);
+      var dx = x - s.x, dz = z - s.z, u = dx * c - dz * sn, v = dx * sn + dz * c;
+      if (Math.abs(u) < s.w / 2 && Math.abs(v) < s.d / 2) return true;
+    }
+    return false;
+  }
+  // grass-only test for yard ornaments / lawn decor: off road asphalt +
+  // junction pads, off sidewalks, off parking/pavement slabs, out of the lake.
+  // (report mrf7rs59: a flamingo stood on the townhouse driveway pavement —
+  // the yard-decor placements had no surface check at all, same root cause
+  // family as the v1.66.58 hedge()/shrub() clearance fixes.)
+  function onGrass(x, z) {
+    if (!remapPointClear(x, z, 0.5)) return false;
+    if (typeof onSidewalk === 'function' && onSidewalk(x, z)) return false;
+    if (onPavedRect(x, z)) return false;
+    if (typeof inLake === 'function' && inLake(x, z)) return false;
+    return true;
+  }
+  // roll up to 8 lateral spots along (rx,rz) around (bx,bz) until one is on
+  // grass; null when the whole band is paved (the ornament is then skipped).
+  function grassSpot(bx, bz, rx, rz, spread) {
+    for (var t = 0; t < 8; t++) {
+      var k = rnd(-spread, spread), ox = bx + rx * k, oz = bz + rz * k;
+      if (onGrass(ox, oz)) return [ox, oz];
+    }
+    return null;
+  }
 
   // high-count pure-static assets merge into one buffer/draw-call per asset
   var MERGE = { handrail: 1, retaining_wall: 1, pond_fence: 1, screen_wall: 1, bollard: 1, chain_post: 1, concrete_planter: 1, tiered_planter: 1, raised_bed: 1, bird_bath: 1, mailbox_cluster: 1, park_lamp: 1, garden_gnome: 1, flamingo: 1 };
@@ -9593,6 +9694,7 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
       envPropInteractables.push(it);
     }
     envStats.placed++; envStats.byCat[e.cat] = (envStats.byCat[e.cat] || 0) + 1;
+    envPlaced.push({ n: name, x: x, z: z });
     return name;
   }
   // tileable run A->B repeating a ~segLen unit; ry keeps the authored front facing +normal
@@ -9734,7 +9836,19 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
   var LK = (typeof LAKE !== 'undefined') ? LAKE : { x: -280, z: 55, r: 62 };
   function bankPt(theta, out) { var k = 1.118 * (out || 1.06), A = LK.r * 1.25 * k, B = LK.r * 0.85 * k; return [LK.x + A * Math.cos(theta), LK.z + B * Math.sin(theta)]; }
   function faceLake(x, z) { return faceDir(LK.x - x, LK.z - z); }
-  function placeBank(name, theta, out, opts) { var p = bankPt(theta, out); if (typeof inLake === 'function' && inLake(p[0], p[1])) return; place(name, p[0], p[1], faceLake(p[0], p[1]), opts); }
+  // placeBank walks the spot back toward the water in 5% steps until it sits
+  // on open grass — the widest ring (fountain at out 1.24) used to land on the
+  // lakeside road asphalt / parking lane (report mrf7rt8u). Gives up rather
+  // than dropping a prop on asphalt or into the lake.
+  function placeBank(name, theta, out, opts) {
+    for (var bk = 0; bk < 6; bk++) {
+      var p = bankPt(theta, (out || 1.06) * (1 - 0.05 * bk));
+      if (typeof inLake === 'function' && inLake(p[0], p[1])) return;   // pulled under the waterline: skip
+      if (!onGrass(p[0], p[1])) continue;
+      place(name, p[0], p[1], faceLake(p[0], p[1]), opts);
+      return;
+    }
+  }
   // east-bank picnic run (theta 0 = due east, negative = toward the road/N)
   placeBank('bench_back', -0.15, 1.06);
   placeBank('patio_umbrella', -0.15, 1.14, { instance: true });
@@ -9757,9 +9871,11 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
     var fx = tv.x + tf.fx * (tv.d / 2 + 1.3), fz = tv.z + tf.fz * (tv.d / 2 + 1.3), tout = faceDir(tf.fx, tf.fz);
     place('mailbox_cluster', fx + tf.rx * (tv.w / 2 - 3), fz + tf.rz * (tv.w / 2 - 3), tout);
     if (th % 2 === 0) place('raised_bed', fx - tf.rx * (tv.w / 2 - 4), fz - tf.rz * (tv.w / 2 - 4), tout);
-    if (th % 3 === 0) place('garden_gnome', fx + tf.rx * rnd(-3, 3), fz + tf.rz * rnd(-3, 3), rnd(0, 6.28));
-    if (th % 3 === 1) place('flamingo', fx + tf.rx * rnd(-3, 3), fz + tf.rz * rnd(-3, 3), rnd(0, 6.28));
-    if (th % 4 === 0) place('bird_bath', fx + tf.rx * rnd(-2, 2), fz + tf.rz * rnd(-2, 2), 0);
+    // yard ornaments only on GRASS (mrf7rs59: flamingo on the paved driveway) —
+    // grassSpot retries laterally, and skips the ornament if the frontage is all pavement
+    if (th % 3 === 0) { var gs0 = grassSpot(fx, fz, tf.rx, tf.rz, 3); if (gs0) place('garden_gnome', gs0[0], gs0[1], rnd(0, 6.28)); }
+    if (th % 3 === 1) { var gs1 = grassSpot(fx, fz, tf.rx, tf.rz, 3); if (gs1) place('flamingo', gs1[0], gs1[1], rnd(0, 6.28)); }
+    if (th % 4 === 0) { var gs2 = grassSpot(fx, fz, tf.rx, tf.rz, 2); if (gs2) place('bird_bath', gs2[0], gs2[1], 0); }
     // fire pit: the old spot (tv - fx*4, 4u behind the row CENTER) was INSIDE
     // the townhouse footprint (half-depth 6+) — its flame sprites draw with
     // depthTest:false, so a fire burned "on the wall" seen from the street
@@ -9779,8 +9895,10 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
     var bx = rh.x + rf.fx * (rh.d / 2 + 1.8) + rf.rx * (rh.w / 2 - 3.5);
     var bz = rh.z + rf.fz * (rh.d / 2 + 1.8) + rf.rz * (rh.w / 2 - 3.5);
     place('raised_bed', bx, bz, rout);
-    place('bird_bath', bx - rf.rx * 2.4, bz - rf.rz * 2.4, 0);
-    place('garden_gnome', bx - rf.rx * 4.0, bz - rf.rz * 4.0, rnd(0, 6.28));
+    // lawn ornaments require grass here too (mrf7rs59 class): the red-house
+    // frontage corner can land on its paved apron/roadside — skip when paved
+    if (onGrass(bx - rf.rx * 2.4, bz - rf.rz * 2.4)) place('bird_bath', bx - rf.rx * 2.4, bz - rf.rz * 2.4, 0);
+    if (onGrass(bx - rf.rx * 4.0, bz - rf.rz * 4.0)) place('garden_gnome', bx - rf.rx * 4.0, bz - rf.rz * 4.0, rnd(0, 6.28));
   }
 
   // ---------- 8. FOOD TRUCKS / CARTS / TUBE-MAN in lots + forecourts ----------
@@ -19267,6 +19385,7 @@ window.__wc = {
   spawnDumpsterRat: spawnDumpsterRat, spawnDumpsterBum: spawnDumpsterBum,
   bushSpots: function () { return bushSpots; }, bushRummage: bushRummage, checkMail: checkMail,
   envProps: envProps, envPropInteractables: envPropInteractables, envStats: envStats, getEnvProp: getEnvProp, envPropInteract: envPropInteract, envPropPrompt: envPropPrompt, envToys: envToys,
+  envPlaced: envPlaced, densityPlaced: densityPlaced, onSidewalkAt: function (x, z) { return onSidewalk(x, z); }, rmRef: function () { return RM; },
   solidMeshes: solidMeshes, nightEmis: nightEmis, signGlows: signGlows, colliders: colliders,
   houses: houseStats, houseBlocksSpot: houseBlocksSpot, houseMeshesRef: houseMeshesRef,
   isUnderwater: function () { return underwater; },
