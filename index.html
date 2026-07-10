@@ -334,7 +334,7 @@
   <div id="bootLabel">warming up the engine…</div>
 </div>
 <script>
-var wcBootDone = 0, WC_BOOT_TOTAL = 45.2;   // ~sum of script MB below
+var wcBootDone = 0, WC_BOOT_TOTAL = 69.6;   // = SUM of the wcTick weights below — re-sum when adding scripts (grep wcTick | add)
 function wcTick(w, nextLabel) {
   wcBootDone += w;
   var b = document.getElementById('bootBar');
