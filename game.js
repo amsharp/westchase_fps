@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.65.2';
+var GAME_VERSION = 'v1.65.3';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -3290,18 +3290,15 @@ var houseMeshesRef = [];   // merged house meshes (perf A/B toggle hook)
         addCollider(clx * ca + clz * sa + x, -clx * sa + clz * ca + z, 1.1, 1.1);
         houseStats.colliders++;
       }
-    } else if (Math.min(co, so) > 0.25 && w > 22) {
-      // long diagonal building: split the AABB along the local x axis so the
-      // collider hugs the footprint instead of swallowing the street corner
-      var k = Math.ceil(w / 16);
-      for (var ki = 0; ki < k; ki++) {
-        var lox = -w / 2 + (ki + 0.5) * (w / k);
-        var cxk = lox * ca + x, czk = -lox * sa + z;
-        addCollider(cxk, czk, (w / k) * co + d * so, (w / k) * so + d * co);
-        houseStats.colliders++;
-      }
+    } else if (Math.min(co, so) > 0.05) {
+      // rotated house: ORIENTED collider hugging the true footprint. The old
+      // axis-aligned AABB swallowed the driveway/side-yard corners on diagonal
+      // streets — players hit "invisible walls" in front of their own garage
+      // (bug reports mree5z0n, mreealh2)
+      addColliderOBB(x, z, w / 2 + 0.2, d / 2 + 0.2, rot);
+      houseStats.colliders++;
     } else {
-      addCollider(x, z, hx * 2, hz * 2);
+      addCollider(x, z, w + 0.4, d + 0.4);
       houseStats.colliders++;
     }
     // invisible raycast proxy (bullets, cop line-of-sight)
@@ -16200,7 +16197,7 @@ window.__wc = {
   spawnDumpsterRat: spawnDumpsterRat, spawnDumpsterBum: spawnDumpsterBum,
   bushSpots: function () { return bushSpots; }, bushRummage: bushRummage, checkMail: checkMail,
   envProps: envProps, envPropInteractables: envPropInteractables, envStats: envStats, getEnvProp: getEnvProp, envPropInteract: envPropInteract, envPropPrompt: envPropPrompt, envToys: envToys,
-  solidMeshes: solidMeshes, nightEmis: nightEmis,
+  solidMeshes: solidMeshes, nightEmis: nightEmis, colliders: colliders,
   houses: houseStats, houseBlocksSpot: houseBlocksSpot, houseMeshesRef: houseMeshesRef,
   isUnderwater: function () { return underwater; },
   net: net, startGame: startGame, hostGame: hostGame, joinGame: joinGame, handleNet: handleNet,

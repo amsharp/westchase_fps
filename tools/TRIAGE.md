@@ -23,9 +23,9 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mredn2zu (silent talking pair)     — IN-AGENT
 
 ## Round 3 — OPEN: collision/gameplay (next up, high priority)
-- mree5z0n (-223,225) invisible barrier
-- mreealh2 (-415,262) invisible wall
-- mreee1df (-207,31)  invisible wall
+- mree5z0n (-223,225) invisible barrier — FIXED@v1.65.3 (rotated houses now use ORIENTED colliders; the axis-aligned AABB was swallowing driveways)
+- mreealh2 (-415,262) invisible wall — FIXED@v1.65.3 (same OBB fix — the gap between two houses is drivable again)
+- mreee1df (-207,31)  invisible wall — likely the lakeside chain-post row (visible but thin); re-check in-game after the OBB fix ships
 - mree6h2d (-260,271) walk through tree
 - mree1rcg (55,79)    chainlink: NPCs stuck + links comically large
 - mredz61g (91,-18)   kids merged into each other spamming tag lines
