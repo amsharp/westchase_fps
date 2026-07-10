@@ -696,17 +696,20 @@ var horizonSkirt = (function () {
   var g = c.getContext('2d');
   var gr = g.createLinearGradient(0, 0, 0, 128);   // canvas top = skirt top (flipY)
   gr.addColorStop(0, 'rgba(255,255,255,0)');
-  gr.addColorStop(0.28, 'rgba(255,255,255,0.4)');
-  gr.addColorStop(0.5, 'rgba(255,255,255,1)');
+  gr.addColorStop(0.16, 'rgba(255,255,255,0.45)');
+  gr.addColorStop(0.32, 'rgba(255,255,255,1)');
   gr.addColorStop(1, 'rgba(255,255,255,1)');
   g.fillStyle = gr; g.fillRect(0, 0, 8, 128);
   var t = new THREE.CanvasTexture(c); t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter;
-  // radius just inside the dome; spans y -90..170 around the camera — opaque up
-  // to ~+40 (walls top out at 28), transparent well below the cloud band
-  var geo = new THREE.CylinderGeometry(505, 505, 260, 24, 1, true);
+  // radius just inside the dome; spans y -90..100 around the camera — opaque up
+  // to ~+39 (walls top out at 28), fully transparent by +100. The top must stay
+  // BELOW y~124: above that the 505 cylinder pokes outside the r=520 dome
+  // (sqrt(520^2-505^2)) and the dome's low-poly triangles clip it into zigzag
+  // wedges in the sky (seen in the first verification pass).
+  var geo = new THREE.CylinderGeometry(505, 505, 190, 24, 1, true);
   var m = new THREE.MeshBasicMaterial({ map: t, transparent: true, side: THREE.BackSide, fog: false, depthWrite: false });
   var mesh = new THREE.Mesh(geo, m);
-  mesh.position.y = 40;
+  mesh.position.y = 5;
   skyDome.add(mesh);   // follows the camera with the dome
   return mesh;
 })();
