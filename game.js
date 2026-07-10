@@ -4329,8 +4329,20 @@ var lampGlowT = (function () {
   g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
   return new THREE.CanvasTexture(c);
 })();
-var poolGeo = new THREE.CircleGeometry(4.5, 14); poolGeo.rotateX(-Math.PI / 2);
-var poolM = new THREE.MeshBasicMaterial({ color: 0xffdf90, transparent: true, opacity: 0.16, depthWrite: false });
+// warm ground pool: a soft radial-gradient disc (was a hard-edged flat disc) so
+// the amber spill fades out at the rim instead of cutting off. Additive over the
+// dark night asphalt reads as a cozy pool of light; hidden by day (lampsOn gate).
+var poolT = (function () {
+  var c = document.createElement('canvas'); c.width = c.height = 64;
+  var g = c.getContext('2d');
+  var gr = g.createRadialGradient(32, 32, 1, 32, 32, 32);
+  gr.addColorStop(0, 'rgba(255,224,150,0.62)'); gr.addColorStop(0.45, 'rgba(255,206,120,0.28)'); gr.addColorStop(1, 'rgba(255,200,110,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+  var t = new THREE.CanvasTexture(c); t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter; t.generateMipmaps = false;
+  return t;
+})();
+var poolGeo = new THREE.CircleGeometry(5.2, 20); poolGeo.rotateX(-Math.PI / 2);
+var poolM = new THREE.MeshBasicMaterial({ map: poolT, color: 0xffe4b0, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending });
 function streetlight(x, z, ax, az) {
   // silver cobra-head on a tapered pole, arm overhanging the road (matches the
   // Street Views). ax,az = unit direction toward the road; the arm is built
