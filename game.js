@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.64.3';
+var GAME_VERSION = 'v1.65.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -7113,6 +7113,216 @@ if (WC_REMAP) (function densityLayer() {
   }
 
   flush();
+})();
+
+// ============================================================
+// LANDSCAPING PASS (#51)  (WC_REMAP)
+// ------------------------------------------------------------
+// Dense, manicured Florida-suburban plantings: foundation shrub beds + low
+// hedges hugging venue fronts, curbed parking-lot islands (palm + mulch ring
+// + shrubs), arterial frontage-strip ornamentals (grasses / crepe myrtles /
+// hedges), signature corner plantings, and residential foundation shrubs.
+//
+// PERFORMANCE: every shrub/hedge/mulch/grass instance is baked (matrix-
+// transformed) into a handful of MERGED BufferGeometries — one draw call per
+// species/colour — like the powerlines + densityLayer merges. Palms and crepe
+// myrtles reuse the existing (capped) tree builders. Nothing here carries a
+// collider: per CLAUDE.md, bushes/shrubs/beds stay PASS-THROUGH (only tree
+// trunks collide, via their own systems).
+// ============================================================
+var landscapeStats = { hedge: 0, shrub: 0, mulch: 0, grass: 0, myrtle: 0, palm: 0, island: 0, tris: 0, draws: 0 };
+var landscapeMeshes = [];
+if (WC_REMAP) (function landscapePass() {
+  var deg = Math.PI / 180;
+  function rnd(a, b) { return a + Math.random() * (b - a); }
+  function pick(a) { return a[(Math.random() * a.length) | 0]; }
+  var VENUES = (typeof REMAP_VENUES !== 'undefined') ? REMAP_VENUES : [];
+  var SURF = (typeof REMAP_SURFACES !== 'undefined') ? REMAP_SURFACES : [];
+  // front-face + rotated-rect helpers (mirror densityLayer — keyed off rot alone)
+  function vFront(v) { var yaw = (v.rot || 0) * deg; return { yaw: yaw, fx: Math.sin(yaw), fz: Math.cos(yaw), rx: Math.cos(yaw), rz: -Math.sin(yaw) }; }
+  function rectPt(s, u, v) { var r = (s.rot || 0) * deg, c = Math.cos(r), sn = Math.sin(r); return [s.x + u * c + v * sn, s.z - u * sn + v * c]; }
+
+  // ---- textures (all canvas-generated) ----
+  function rep(t) { t.wrapS = t.wrapT = THREE.RepeatWrapping; return t; }
+  var hedgeTex = rep(tex(64, function (g, s) {
+    g.fillStyle = '#2c5a26'; g.fillRect(0, 0, s, s);
+    for (var i = 0; i < 320; i++) { g.fillStyle = ['#234b20', '#356a2e', '#1d4019', '#417a37', '#2f5f29'][(Math.random() * 5) | 0]; var r = 1 + Math.random() * 2.4; g.beginPath(); g.arc(Math.random() * s, Math.random() * s, r, 0, 6.29); g.fill(); }
+  }, 1, 1));
+  function foliageTex(base, flecks) {
+    return tex(48, function (g, s) {
+      g.fillStyle = base; g.fillRect(0, 0, s, s);
+      for (var i = 0; i < 200; i++) { g.fillStyle = flecks[(Math.random() * flecks.length) | 0]; var r = 1 + Math.random() * 2.2; g.beginPath(); g.arc(Math.random() * s, Math.random() * s, r, 0, 6.29); g.fill(); }
+    }, 1, 1);
+  }
+  var mulchTex = rep(tex(64, function (g, s) {
+    g.fillStyle = '#4a3320'; g.fillRect(0, 0, s, s);
+    for (var i = 0; i < 260; i++) { g.fillStyle = ['#3a2717', '#5a3d24', '#6b4a2c', '#33220f'][(Math.random() * 4) | 0]; var w = 2 + Math.random() * 4, h = 1 + Math.random() * 2, x = Math.random() * s, y = Math.random() * s; g.save(); g.translate(x, y); g.rotate(Math.random() * 3.14); g.fillRect(-w / 2, -h / 2, w, h); g.restore(); }
+  }, 1, 1));
+  var grassTex = tex(48, function (g, s) {
+    g.clearRect(0, 0, s, s);
+    for (var b = 0; b < 46; b++) {
+      var x0 = Math.random() * s, len = s * (0.45 + Math.random() * 0.5), lean = (Math.random() - 0.5) * 10;
+      g.strokeStyle = ['#6f9a3a', '#7fae44', '#5c8a30', '#93b85a', '#8a7d33'][(Math.random() * 5) | 0];
+      g.lineWidth = 1 + Math.random() * 1.5; g.beginPath(); g.moveTo(x0, s); g.quadraticCurveTo(x0 + lean * 0.5, s - len * 0.5, x0 + lean, s - len); g.stroke();
+    }
+  }, 1, 1);
+
+  // ---- materials (one per merged batch key) ----
+  var hedgeMat = lamb({ map: hedgeTex });
+  var shrubMats = {
+    dark: lamb({ map: foliageTex('#2c5323', ['#234420', '#376a30', '#1c3a17', '#40773a']) }),
+    mid: lamb({ map: foliageTex('#3d6e30', ['#315a28', '#4c8542', '#264d22', '#5a9048']) }),
+    olive: lamb({ map: foliageTex('#556f34', ['#48602c', '#6a854a', '#3e5626', '#7a9856']) }),
+    bloom: lamb({ map: foliageTex('#3f7038', ['#e57ab0', '#f2f0e8', '#d94f8a', '#356030', '#f4c542']) })
+  };
+  var mulchMat = lamb({ map: mulchTex }); mulchMat.polygonOffset = true; mulchMat.polygonOffsetFactor = -1.5; mulchMat.polygonOffsetUnits = -1.5;
+  var grassMat = lamb({ map: grassTex, transparent: true, alphaTest: 0.4, side: THREE.DoubleSide });
+  var curbMat = lamb({ color: 0xb9b6ad });
+
+  // ---- merged-batch bake system (one Mesh/draw call per key) ----
+  var BAT = {}, _NM = new THREE.Matrix3(), _V = new THREE.Vector3(), _N = new THREE.Vector3();
+  function lbatch(key, mat) { var e = BAT[key]; if (!e) e = BAT[key] = { pos: [], norm: [], uv: [], mat: mat }; return e; }
+  function lbake(key, mat, geo, m) {
+    var e = lbatch(key, mat); _NM.getNormalMatrix(m);
+    var p = geo.attributes.position, u = geo.attributes.uv, nm = geo.attributes.normal, idx = geo.index;
+    var count = idx ? idx.count : p.count;
+    for (var i = 0; i < count; i++) {
+      var vi = idx ? idx.getX(i) : i;
+      _V.set(p.getX(vi), p.getY(vi), p.getZ(vi)).applyMatrix4(m); e.pos.push(_V.x, _V.y, _V.z);
+      if (nm) { _N.set(nm.getX(vi), nm.getY(vi), nm.getZ(vi)).applyMatrix3(_NM).normalize(); e.norm.push(_N.x, _N.y, _N.z); } else e.norm.push(0, 1, 0);
+      e.uv.push(u ? u.getX(vi) : 0, u ? u.getY(vi) : 0);
+    }
+  }
+  function lflush() {
+    var draws = 0, tris = 0;
+    for (var key in BAT) {
+      var e = BAT[key]; if (!e.pos.length) continue;
+      var g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(e.pos), 3));
+      g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(e.norm), 3));
+      g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(e.uv), 2));
+      var mesh = new THREE.Mesh(g, e.mat); mesh.frustumCulled = false;
+      scene.add(mesh); landscapeMeshes.push(mesh); draws++; tris += e.pos.length / 9;
+    }
+    landscapeStats.draws = draws; landscapeStats.tris = Math.round(tris);
+  }
+  function mtx(px, py, pz, ry, sx, sy, sz) {
+    return new THREE.Matrix4().compose(new THREE.Vector3(px, py, pz), new THREE.Quaternion().setFromAxisAngle(Y_UP, ry || 0), new THREE.Vector3(sx, sy, sz));
+  }
+
+  // ---- shared unit geometries ----
+  var USPH = new THREE.IcosahedronGeometry(0.5, 0);          // 20-tri shrub blob
+  var UQUAD = new THREE.PlaneGeometry(1, 1); UQUAD.rotateX(-Math.PI / 2);   // ground quad, faces +y
+  var UCARD = new THREE.PlaneGeometry(1, 1); UCARD.translate(0, 0.5, 0);    // upright card, base at y0
+
+  // ---- species builders ----
+  // low manicured hedge run A->B, height h, thickness th
+  function hedge(ax, az, bx, bz, h, th) {
+    var dx = bx - ax, dz = bz - az, L = Math.sqrt(dx * dx + dz * dz); if (L < 0.4) return;
+    th = th || 0.7; var ry = Math.atan2(dx, dz);
+    var geo = new THREE.BoxGeometry(th, h, L), uv = geo.attributes.uv, repN = Math.max(1, Math.round(L / h));
+    for (var i = 0; i < uv.count; i++) uv.setY(i, uv.getY(i) * repN);   // tile foliage along the run
+    lbake('ls_hedge', hedgeMat, geo, mtx((ax + bx) / 2, h / 2 + 0.02, (az + bz) / 2, ry, 1, 1, 1));
+    landscapeStats.hedge++;
+  }
+  // shrub clump: 1-3 flattened blobs, colour by species key
+  var SHRUB_KEYS = ['dark', 'mid', 'olive'];
+  function shrub(x, z, scale, key) {
+    scale = scale || rnd(0.75, 1.25); key = key || pick(SHRUB_KEYS);
+    var n = 1 + (Math.random() * 2.5 | 0);
+    for (var i = 0; i < n; i++) {
+      var r = scale * rnd(0.55, 0.9), ox = n > 1 ? rnd(-scale * 0.5, scale * 0.5) : 0, oz = n > 1 ? rnd(-scale * 0.5, scale * 0.5) : 0;
+      lbake('ls_shrub_' + key, shrubMats[key], USPH, mtx(x + ox, r * 0.72, z + oz, rnd(0, 6.28), r * 2, r * 1.7, r * 2));
+    }
+    landscapeStats.shrub++;
+  }
+  // ornamental fountain-grass tuft: 2 crossed alpha cards
+  function grass(x, z, scale) {
+    scale = scale || rnd(0.7, 1.15); var ry = rnd(0, 3.14);
+    lbake('ls_grass', grassMat, UCARD, mtx(x, 0.02, z, ry, scale * 1.3, scale, 1));
+    lbake('ls_grass', grassMat, UCARD, mtx(x, 0.02, z, ry + Math.PI / 2, scale * 1.3, scale, 1));
+    landscapeStats.grass++;
+  }
+  // mulch/planting bed ground quad (rotated to a wall/island)
+  function mulchBed(x, z, w, d, ry) {
+    lbake('ls_mulch', mulchMat, UQUAD, mtx(x, 0.045, z, ry || 0, w, 1, d));
+    landscapeStats.mulch++;
+  }
+  // thin light-grey curb ring around an island (4 low boxes, no collider)
+  function curbRing(x, z, w, d, ry) {
+    var hw = w / 2, hd = d / 2, t = 0.2, hy = 0.16, r = ry || 0;
+    // build in local frame then rotate via mtx around the island centre
+    var edges = [[0, hd, w, t], [0, -hd, w, t], [hw, 0, t, d], [-hw, 0, t, d]];
+    for (var e = 0; e < edges.length; e++) {
+      var ux = edges[e][0], uz = edges[e][1], ew = edges[e][2], ed = edges[e][3];
+      var wx = x + ux * Math.cos(r) + uz * Math.sin(r), wz = z - ux * Math.sin(r) + uz * Math.cos(r);
+      lbake('ls_curb', curbMat, new THREE.BoxGeometry(ew, hy, ed), mtx(wx, hy / 2 + 0.02, wz, r, 1, 1, 1));
+    }
+  }
+
+  // reuse existing (capped) tree builders for woody ornamentals
+  function myrtle(x, z) { if (typeof crepeMyrtle === 'function' && landscapeStats.myrtle < CAP.myrtle) { crepeMyrtle(x, z); landscapeStats.myrtle++; } }
+  function ipalm(x, z) { if (typeof palm === 'function' && landscapeStats.palm < CAP.palm) { palm(x, z); landscapeStats.palm++; } }
+
+  var CAP = { shrub: 1200, hedge: 360, grass: 500, mulch: 400, myrtle: 60, palm: 40 };
+  function okShrub() { return landscapeStats.shrub < CAP.shrub; }
+
+  // guards: reuse the world's placement checks; front-hugging beds trust the
+  // vFront geometry (spotClear would reject anything near a building collider).
+  function openClear(x, z) { return spotClear(x, z) && !inLake(x, z) && (typeof remapInClear === 'undefined' || !remapInClear(x, z, 1)) && (typeof houseBlocksSpot === 'undefined' || !houseBlocksSpot(x, z)); }
+
+  var COMM = { racetrac: 1, publix: 1, dollar_tree: 1, storage: 1, starbucks: 1, bank: 1, strip: 1, dunkin: 1, offices: 1, yoga: 1, pharmacy: 1, sushi: 1, farnell: 1, shop: 1 };
+
+  // ============ WAVE 1: BUILDING-FRONTAGE FOUNDATION BEDS ============
+  // Low hedge + mulch strip + foundation shrubs/grasses hugging each commercial
+  // front face, split around a central entrance gap; flowering accent shrubs at
+  // the door flanks. Bigger footprints also get a side-wall bed.
+  for (var vf = 0; vf < VENUES.length; vf++) {
+    var v = VENUES[vf]; if (!COMM[v.type]) continue;
+    var f = vFront(v);
+    var fcx = v.x + f.fx * (v.d / 2), fcz = v.z + f.fz * (v.d / 2);   // front wall centre
+    var hwv = v.w / 2 - 1.0;                                          // usable half-width
+    var doorH = Math.min(3.2, Math.max(1.6, hwv * 0.32));            // half entrance gap
+    var bedOff = 1.35;                                               // hedge/mulch distance from wall
+    var bx0 = fcx + f.fx * bedOff, bz0 = fcz + f.fz * bedOff;
+    if (inLake(bx0, bz0)) continue;
+    // two hedge segments (left/right of the door) with a mulch strip beneath each
+    var segs = [[-hwv, -doorH], [doorH, hwv]];
+    for (var sgi = 0; sgi < segs.length; sgi++) {
+      var la = segs[sgi][0], lb = segs[sgi][1]; if (lb - la < 1.2) continue;
+      var ax = bx0 + f.rx * la, az = bz0 + f.rz * la, bx = bx0 + f.rx * lb, bz = bz0 + f.rz * lb;
+      var hgt = rnd(0.6, 0.85);
+      hedge(ax, az, bx, bz, hgt, rnd(0.6, 0.85));
+      var mcx = (ax + bx) / 2, mcz = (az + bz) / 2;
+      mulchBed(mcx, mcz, Math.abs(lb - la) + 0.6, 1.9, f.yaw);
+      // foundation shrubs + grasses along the segment, in front of the hedge
+      var stp = 2.0, foff = bedOff + 0.75;
+      for (var t = la + 0.6; t < lb - 0.4 && okShrub(); t += stp) {
+        var jit = rnd(-0.35, 0.35);
+        var sx = fcx + f.fx * foff + f.rx * (t + jit), sz = fcz + f.fz * foff + f.rz * (t + jit);
+        if (Math.random() < 0.78) shrub(sx, sz, rnd(0.6, 1.0), pick(SHRUB_KEYS));
+        else grass(sx, sz, rnd(0.7, 1.0));
+      }
+    }
+    // flowering accent shrubs flanking the entrance
+    for (var ds = -1; ds <= 1; ds += 2) {
+      var dx2 = fcx + f.fx * (bedOff + 0.7) + f.rx * (doorH * ds), dz2 = fcz + f.fz * (bedOff + 0.7) + f.rz * (doorH * ds);
+      shrub(dx2, dz2, rnd(0.85, 1.15), 'bloom');
+    }
+    // side-wall bed for the larger footprints
+    if (v.w >= 40 || v.d >= 26) {
+      for (var side = -1; side <= 1; side += 2) {
+        var sw = v.w / 2 + 1.2, sdA = -v.d / 2 + 1.5, sdB = v.d / 2 - 1.5;
+        var pAx = v.x + f.rx * sw * side + f.fx * sdA, pAz = v.z + f.rz * sw * side + f.fz * sdA;
+        var pBx = v.x + f.rx * sw * side + f.fx * sdB, pBz = v.z + f.rz * sw * side + f.fz * sdB;
+        if (inLake(pAx, pAz) || inLake(pBx, pBz)) continue;
+        hedge(pAx, pAz, pBx, pBz, rnd(0.55, 0.75), 0.6);
+        mulchBed((pAx + pBx) / 2, (pAz + pBz) / 2, 1.6, Math.abs(sdB - sdA) + 0.5, f.yaw);
+      }
+    }
+  }
+
+  lflush();
 })();
 
 // ============================================================
@@ -15656,6 +15866,8 @@ window.__wc = {
   remapPointClear: function (x, z, pad) { return remapPointClear(x, z, pad); },
   oakInfo: function () { return { count: oakCount, cap: OAK_CAP }; },
   densityInfo: function () { return densityStats; },
+  landscapeStats: function () { return landscapeStats; },
+  listLandscaping: function () { return { meshes: landscapeMeshes.length, byKey: landscapeMeshes.map(function (m) { return m.geometry.attributes.position.count / 3; }), stats: landscapeStats }; },
   forestFillPts: expFillPts,
   streetProps: streetPropInteractables, streetPropInteract: streetPropInteract, getStreetProp: getStreetProp, hydrantJets: hydrantJets,
   // dumpster diving / scavenging test hooks (all local-only)
