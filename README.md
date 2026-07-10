@@ -619,6 +619,8 @@ bed runs under everything.
 - **WASD** — move, **Shift** — run, **Space** — jump, **Mouse** — look
 - **Left click** — punch / shoot
 - **Scroll wheel** — quick-swap to your next / previous weapon
+- **`[` / `]`** — zoom the minimap out / in (WIDE / NORMAL / CLOSE); **Ctrl+scroll**
+  does the same. Your choice is remembered between sessions.
 - **E** — talk to the dealer (when close)
 - **Tab** — inventory: equip/unequip weapons + your 6×4 item grid (click an
   item to use it, right-click or **Q** to drop one)
@@ -631,6 +633,19 @@ bed runs under everything.
 - **Hold V** — push-to-talk voice chat (multiplayer)
 - **F8** — report a bug (grabs a screenshot + your note, sent for triage)
 - **Esc** — release mouse / close menus
+
+## Minimap
+
+The bordered map in the top-right is fixed-north (an **N** sits at the top edge)
+and your marker is a **heading arrow** that turns as you look around. Named
+venues show as colour-coded blips with short labels — **RT** RaceTrac, **PUB**
+Publix, **DD** Dunkin, **SB** Starbucks, **BK** banks, **RX** pharmacy, **SU**
+sushi, **SCH** the school, **DT** Dollar Tree — plus the **LAKE** and a crosshair
+on the main intersection. Live blips overlay the map: cars (amber), pedestrians
+(white), cops (blue), other players (green), cash (green), dropped weapons
+(magenta), and your active quest waypoint (blinking amber). Zoom with **`[` / `]`**
+(or Ctrl+scroll): the WIDE level shows the whole town, and NORMAL / CLOSE scale in
+and follow you for detail work.
 
 ## Settings
 
