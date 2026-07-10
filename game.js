@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.62.6';
+var GAME_VERSION = 'v1.62.7';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -5948,6 +5948,76 @@ function buildSakura(spec) {
     }
   });
   spec.zones.push({ x: cx, z: -600.4, r2: 5, prompt: '[E] CHAT WITH THE CHEF', fn: function () { staffSay(['"Irasshaimase! Welcome!"', '"The toro is exceptional today."', '"Chef\'s choice? You will not regret it."']); } });
+}
+
+// ---------------- DOLLAR TREE (venue dollar_tree, SW corner) -------------------
+var DOLLAR_TREE = registerInterior({
+  id: 'dollar_tree',
+  box: { x0: -615, x1: -585, z0: -611, z1: -589, y: -360 },  // 30 x 22 room, y=-360
+  doorZone: { x: 14.07, z: 53.93, r2: 40 },                  // world front-face (rot 135)
+  doorIn: { x: -600, z: -594, yaw: 0 },
+  doorOut: { x: 16.55, z: 51.45, yaw: 2.356 },
+  exitZone: { x: -600, z: -592, r2: 11 },
+  label: 'DOLLAR TREE',
+  build: buildDollarTree
+});
+function buildDollarTree(spec) {
+  var floorT = tex(64, function (g, s) {
+    g.fillStyle = '#e2e0d6'; g.fillRect(0, 0, s, s);           // scuffed VCT tile
+    g.fillStyle = '#d6d4c8'; g.fillRect(0, 0, s / 2, s / 2); g.fillRect(s / 2, s / 2, s / 2, s / 2);
+    g.strokeStyle = '#c2c0b2'; g.lineWidth = 2; g.strokeRect(0, 0, s, s);
+    noise(g, s, 70, 0.05, 0.04);
+  }, 9, 6);
+  var wallT = tex(64, function (g, s) {
+    g.fillStyle = '#f0efe6'; g.fillRect(0, 0, s, s);
+    g.fillStyle = '#1c8a3a'; g.fillRect(0, s * 0.2, s, 9);        // Dollar Tree green band
+    g.fillStyle = '#0e5a24'; g.fillRect(0, s * 0.2 + 9, s, 3);
+    noise(g, s, 55, 0.03, 0.03);
+  }, 9, 1);
+  var prodT = tex(128, function (g, s) {
+    g.fillStyle = '#d0cec4'; g.fillRect(0, 0, s, s);
+    var cols = ['#e83030', '#2a7ad8', '#3fae4a', '#e8c020', '#e0682a', '#c845a0', '#f2f2f2', '#20b0c0', '#f050a0'];
+    for (var y = 4; y < s; y += 22) {
+      for (var x = 3; x < s - 6; x += 12) { g.fillStyle = cols[(Math.random() * cols.length) | 0]; g.fillRect(x, y, 10, 17); g.fillStyle = 'rgba(255,255,255,0.18)'; g.fillRect(x, y, 10, 3); }
+      g.fillStyle = '#1c8a3a'; g.fillRect(0, y + 18, s, 4);      // green shelf edge
+    }
+  }, 4, 4);
+  var floorM = lamb2(floorT), wallM = lamb2(wallT), prodM = lamb2(prodT);
+  var greenM = lamb({ color: 0x1c8a3a }), whiteM = lamb({ color: 0xeceae0 }), shelfEndM = lamb({ color: 0xc6c4b8 }), metalM = lamb({ color: 0xb6babf }), regM = lamb({ color: 0x2a2e34 }), screenM = new THREE.MeshBasicMaterial({ color: 0x3fae6a });
+  var s = intShell(spec, { floorM: floorM, wallM: wallM, ceilColor: 0xdedcd2, bannerLines: ['DOLLAR TREE'], bannerBg: '#1c8a3a', bannerFg: '#f2e84a' });
+  var Y = s.Y, cx = s.cx;
+
+  // checkout lane near the entrance (west of the door), cashier behind
+  var counter = box(5.5, 1.0, 1.4, whiteM, cx - 8, Y + 0.5, -593); scene.add(counter); solidMeshes.push(counter); intCol(spec, cx - 8, -593, 5.5, 1.4);
+  scene.add(box(5.2, 0.08, 1.3, greenM, cx - 8, Y + 1.02, -593));                                  // counter belt/top
+  scene.add(box(0.7, 0.55, 0.6, regM, cx - 8, Y + 1.28, -593.4));                                  // register
+  scene.add(box(0.5, 0.34, 0.05, screenM, cx - 8, Y + 1.5, -593.1));                               // screen
+  intSign(cx - 8, Y + 2.6, -593.6, 0, 2.6, 0.9, ['$1.25'], '#1c8a3a', '#ffffff');                  // "everything $1.25"
+  // gondola aisles of cheap goods (north half)
+  var aisleX = [cx - 9, cx - 3, cx + 3, cx + 9];
+  for (var ai = 0; ai < aisleX.length; ai++) {
+    var gx = aisleX[ai];
+    var gond = box(2.2, 1.9, 12, [prodM, prodM, whiteM, shelfEndM, prodM, prodM], gx, Y + 0.95, -603); scene.add(gond); solidMeshes.push(gond); intCol(spec, gx, -603, 2.2, 12);
+    for (var sh = 0.55; sh < 1.9; sh += 0.55) scene.add(box(2.3, 0.06, 12, metalM, gx, Y + sh, -603));   // shelf tiers
+  }
+  // colorful $1 bins near the entrance (east side)
+  var binCols = [0xe83030, 0x2a7ad8, 0x3fae4a, 0xe8c020];
+  for (var bi = 0; bi < 4; bi++) { var bx = cx + 6 + (bi % 2) * 2.4, bz = -591.5 - ((bi / 2) | 0) * 2.4; scene.add(box(2.0, 0.7, 2.0, lamb({ color: binCols[bi] }), bx, Y + 0.35, bz)); intCol(spec, bx, bz, 2.0, 2.0); scene.add(box(1.7, 0.4, 1.7, prodM, bx, Y + 0.75, bz)); }
+
+  placeStaffIn(spec, 'DOLLAR_PAM', cx - 8, -592, Math.PI);
+
+  var CHEAP = ['chips', 'soda', 'rubberduck', 'actionfig', 'gnome', 'cassette', 'lighter', 'water'];
+  spec.zones.push({
+    x: cx - 8, z: -595, r2: 9, prompt: '[E] BUY A DEAL — $1.25',
+    fn: function () {
+      if (state.money < 2) { sfx('deny'); popup2("You can't afford it"); return; }
+      var id = CHEAP[(Math.random() * CHEAP.length) | 0];
+      if (bagAdd(id, 1) > 0) { sfx('deny'); popup2('Your bag is full'); return; }
+      state.money -= 2; sfx('buy'); itemToast(id); staffSay(['"Everything\'s a dollar twenty-five, hon."', '"Great find!"']);
+    }
+  });
+  spec.zones.push({ x: cx + 3, z: -603, r2: 9, prompt: '[E] BROWSE THE AISLE', fn: function () { staffSay(['"Party supplies are on aisle three."', '"We got balloons, candy, gift bags — all a buck twenty-five."', '"Seasonal is fully stocked!"']); } });
+  spec.zones.push({ x: cx - 8, z: -594.5, r2: 4, prompt: '[E] CHAT WITH CASHIER', fn: function () { staffSay(['"Did you find everything okay?"', '"Need a bag for a nickel?"', '"Next in line!"']); } });
 }
 
 // ---------------- street props (AI PSX props: streetprops.js) ----------------
