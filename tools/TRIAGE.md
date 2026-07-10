@@ -87,3 +87,19 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mreesgtd (238,516) parked cars with lights on — R4
 - mreet1el (273,474) NPC pacing left-right loop — R3 (check whisker ping-pong)
 - mreetig1 (233,306) secondary intersection looks bad — R5
+
+## Batch 4 (all filed from a v1.64.0 session — the live page never reloads
+## mid-session, so collision reports below may predate the v1.65.3 OBB fix;
+## re-verify before working them)
+- mreeuf0c (-97,338)  random wall — R3 re-check post-OBB
+- mref1z9y (298,80)   invis wall — R3 re-check post-OBB
+- mreez9lq (-148,-34) npcs walking into a light pole — R3 re-check post-whisker (thin-pole probe gap?)
+- mreeuu2g (-136,230) unclear props — R5
+- mreewls4 (-467,332) dark square under trees — R4 (same class as mree8hw2)
+- mreexjvh (-178,170) road/tile seam bad — R5 roads
+- mreexz4c (-163,120) road area bad — R5 roads
+- mreeyfs8 (-167,56)  fountain droplets -> sprite VFX — R5 VFX (with mreed9ar smoke/fire)
+- mreeyvkn (-157,36)  same, AI sprite VFX — R5 VFX
+- mref0pwi (205,272)  bus stop facing wrong way — R5
+- mref0zmv (205,272)  ugly road junction — R5 roads
+- mref1n8n (321,186)  sidewalk looks bad — R5
