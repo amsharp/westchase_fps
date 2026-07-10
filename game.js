@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.64.0';
+var GAME_VERSION = 'v1.64.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -3965,6 +3965,127 @@ function streetlight(x, z, ax, az) {
     streetlight(-116, 22, 0, 1);                                      // Dunkin
   }
 })();
+
+// ---------------- power distribution (WC_REMAP): poles + sagging wires ----------------
+// Runs AFTER the roads (buildRemapRoads → RM) and the streetlights are placed,
+// so poles yield to lamp colliders via spotClear. Poles are individual
+// breakable Groups (cars topple them, same contract as lamps/trees); every
+// wire in town is baked into ONE hand-merged BufferGeometry (single draw call)
+// so the town-wide spans never balloon the draw count. Wires are overhead and
+// carry NO collider (you walk/drive under them). woodPoleM/wireM/xfmrM are the
+// materials declared with the legacy powerline() block above.
+var powerPoles = [], powerWireCount = 0, powerSpanCount = 0;
+// merge indexed geometries sharing position+normal (uv dropped — color mats)
+function pwMergeGeos(list) {
+  var pos = [], nrm = [], idx = [], base = 0;
+  for (var i = 0; i < list.length; i++) {
+    var gp = list[i].getAttribute('position'), gn = list[i].getAttribute('normal'), gi = list[i].getIndex(), v, k;
+    for (v = 0; v < gp.count; v++) { pos.push(gp.getX(v), gp.getY(v), gp.getZ(v)); nrm.push(gn.getX(v), gn.getY(v), gn.getZ(v)); }
+    if (gi) { for (k = 0; k < gi.count; k++) idx.push(gi.getX(k) + base); }
+    else { for (k = 0; k < gp.count; k++) idx.push(k + base); }
+    base += gp.count; if (list[i].dispose) list[i].dispose();
+  }
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+  geo.setIndex(idx);
+  return geo;
+}
+var PWR_H = 10.6, PWR_ARM_Y = 9.85, PWR_ARM_HALF = 1.35, PWR_ATTACH_Y = 10.2;
+// shared local pole geometry (built once, reused by every pole Group)
+var pwPoleGeo = pwMergeGeos([
+  new THREE.CylinderGeometry(0.17, 0.30, PWR_H, 6).translate(0, PWR_H / 2, 0),
+  new THREE.BoxGeometry(PWR_ARM_HALF * 2 + 0.5, 0.17, 0.17).translate(0, PWR_ARM_Y, 0),
+  new THREE.CylinderGeometry(0.055, 0.055, 0.3, 5).translate(-PWR_ARM_HALF, PWR_ARM_Y + 0.22, 0),
+  new THREE.CylinderGeometry(0.055, 0.055, 0.3, 5).translate(PWR_ARM_HALF, PWR_ARM_Y + 0.22, 0),
+  new THREE.CylinderGeometry(0.05, 0.05, 0.26, 5).translate(0, PWR_ARM_Y + 0.2, 0)
+]);
+var pwXfmrGeo = new THREE.BoxGeometry(0.5, 0.82, 0.44).translate(0.34, PWR_ARM_Y - 2.5, 0.3);
+// a pole: crossarm spans the road normal (nx,nz). Returns its 3 world attach pts.
+function powerPole(x, z, nx, nz, xfmr) {
+  var g = new THREE.Group();
+  g.add(new THREE.Mesh(pwPoleGeo, woodPoleM));
+  if (xfmr) g.add(new THREE.Mesh(pwXfmrGeo, xfmrM));
+  g.position.set(x, 0, z);
+  g.rotation.y = Math.atan2(-nz, nx);   // local +X → world normal (nx,nz)
+  scene.add(g);
+  registerBreakable(g, x, z, 0.5, 'light', null, 0.34);
+  var pole = { x: x, z: z, a: [
+    { x: x - nx * PWR_ARM_HALF, y: PWR_ATTACH_Y, z: z - nz * PWR_ARM_HALF },
+    { x: x,                     y: PWR_ATTACH_Y, z: z },
+    { x: x + nx * PWR_ARM_HALF, y: PWR_ATTACH_Y, z: z + nz * PWR_ARM_HALF }
+  ] };
+  powerPoles.push(pole);
+  return pole;
+}
+// accumulate a sagging catenary wire (parabolic droop) into shared arrays as a
+// thin 3-sided tube — cheap and reads as a line from every angle
+var _pwPos = [], _pwNrm = [], _pwIdx = [], _pwBase = 0, PWR_WR = 0.05;
+function sagWire(a, b) {
+  var dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
+  var span = Math.sqrt(dx * dx + dz * dz);
+  var sag = Math.max(0.55, Math.min(2.3, span * 0.06));
+  var lx = dx / (span || 1), lz = dz / (span || 1);         // horizontal dir
+  var sx = -lz, sz = lx;                                     // side axis (horizontal)
+  var SEG = 5, k, j, ang;
+  var ring0 = _pwBase;
+  for (k = 0; k <= SEG; k++) {
+    var t = k / SEG;
+    var cx = a.x + dx * t, cy = a.y + dy * t - sag * 4 * t * (1 - t), cz = a.z + dz * t;
+    for (j = 0; j < 3; j++) {
+      ang = j / 3 * Math.PI * 2 + 0.5;
+      var ox = sx * Math.cos(ang) * PWR_WR, oy = Math.sin(ang) * PWR_WR, oz = sz * Math.cos(ang) * PWR_WR;
+      _pwPos.push(cx + ox, cy + oy, cz + oz);
+      var nl = Math.sqrt(ox * ox + oy * oy + oz * oz) || 1;
+      _pwNrm.push(ox / nl, oy / nl, oz / nl);
+    }
+  }
+  for (k = 0; k < SEG; k++) {
+    var r0 = ring0 + k * 3, r1 = ring0 + (k + 1) * 3;
+    for (j = 0; j < 3; j++) {
+      var jn = (j + 1) % 3;
+      _pwIdx.push(r0 + j, r1 + j, r0 + jn, r0 + jn, r1 + j, r1 + jn);
+    }
+  }
+  _pwBase += (SEG + 1) * 3;
+  powerWireCount++;
+}
+(function r3Powerlines() {
+  if (!WC_REMAP || typeof RM === 'undefined' || !RM || !RM.roads) return;
+  var i, s, q;
+  for (i = 0; i < RM.roads.length; i++) {
+    var r = RM.roads[i];
+    if (r.cls > 1 || r.dirt) continue;                       // arterials + collectors only
+    var len = r.cum[r.cum.length - 1];
+    var side = (i % 2) ? 1 : -1;                              // consistent per road
+    var off = r.hw + 6.2, prev = null, xf = 0;
+    for (s = 22; s < len - 16; s += 40) {
+      var p = rmAt(r.pts, r.cum, s);
+      var nx = -p.uz, nz = p.ux;                              // left unit normal
+      var px = p.x + nx * off * side, pz = p.z + nz * off * side;
+      if (Math.abs(px) > HALF - 6 || Math.abs(pz) > HALF - 6) { prev = null; continue; }
+      // break spans across junction pads (no wires over intersections at head height)
+      var nearPad = false;
+      for (q = 0; q < RM.pads.length; q++) {
+        var pd = RM.pads[q], ddx = px - pd.x, ddz = pz - pd.z, rr = pd.r + 7;
+        if (ddx * ddx + ddz * ddz < rr * rr) { nearPad = true; break; }
+      }
+      if (nearPad || !remapPointClear(px, pz, 1.2) || !spotClear(px, pz)) { prev = null; continue; }
+      var pole = powerPole(px, pz, nx * side, nz * side, (xf++ % 3) === 0);
+      if (prev) { sagWire(prev.a[0], pole.a[0]); sagWire(prev.a[1], pole.a[1]); sagWire(prev.a[2], pole.a[2]); powerSpanCount++; }
+      prev = pole;
+    }
+  }
+  if (_pwPos.length) {
+    var geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(_pwPos, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(_pwNrm, 3));
+    geo.setIndex(_pwIdx);
+    scene.add(new THREE.Mesh(geo, wireM));
+    _pwPos = _pwNrm = _pwIdx = null;   // release the builder arrays
+  }
+})();
+
 var lampsOn = false;
 function setLamps(on) {
   if (on === lampsOn) return;
@@ -15103,6 +15224,8 @@ window.__wc = {
   copWeapon: copWeapon,
   openMenu: openMenu, closeMenus: closeMenus, spawnCashAt: spawnCash,
   renderer: renderer, scene: scene, camera: camera,
+  listPowerlines: function () { return powerPoles; },
+  powerlineStats: function () { return { poles: powerPoles.length, wires: powerWireCount, spans: powerSpanCount }; },
   cars: cars, boomAt: boomAt, killNpcRagdoll: killNpcRagdoll,
   drops: drops, rockets: rockets, setZoom: setZoom, hurtPlayer: hurtPlayer,
   bag: function () { return state.bag; }, bagAdd: bagAdd, bagRemove: bagRemove, bagUse: bagUse,
