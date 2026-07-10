@@ -62,14 +62,14 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mreed9ar (-194,21)  smoke/fire: redo as AI sprite sheets (research game VFX)
 
 ## Round 5 — IN-AGENT (round5-features) — quirky vendor/fence/traffic slice
-- mreehkm9 (-142,-9) lemonade stand wants KID VENDOR + dialogue — IN-AGENT (round5-features)
-- mreeipmy (-161,-76) ice cream truck wants VENDOR — IN-AGENT (round5-features)
+- mreehkm9 (-142,-9) lemonade KID VENDOR — CEDED TO gen-tts (fable agent, launched earlier, voice lines already generating) — round5-features SKIP
+- mreeipmy (-161,-76) ice cream VENDOR — CEDED TO gen-tts (same) — round5-features SKIP
 - mreejak5 (-158,-86) fences should BREAK IN PANELS under cars — IN-AGENT (round5-features)
 - mreeoimw (-1,-517) traffic too uniform; want occasional HONKS + variety — IN-AGENT (round5-features)
 
 ## Round 5 — IN-AGENT (round5-props) — prop placement/quality slice
-- mree10qu (62,32)    person clipping inside yellow prop — IN-AGENT (round5-props)
-- mreedozu (-199,33)  unidentifiable mesh — IN-AGENT (round5-props)
+- mree10qu (62,32)    person clipping inside yellow prop — FIXED@v1.66.18 (the "yellow prop" is the amber quest-giver beacon; the worried-spouse giver ped stood inside its ground-level pole. Beacon now FLOATS above head height (pole y 3.3-5.5, orb 5.7, downward pointer cone) so no ped clips it — applies to all 10 giver beacons)
+- mreedozu (-199,33)  unidentifiable mesh — FIXED@v1.66.18 (the decorative lakeside pond_fence arc placed 8 SOLID panels at ~8u spacing -> isolated dark frames stranded in the lawn 30-50u from the water, reading as garbage + stray colliders. Removed the arc; the lakeside keeps benches/umbrellas/bbq/fire-pit/bird-bath/lamps/fountain/windmill/flamingos)
 - mreeelik (-118,75)  car placement weird — IN-AGENT (round5-props)
 - mreeccpr/mreebnfk (-226,152) prop set jarring in front of office tower (placement only) — IN-AGENT (round5-props)
 - mreegamp (-140,43)  placement bad — IN-AGENT (round5-props)

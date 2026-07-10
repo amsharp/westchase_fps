@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.17';
+var GAME_VERSION = 'v1.66.19';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -8704,8 +8704,9 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
   placeBank('fountain', -0.02, 1.24, { instance: true });   // set back from the water
   placeBank('windmill', 0.55, 1.16, { instance: true });
   placeBank('flamingo', 0.12, 1.04); placeBank('flamingo', 0.16, 1.045);
-  // decorative pond-fence arc on the road-facing (E/NE) bank
-  for (var pf = 0; pf < 8; pf++) { var a = bankPt(-0.7 + 0.9 * (pf + 0.05) / 8, 1.0), b = bankPt(-0.7 + 0.9 * (pf + 0.95) / 8, 1.0); place('pond_fence', (a[0] + b[0]) / 2, (a[1] + b[1]) / 2, faceLake((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)); }
+  // (removed: decorative pond-fence arc — its 8 solid panels tiled at ~8u
+  //  spacing read as isolated unidentifiable dark frames stranded in the lawn
+  //  ~30-50u from the water, and each carried a stray collider. mreedozu)
 
   // ---------- 7. TOWNHOUSE YARDS: mailboxes, beds, quirky décor ----------
   var ths = byType.townhouse || [];
@@ -10080,7 +10081,7 @@ function killNpcRagdoll(n, dx, dz, power) {
   n.airY = 0.2;   // launch from near ground level; vy carries the arc (was 0.9 = a visible ~1m pop the instant they died)
   n.spinX = (Math.random() - 0.5) * 14;
   n.spinZ = (Math.random() - 0.5) * 14;
-  sfx('grunt', { x: n.x, z: n.z, range: 60 });
+  sfx('grunt', { x: n.x, z: n.z, range: 60, fem: n.fem });
   for (var i = 0; i < 5; i++) puff(new THREE.Vector3(n.x + (Math.random() - 0.5), 0.8 + Math.random() * 1.2, n.z + (Math.random() - 0.5)), 0xa01212);
   bloodDecal(n.x, n.z);
   spawnCash(n.x, n.z, 5 + ((Math.random() * 18) | 0));
@@ -11016,7 +11017,7 @@ function damageNPC(n, dmg, kx, kz, silent) {
     n.state = 'down'; n.downT = 8; if (n.mesh.userData.shadow) n.mesh.userData.shadow.visible = false;
     if (n.grp) leaveGroup(n);   // #67: detach from its social group so no follower paths to a corpse
     stopNpcVoice(n.vname);
-    spawnCash(n.x, n.z, 5 + ((Math.random() * 18) | 0)); sfx('ko', { x: n.x, z: n.z, range: 50 }); sfx('grunt', { x: n.x, z: n.z, range: 50 });
+    spawnCash(n.x, n.z, 5 + ((Math.random() * 18) | 0)); sfx('ko', { x: n.x, z: n.z, range: 50 }); sfx('grunt', { x: n.x, z: n.z, range: 50, fem: n.fem });
     maybeNpcItemDrop(n.x, n.z);
     if (n.qtag && typeof questKillTag === 'function') questKillTag(n.qtag);   // quest kill-beat credit on KO death
     if (!silent) {
@@ -13552,7 +13553,7 @@ function sfx(kind, at) {
     case 'alarm': bp(760, 0.18, 0.2, 'square'); setTimeout(function () { bp(560, 0.18, 0.2, 'square'); }, 180); setTimeout(function () { bp(760, 0.18, 0.2, 'square'); }, 360); break;
     case 'copshot': nb(0.12, 1500, 0.3); break;
     case 'copsmg': nb(0.08, 1900, 0.22); break;
-    case 'grunt': bp(150, 0.28, 0.4, 'sawtooth', 55); nb(0.1, 600, 0.18); break;
+    case 'grunt': { var gf = at && at.fem; bp(gf ? 265 : 150, gf ? 0.24 : 0.28, 0.4, 'sawtooth', gf ? 130 : 55); nb(0.1, gf ? 950 : 600, gf ? 0.12 : 0.18); } break;
     case 'auto': nb(0.11, 1300, 0.5); break;
     case 'eat': nb(0.09, 2500, 0.2); setTimeout(function () { nb(0.09, 2200, 0.18); }, 140); setTimeout(function () { nb(0.09, 2400, 0.15); }, 280); break;
     case 'rocketfire': nb(0.5, 800, 0.7); bp(220, 0.4, 0.3, 'sawtooth', 50); break;
@@ -14446,11 +14447,16 @@ function refreshQuestPanel() {
 // eyeball-able before the real quest NPCs/props exist)
 (function questBeacons() {
   function beacon(x, z, col) {
+    // FLOATS above head height so a quest-giver ped never stands "inside" the
+    // marker (mree10qu: worried-spouse giver clipped through the ground pole).
     var g = new THREE.Group();
-    var pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 3.2, 6), new THREE.MeshBasicMaterial({ color: col }));
-    pole.position.y = 1.6; g.add(pole);
-    var orb = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 6), new THREE.MeshBasicMaterial({ color: col }));
-    orb.position.y = 3.4; g.add(orb);
+    var mat = new THREE.MeshBasicMaterial({ color: col });
+    var pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 2.2, 6), mat);
+    pole.position.y = 4.4; g.add(pole);   // spans y 3.3 .. 5.5, clear of any NPC
+    var orb = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 6), mat);
+    orb.position.y = 5.7; g.add(orb);
+    var ptr = new THREE.Mesh(new THREE.ConeGeometry(0.36, 0.8, 6), mat);
+    ptr.position.y = 2.9; ptr.rotation.x = Math.PI; g.add(ptr);   // tip points down at the giver
     g.position.set(x, 0, z); scene.add(g); return g;
   }
   for (var i = 0; i < QUEST_ORDER.length; i++) { var d = QUESTS[QUEST_ORDER[i]]; if (d && d.giver) beacon(d.giver.x, d.giver.z, 0xffcf4a); }
