@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.30';
+var GAME_VERSION = 'v1.66.31';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -3762,8 +3762,13 @@ function signalHead(parent, x, y, z, fx, fz, grpOverride) {
   });
 }
 function greenSign(parent, x, y, z, ry, text) {
-  var m = new THREE.Mesh(new THREE.PlaneGeometry(5.5, 1.1), new THREE.MeshBasicMaterial({ map: signTex([text], '#1c6b3a', '#ffffff', 256, 52), side: THREE.DoubleSide }));
-  m.position.set(x, y, z); m.rotation.y = ry; parent.add(m);
+  // two front-side planes back-to-back: DoubleSide showed mirrored text from behind
+  var mat = new THREE.MeshBasicMaterial({ map: signTex([text], '#1c6b3a', '#ffffff', 256, 52) });
+  var geo = new THREE.PlaneGeometry(5.5, 1.1);
+  var a = new THREE.Mesh(geo, mat);
+  a.position.set(x, y, z); a.rotation.y = ry; parent.add(a);
+  var b = new THREE.Mesh(geo, mat);
+  b.position.set(x, y, z); b.rotation.y = ry + Math.PI; parent.add(b);
 }
 function mastArm(px, pz, ax, az, len, nHeads, fx, fz, sign, signRy) {
   var g = new THREE.Group(); g.position.set(px, 0, pz);
