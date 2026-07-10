@@ -180,6 +180,30 @@ its price. In multiplayer the pavement is shared: anyone can scoop up your
 dropped arsenal before you get back, so dying near your killer is a
 donation.
 
+## Quests & the quest log
+
+Westchase has **stories to work through**. Quest-givers stand around town
+under a soft **amber beacon** — walk up and press **E** to hear them out and
+take the job. You can only actively track **one quest at a time**.
+
+Open the **quest log with J**. On the left is every quest you've found
+(available, in-progress, or completed); click one to read its summary and
+its **objective checklist** on the right. Hit **SET ACTIVE** to track a
+quest — its current objective then shows in the **top-left HUD tracker**, and
+an **amber diamond marks the next waypoint on your minimap** (with an arrow
+pointing the way if it's far off).
+
+Objectives come in a few flavors — **talk** to someone, **reach** a spot,
+**find** an item, **search/interact** with a place, take out a **target**,
+**escort** someone, or beat a **timer**. Some quests send you into hidden
+places the town keeps quiet — a **cellar hatch** behind a building, for one.
+Finish a quest and you keep the **reward**: a new item in your bag and/or a
+lasting **capability** (the first one, the *Detective's Loupe*, helps you
+read a scene). Your progress is saved between sessions.
+
+*(The full story campaign is being built out quest by quest; the framework
+and its first demo quest, "A Night to Dismember," are in now.)*
+
 ## Items & your bag
 
 Beyond guns, the world is full of **loose items** — food, drinks, medkits,
@@ -392,6 +416,8 @@ bed runs under everything.
 - **E** — talk to the dealer (when close)
 - **Tab** — inventory: equip/unequip weapons + your 6×4 item grid (click an
   item to use it, right-click or **Q** to drop one)
+- **J** — quest log (see your active quest, all beats, and set which quest
+  you're tracking)
 - **Enter** — open text chat (multiplayer), **Esc** to cancel
 - **Hold V** — push-to-talk voice chat (multiplayer)
 - **F8** — report a bug (grabs a screenshot + your note, sent for triage)
