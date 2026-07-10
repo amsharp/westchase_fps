@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.60.2';
+var GAME_VERSION = 'v1.63.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -46,16 +46,19 @@ var WEAPONS = {
   auto:   { name: 'AK-47',  price: 1000, dmg: 34, rate: 0.11, auto: true, spread: 0.012, desc: 'Full auto, long range.', flashAt: [0.26, -0.255, -1.2] },
   rocket: { name: 'ROCKET LAUNCHER', price: 2000, rate: 5, rocket: true, desc: 'Danger close. 5s reload.', flashAt: [0.3, -0.28, -1.0] },
   raygun: { name: 'RAY GUN', price: 0, dmg: 70, rate: 0.22, auto: false, spread: 0, laser: true, desc: 'Alien tech. Semi-auto. Never misses.', flashAt: [0.26, -0.25, -0.95] },
+  // #78 quest-reward guns (not purchasable; granted by Q6 / Q8)
+  neon_blaster: { name: 'NEON BLASTER', price: 0, dmg: 68, rate: 0.19, auto: false, spread: 0.006, laser: true, quest: true, desc: '8-bit ray tech. ADS to bend time.', flashAt: [0.26, -0.25, -0.95] },
+  silenced: { name: 'SILENCED PISTOL', price: 0, dmg: 44, rate: 0.22, auto: false, spread: 0.012, silenced: true, quest: true, desc: 'Quiet work. Clean kills stay off the radar.', flashAt: [0.26, -0.265, -1.05] },
   snack:  { name: 'SNACK', snack: true, rate: 0.8 },
   soda:   { name: 'SODA', snack: true, rate: 0.6 }   // vending machines (streetprops)
 };
-var GUN_LIST = ['pistol', 'smg', 'rifle', 'auto', 'rocket', 'raygun'];
+var GUN_LIST = ['pistol', 'smg', 'rifle', 'auto', 'rocket', 'raygun', 'neon_blaster', 'silenced'];
 
 // ---------------- state ----------------
 var state = {
   running: false, menu: null,
   money: 400, hp: 100, dead: false,
-  owned: { pistol: false, smg: false, rifle: false, auto: false, rocket: false, raygun: false },
+  owned: { pistol: false, smg: false, rifle: false, auto: false, rocket: false, raygun: false, neon_blaster: false, silenced: false },
   equipped: 'fists',
   lastHurt: -99, lastCarHit: -99, lastRob: -99,
   wanted: 0, civKills: 0, copKills: 0, snacks: 0
@@ -4979,16 +4982,20 @@ var ACC_PLACE = {
   suitcase:  { mode: 'side', x: 0.34,  z: -0.42, ry: Math.PI / 2 },
   wagon:     { mode: 'side', x: 0.0,   z: 0.72,  ry: Math.PI / 2 }
 };
-// right-hand local rest transforms for held items (tuned against the Meshy hand
-// bone frame — forearm hangs down at rest). p = position, r = euler, s = scale.
+// Held items parent to the right-hand bone for POSITION (so they ride the arm
+// swing) but are re-oriented to a stable WORLD pose every frame (updateHandAcc),
+// which sidesteps having to guess the hand bone's local axis frame. `grip` is a
+// mesh-child offset (in the upright frame) that lands the item's grip point at
+// the hand: -y drops the top-held items down, +y floats the balloon up. `tilt`
+// is the world euler [pitchX, yawOffset(+ owner yaw), rollZ].
 var ACC_HAND = {
-  umbrella:      { p: [0.02, 0.02, 0.02],  r: [-1.4, 0, 0],   s: 1 },
-  cane:          { p: [0.0, 0.0, 0.0],     r: [-1.5, 0, 0],   s: 1 },
-  coffee_cup:    { p: [0.03, 0.02, 0.02],  r: [-1.5, 0, 0],   s: 1 },
-  shopping_bags: { p: [0.0, -0.04, 0.0],   r: [-1.5, 0, 0],   s: 1 },
-  skateboard:    { p: [0.0, 0.0, 0.06],    r: [-1.5, 0, 1.2], s: 1 },
-  boombox:       { p: [0.02, 0.0, 0.0],    r: [-1.5, 0, 0],   s: 1 },
-  balloon:       { p: [0.0, 0.0, 0.0],     r: [-1.5, 0, 0],   s: 1 }
+  umbrella:      { grip: [0.0, 0.0, 0.0],   tilt: [-0.12, 0, 0] },   // pole base at hand, canopy overhead
+  cane:          { grip: [0.0, -0.86, 0.0], tilt: [0.14, 0, 0] },    // crook at hand, tip near the ground
+  coffee_cup:    { grip: [0.0, -0.06, 0.0], tilt: [0, 0, 0] },       // cup upright in the fist
+  shopping_bags: { grip: [0.0, -0.36, 0.0], tilt: [0, 0, 0] },       // hangs from the handles
+  skateboard:    { grip: [0.0, -0.18, 0.0], tilt: [0, 0, 1.45] },    // deck vertical, tucked under the arm
+  boombox:       { grip: [0.0, -0.12, 0.0], tilt: [0, 0, 0] },       // carried by the side handle
+  balloon:       { grip: [0.0, 0.62, 0.0],  tilt: [0, 0, 0] }        // floats above the hand on a string
 };
 // pick an accessory name for a spawning NPC by rolling a category first, so dogs
 // don't dominate; returns null when the rolled pool is empty.
@@ -5027,11 +5034,13 @@ function attachAccessory(n, name, variant) {
   } else if (mode === 'hand') {
     var hand = n.mesh.userData.handR;
     if (!hand) return null;
-    var h = ACC_HAND[name] || { p: [0, 0, 0], r: [-1.5, 0, 0], s: 1 };
-    g.position.set(h.p[0], h.p[1], h.p[2]);
-    g.rotation.set(h.r[0], h.r[1], h.r[2]);
-    g.scale.setScalar(h.s || 1);
-    if (name === 'balloon') { var str = new THREE.Mesh(accLeashGeo(), accStringMat()); g.userData.balloonStr = str; g.add(str); }
+    var h = ACC_HAND[name] || { grip: [0, 0, 0], tilt: [0, 0, 0] };
+    rec.hand = hand; rec.tilt = h.tilt;
+    // offset the mesh child so the grip point lands on the hand; the group's
+    // orientation is overwritten each frame by updateHandAcc (world-upright)
+    if (g.children[0]) g.children[0].position.set(h.grip[0], h.grip[1], h.grip[2]);
+    g.position.set(0, 0, 0);
+    if (name === 'balloon') { var str = new THREE.Mesh(accLeashGeo(), accStringMat()); str.userData.isStr = 1; g.add(str); rec.str = str; }
     hand.add(g);
   } else {
     // push / side: ride the owner group at a fixed local offset (auto-follows)
@@ -5094,8 +5103,33 @@ function updateAccessories(dt) {
     if (a.mesh && !a.mesh.visible) a.mesh.visible = true;
     if (a.leash && !a.leash.visible) a.leash.visible = true;
     if (a.mode === 'leash') updateLeashDog(a, n, dt);
-    else if (a.mode === 'push') updatePushAcc(a, n, dt);
-    // hand & side ride their parent transform — no per-frame work needed
+    else if (a.mode === 'hand') updateHandAcc(a, n, dt);
+    // push & side items ride their parent group transform (no per-frame work).
+    // NOTE: an earlier build nudged the owner's arms onto the push bar, but
+    // writing .rotation.x onto a skinned arm bone wipes the walk-clip quaternion
+    // and splays the arms — the natural swing behind the stroller reads better.
+  }
+}
+var _accEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+var _accHandQ = new THREE.Quaternion(), _accHandP = new THREE.Vector3();
+function updateHandAcc(a, n, dt) {
+  var g = a.mesh, hand = a.hand; if (!hand) return;
+  // hand item rides the arm for POSITION but holds a stable world orientation
+  // (upright, aligned to the owner's facing) so we don't have to guess the hand
+  // bone's local axis frame. Compose matrices for this owner first (cheap — only
+  // the handful of accessorised NPCs pay it) so the hand's world quat is current.
+  n.mesh.updateMatrixWorld(true);
+  hand.getWorldQuaternion(_accHandQ);
+  var t = a.tilt || [0, 0, 0];
+  _accEuler.set(t[0], n.mesh.rotation.y + (t[1] || 0), t[2]);
+  _accHandQ.invert();
+  g.quaternion.copy(_accHandQ).multiply(_accQ.setFromEuler(_accEuler));   // localQ = inv(handWorld) * desiredWorld
+  // balloon string: a thin line from the hand (group origin) up to the balloon
+  if (a.str) {
+    var by = (a.mesh.children[0] ? a.mesh.children[0].position.y : 0.6);
+    a.str.position.set(0, by * 0.5, 0);
+    a.str.scale.set(1, by, 1);
+    a.str.quaternion.identity();
   }
 }
 function updateLeashDog(a, n, dt) {
@@ -5114,6 +5148,11 @@ function updateLeashDog(a, n, dt) {
     a.x += dx / d * mv; a.z += dz / d * mv;
     if (mv > 0.004) a.yaw = _accFace(dx, dz);      // face travel direction
   }
+  // leash length clamp: a taut leash can never stretch across the map — if the
+  // owner teleports (door respawn, crosswalk waypoint, pushOut eject) the dog is
+  // hauled to the end of a ~2.4m leash instead of trailing halfway down the block
+  var odx = a.x - n.x, odz = a.z - n.z, od = Math.sqrt(odx * odx + odz * odz);
+  if (od > 2.4) { a.x = n.x + odx / od * 2.4; a.z = n.z + odz / od * 2.4; }
   var bob = Math.abs(Math.sin(a.wob * 6.5)) * 0.03;   // gentle trot bob
   g.position.set(a.x, bob, a.z);
   g.rotation.y = a.yaw;
@@ -5127,15 +5166,6 @@ function updateLeashDog(a, n, dt) {
   var llen = Math.sqrt(ldx * ldx + ldy * ldy + ldz * ldz) || 0.001;
   lm.scale.set(1, llen, 1);
   lm.quaternion.setFromUnitVectors(Y_UP, _accDir.set(ldx / llen, ldy / llen, ldz / llen));
-}
-function updatePushAcc(a, n, dt) {
-  // stroller/walker already rides the owner group; nudge both arms forward so
-  // the hands reach the push bar. animPerson re-poses the arm bones from the
-  // clip every frame, so setting rotation.x here (after the loop) reads as a
-  // steady reach without accumulating.
-  var L = n.mesh.userData.limbs; if (!L) return;
-  if (L.armL) L.armL.rotation.x = -0.9;
-  if (L.armR) L.armR.rotation.x = -0.9;
 }
 
 function spawnNPC() {
@@ -5492,8 +5522,18 @@ function buildPublix(spec) {
   wall(B.x0, cz, 0.5, D);         // west
   wall(B.x1, cz, 0.5, D);         // east
   // entrance door + exit sign (south wall, east portion)
-  var doorM = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 3.4), phong({ color: 0x33485a, shininess: 90, specular: 0xaaccdd }));
+  // real transparent sliding glass: bright "daylight" backing panel so it reads
+  // as looking OUT (was an opaque dark slab), tinted glass panes + metal frame.
+  var daylightM = new THREE.MeshBasicMaterial({ color: 0xcfe6f2 });   // backlit sky glow behind the glass
+  var glassDoorM = new THREE.MeshPhongMaterial({ color: 0xbfe0ea, transparent: true, opacity: 0.3, shininess: 110, specular: 0xffffff, side: THREE.DoubleSide });
+  var frameM = lamb({ color: 0x8a9096 });
+  var back = box(4.4, 3.4, 0.06, daylightM, 318, Y + 1.7, B.z1 - 0.18); scene.add(back);   // daylight card just behind
+  var doorM = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 3.4), glassDoorM);
   doorM.position.set(318, Y + 1.7, B.z1 - 0.28); doorM.rotation.y = Math.PI; scene.add(doorM);
+  scene.add(box(4.7, 0.16, 0.14, frameM, 318, Y + 3.42, B.z1 - 0.26));        // top rail
+  scene.add(box(0.16, 3.4, 0.14, frameM, 318, Y + 1.7, B.z1 - 0.26));         // center mullion
+  scene.add(box(0.1, 0.12, 0.14, frameM, 316.7, Y + 1.2, B.z1 - 0.32));       // L push bar
+  scene.add(box(0.1, 0.12, 0.14, frameM, 319.3, Y + 1.2, B.z1 - 0.32));       // R push bar
   var exitSign = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 0.5), new THREE.MeshBasicMaterial({ map: signTex(['EXIT'], '#103a18', '#4aff6a', 128, 40) }));
   exitSign.position.set(318, Y + 3.7, B.z1 - 0.28); exitSign.rotation.y = Math.PI; scene.add(exitSign);
   function sign(x, y, z, ry, w, h, lines, bg, fg) {
@@ -5569,6 +5609,494 @@ function buildPublix(spec) {
       popup('+20 HP  fresh sample'); sfx('buy');
     }
   });
+}
+
+// ---- shared interior helpers (reused by Dunkin/Starbucks/Sakura/DollarTree/Bank)
+// Every generalized shop below is a distinct under-map room; the door is always
+// centered on the room's south wall (B.z1), so spec.doorIn/exitZone are placed
+// there by convention. World-side doorZone/doorOut use the REMAP_VENUES
+// front-face formula (nx=sin(rot), nz=cos(rot)) matching the NPC-door register.
+function intSign(x, y, z, ry, w, h, lines, bg, fg) {
+  var m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: signTex(lines, bg, fg, 256, 64) }));
+  m.position.set(x, y, z); m.rotation.y = ry; scene.add(m); return m;
+}
+function placeStaffIn(spec, name, x, z, ry) {
+  var m = buildStaff(name); m.position.set(x, spec.box.y, z); m.rotation.y = ry; scene.add(m); spec.staff.push(m); return m;
+}
+// build the room shell: floor / ceiling / light panels / 4 walls / glass
+// entrance door (south-wall center) / exit sign / optional banner. Returns
+// { cx, cz, W, D, Y } for the caller to lay fixtures against.
+function intShell(spec, o) {
+  var B = spec.box, Y = B.y, cx = (B.x0 + B.x1) / 2, cz = (B.z0 + B.z1) / 2, W = B.x1 - B.x0, D = B.z1 - B.z0;
+  var floor = new THREE.Mesh(new THREE.PlaneGeometry(W, D), o.floorM);
+  floor.rotation.x = -Math.PI / 2; floor.position.set(cx, Y, cz); scene.add(floor);
+  var ceil = new THREE.Mesh(new THREE.PlaneGeometry(W, D), lamb({ color: o.ceilColor || 0xdadcd6 }));
+  ceil.rotation.x = Math.PI / 2; ceil.position.set(cx, Y + 4.4, cz); scene.add(ceil);
+  var panelM = new THREE.MeshBasicMaterial({ color: o.lightColor || 0xf8f7ec });
+  for (var px = -W / 2 + 4; px <= W / 2 - 4; px += 7)
+    for (var pz = -D / 2 + 4; pz <= D / 2 - 4; pz += 7) {
+      var lp = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 1.2), panelM);
+      lp.rotation.x = Math.PI / 2; lp.position.set(cx + px, Y + 4.36, cz + pz); scene.add(lp);
+    }
+  function wall(x, z, w, d) { var m = box(w, 4.4, d, o.wallM, x, Y + 2.2, z); scene.add(m); solidMeshes.push(m); intCol(spec, x, z, w, d); }
+  wall(cx, B.z0, W, 0.5); wall(cx, B.z1, W, 0.5); wall(B.x0, cz, 0.5, D); wall(B.x1, cz, 0.5, D);
+  // transparent glass entrance (matches the Publix fix): daylight card + tinted
+  // panes + metal frame, centered on the south wall.
+  var daylightM = new THREE.MeshBasicMaterial({ color: 0xcfe6f2 });
+  var glassDoorM = new THREE.MeshPhongMaterial({ color: 0xbfe0ea, transparent: true, opacity: 0.3, shininess: 110, specular: 0xffffff, side: THREE.DoubleSide });
+  var frameM = lamb({ color: 0x8a9096 });
+  scene.add(box(4.4, 3.4, 0.06, daylightM, cx, Y + 1.7, B.z1 - 0.18));
+  var doorM = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 3.4), glassDoorM);
+  doorM.position.set(cx, Y + 1.7, B.z1 - 0.28); doorM.rotation.y = Math.PI; scene.add(doorM);
+  scene.add(box(4.7, 0.16, 0.14, frameM, cx, Y + 3.42, B.z1 - 0.26));   // top rail
+  scene.add(box(0.16, 3.4, 0.14, frameM, cx, Y + 1.7, B.z1 - 0.26));    // center mullion
+  var exitSign = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 0.5), new THREE.MeshBasicMaterial({ map: signTex(['EXIT'], '#103a18', '#4aff6a', 128, 40) }));
+  exitSign.position.set(cx, Y + 3.7, B.z1 - 0.28); exitSign.rotation.y = Math.PI; scene.add(exitSign);
+  if (o.bannerLines) intSign(cx, Y + 4.0, B.z1 - 0.3, Math.PI, Math.min(W - 4, 14), 1.7, o.bannerLines, o.bannerBg, o.bannerFg);
+  return { cx: cx, cz: cz, W: W, D: D, Y: Y };
+}
+
+// ---------------- DUNKIN' coffee & donut shop (venue dunkin, SW strip) --------
+var DUNKIN = registerInterior({
+  id: 'dunkin',
+  box: { x0: 587, x1: 613, z0: 590, z1: 610, y: -180 },      // 26 x 20 room, far off-map, y=-180
+  doorZone: { x: -39.15, z: 76.5, r2: 40 },                  // world front-face (rot 215)
+  doorIn: { x: 600, z: 605, yaw: 0 },                        // just inside, facing the counter (north)
+  doorOut: { x: -41.16, z: 73.63, yaw: -2.53 },              // step onto the strip-mall walk
+  exitZone: { x: 600, z: 607, r2: 11 },
+  label: 'DUNKIN',
+  build: buildDunkin
+});
+function buildDunkin(spec) {
+  var floorT = tex(64, function (g, s) {
+    g.fillStyle = '#efe6d8'; g.fillRect(0, 0, s, s);
+    g.fillStyle = '#e6d8c2'; g.fillRect(0, 0, s / 2, s / 2); g.fillRect(s / 2, s / 2, s / 2, s / 2);
+    g.strokeStyle = '#d8c6ac'; g.lineWidth = 2; g.strokeRect(0, 0, s, s);
+    noise(g, s, 60, 0.03, 0.03);
+  }, 8, 6);
+  var wallT = tex(64, function (g, s) {
+    g.fillStyle = '#fbf3ea'; g.fillRect(0, 0, s, s);
+    g.fillStyle = '#f36c21'; g.fillRect(0, s * 0.34, s, 8);       // Dunkin orange band
+    g.fillStyle = '#e01a7a'; g.fillRect(0, s * 0.34 + 8, s, 4);   // pink underline
+    noise(g, s, 50, 0.03, 0.03);
+  }, 8, 1);
+  var counterT = tex(64, function (g, s) {
+    g.fillStyle = '#f36c21'; g.fillRect(0, 0, s, s);
+    g.fillStyle = '#d85512'; g.fillRect(0, s * 0.7, s, s * 0.3);
+    g.fillStyle = '#e01a7a'; g.fillRect(0, 0, s, 5);
+    noise(g, s, 30, 0.04, 0.0);
+  }, 4, 1);
+  var donutT = tex(64, function (g, s) {
+    g.fillStyle = '#c9a878'; g.fillRect(0, 0, s, s);
+    var glaze = ['#e8a0c8', '#a86038', '#f0d84a', '#f2f2f2', '#8a4a20', '#e05050'];
+    for (var i = 0; i < 18; i++) {
+      var cxp = 6 + Math.random() * (s - 12), cyp = 6 + Math.random() * (s - 12), r = 4 + Math.random() * 2;
+      g.fillStyle = glaze[(Math.random() * glaze.length) | 0];
+      g.beginPath(); g.arc(cxp, cyp, r, 0, 7); g.fill();
+      g.fillStyle = '#c9a878'; g.beginPath(); g.arc(cxp, cyp, r * 0.4, 0, 7); g.fill();   // hole
+    }
+  }, 2, 1);
+  var menuT = tex(128, function (g, s) {
+    g.fillStyle = '#2a1c14'; g.fillRect(0, 0, s, s);
+    g.fillStyle = '#f36c21'; g.font = 'bold 15px sans-serif'; g.fillText('MENU', 8, 20);
+    g.fillStyle = '#ffe9d0'; g.font = '11px sans-serif';
+    var rows = ['Coffee ......... $3', 'Iced Coffee .... $3', 'Latte .......... $4', 'Donut .......... $2', 'Munchkins ...... $4', 'Bagel .......... $3'];
+    for (var i = 0; i < rows.length; i++) g.fillText(rows[i], 8, 40 + i * 14);
+  }, 1, 1);
+  var floorM = lamb2(floorT), wallM = lamb2(wallT), counterM = lamb2(counterT);
+  var glassM = new THREE.MeshPhongMaterial({ color: 0xcfe6ea, transparent: true, opacity: 0.3, shininess: 90, side: THREE.DoubleSide });
+  var steelM = lamb({ color: 0xc0c4c8 }), darkM = lamb({ color: 0x2a2018 }), whiteM = lamb({ color: 0xf0ece2 });
+  var s = intShell(spec, { floorM: floorM, wallM: wallM, ceilColor: 0xf2ede4, bannerLines: ["DUNKIN'"], bannerBg: '#e01a7a', bannerFg: '#f36c21' });
+  var Y = s.Y, cx = s.cx;
+
+  // service counter across the back (north), staff behind
+  var counter = box(16, 1.1, 1.4, [counterM, counterM, whiteM, counterM, counterM, counterM], cx, Y + 0.55, 594); scene.add(counter); solidMeshes.push(counter); intCol(spec, cx, 594, 16, 1.4);
+  scene.add(box(16, 0.1, 1.5, steelM, cx, Y + 1.12, 594));                                   // counter top
+  // donut display case in front of the counter (glass, colorful rings inside)
+  var caseBase = box(11, 0.9, 1.2, whiteM, cx, Y + 0.45, 595.9); scene.add(caseBase); solidMeshes.push(caseBase); intCol(spec, cx, 595.9, 11, 1.2);
+  scene.add(box(10.4, 0.5, 0.9, lamb2(donutT), cx, Y + 1.05, 595.9));                          // donut trays
+  scene.add(box(11, 0.75, 1.05, glassM, cx, Y + 1.28, 595.9));                                 // glass hood
+  // coffee machines + urns on the back counter (behind main counter, north wall)
+  for (var mx = -6; mx <= 6; mx += 4) scene.add(box(1.4, 1.2, 0.8, darkM, cx + mx, Y + 1.35, 591.2));
+  for (var ux = -4; ux <= 4; ux += 4) scene.add(cyl(0.35, 0.35, 0.9, 12, steelM, cx + ux + 2, Y + 1.25, 592));
+  // menu board over the counter (north wall)
+  var menu = new THREE.Mesh(new THREE.PlaneGeometry(9, 3), lamb2(menuT));
+  menu.position.set(cx, Y + 3.1, 590.4); scene.add(menu);
+  // seating: three little cafe tables near the entrance (south half)
+  var tableTopM = lamb({ color: 0xe8862e }), poleM = lamb({ color: 0x8a8f94 }), stoolM = lamb({ color: 0xe01a7a });
+  var tpos = [[593, 604], [600, 606], [607, 604]];
+  for (var ti = 0; ti < tpos.length; ti++) {
+    var tp = tpos[ti];
+    scene.add(cyl(0.7, 0.7, 0.1, 16, tableTopM, tp[0], Y + 1.05, tp[1]));
+    scene.add(cyl(0.1, 0.1, 1.0, 8, poleM, tp[0], Y + 0.5, tp[1]));
+    intCol(spec, tp[0], tp[1], 1.2, 1.2);
+    scene.add(cyl(0.32, 0.32, 0.5, 12, stoolM, tp[0] - 1.2, Y + 0.25, tp[1]));
+    scene.add(cyl(0.32, 0.32, 0.5, 12, stoolM, tp[0] + 1.2, Y + 0.25, tp[1]));
+  }
+
+  // staff behind the counter, facing customers (+z)
+  placeStaffIn(spec, 'DUNKIN_ASH', cx - 4, 592.6, Math.PI);
+  placeStaffIn(spec, 'DUNKIN_RAJ', cx + 4, 592.6, Math.PI);
+
+  // interact zones: order coffee / donut / chat (player stands at the case, z~597)
+  spec.zones.push({
+    x: cx - 5, z: 597.2, r2: 8, prompt: '[E] ORDER A COFFEE — $3',
+    fn: function () {
+      if (state.money < 3) { sfx('deny'); popup2("You can't afford it"); return; }
+      if (bagAdd('coffee', 1) > 0) { sfx('deny'); popup2('Your bag is full'); return; }
+      state.money -= 3; sfx('buy'); itemToast('coffee'); popup('+1 Coffee'); staffSay(['"America runs on Dunkin!"']);
+    }
+  });
+  spec.zones.push({
+    x: cx + 5, z: 597.2, r2: 8, prompt: '[E] GRAB A DONUT — $2',
+    fn: function () {
+      if (state.money < 2) { sfx('deny'); popup2("You can't afford it"); return; }
+      if (bagAdd('donut', 1) > 0) { sfx('deny'); popup2('Your bag is full'); return; }
+      state.money -= 2; sfx('buy'); itemToast('donut'); popup('+1 Donut'); staffSay(['"Time to make the donuts."']);
+    }
+  });
+  spec.zones.push({ x: cx, z: 597.2, r2: 5, prompt: '[E] CHAT WITH BARISTA', fn: function () { staffSay(['"What can I get started for ya?"', '"The iced coffee is on point today."', '"Fresh pot brewing — two minutes!"']); } });
+}
+
+// ---------------- STARBUCKS café (venue starbucks, across from Dunkin) --------
+var STARBUCKS = registerInterior({
+  id: 'starbucks',
+  box: { x0: -613, x1: -587, z0: 590, z1: 610, y: -240 },    // 26 x 20 room, y=-240
+  doorZone: { x: -96.27, z: 57.32, r2: 40 },                 // world front-face (rot 35)
+  doorIn: { x: -600, z: 605, yaw: 0 },
+  doorOut: { x: -94.26, z: 60.19, yaw: 0.611 },
+  exitZone: { x: -600, z: 607, r2: 11 },
+  label: 'STARBUCKS',
+  build: buildStarbucks
+});
+function buildStarbucks(spec) {
+  var floorT = tex(64, function (g, s) {
+    g.fillStyle = '#d8cdbb'; g.fillRect(0, 0, s, s);       // warm faux-marble
+    g.fillStyle = '#ccbfa8'; for (var i = 0; i < 5; i++) { g.fillRect(0, (Math.random() * s) | 0, s, 2); }
+    g.strokeStyle = '#b8a988'; g.lineWidth = 1; g.strokeRect(0, 0, s, s);
+    noise(g, s, 70, 0.04, 0.03);
+  }, 7, 5);
+  var wallT = tex(64, function (g, s) {
+    g.fillStyle = '#efe7d6'; g.fillRect(0, 0, s, s);
+    g.fillStyle = '#00704a'; g.fillRect(0, s * 0.3, s, 9);        // Starbucks green band
+    g.fillStyle = '#1e3932'; g.fillRect(0, s * 0.3 + 9, s, 3);
+    noise(g, s, 50, 0.03, 0.03);
+  }, 8, 1);
+  var woodT = tex(64, function (g, s) {
+    g.fillStyle = '#6a4a2c'; g.fillRect(0, 0, s, s);
+    for (var y = 0; y < s; y += 6) { g.fillStyle = 'rgba(40,24,10,' + (0.15 + Math.random() * 0.2) + ')'; g.fillRect(0, y, s, 2); }
+    noise(g, s, 40, 0.05, 0.02);
+  }, 3, 1);
+  var pastryT = tex(64, function (g, s) {
+    g.fillStyle = '#c8a878'; g.fillRect(0, 0, s, s);
+    var cols = ['#e0b060', '#a8602c', '#f0d8a0', '#c85030', '#8a4a20', '#e8c8d0'];
+    for (var y = 4; y < s; y += 14) for (var x = 3; x < s; x += 13) { g.fillStyle = cols[(Math.random() * cols.length) | 0]; g.fillRect(x, y, 10, 10); }
+  }, 2, 1);
+  var menuT = tex(128, function (g, s) {
+    g.fillStyle = '#1e3932'; g.fillRect(0, 0, s, s);
+    g.fillStyle = '#c8a96a'; g.font = 'bold 14px sans-serif'; g.fillText('STARBUCKS', 8, 20);
+    g.fillStyle = '#e8e0cc'; g.font = '11px sans-serif';
+    var rows = ['Caffe Latte ...... $4', 'Cappuccino ....... $4', 'Cold Brew ........ $4', 'Frappuccino ...... $5', 'Croissant ........ $3', 'Muffin ........... $3'];
+    for (var i = 0; i < rows.length; i++) g.fillText(rows[i], 8, 40 + i * 14);
+  }, 1, 1);
+  var floorM = lamb2(floorT), wallM = lamb2(wallT), woodM = lamb2(woodT);
+  var glassM = new THREE.MeshPhongMaterial({ color: 0xcfe6ea, transparent: true, opacity: 0.3, shininess: 90, side: THREE.DoubleSide });
+  var steelM = lamb({ color: 0xb8bcc0 }), greenM = lamb({ color: 0x00704a }), whiteM = lamb({ color: 0xf0ece2 }), chairM = lamb({ color: 0x5a3a26 });
+  var s = intShell(spec, { floorM: floorM, wallM: wallM, ceilColor: 0xe8e0d0, bannerLines: ['STARBUCKS'], bannerBg: '#00704a', bannerFg: '#d4b880' });
+  var Y = s.Y, cx = s.cx;
+
+  // café bar (wood front, back counter with espresso machine)
+  var counter = box(15, 1.1, 1.4, [woodM, woodM, whiteM, woodM, woodM, woodM], cx, Y + 0.55, 594); scene.add(counter); solidMeshes.push(counter); intCol(spec, cx, 594, 15, 1.4);
+  scene.add(box(15, 0.1, 1.5, greenM, cx, Y + 1.12, 594));                                     // green counter lip
+  // pastry case in front of the bar
+  var caseBase = box(9, 0.9, 1.1, whiteM, cx - 3, Y + 0.45, 595.9); scene.add(caseBase); solidMeshes.push(caseBase); intCol(spec, cx - 3, 595.9, 9, 1.1);
+  scene.add(box(8.4, 0.5, 0.85, lamb2(pastryT), cx - 3, Y + 1.05, 595.9));
+  scene.add(box(9, 0.75, 1.0, glassM, cx - 3, Y + 1.28, 595.9));
+  // espresso machine + syrup bottles on the back counter (north wall)
+  scene.add(box(2.2, 1.1, 0.8, steelM, cx + 3, Y + 1.35, 591.3));
+  scene.add(box(1.6, 0.9, 0.7, lamb({ color: 0x2a2620 }), cx - 3, Y + 1.25, 591.3));
+  for (var bx = -2; bx <= 2; bx += 1) scene.add(cyl(0.12, 0.12, 0.4, 8, lamb({ color: 0x8a5a2a }), cx + 5 + bx * 0.5, Y + 1.05, 592));
+  // menu board above the bar
+  var menu = new THREE.Mesh(new THREE.PlaneGeometry(9, 3), lamb2(menuT));
+  menu.position.set(cx, Y + 3.1, 590.4); scene.add(menu);
+  // lounge seating: armchairs + little round tables in the south half
+  var tableTopM = lamb({ color: 0x3a2a1a }), poleM = lamb({ color: 0x6a6e72 });
+  var groups = [[cx - 6, 603], [cx + 1, 606], [cx + 7, 603]];
+  for (var gi = 0; gi < groups.length; gi++) {
+    var gp = groups[gi];
+    scene.add(cyl(0.65, 0.65, 0.1, 16, tableTopM, gp[0], Y + 0.95, gp[1]));
+    scene.add(cyl(0.09, 0.09, 0.9, 8, poleM, gp[0], Y + 0.45, gp[1]));
+    intCol(spec, gp[0], gp[1], 1.1, 1.1);
+    // two cushioned armchairs flanking each table
+    for (var side = -1; side <= 1; side += 2) {
+      var ax = gp[0] + side * 1.4;
+      scene.add(box(0.9, 0.4, 0.9, chairM, ax, Y + 0.35, gp[1]));           // seat
+      scene.add(box(0.9, 0.7, 0.18, chairM, ax, Y + 0.7, gp[1] + side * 0.36)); // back (rough)
+      intCol(spec, ax, gp[1], 1.0, 1.0);
+    }
+  }
+
+  placeStaffIn(spec, 'BARISTA_CHLOE', cx - 3, 592.6, Math.PI);
+  placeStaffIn(spec, 'BARISTA_OMARI', cx + 3, 592.6, Math.PI);
+
+  spec.zones.push({
+    x: cx - 4, z: 597.2, r2: 8, prompt: '[E] ORDER A LATTE — $4',
+    fn: function () {
+      if (state.money < 4) { sfx('deny'); popup2("You can't afford it"); return; }
+      if (bagAdd('coffee', 1) > 0) { sfx('deny'); popup2('Your bag is full'); return; }
+      state.money -= 4; sfx('buy'); itemToast('coffee'); popup('+1 Latte'); staffSay(['"One caffe latte, coming up!"']);
+    }
+  });
+  spec.zones.push({
+    x: cx + 4, z: 597.2, r2: 8, prompt: '[E] BUY A CROISSANT — $3',
+    fn: function () {
+      if (state.money < 3) { sfx('deny'); popup2("You can't afford it"); return; }
+      if (bagAdd('sandwich', 1) > 0) { sfx('deny'); popup2('Your bag is full'); return; }
+      state.money -= 3; sfx('buy'); itemToast('sandwich'); popup('+1 Croissant'); staffSay(['"Warmed up for ya!"']);
+    }
+  });
+  spec.zones.push({ x: cx, z: 597.2, r2: 5, prompt: '[E] CHAT WITH BARISTA', fn: function () { staffSay(['"Can I get a name for the cup?"', '"Oat milk or two percent?"', '"That\'ll be right up at the hand-off."']); } });
+}
+
+// ---------------- SAKURA SUSHI (venue sushi, NE corner) -----------------------
+var SAKURA = registerInterior({
+  id: 'sakura',
+  box: { x0: 583, x1: 617, z0: -612, z1: -588, y: -300 },    // 34 x 24 room, y=-300
+  doorZone: { x: 74, z: -122, r2: 40 },                      // world front-face (rot 0)
+  doorIn: { x: 600, z: -593, yaw: 0 },
+  doorOut: { x: 74, z: -118.5, yaw: 0 },
+  exitZone: { x: 600, z: -591, r2: 11 },
+  label: 'SAKURA SUSHI',
+  build: buildSakura
+});
+function buildSakura(spec) {
+  var floorT = tex(64, function (g, s) {
+    g.fillStyle = '#7a5a3a'; g.fillRect(0, 0, s, s);            // dark wood plank
+    for (var y = 0; y < s; y += 8) { g.fillStyle = 'rgba(30,18,8,' + (0.15 + Math.random() * 0.2) + ')'; g.fillRect(0, y, s, 2); }
+    noise(g, s, 40, 0.05, 0.02);
+  }, 8, 6);
+  var wallT = tex(64, function (g, s) {
+    g.fillStyle = '#efe8d6'; g.fillRect(0, 0, s, s);           // shoji rice-paper
+    g.strokeStyle = '#5a4a34'; g.lineWidth = 2;
+    for (var x = 0; x <= s; x += s / 4) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, s); g.stroke(); }
+    for (var y = 0; y <= s; y += s / 4) { g.beginPath(); g.moveTo(0, y); g.lineTo(s, y); g.stroke(); }
+    g.fillStyle = '#8a1e2c'; g.fillRect(0, 0, s, 6);           // red top band
+    noise(g, s, 30, 0.02, 0.02);
+  }, 5, 1);
+  var woodT = tex(64, function (g, s) {
+    g.fillStyle = '#4a3220'; g.fillRect(0, 0, s, s);
+    for (var y = 0; y < s; y += 5) { g.fillStyle = 'rgba(20,12,4,' + (0.2 + Math.random() * 0.2) + ')'; g.fillRect(0, y, s, 2); }
+  }, 4, 1);
+  var fishT = tex(64, function (g, s) {
+    g.fillStyle = '#f2ead6'; g.fillRect(0, 0, s, s);           // rice bed
+    var cols = ['#e86a5a', '#f0a070', '#e8c060', '#d84a4a', '#f2b0a0', '#c85030', '#3a6a4a'];   // tuna/salmon/roe/wasabi
+    for (var i = 0; i < 22; i++) { g.fillStyle = cols[(Math.random() * cols.length) | 0]; g.fillRect(4 + Math.random() * (s - 12), 4 + Math.random() * (s - 12), 8, 5); }
+  }, 3, 1);
+  var floorM = lamb2(floorT), wallM = lamb2(wallT), woodM = lamb2(woodT);
+  var glassM = new THREE.MeshPhongMaterial({ color: 0xcfe6ea, transparent: true, opacity: 0.28, shininess: 90, side: THREE.DoubleSide });
+  var blackM = lamb({ color: 0x1c1a18 }), redM = lamb({ color: 0x8a1e2c }), cushM = lamb({ color: 0x9a2432 });
+  var lanternM = new THREE.MeshBasicMaterial({ color: 0xe23a2a });   // self-lit red lanterns
+  var s = intShell(spec, { floorM: floorM, wallM: wallM, ceilColor: 0x2a2420, lightColor: 0xf2e2c0, bannerLines: ['SAKURA SUSHI'], bannerBg: '#8a1e2c', bannerFg: '#f2d06a' });
+  var Y = s.Y, cx = s.cx;
+
+  // sushi bar across the middle, chef works behind it (north side)
+  var bar = box(20, 1.1, 1.6, [woodM, woodM, blackM, woodM, woodM, woodM], cx, Y + 0.55, -603); scene.add(bar); solidMeshes.push(bar); intCol(spec, cx, -603, 20, 1.6);
+  scene.add(box(20, 0.12, 1.7, blackM, cx, Y + 1.13, -603));                                   // lacquer bar top
+  // glass sneeze-guard display with nigiri along the bar
+  scene.add(box(18, 0.55, 0.9, lamb2(fishT), cx, Y + 1.28, -602.4));                            // fish case bed
+  scene.add(box(18, 0.6, 1.0, glassM, cx, Y + 1.6, -602.4));                                    // glass guard
+  // sake / condiment shelf on the back wall (north), colored bottles
+  scene.add(box(16, 0.12, 0.8, woodM, cx, Y + 2.2, -611.2));
+  var bottleCols = [0x2a6a3a, 0xd8d8d8, 0x8a1e2c, 0x2a4a8a, 0xc8a030];
+  for (var bi = 0; bi < 14; bi++) scene.add(cyl(0.13, 0.13, 0.5, 8, lamb({ color: bottleCols[bi % bottleCols.length] }), cx - 7.5 + bi * 1.15, Y + 2.45, -611.2));
+  // bar stools in front of the bar (south side)
+  for (var sx = -8; sx <= 8; sx += 2.3) { scene.add(cyl(0.3, 0.3, 0.6, 12, redM, cx + sx, Y + 0.3, -601)); scene.add(cyl(0.32, 0.32, 0.1, 12, blackM, cx + sx, Y + 0.62, -601)); intCol(spec, cx + sx, -601, 0.7, 0.7); }
+  // booth seating along the east & west walls (bench + table + cushions)
+  var boothZ = [-596, -607];
+  for (var wsi = -1; wsi <= 1; wsi += 2) {
+    var wx = cx + wsi * 14;
+    for (var bz = 0; bz < boothZ.length; bz++) {
+      var zz = boothZ[bz];
+      scene.add(box(1.4, 0.45, 2.2, cushM, wx, Y + 0.35, zz)); intCol(spec, wx, zz, 1.4, 2.2);          // bench
+      scene.add(box(1.4, 0.9, 0.15, redM, wx + wsi * 0.6, Y + 0.75, zz));                                // backrest
+      scene.add(box(1.2, 0.6, 1.2, woodM, wx - wsi * 1.6, Y + 0.4, zz)); intCol(spec, wx - wsi * 1.6, zz, 1.2, 1.2); // table
+    }
+  }
+  // hanging red lanterns + noren fabric over the entrance
+  for (var li = -1; li <= 1; li++) { var lan = cyl(0.4, 0.4, 0.7, 12, lanternM, cx + li * 7, Y + 3.5, -600); scene.add(lan); scene.add(cyl(0.05, 0.05, 0.5, 6, blackM, cx + li * 7, Y + 4.0, -600)); }
+  for (var ni = -2; ni <= 2; ni++) scene.add(box(0.75, 1.0, 0.05, redM, cx + ni * 0.85, Y + 3.4, -589.4));   // noren panels at the door
+
+  // sushi chef behind the bar + a server near the booths
+  placeStaffIn(spec, 'SUSHI_KENJI', cx - 3, -604.2, Math.PI);
+  placeStaffIn(spec, 'CASHIER_ROSA', cx + 10, -600, -Math.PI / 2);
+
+  spec.sushiCd = -999;
+  spec.zones.push({
+    x: cx - 4, z: -600.4, r2: 8, prompt: '[E] ORDER A SUSHI PLATTER — $8  (+40 hp)',
+    fn: function (sp) {
+      if (state.money < 8) { sfx('deny'); popup2("You can't afford it"); return; }
+      state.money -= 8; state.hp = Math.min(100, state.hp + 40);
+      sfx('buy'); popup('+40 HP  fresh sushi'); staffSay(['"Omakase — enjoy!"', '"Freshest catch of the day."']);
+    }
+  });
+  spec.zones.push({
+    x: cx + 4, z: -600.4, r2: 8, prompt: '[E] ORDER SAKE — $4  (+16 hp)',
+    fn: function () {
+      if (state.money < 4) { sfx('deny'); popup2("You can't afford it"); return; }
+      state.money -= 4; state.hp = Math.min(100, state.hp + 16);
+      sfx('buy'); popup('+16 HP  warm sake'); staffSay(['"Kanpai!"']);
+    }
+  });
+  spec.zones.push({ x: cx, z: -600.4, r2: 5, prompt: '[E] CHAT WITH THE CHEF', fn: function () { staffSay(['"Irasshaimase! Welcome!"', '"The toro is exceptional today."', '"Chef\'s choice? You will not regret it."']); } });
+}
+
+// ---------------- DOLLAR TREE (venue dollar_tree, SW corner) -------------------
+var DOLLAR_TREE = registerInterior({
+  id: 'dollar_tree',
+  box: { x0: -615, x1: -585, z0: -611, z1: -589, y: -360 },  // 30 x 22 room, y=-360
+  doorZone: { x: 14.07, z: 53.93, r2: 40 },                  // world front-face (rot 135)
+  doorIn: { x: -600, z: -594, yaw: 0 },
+  doorOut: { x: 16.55, z: 51.45, yaw: 2.356 },
+  exitZone: { x: -600, z: -592, r2: 11 },
+  label: 'DOLLAR TREE',
+  build: buildDollarTree
+});
+function buildDollarTree(spec) {
+  var floorT = tex(64, function (g, s) {
+    g.fillStyle = '#e2e0d6'; g.fillRect(0, 0, s, s);           // scuffed VCT tile
+    g.fillStyle = '#d6d4c8'; g.fillRect(0, 0, s / 2, s / 2); g.fillRect(s / 2, s / 2, s / 2, s / 2);
+    g.strokeStyle = '#c2c0b2'; g.lineWidth = 2; g.strokeRect(0, 0, s, s);
+    noise(g, s, 70, 0.05, 0.04);
+  }, 9, 6);
+  var wallT = tex(64, function (g, s) {
+    g.fillStyle = '#f0efe6'; g.fillRect(0, 0, s, s);
+    g.fillStyle = '#1c8a3a'; g.fillRect(0, s * 0.2, s, 9);        // Dollar Tree green band
+    g.fillStyle = '#0e5a24'; g.fillRect(0, s * 0.2 + 9, s, 3);
+    noise(g, s, 55, 0.03, 0.03);
+  }, 9, 1);
+  var prodT = tex(128, function (g, s) {
+    g.fillStyle = '#d0cec4'; g.fillRect(0, 0, s, s);
+    var cols = ['#e83030', '#2a7ad8', '#3fae4a', '#e8c020', '#e0682a', '#c845a0', '#f2f2f2', '#20b0c0', '#f050a0'];
+    for (var y = 4; y < s; y += 22) {
+      for (var x = 3; x < s - 6; x += 12) { g.fillStyle = cols[(Math.random() * cols.length) | 0]; g.fillRect(x, y, 10, 17); g.fillStyle = 'rgba(255,255,255,0.18)'; g.fillRect(x, y, 10, 3); }
+      g.fillStyle = '#1c8a3a'; g.fillRect(0, y + 18, s, 4);      // green shelf edge
+    }
+  }, 4, 4);
+  var floorM = lamb2(floorT), wallM = lamb2(wallT), prodM = lamb2(prodT);
+  var greenM = lamb({ color: 0x1c8a3a }), whiteM = lamb({ color: 0xeceae0 }), shelfEndM = lamb({ color: 0xc6c4b8 }), metalM = lamb({ color: 0xb6babf }), regM = lamb({ color: 0x2a2e34 }), screenM = new THREE.MeshBasicMaterial({ color: 0x3fae6a });
+  var s = intShell(spec, { floorM: floorM, wallM: wallM, ceilColor: 0xdedcd2, bannerLines: ['DOLLAR TREE'], bannerBg: '#1c8a3a', bannerFg: '#f2e84a' });
+  var Y = s.Y, cx = s.cx;
+
+  // checkout lane near the entrance (west of the door), cashier behind
+  var counter = box(5.5, 1.0, 1.4, whiteM, cx - 8, Y + 0.5, -593); scene.add(counter); solidMeshes.push(counter); intCol(spec, cx - 8, -593, 5.5, 1.4);
+  scene.add(box(5.2, 0.08, 1.3, greenM, cx - 8, Y + 1.02, -593));                                  // counter belt/top
+  scene.add(box(0.7, 0.55, 0.6, regM, cx - 8, Y + 1.28, -593.4));                                  // register
+  scene.add(box(0.5, 0.34, 0.05, screenM, cx - 8, Y + 1.5, -593.1));                               // screen
+  intSign(cx - 8, Y + 2.6, -593.6, 0, 2.6, 0.9, ['$1.25'], '#1c8a3a', '#ffffff');                  // "everything $1.25"
+  // gondola aisles of cheap goods (north half)
+  var aisleX = [cx - 9, cx - 3, cx + 3, cx + 9];
+  for (var ai = 0; ai < aisleX.length; ai++) {
+    var gx = aisleX[ai];
+    var gond = box(2.2, 1.9, 12, [prodM, prodM, whiteM, shelfEndM, prodM, prodM], gx, Y + 0.95, -603); scene.add(gond); solidMeshes.push(gond); intCol(spec, gx, -603, 2.2, 12);
+    for (var sh = 0.55; sh < 1.9; sh += 0.55) scene.add(box(2.3, 0.06, 12, metalM, gx, Y + sh, -603));   // shelf tiers
+  }
+  // colorful $1 bins near the entrance (east side)
+  var binCols = [0xe83030, 0x2a7ad8, 0x3fae4a, 0xe8c020];
+  for (var bi = 0; bi < 4; bi++) { var bx = cx + 6 + (bi % 2) * 2.4, bz = -591.5 - ((bi / 2) | 0) * 2.4; scene.add(box(2.0, 0.7, 2.0, lamb({ color: binCols[bi] }), bx, Y + 0.35, bz)); intCol(spec, bx, bz, 2.0, 2.0); scene.add(box(1.7, 0.4, 1.7, prodM, bx, Y + 0.75, bz)); }
+
+  placeStaffIn(spec, 'DOLLAR_PAM', cx - 8, -592, Math.PI);
+
+  var CHEAP = ['chips', 'soda', 'rubberduck', 'actionfig', 'gnome', 'cassette', 'lighter', 'water'];
+  spec.zones.push({
+    x: cx - 8, z: -595, r2: 9, prompt: '[E] BUY A DEAL — $1.25',
+    fn: function () {
+      if (state.money < 2) { sfx('deny'); popup2("You can't afford it"); return; }
+      var id = CHEAP[(Math.random() * CHEAP.length) | 0];
+      if (bagAdd(id, 1) > 0) { sfx('deny'); popup2('Your bag is full'); return; }
+      state.money -= 2; sfx('buy'); itemToast(id); staffSay(['"Everything\'s a dollar twenty-five, hon."', '"Great find!"']);
+    }
+  });
+  spec.zones.push({ x: cx + 3, z: -603, r2: 9, prompt: '[E] BROWSE THE AISLE', fn: function () { staffSay(['"Party supplies are on aisle three."', '"We got balloons, candy, gift bags — all a buck twenty-five."', '"Seasonal is fully stocked!"']); } });
+  spec.zones.push({ x: cx - 8, z: -594.5, r2: 4, prompt: '[E] CHAT WITH CASHIER', fn: function () { staffSay(['"Did you find everything okay?"', '"Need a bag for a nickel?"', '"Next in line!"']); } });
+}
+
+// ---------------- BANK OF AMERICA lobby (venue boa) ---------------------------
+var BANK = registerInterior({
+  id: 'bank',
+  box: { x0: -16, x1: 16, z0: 588, z1: 612, y: -420 },       // 32 x 24 lobby, y=-420 (within the ±600 render envelope)
+  doorZone: { x: 24, z: -82, r2: 40 },                       // world front-face (boa, rot 180)
+  doorIn: { x: 0, z: 607, yaw: 0 },
+  doorOut: { x: 24, z: -85.5, yaw: 3.14159 },
+  exitZone: { x: 0, z: 609, r2: 11 },
+  label: 'BANK OF AMERICA',
+  build: buildBank
+});
+function buildBank(spec) {
+  var floorT = tex(64, function (g, s) {
+    g.fillStyle = '#d8d4cc'; g.fillRect(0, 0, s, s);           // polished stone
+    g.fillStyle = '#c8c4ba'; for (var i = 0; i < 6; i++) g.fillRect(0, (Math.random() * s) | 0, s, 2);
+    g.strokeStyle = '#b0aca0'; g.lineWidth = 2; g.strokeRect(0, 0, s, s);
+    noise(g, s, 60, 0.03, 0.03);
+  }, 8, 6);
+  var wallT = tex(64, function (g, s) {
+    g.fillStyle = '#eceadf'; g.fillRect(0, 0, s, s);
+    g.fillStyle = '#012169'; g.fillRect(0, s * 0.18, s, 8);       // BofA navy band
+    g.fillStyle = '#c8102e'; g.fillRect(0, s * 0.18 + 8, s, 4);   // BofA red
+    noise(g, s, 45, 0.03, 0.03);
+  }, 9, 1);
+  var counterT = tex(64, function (g, s) {
+    g.fillStyle = '#5a4432'; g.fillRect(0, 0, s, s);
+    for (var y = 0; y < s; y += 6) { g.fillStyle = 'rgba(30,18,8,' + (0.15 + Math.random() * 0.2) + ')'; g.fillRect(0, y, s, 2); }
+  }, 4, 1);
+  var floorM = lamb2(floorT), wallM = lamb2(wallT), counterM = lamb2(counterT);
+  var glassM = new THREE.MeshPhongMaterial({ color: 0xcfe6ea, transparent: true, opacity: 0.24, shininess: 90, side: THREE.DoubleSide });
+  var steelM = lamb({ color: 0xb2b6ba }), darkSteelM = lamb({ color: 0x6a6e72 }), whiteM = lamb({ color: 0xe8e6dc }), navyM = lamb({ color: 0x012169 }), brassM = lamb({ color: 0xb89838 }), ropeM = lamb({ color: 0x8a1e2c });
+  var s = intShell(spec, { floorM: floorM, wallM: wallM, ceilColor: 0xe0ded4, bannerLines: ['BANK OF AMERICA'], bannerBg: '#012169', bannerFg: '#ffffff' });
+  var Y = s.Y, cx = s.cx, cz = s.cz;
+
+  // teller counter across the back (north), glass divider windows, tellers behind
+  var counter = box(20, 1.2, 1.4, [counterM, counterM, whiteM, counterM, counterM, counterM], cx, Y + 0.6, cz - 8); scene.add(counter); solidMeshes.push(counter); intCol(spec, cx, cz - 8, 20, 1.4);
+  scene.add(box(20, 0.12, 1.5, navyM, cx, Y + 1.2, cz - 8));                                        // counter cap
+  scene.add(box(20, 1.4, 0.12, glassM, cx, Y + 2.0, cz - 7.5));                                     // full glass screen above the counter
+  for (var wx = -8; wx <= 8; wx += 4) scene.add(box(0.1, 1.4, 0.6, darkSteelM, cx + wx, Y + 2.0, cz - 7.5));   // window mullions
+  for (var tx = -6; tx <= 6; tx += 4) scene.add(box(0.9, 0.06, 0.4, darkSteelM, cx + tx, Y + 1.24, cz - 7.2)); // transaction trays
+  // vault door backdrop on the west wall (big steel disc + wheel handle)
+  var vault = cyl(2.6, 2.6, 0.5, 28, steelM, cx - 15.4, Y + 2.2, cz - 6); vault.rotation.z = Math.PI / 2; scene.add(vault);
+  scene.add(cyl(2.9, 2.9, 0.25, 28, darkSteelM, cx - 15.7, Y + 2.2, cz - 6)); // frame ring (behind)
+  var hub = cyl(0.7, 0.7, 0.6, 16, darkSteelM, cx - 15.0, Y + 2.2, cz - 6); hub.rotation.z = Math.PI / 2; scene.add(hub);
+  for (var sp = 0; sp < 4; sp++) { var spoke = box(0.16, 0.16, 2.6, brassM, cx - 14.9, Y + 2.2, cz - 6); spoke.rotation.x = sp * Math.PI / 4; scene.add(spoke); }   // wheel spokes
+  for (var bolt = 0; bolt < 12; bolt++) { var ba = bolt * Math.PI / 6; scene.add(cyl(0.09, 0.09, 0.15, 6, brassM, cx - 15.0, Y + 2.2 + Math.sin(ba) * 2.3, cz - 6 + Math.cos(ba) * 2.3)); }   // rim bolts
+  // ATM lobby along the east wall
+  for (var ai = 0; ai < 3; ai++) {
+    var az = cz - 6 + ai * 4;
+    scene.add(box(1.4, 2.2, 0.9, navyM, cx + 15.0, Y + 1.1, az)); intCol(spec, cx + 15.0, az, 1.4, 0.9);
+    scene.add(box(1.0, 0.7, 0.05, new THREE.MeshBasicMaterial({ color: 0x2a6ad8 }), cx + 14.5, Y + 1.6, az));   // screen
+    scene.add(box(0.9, 0.4, 0.1, darkSteelM, cx + 14.5, Y + 1.05, az));                                          // keypad shelf
+  }
+  intSign(cx + 15.6, Y + 3.0, cz, -Math.PI / 2, 5, 1.0, ['ATM'], '#012169', '#ffffff');
+  // velvet-rope queue lane leading up to the tellers (brass stanchions + ropes)
+  var laneZ = [cz - 2, cz + 2, cz + 6];
+  for (var lz = 0; lz < laneZ.length; lz++) {
+    for (var sside = -1; sside <= 1; sside += 2) {
+      var stx = cx + sside * 3;
+      scene.add(cyl(0.09, 0.09, 1.1, 10, brassM, stx, Y + 0.55, laneZ[lz]));            // post
+      scene.add(cyl(0.16, 0.16, 0.16, 10, brassM, stx, Y + 1.15, laneZ[lz]));           // ball top
+      if (lz < laneZ.length - 1) scene.add(box(0.06, 0.08, 4, ropeM, stx, Y + 0.95, laneZ[lz] + 2));  // rope span
+    }
+  }
+  // waiting bench near the entrance
+  scene.add(box(3.4, 0.4, 0.9, counterM, cx - 8, Y + 0.4, cz + 8)); intCol(spec, cx - 8, cz + 8, 3.4, 0.9);
+  scene.add(box(3.4, 0.7, 0.15, counterM, cx - 8, Y + 0.75, cz + 8.4));
+
+  placeStaffIn(spec, 'TELLER_MARCUS', cx - 5, cz - 9, Math.PI);
+  placeStaffIn(spec, 'TELLER_BRENDA', cx + 5, cz - 9, Math.PI);
+
+  spec.zones.push({
+    x: cx + 13.5, z: cz, r2: 8, prompt: '[E] USE THE ATM',
+    fn: function () { sfx('buy'); toast('ATM — Available balance: <span style="color:#8ee87f">$' + state.money + '</span>', 3200); }
+  });
+  spec.zones.push({ x: cx - 5, z: cz - 6, r2: 7, prompt: '[E] SEE A TELLER', fn: function () { staffSay(['"Welcome to Bank of America, how can I help?"', '"Would you like to open a checking account?"', '"Your balance is looking healthy today."']); } });
+  spec.zones.push({ x: cx + 5, z: cz - 6, r2: 7, prompt: '[E] SEE A TELLER', fn: function () { staffSay(['"Next, please!"', '"Cash or deposit today?"', '"Careful carrying that much around town."']); } });
 }
 
 // ---------------- street props (AI PSX props: streetprops.js) ----------------
@@ -7175,6 +7703,9 @@ function spawnInteriorCops(n) {
 function maxWanted() {
   var w = (state.dead || inside) ? 0 : (state.wanted || 0);
   for (var id in net.remotes) { var r = net.remotes[id]; if (r && !r.dead && (r.w || 0) > w) w = r.w; }
+  // #78 Q10 ending town-perks: signet (inherit) = cops ignore minor crimes;
+  // leniency (expose/Whistleblower) = one star cooler baseline
+  if (state.unlocks) { if (state.unlocks.perk_signet) w = Math.max(0, w - 2); else if (state.unlocks.perk_leniency) w = Math.max(0, w - 1); }
   return w;
 }
 function desiredCops() { var w = maxWanted(); return w === 0 ? 2 : 2 + w * 2; }
@@ -7245,7 +7776,7 @@ function copAimArm(c, m, tgt) {
 // world-space muzzle tip of the cop's held gun (null while holstered)
 // front-of-barrel z for each held (dropMesh) gun = -halfDepth of its main body
 // box, so the world/cop muzzle flash sits ON the tip (not floating past it)
-var HELD_MUZZLE_Z = { pistol: -0.225, smg: -0.30, rifle: -0.475, auto: -0.425, rocket: -0.5, raygun: -0.30 };
+var HELD_MUZZLE_Z = { pistol: -0.225, smg: -0.30, rifle: -0.475, auto: -0.425, rocket: -0.5, raygun: -0.30, neon_blaster: -0.30, silenced: -0.42 };
 function copMuzzle(c) {
   var gun = c.mesh.userData.heldGun;
   if (!gun) return null;
@@ -7924,8 +8455,10 @@ var breakIn = null;   // {c, t}
 function startBreakIn(c) {
   if (breakIn || driving || !c.parked || c.exploded) return;
   var g = c.car.group.position;
-  breakIn = { c: c, t: 0.9 };
-  popup2('BREAKING IN…');
+  // Lockpick Set (q4) / Bait-Car hotwire (q5): skip the jimmy timer.
+  var fast = (typeof hasUnlock === 'function' && (hasUnlock('lockpick') || hasUnlock('hotwire')));
+  breakIn = { c: c, t: fast ? 0.05 : 0.9 };
+  popup2(fast ? 'HOTWIRING…' : 'BREAKING IN…');
   sfx('glass', { x: g.x, z: g.z, range: 55 });
   // a bystander who can SEE you jimmy the door panics like a gunshot scare
   // (no automatic star — startFlee only, same as any scared pedestrian)
@@ -8377,6 +8910,16 @@ function dropMesh(kind) {
     g.add(sph(0.09, new THREE.MeshBasicMaterial({ color: 0x66ff88 }), 0, 0, -0.3, 8, 6));
     g.add(box(0.03, 0.2, 0.16, lamb({ color: 0xb02030 }), 0, 0.12, 0.1));
     g.add(box(0.08, 0.2, 0.1, gripM, 0, -0.16, 0.16));
+  }
+  else if (kind === 'neon_blaster') {   // #78 tinted ray-gun body
+    var nb2 = cyl(0.07, 0.1, 0.5, 8, phong({ color: 0x1a2b3a, emissive: 0x1560a0, shininess: 120 }), 0, 0, 0); nb2.rotation.x = Math.PI / 2; g.add(nb2);
+    g.add(sph(0.09, new THREE.MeshBasicMaterial({ color: 0x33ffe0 }), 0, 0, -0.3, 8, 6));
+    g.add(box(0.03, 0.2, 0.16, new THREE.MeshBasicMaterial({ color: 0xff40d0 }), 0, 0.12, 0.1));
+    g.add(box(0.08, 0.2, 0.1, gripM, 0, -0.16, 0.16));
+  }
+  else if (kind === 'silenced') {   // #78 pistol + suppressor
+    g.add(box(0.1, 0.12, 0.45, darkMetalM, 0, 0, 0)); g.add(box(0.09, 0.24, 0.13, gripM, 0, -0.14, 0.14));
+    var sup = cyl(0.05, 0.05, 0.34, 10, darkMetalM, 0, 0, -0.36); sup.rotation.x = Math.PI / 2; g.add(sup);
   }
   else { var tb = cyl(0.09, 0.09, 1.0, 10, rocketBodyM, 0, 0, 0); tb.rotation.x = Math.PI / 2; g.add(tb); }
   return g;
@@ -9107,6 +9650,7 @@ function damageNPC(n, dmg, kx, kz, silent) {
     stopNpcVoice(n.vname);
     spawnCash(n.x, n.z, 5 + ((Math.random() * 18) | 0)); sfx('ko', { x: n.x, z: n.z, range: 50 }); sfx('grunt', { x: n.x, z: n.z, range: 50 });
     maybeNpcItemDrop(n.x, n.z);
+    if (n.qtag && typeof questKillTag === 'function') questKillTag(n.qtag);   // quest kill-beat credit on KO death
     if (!silent) {
       popup('KO!');
       creditCivKill();
@@ -9340,7 +9884,9 @@ function updateNPCs(dt) {
       n.fightT -= dt;
       var fdx = player.x - n.x, fdz = player.z - n.z, fd = Math.sqrt(fdx * fdx + fdz * fdz) || 1;
       m.rotation.y = Math.atan2(fdx, fdz);
-      if (n.fightT <= 0 || n.hp < 35 || state.dead || fd > 9) { startFlee(n); continue; }
+      if (state.dead) { continue; }
+      if (!n.qfoe && (n.fightT <= 0 || n.hp < 35 || fd > 9)) { startFlee(n); continue; }
+      if (n.qfoe && fd > 40) { n.x += fdx / fd * 5 * dt; n.z += fdz / fd * 5 * dt; }   // teleport-leash: never lose the player
       if (fd > 1.5) {
         n.x += fdx / fd * 3.2 * dt; n.z += fdz / fd * 3.2 * dt;
         var fpos = pushOut(n.x, n.z, 0.45); n.x = fpos.x; n.z = fpos.z;
@@ -10265,7 +10811,7 @@ var psxArms = null;
 // arms also hold the Meshy gun viewmodels: the root reparents into the
 // equipped gun group (so draw/reload anims carry the hands along) and is
 // posed each frame on a static frame of the 'grab' clip
-var GUNHOLD_GROUPS = { pistol: 1, smg: 1, rifle: 1, auto: 1, rocket: 1 };
+var GUNHOLD_GROUPS = { pistol: 1, smg: 1, rifle: 1, auto: 1, rocket: 1, silenced: 1 };   // #78: silenced reuses the pistol two-hand hold
 var gunHold = { clip: 'relax', t: 0.75 };   // relax mid-frame: right palm sits on the grips
 // The shared relax/grab clip leaves the LEFT (support) arm hanging at the side,
 // which reads as a detached floating hand for every gun. After posing, we swing
@@ -10280,7 +10826,8 @@ var SUPPORT_POSE = {
   smg:    [[-1.59, -0.01, -1.16], [1.2, 0.4, -2.9], [2.1, -0.82, 0.3], [0.15, 0.3, -0.4]],
   rifle:  [[-1.59, -0.01, -1.16], [0.98, 0.4, -2.6], [1.7, -0.82, 0.3], [0.1, 0.3, -0.4]],
   auto:   [[-1.59, -0.01, -1.16], [0.98, 0.4, -2.7], [1.85, -0.82, 0.3], [0.1, 0.3, -0.4]],
-  rocket: [[-1.59, -0.01, -1.16], [1.1, 0.4, -2.6], [1.7, -0.82, 0.3], [0.1, 0.3, -0.4]]
+  rocket: [[-1.59, -0.01, -1.16], [1.1, 0.4, -2.6], [1.7, -0.82, 0.3], [0.1, 0.3, -0.4]],
+  silenced: [[-1.59, 0.5, -1.5], [1.2, 0.4, -3.2], [2.5, -0.82, 0.3], [0.2, 0.3, -0.4]]
 };
 // per-weapon forward anchor offset in the gun-group (camera) frame:
 // x=right, y=up, z toward-camera(+)/forward(-). The shared idle/relax/grab
@@ -10297,7 +10844,8 @@ var ANCHOR_OFF = {
   smg:    [0.09, -0.05, -0.36],
   rifle:  [0.10, -0.05, -0.39],
   auto:   [0.11, -0.05, -0.39],
-  rocket: [0.10, -0.05, -0.36]
+  rocket: [0.10, -0.05, -0.36],
+  silenced: [0.06, -0.06, -0.32]
 };
 var dbgArmOv = null;                 // debug override for SUPPORT_POSE (via __wc.dbgArm)
 var _supEuler = new THREE.Euler();
@@ -10326,7 +10874,8 @@ var GRIP_TGT = {
   smg:    [0.28, -0.30, -0.56],
   rifle:  [0.18, -0.42, -0.84],
   auto:   [0.19, -0.42, -0.76],
-  rocket: [0.22, -0.44, -0.68]
+  rocket: [0.22, -0.44, -0.68],
+  silenced: [0.21, -0.40, -0.52]
 };
 var _ikEnd = new THREE.Vector3(), _ikJ = new THREE.Vector3(), _ikTV = new THREE.Vector3(),
     _ikA = new THREE.Vector3(), _ikB = new THREE.Vector3(),
@@ -10733,6 +11282,20 @@ var vmSoda = new THREE.Group();
   vmSoda.add(vmArm(0.27, -0.45, -0.32, 0.15));
 })();
 vmMap.soda = vmSoda;
+// #78 quest guns reuse existing viewmodels as skins (own groups for visibility):
+// Neon Blaster = neon-tinted ray gun; Silenced Pistol = pistol + suppressor.
+var vmNeon = vmRaygun.clone(true);
+vmNeon.traverse(function (o) {
+  if (o.isMesh && o.material) {
+    o.material = o.material.clone();
+    if (o.material.color) o.material.color.lerp(new THREE.Color(0x2a5fd0), 0.55);
+    if (o.material.emissive !== undefined) { o.material.emissive = new THREE.Color(0x28e0ff); o.material.emissiveIntensity = 0.5; }
+  }
+});
+vmMap.neon_blaster = vmNeon;
+var vmSilenced = vmPistol.clone(true);
+(function () { var supp = cyl(0.032, 0.032, 0.30, 10, darkMetalM, 0.26, -0.265, -1.02); supp.rotation.x = Math.PI / 2; vmSilenced.add(supp); })();
+vmMap.silenced = vmSilenced;
 Object.keys(vmMap).forEach(function (k) { vm.add(vmMap[k]); vmMap[k].visible = false; });
 vmFists.visible = true;
 var zoomed = false;
@@ -10897,7 +11460,7 @@ function tryAttack() {
       puff(h.point, 0xd93a2a);
       meleeHit = state.equipped === 'fists';
       if (isClient()) netToHost({ t: 'dmgNpc', i: npcs.indexOf(npcHit), dmg: w.dmg, kx: dir.x, kz: dir.z });
-      else damageNPC(npcHit, w.dmg, dir.x, dir.z);
+      else damageNPC(npcHit, w.dmg, dir.x, dir.z, ghostActive());   // #78 Ghost: silenced kills stay silent (no star)
     }
     else if (remoteHit) { netSendHit(remoteHit, w.dmg, true); puff(h.point, 0xd93a2a); }
     else if (copMHit >= 0) {
@@ -11481,6 +12044,8 @@ function sfx(kind, at) {
     case 'pistol': nb(0.14, 1700, 0.5); bp(220, 0.08, 0.12, 'square', 90); break;
     case 'smg': nb(0.09, 2100, 0.35); break;
     case 'raygun': bp(1750, 0.14, 0.22, 'square', 420); bp(880, 0.1, 0.1, 'sawtooth', 220); break;
+    case 'neon_blaster': bp(2100, 0.12, 0.2, 'square', 520); bp(1200, 0.1, 0.12, 'sawtooth', 320); break;
+    case 'silenced': nb(0.05, 2600, 0.12); bp(320, 0.05, 0.05, 'sine', 120); break;   // muffled pfft
     case 'laser': bp(1350, 0.2, 0.22, 'sawtooth', 240); nb(0.06, 3000, 0.12); break;
     case 'rifle': nb(0.3, 900, 0.8); bp(120, 0.18, 0.2, 'sawtooth', 45); break;
     case 'whoosh': bp(280, 0.1, 0.1, 'sine', 90); break;
@@ -11515,9 +12080,11 @@ function refreshShop() {
   GUN_LIST.forEach(function (k) {
     var w = WEAPONS[k], row = document.createElement('div'); row.className = 'row';
     if (!w.price) return;   // not for sale (ray gun drops from... something)
-    var left = document.createElement('div'); left.innerHTML = '<b>' + w.name + '</b> — <span class="cash">$' + w.price + '</span><small>' + w.desc + '</small>'; row.appendChild(left);
+    var price = ghostBuy(w.price);
+    var pl = price < w.price ? '<span class="cash">$' + price + '</span> <small style="opacity:.6;text-decoration:line-through">$' + w.price + '</small>' : '<span class="cash">$' + price + '</span>';
+    var left = document.createElement('div'); left.innerHTML = '<b>' + w.name + '</b> — ' + pl + '<small>' + w.desc + '</small>'; row.appendChild(left);
     if (state.owned[k]) { var sp = document.createElement('span'); sp.className = 'owned'; sp.textContent = 'OWNED'; row.appendChild(sp); }
-    else { var btn = document.createElement('button'); btn.textContent = 'BUY'; btn.disabled = state.money < w.price; btn.onclick = function () { if (state.dead) return; if (state.money < w.price) { playVoiceAny(['dealer_nocash_1', 'dealer_nocash_2'], 0.5, 'dealerNo', 5, { ref: dealer }); sfx('deny'); return; } state.money -= w.price; state.owned[k] = true; shopBought = true; playVoiceAny(['dealer_buy_1', 'dealer_buy_2'], 0.5, 'dealerBuy', 4, { ref: dealer }); sfx('buy'); popup(w.name + ' purchased!'); refreshShop(); }; row.appendChild(btn); }
+    else { var btn = document.createElement('button'); btn.textContent = 'BUY'; btn.disabled = state.money < price; btn.onclick = function () { if (state.dead) return; if (state.money < price) { playVoiceAny(['dealer_nocash_1', 'dealer_nocash_2'], 0.5, 'dealerNo', 5, { ref: dealer }); sfx('deny'); return; } state.money -= price; state.owned[k] = true; shopBought = true; playVoiceAny(['dealer_buy_1', 'dealer_buy_2'], 0.5, 'dealerBuy', 4, { ref: dealer }); sfx('buy'); popup(w.name + ' purchased!'); refreshShop(); }; row.appendChild(btn); }
     rows.appendChild(row);
   });
   refreshSellRows(rows);
@@ -11540,14 +12107,15 @@ function refreshSellRows(rows) {
   for (var k = 0; k < slots.length; k++) { var s = state.bag[slots[k]]; if (!agg[s.id]) { agg[s.id] = 0; order.push(s.id); } agg[s.id] += s.n; }
   var hdr = document.createElement('div'); hdr.className = 'row'; hdr.innerHTML = '<b style="color:#ffd98a; letter-spacing:2px;">— SELL JUNK &amp; VALUABLES —</b>'; rows.appendChild(hdr);
   order.forEach(function (id) {
-    var def = itemDef(id), n = agg[id], total = def.value * n;
+    var def = itemDef(id), n = agg[id], unit = ghostSell(def.value), total = unit * n;
     var row = document.createElement('div'); row.className = 'row';
-    var left = document.createElement('div'); left.innerHTML = itemIconHtml(id) + '<b>' + def.name + '</b> &times;' + n + ' — <span class="cash">$' + def.value + '</span> ea<small>sells for $' + total + '</small>'; row.appendChild(left);
+    var ea = unit > def.value ? '<span class="cash">$' + unit + '</span> <small style="color:#8ee87f">(+15%)</small>' : '<span class="cash">$' + unit + '</span>';
+    var left = document.createElement('div'); left.innerHTML = itemIconHtml(id) + '<b>' + def.name + '</b> &times;' + n + ' — ' + ea + ' ea<small>sells for $' + total + '</small>'; row.appendChild(left);
     var btn = document.createElement('button'); btn.textContent = 'SELL';
     btn.onclick = function () {
       var got = 0, rem = n;
       for (var i = 0; i < state.bag.length && rem > 0; i++) { var s = state.bag[i]; if (s && s.id === id) { var take = s.n; got += bagRemove(i, take); rem -= take; } }
-      state.money += got * def.value; sfx('cash'); popup('+$' + (got * def.value));
+      state.money += got * unit; sfx('cash'); popup('+$' + (got * unit));
       refreshShop();
     };
     row.appendChild(btn); rows.appendChild(row);
@@ -11651,6 +12219,13 @@ function drawMinimap() {
   // cops (blue, slightly bigger)
   mg.fillStyle = '#3f8fe8'; for (var cop = 0; cop < cops.length; cop++) { if (cops[cop].state === 'down') continue; mg.fillRect(w2m(cops[cop].x) - 1.5, w2m(cops[cop].z) - 1.5, 3, 3); }
   for (var cop2 = 0; cop2 < copsM.length; cop2++) { mg.fillRect(w2m(copsM[cop2].x) - 1.5, w2m(copsM[cop2].z) - 1.5, 3, 3); }
+  // Police Scanner (q2): while wanted, ring the nearest patrol so you can route
+  // around it — turns the wanted system from surprise into strategy.
+  if (hasUnlock('scanner') && state.wanted > 0 && cops.length) {
+    var near = null, nd = 1e9;
+    for (var cs = 0; cs < cops.length; cs++) { var cc = cops[cs]; if (cc.state === 'down') continue; var ddx = cc.x - player.x, ddz = cc.z - player.z, dd = ddx * ddx + ddz * ddz; if (dd < nd) { nd = dd; near = cc; } }
+    if (near) { mg.strokeStyle = 'rgba(120,200,255,' + (0.5 + 0.4 * (Math.sin(T * 6) * 0.5 + 0.5)).toFixed(2) + ')'; mg.lineWidth = 1.4; mg.beginPath(); mg.arc(w2m(near.x), w2m(near.z), 5.5, 0, Math.PI * 2); mg.stroke(); }
+  }
   // other players (cyan)
   // real players as bright-green blips (match their name-tag color); dim the
   // dead, draw drivers as a slightly bigger square
@@ -11748,24 +12323,198 @@ function questRegisterItems() {
 //   text (objective line), giver (talk target id), item+n (fetch), poi
 //   (interact target id), tag (kill target tag), secs+sub (timed),
 //   onEnter(q,beat) fired when the beat becomes active, onComplete(q,beat).
+// ---- #77 secret-POI room registry (declared before QUESTS so beat waypoints
+// can reference QPOI.<room>). Room builders/enter/exit live further below. ----
+var QPOI = {   // id -> { x, z (surface hatch), y (under-map floor), w, d, tint, ceil, name, enterMsg }
+  cellar:     { name: 'the Gains Cave', x: -132, z: 44, y: -120, w: 16, d: 12, tint: 0x6b6256, ceil: 0x2a2620, enterMsg: 'You drop into a dim stone cellar — Vlad\'s "pain temple". A bricked passage yawns at the back.' },
+  manhole:    { name: 'the Manhole Room', x: 20, z: -4, y: -128, w: 12, d: 10, tint: 0x4a4e52, ceil: 0x202226, enterMsg: 'You drop through the manhole into a concrete stash room. Stolen wallets everywhere.' },
+  hollow_oak: { name: 'the Hollow Oak', x: 165, z: 120, y: -136, w: 7, d: 7, tint: 0x5a4632, ceil: 0x241a10, enterMsg: 'You squeeze into the hollow of the old oak. A dead-drop cavity, larger than it looks.' },
+  stormdrain: { name: 'the Storm Drain', x: -238, z: -176, y: -132, w: 14, d: 8, tint: 0x3c4a52, ceil: 0x1a2228, enterMsg: 'You crawl into the box culvert. Water trickles; something was dug up in the mud.' },
+  boardroom:  { name: 'the Board Room', x: -278, z: -70, y: -150, w: 12, d: 10, tint: 0x7a2a24, ceil: 0x2a1010, enterMsg: 'The sealed door parts. A long table, five chairs, and a nameplate: A. THORNE. A cage-lift shaft drops away into the dark.' },
+  facility:   { name: 'the Sub-Lake Facility', x: -255, z: -150, y: -170, w: 24, d: 18, tint: 0x2a3a44, ceil: 0x0e1a22, enterMsg: 'Past the three locks, the facility opens: humming machines, and a tank where something enormous stirs.' },
+  arcade:     { name: 'Wrong Westchase', x: -150, z: 20, y: -160, w: 22, d: 22, tint: 0x2a1050, ceil: 0x120626, enterMsg: 'INSERT COIN. The world flattens into fog and neon — a low-poly memory of the town, rendered wrong.' }
+};
+// ---- #77 quest content helpers (used by beat onEnter/onComplete hooks) ----
+function qv(npcKey, cat, idx, gain) { return playQuestVoice(npcKey, cat, idx, gain || 0.75, 0.4); }
+function qDrop(item, x, z) { questRegisterItems(); return spawnItemDrop(item, x, z, 999); }
+function qGrant(item, n) { questRegisterItems(); var left = bagAdd(item, n || 1); if (left > 0) spawnItemDrop(item, player.x, player.z, 999); var d = itemDef(item); if (d) toast(itemIconHtml(item) + ' Received <b>' + d.name + '</b>', 3200); }
+function qArm(tag) { questArmed[tag] = true; }
+function qLine(html, ms) { toast(html, ms || 3200); }
+function qSetClock(t) { try { envT = t; if (typeof updateEnv === 'function') updateEnv(0); } catch (e) { } }
+// spawn a killable hostile quest foe (a real npc with .qtag so shooting/KO'ing
+// it credits the kill beat). Uses the existing 'fight' AI (chase + jab).
+function qFoe(look, x, z, tag, hp) {
+  if (!(x === x) || !(z === z)) { x = player.x + 3; z = player.z; }   // NaN guard (room not built yet)
+  var mesh;
+  try { mesh = buildQuestChar(look) || buildPerson('#444', '#222', CSKIN[2], {}); } catch (e) { mesh = buildPerson('#444', '#222', CSKIN[2], {}); }
+  var n = { mesh: mesh, x: x, z: z, tx: x, tz: z, hp: hp || 100, state: 'fight', fightT: 99999, jabT: 0.7, animT: 0, phase: Math.random() * 9, speed: 2.6, downT: 0, hurtFlash: 0, qtag: tag, qfoe: true, vname: null, fem: false };
+  mesh.position.set(x, 0, z); mesh.userData.npc = n; scene.add(mesh); npcs.push(n);
+  return n;
+}
 var QUESTS = {
+  // ===================== QUEST 1 — A NIGHT TO DISMEMBER =====================
   q1_dismember: {
     id: 'q1_dismember', name: 'A Night to Dismember',
-    giver: { id: 'vivian', name: 'Vivian Crestwood', x: -196, z: -206 },
-    summary: 'A murder-mystery dinner party near the lake turned real. Miss Vivian Crestwood needs an investigator before the next blackout claims another guest. (Framework demo quest — shaped like Quest 1; NPCs/props are placeholders the quest-content agents will flesh out.)',
-    // reward: give the loupe item + unlock the "loupe" capability flag
-    reward: { item: 'loupe', n: 1, unlock: 'loupe', text: 'Detective\'s Loupe — highlights clues & reveals trapped containers.' },
+    giver: { id: 'vivian', name: 'Vivian Crestwood', x: -196, z: -206, voice: 'q1_VIVIAN' },
+    summary: 'A murder-mystery dinner party at a lakeside townhouse turned real. Hostess Vivian Crestwood needs an investigator to name the killer before the next blackout claims another guest.',
+    reward: { item: 'loupe', n: 1, unlock: 'loupe', text: "Detective's Loupe — highlights clues & reveals trapped/false containers." },
     beats: [
-      { type: 'talk', giver: 'vivian', waypoint: { x: -196, z: -206 }, text: 'Speak with Vivian at the townhouse party.' },
-      { type: 'reach', waypoint: { x: -188, z: -212 }, r: 5, text: 'Investigate the darkened dining room.' },
-      { type: 'interact', poi: 'cellar', waypoint: { x: -180, z: -200 }, text: 'Search the caterer\'s hidden cellar for evidence.',
-        onEnter: function (q, b) { questArmAmbush('cellar_cleaner'); } },
-      { type: 'fetch', item: 'almond_vial', n: 1, waypoint: { x: -180, z: -200 }, text: 'Recover the Bitter Almond Vial (the murder weapon).' },
-      { type: 'talk', giver: 'vivian', waypoint: { x: -196, z: -206 }, text: 'Return to Vivian and name the poisoner.' }
+      { type: 'talk', giver: 'vivian', waypoint: { x: -196, z: -206 }, text: 'Speak with Vivian at the townhouse door.', onEnter: function () { qv('q1_VIVIAN', 'intro', 0); } },
+      { type: 'interact', poi: 'q1_body', waypoint: { x: -191, z: -211 }, text: 'The lights cut out — search Gloria\'s body in the dining room.', onEnter: function () { qv('q1_VIVIAN', 'panic', 1); } },
+      { type: 'fetch', item: 'almond_vial', n: 1, waypoint: { x: -191, z: -211 }, text: 'Recover the Bitter Almond Vial (the murder weapon).' },
+      { type: 'fetch', item: 'seating_chart', n: 1, waypoint: { x: -203, z: -210 }, text: 'Gather clues: find the scratched-out name on the seating chart.', onEnter: function () { qDrop('eviction_notice', -191, -210); qDrop('seating_chart', -203, -210); } },
+      { type: 'follow', waypoint: { x: -206, z: -204 }, escort: true, r: 5, text: 'Second blackout — follow caterer Chet in the dark to the back door.', onEnter: function () { qv('q1_CHET', 'oily', 1); } },
+      { type: 'kill', tag: 'chet', waypoint: { x: -206, z: -204 }, text: 'Name Chet at the reveal — he draws a blade. Put him down.', onEnter: function () { qv('q1_CHET', 'cold', 0); qFoe('CHET', -204, -204, 'chet', 90); } },
+      { type: 'talk', giver: 'vivian', waypoint: { x: -196, z: -206 }, text: 'Return to Vivian. She knows more than she let on.', onEnter: function () { qv('q1_VIVIAN', 'reveal', 2); } }
+    ]
+  },
+  // ===================== QUEST 2 — SOMEONE'S WATCHING =====================
+  q2_watching: {
+    id: 'q2_watching', name: "Someone's Watching",
+    giver: { id: 'wendell', name: 'Wendell Pike', x: -210, z: -245, voice: 'q2_WENDELL' },
+    summary: 'Twitchy Wendell Pike is sure his neighbors are watching him. Prove it — tail the "watchers," connect the evidence, and stake out the lake at night. He might not be as crazy as he sounds.',
+    reward: { item: 'scanner', n: 1, unlock: 'scanner', text: 'Police Scanner — hear dispatch & mark the nearest patrol on the minimap while wanted.' },
+    beats: [
+      { type: 'talk', giver: 'wendell', waypoint: { x: -210, z: -245 }, text: 'Hear out Wendell behind the hedge.', onEnter: function () { qv('q2_WENDELL', 'intro', 0); } },
+      { type: 'follow', waypoint: { x: 150, z: -120 }, escort: true, r: 8, text: 'Daytime tail #1: follow the neighbor to the pharmacy (NE).', onEnter: function () { qv('q2_WENDELL', 'comms', 0); } },
+      { type: 'follow', waypoint: { x: -140, z: -120 }, escort: true, r: 8, text: 'Dusk tail #2: tail Don Sharp to the payphone — don\'t get made.', onEnter: function () { qSetClock(0.78); qv('q2_DON', 'call', 0); } },
+      { type: 'interact', poi: 'q2_wall', waypoint: { x: -210, z: -245 }, text: 'Back home: use clues to connect Wendell\'s evidence wall.', onEnter: function () { qv('q2_WENDELL', 'comms', 3); qDrop('binoculars', -210, -243); } },
+      { type: 'reach', waypoint: { x: -255, z: -150 }, r: 10, text: 'Late-night stakeout at the lake. Watch for the van.', onEnter: function () { qSetClock(0.95); qArm('q2_van'); qv('q2_WENDELL', 'comms', 4); } },
+      { type: 'kill', tag: 'q2_cleaner', waypoint: { x: -255, z: -150 }, text: 'A surveillance van! Two "utility workers" turn hostile — survive.', onEnter: function () { qFoe('METER_READER', -250, -150, 'q2_cleaner', 80); qFoe('METER_READER', -260, -148, 'q2_cleaner', 80); qv('q2_METER', 'hostile', 1); } },
+      { type: 'interact', poi: 'q2_photo', waypoint: { x: -255, z: -150 }, text: 'Photograph the lights over the lake, then run.', onEnter: function () { qDrop('lake_photo', -255, -148); } },
+      { type: 'talk', giver: 'wendell', waypoint: { x: -210, z: -245 }, text: 'Return to Wendell — vindicated and terrified.', onEnter: function () { qv('q2_WENDELL', 'vindicated', 1); } }
+    ]
+  },
+  // ===================== QUEST 3 — WHERE THE RED HOUSE WEEPS =====================
+  q3_redhouse: {
+    id: 'q3_redhouse', name: 'Where the Red House Weeps',
+    giver: { id: 'agatha', name: 'Agatha Holloway', x: -278, z: -72, voice: 'q3_AGATHA' },
+    summary: 'The ancient caretaker of the 5-story red-roof house needs the place "put to rest." Climb it floor by floor — each a decade the Countryway Association "assessed and removed" — to the sealed Board Room at the top.',
+    reward: { item: 'lantern', n: 1, unlock: 'lantern', text: 'Spirit Lantern — see in the dark, reveal hidden doors, part apparitions.' },
+    beats: [
+      { type: 'talk', giver: 'agatha', waypoint: { x: -278, z: -72 }, text: 'Take the cold brass lantern from Agatha.', onEnter: function () { qv('q3_AGATHA', 'intro', 0); qGrant('welcome_packet', 1); } },
+      { type: 'reach', waypoint: { x: -278, z: -78 }, r: 6, text: 'Floor 1 — the parlor. Hear the first family\'s echo.', onEnter: function () { qv('q3_AGATHA', 'reveals', 0); } },
+      { type: 'fetch', item: 'matchbook', n: 1, waypoint: { x: -282, z: -78 }, text: 'Floor 2 — the nursery. The Gray Boy gives you his matchbook.', onEnter: function () { qv('q3_GRAYBOY', 'giggles', 3); qDrop('matchbook', -282, -78); } },
+      { type: 'reach', waypoint: { x: -274, z: -78 }, r: 5, text: 'Floor 3 — the flooded floor. Light the lantern; the water parts.', onEnter: function () { qv('q3_AGATHA', 'reveals', 2); } },
+      { type: 'fetch', item: 'elevator_key', n: 1, waypoint: { x: -278, z: -82 }, text: 'Floor 4 — the study. Read the ledger, take the brass elevator key.', onEnter: function () { qv('q3_AGATHA', 'reveals', 3); qDrop('caretaker_ledger', -278, -80); qDrop('elevator_key', -278, -82); } },
+      { type: 'interact', poi: 'boardroom', waypoint: QPOI.boardroom, text: 'Floor 5 — hold the lantern to the sealed door: the BOARD ROOM.', onEnter: function () { qArm('q3_guard'); } },
+      { type: 'kill', tag: 'q3_guard', waypoint: QPOI.boardroom, text: 'A Cleaner steps from the shadow — ghost or guard? End it.', onEnter: function () { var s = QPOI.boardroom; qFoe('CONCIERGE', s.cx - 2, s.cz, 'q3_guard', 80); } },
+      { type: 'talk', giver: 'agatha', waypoint: { x: -278, z: -72 }, text: 'Return to Agatha. She can rest now.', onEnter: function () { qv('q3_AGATHA', 'farewell', 0); } }
+    ]
+  },
+  // ===================== QUEST 4 — THE COUNTRYWAY JOB =====================
+  q4_heist: {
+    id: 'q4_heist', name: 'The Countryway Job',
+    giver: { id: 'sal', name: 'Sal Marino', x: -116, z: -30, voice: 'q4_SAL' },
+    summary: 'Retired heist planner Sal Marino has a way into Regions Bank. Case the floor, gather three keys, turn the inside man, and crack the vault — the deposit boxes hide the Association\'s ledger and a strange etched key.',
+    reward: { item: 'lockpick_set', n: 1, unlock: 'lockpick', text: 'Lockpick Set — silently open locked doors, ATMs & cars; skip the break-in timer.' },
+    beats: [
+      { type: 'talk', giver: 'sal', waypoint: { x: -116, z: -30 }, text: 'Sal draws you the map at Starbucks.', onEnter: function () { qv('q4_SAL', 'recruit', 0); } },
+      { type: 'reach', waypoint: { x: 150, z: -110 }, r: 8, text: 'Case the Regions lobby (NE). Count the cameras.', onEnter: function () { qv('q4_SAL', 'coaching', 0); } },
+      { type: 'fetch', item: 'guard_key', n: 1, waypoint: { x: -116, z: 31 }, text: 'Lift the off-duty guard\'s key at the Dunkin.', onEnter: function () { qv('q4_SAL', 'coaching', 1); qDrop('guard_key', -116, 31); } },
+      { type: 'fetch', item: 'manager_key', n: 1, waypoint: { x: -40, z: -70 }, text: "Manager's key: Sal's toolkit is in the Publix false-bottom dumpster.", onEnter: function () { qv('q4_SAL', 'coaching', 2); qDrop('manager_key', -40, -70); } },
+      { type: 'fetch', item: 'timer_key', n: 1, waypoint: { x: -150, z: 20 }, text: 'Timer key: photograph the vault schedule from the roof stash.', onEnter: function () { qv('q4_SAL', 'coaching', 3); qDrop('timer_key', -150, 20); } },
+      { type: 'talk', giver: 'marcus_q4', waypoint: { x: 150, z: -112 }, text: 'Turn the inside man — Marcus, the indebted teller.', onEnter: function () { qv('q4_MARCUS', 'turn', 2); } },
+      { type: 'kill', tag: 'q4_cleaner', waypoint: { x: 152, z: -114 }, text: 'Crack the vault. The timer trips — two Cleaners guard the board box.', onEnter: function () { qv('q4_SAL', 'coaching', 5); qFoe('CONCIERGE', 152, -114, 'q4_cleaner', 90); qFoe('CONCIERGE', 148, -112, 'q4_cleaner', 90); } },
+      { type: 'interact', poi: 'q4_score', waypoint: { x: 152, z: -114 }, text: 'Grab the cash, the Association Ledger, and the Etched Lake Key.', onEnter: function () { state.money += 2000; qGrant('assoc_ledger', 1); qGrant('etched_lake_key', 1); } },
+      { type: 'talk', giver: 'sal', waypoint: { x: -116, z: -30 }, text: 'Meet Sal. He burns his name from the ledger.', onEnter: function () { qv('q4_SAL', 'payoff', 2); } }
+    ]
+  },
+  // ===================== QUEST 5 — ROADSIDE ASSISTANCE =====================
+  q5_siren: {
+    id: 'q5_siren', name: 'Roadside Assistance',
+    giver: { id: 'spouse', name: 'Worried Spouse', x: 60, z: 42, voice: 'q5_SPOUSE' },
+    summary: 'A frantic spouse\'s husband stopped to help a broken-down car on Race Track Rd and never came home. Go undercover as a mark, spring the Siren\'s trap, and dismantle the crew from their manhole stash.',
+    reward: { item: 'bait_car_keys', n: 1, unlock: 'hotwire', text: "Bait Car Keys + Slim Jim — instant hotwire on any locked car." },
+    beats: [
+      { type: 'talk', giver: 'spouse', waypoint: { x: 60, z: 42 }, text: 'Take the plea near the RaceTrac.', onEnter: function () { qv('q5_SPOUSE', 'plea', 0); } },
+      { type: 'reach', waypoint: { x: 20, z: -4 }, r: 6, text: 'Find the bait car on Race Track Rd. Approach on foot to "help".', onEnter: function () { qv('q5_DESIREE', 'lure', 0); } },
+      { type: 'kill', tag: 'q5_brick', waypoint: { x: 20, z: -4 }, text: 'The lure springs — Brick and a goon jump you. Fight free.', onEnter: function () { qv('q5_BRICK', 'menace', 0); qFoe('BRICK', 22, -4, 'q5_brick', 120); qFoe('DESIREE', 18, -2, 'q5_brick', 70); } },
+      { type: 'interact', poi: 'manhole', waypoint: QPOI.manhole, text: 'They vanished into a manhole — pry it and drop into the stash.', onEnter: function () { qDrop('stolen_wallet', QPOI.manhole.x - 2, QPOI.manhole.z); qDrop('marks_note', QPOI.manhole.x + 2, QPOI.manhole.z); } },
+      { type: 'fetch', item: 'marks_note', n: 1, waypoint: QPOI.manhole, text: 'The corkboard of "marks" includes your name — flagged for the board.' },
+      { type: 'talk', giver: 'spouse', waypoint: { x: 60, z: 42 }, text: 'Free the husband and return him to his spouse.', onEnter: function () { qv('q5_HUSBAND', 'relief', 2); qv('q5_SPOUSE', 'plea', 3); } }
+    ]
+  },
+  // ===================== QUEST 6 — INSERT COIN TO CONTINUE =====================
+  q6_arcade: {
+    id: 'q6_arcade', name: 'Insert Coin to Continue',
+    giver: { id: 'xander', name: 'Xander', x: -150, z: 26, voice: 'q6_XANDER' },
+    summary: 'Xander found an unlabeled WESTCHASE cartridge — and now Derik won\'t wake up. He\'s trapped in an 8-bit glitch dimension. Go in, beat the Arcade Warden, and pull Derik out.',
+    reward: { item: 'neon_blaster', n: 1, unlock: 'reflexes', text: 'Neon Blaster + 8-Bit Reflexes — ADS briefly slows time.' },
+    beats: [
+      { type: 'talk', giver: 'xander', waypoint: { x: -150, z: 26 }, text: 'Xander explains. Insert the cartridge.', onEnter: function () { qv('q6_XANDER', 'intro', 0); } },
+      { type: 'interact', poi: 'arcade', waypoint: QPOI.arcade, text: 'Level 1 — reach the glitching Publix in Wrong Westchase.', onEnter: function () { qv('q6_DERIK', 'trapped', 0); } },
+      { type: 'reach', waypoint: { x: QPOI.arcade.x - 6, z: QPOI.arcade.z - 6 }, r: 5, text: 'Level 2 — escape the Repeating Aisle in the right order.', onEnter: function () { qv('q6_XANDER', 'intro', 5); } },
+      { type: 'kill', tag: 'q6_warden', waypoint: { x: QPOI.arcade.x, z: QPOI.arcade.z - 4 }, text: 'Level 3 — the Arcade Warden guards Derik\'s cage. Beat it.', onEnter: function () { qv('q6_WARDEN', 'taunts', 1); var s = QPOI.arcade; qFoe('WARDEN', s.cx, s.cz - 4, 'q6_warden', 200); } },
+      { type: 'interact', poi: 'q6_cage', waypoint: { x: QPOI.arcade.x, z: QPOI.arcade.z - 6 }, text: 'Break the cage and free Derik. Grab the Neon Blaster.', onEnter: function () { qv('q6_DERIK', 'waking', 0); qDrop('cartridge', QPOI.arcade.x, QPOI.arcade.z - 5); } },
+      { type: 'talk', giver: 'xander', waypoint: { x: -150, z: 26 }, text: 'Back in the real world — Derik wakes; the cartridge is lake sand.', onEnter: function () { qv('q6_XANDER', 'relief', 0); } }
+    ]
+  },
+  // ===================== QUEST 7 — LEG DAY =====================
+  q7_legday: {
+    id: 'q7_legday', name: 'Leg Day',
+    giver: { id: 'vlad', name: 'Vlad', x: -240, z: -140, voice: 'q7_VLAD' },
+    summary: 'Vlad the lakeside fitness prophet needs a CHAMPION. Steal a rival\'s protein, carry a "boulder," sprint a smoothie, and enter his sacred Gains Cave — which turns out to be a Pact tunnel node.',
+    reward: { item: 'sprint_shoes', n: 1, unlock: 'sprint', text: "Vlad's Blessed Sneakers — faster run + a double jump." },
+    beats: [
+      { type: 'talk', giver: 'vlad', waypoint: { x: -240, z: -140 }, text: 'Take Vlad\'s absurd oath. Do NOT skip.', onEnter: function () { qv('q7_VLAD', 'oath', 0); } },
+      { type: 'fetch', item: 'protein_shaker', n: 1, waypoint: { x: -116, z: -30 }, text: "Steal cardio-boy Chad's protein shaker at Starbucks.", onEnter: function () { qv('q7_VLAD', 'dares', 0); qv('q7_CHAD', 'trash', 0); qDrop('protein_shaker', -116, -30); } },
+      { type: 'fetch', item: 'destiny_smoothie', n: 1, waypoint: { x: -210, z: -215 }, text: 'Carry the "boulder" (a garden gnome) — then sprint the Smoothie of Destiny.', onEnter: function () { qv('q7_VLAD', 'dares', 1); qDrop('destiny_smoothie', -210, -215); } },
+      { type: 'interact', poi: 'cellar', waypoint: QPOI.cellar, text: 'Enter the Gains Cave — Vlad\'s "pain temple."', onEnter: function () { qv('q7_VLAD', 'dares', 5); qArm('q7_cleaner'); } },
+      { type: 'kill', tag: 'q7_cleaner', waypoint: QPOI.cellar, text: 'Two real Cleaners are stashing crates. Clear the node.', onEnter: function () { qv('q7_VLAD', 'dares', 7); var s = QPOI.cellar; qFoe('SILAS', s.cx - 2, s.cz, 'q7_cleaner', 80); qFoe('SILAS', s.cx + 2, s.cz - 1, 'q7_cleaner', 80); } },
+      { type: 'fetch', item: 'tunnel_fragment', n: 1, waypoint: QPOI.cellar, text: 'Find the Tunnel Map Fragment pointing under the lake.', onEnter: function () { var s = QPOI.cellar; qDrop('tunnel_fragment', s.cx, s.cz - 2); } },
+      { type: 'talk', giver: 'vlad', waypoint: { x: -240, z: -140 }, text: 'Return to Vlad — champion crowned.', onEnter: function () { qv('q7_VLAD', 'crowning', 0); } }
+    ]
+  },
+  // ===================== QUEST 8 — THE CLEANERS =====================
+  q8_cleaners: {
+    id: 'q8_cleaners', name: 'The Cleaners',
+    giver: { id: 'concierge', name: 'The Concierge', x: -40, z: -70, voice: 'q8_CONCIERGE' },
+    summary: 'A black card recruits you into the Cleaners — the Pact\'s enforcement arm. Three contracts escalate from petty to a moral gut-punch, staged from the false-bottom dumpster and the Hollow Oak dead-drop.',
+    reward: { item: 'silenced_pistol', n: 1, unlock: 'ghost', text: 'Silenced Pistol + "Ghost" — clean stealth kills don\'t raise wanted; dealer discount.' },
+    beats: [
+      { type: 'interact', poi: 'q8_dumpster', waypoint: { x: -40, z: -70 }, text: 'Midnight — lift the false bottom behind Publix. The Concierge calls.', onEnter: function () { qv('q8_CONCIERGE', 'recruit', 0); qSetClock(0.98); } },
+      { type: 'fetch', item: 'dossier', n: 1, waypoint: QPOI.hollow_oak, text: 'Retrieve the dossier from the Hollow Oak dead-drop.', onEnter: function () { qv('q8_CONCIERGE', 'contracts', 2); qDrop('dossier', QPOI.hollow_oak.x, QPOI.hollow_oak.z + 2); } },
+      { type: 'kill', tag: 'q8_c1', waypoint: { x: -60, z: -40 }, text: 'Contract 1 — a "loud" newcomer. A clean takedown. Silas teaches you.', onEnter: function () { qv('q8_SILAS', 'tutorial', 1); qFoe('SILAS', -60, -40, 'q8_c1', 70); } },
+      { type: 'kill', tag: 'q8_c2', waypoint: { x: 120, z: -60 }, text: 'Contract 2 — tail and silence a "leak."', onEnter: function () { qv('q8_TARGET', 'warning', 4); qFoe('SILAS', 120, -60, 'q8_c2', 70); } },
+      { type: 'interact', poi: 'q8_c3', waypoint: { x: -40, z: -70 }, text: 'Contract 3 — the dossier names someone you helped. Make your choice.', onEnter: function () { qv('q8_TARGET', 'warning', 3); } },
+      { type: 'talk', giver: 'concierge', waypoint: { x: -40, z: -70 }, text: 'Meet the Concierge at last — a board member.', onEnter: function () { qv('q8_CONCIERGE', 'reveal', 3); state.unlocks.metConcierge = true; } }
+    ]
+  },
+  // ===================== QUEST 9 — WHERE'S BISCUIT? =====================
+  q9_biscuit: {
+    id: 'q9_biscuit', name: "Where's Biscuit?",
+    giver: { id: 'dylan', name: 'Dylan Sharp', x: -72, z: -97, voice: 'q9_DYLAN' },
+    summary: "Dylan Sharp's dog ran toward the lake and didn't come back. Track Biscuit through the town's secret nooks down to the Storm Drain — where he's dug up something that isn't from here. No combat; pure heart.",
+    reward: { item: 'dog_whistle', n: 1, unlock: 'dogwhistle', text: 'Dog Whistle — summon Biscuit: fetch, sniff out secret POIs, harass enemies.' },
+    beats: [
+      { type: 'talk', giver: 'dylan', waypoint: { x: -72, z: -97 }, text: "Hear Dylan's plea at the Publix lot.", onEnter: function () { qv('q9_DYLAN', 'plea', 0); } },
+      { type: 'talk', giver: 'champion', waypoint: { x: -90, z: -80 }, text: 'Ask the hide-and-seek champion — she knows every nook.', onEnter: function () { qv('q9_CHAMPION', 'hints', 0); } },
+      { type: 'follow', waypoint: { x: -200, z: -170 }, escort: true, r: 10, text: "Follow Biscuit's paw-prints toward the lake shore.", onEnter: function () { qv('q9_CHAMPION', 'hints', 3); } },
+      { type: 'interact', poi: 'stormdrain', waypoint: QPOI.stormdrain, text: 'Crawl into the Storm Drain where Biscuit is stuck.', onEnter: function () { qv('q9_BISCUIT', 'barks', 2); } },
+      { type: 'fetch', item: 'alien_keycard', n: 1, waypoint: QPOI.stormdrain, text: 'Take the strange metal fragment Biscuit dug up. Leash him.', onEnter: function () { var s = QPOI.stormdrain; qDrop('alien_keycard', s.cx, s.cz - 2); } },
+      { type: 'talk', giver: 'dylan', waypoint: { x: -72, z: -97 }, text: 'Return Biscuit to Dylan. Pure joy.', onEnter: function () { qv('q9_DYLAN', 'joy', 0); } }
+    ]
+  },
+  // ===================== QUEST 10 — WHAT LIES BENEATH =====================
+  q10_beneath: {
+    id: 'q10_beneath', name: 'What Lies Beneath',
+    giver: { id: 'thorne', name: 'Chairman Thorne', x: -250, z: -140, voice: 'q10_THORNE' },
+    summary: 'With the Etched Lake Key, Tunnel Fragment, and Alien Keycard — and the Concierge met — the board summons you to the water. Descend beneath the fountain, confront Chairman Thorne and the thing, and decide what Westchase becomes.',
+    reward: { item: 'whistleblower_perk', n: 1, unlock: 'ending', text: 'The finale reward — set by your choices.' },
+    gate: function () { return bagCount('etched_lake_key') > 0 && bagCount('tunnel_fragment') > 0 && bagCount('alien_keycard') > 0 && !!state.unlocks.metConcierge; },
+    beats: [
+      { type: 'interact', poi: 'facility', waypoint: QPOI.facility, text: 'Descend via any earned POI into the sub-lake tunnel.', onEnter: function () { qv('q10_DONRED', 'defection', 0); } },
+      { type: 'reach', waypoint: { x: QPOI.facility.x + 6, z: QPOI.facility.z }, r: 6, text: 'The three-lock door needs all three keys. Everything mattered.', onEnter: function () { qv('q10_ENTITY', 'assessment', 2); } },
+      { type: 'kill', tag: 'q10_cleaner', waypoint: { x: QPOI.facility.x + 6, z: QPOI.facility.z }, text: 'The board\'s remaining Cleaners make a stand.', onEnter: function () { var s = QPOI.facility; qFoe('CONCIERGE', s.cx + 6, s.cz, 'q10_cleaner', 100); qFoe('CONCIERGE', s.cx + 4, s.cz - 3, 'q10_cleaner', 100); } },
+      { type: 'talk', giver: 'thorne_in', waypoint: { x: QPOI.facility.x, z: QPOI.facility.z }, text: 'Chairman Thorne offers you the chair.', onEnter: function () { qv('q10_THORNE', 'offer', 0); } },
+      { type: 'kill', tag: 'q10_entity', waypoint: { x: QPOI.facility.x - 6, z: QPOI.facility.z }, text: 'The thing wakes. The reckoning.', onEnter: function () { qv('q10_ENTITY', 'assessment', 3); var s = QPOI.facility; qFoe('WARDEN', s.cx - 6, s.cz, 'q10_entity', 260); } },
+      { type: 'interact', poi: 'q10_choice', waypoint: { x: QPOI.facility.x - 6, z: QPOI.facility.z }, text: 'THE CHOICE: expose, burn, or inherit Westchase.', onEnter: function () { qv('q10_THORNE', 'menace', 0); } },
+      { type: 'talk', giver: 'thorne_in', waypoint: { x: QPOI.facility.x, z: QPOI.facility.z }, text: 'The town reacts to your choice. The cast pays off.', onEnter: function () { qv('q10_CAST', 'payoff', 0); } }
     ]
   }
 };
-var QUEST_ORDER = ['q1_dismember'];   // display order in the quest log
+var QUEST_ORDER = ['q1_dismember', 'q2_watching', 'q3_redhouse', 'q4_heist', 'q5_siren', 'q6_arcade', 'q7_legday', 'q8_cleaners', 'q9_biscuit', 'q10_beneath'];
 
 // ---- persistence (localStorage wc_quests), same pattern as wc_char ----
 function saveQuests() {
@@ -11853,17 +12602,35 @@ function finishQuest(id) {
   sfx('cash');
   saveQuests();
 }
-// grant a quest's reward: item into the bag and/or a capability unlock flag
+// grant a quest's reward: item into the bag and/or a capability unlock flag.
+// Capability status (gated on state.unlocks[...]):
+//   lockpick (q4) / hotwire (q5)  — WORKING: skip the car break-in timer.
+//   sprint   (q7)                 — WORKING: faster run + double jump.
+//   loupe    (q1)                 — WORKING: L toggles amber clue-highlight + trap warnings.
+//   scanner  (q2)                 — WORKING: rings the nearest patrol on the minimap while wanted.
+//   lantern  (q3)                 — WORKING: G toggles the green dark-vision light + parts apparitions.
+//   reflexes (q6)                 — WORKING: ADS (right-click) slows the sim on a drainable meter.
+//   ghost    (q8)                 — WORKING: silenced-pistol kills don't raise wanted + dealer discount.
+//   dogwhistle (q9)               — WORKING: B summons/dismisses Biscuit the follow companion.
+//   ending   (q10)               — sets the finale flag; town-wide perk is future work.
+// unlock flag -> the weapon KIND it makes usable (owned + inventory-equippable)
+var UNLOCK_GUN = { reflexes: 'neon_blaster', ghost: 'silenced' };
 function grantReward(id) {
   var d = questDef(id); if (!d || !d.reward) return;
+  // #78 finale: the Q10 reward is the ending the player chose (perk applied at
+  // choice time via applyEnding); make sure it's applied even on a direct finish.
+  if (id === 'q10_beneath') { if (typeof applyEnding === 'function') applyEnding(state.unlocks.ending || 'expose'); saveQuests(); return; }
   var r = d.reward;
-  if (r.unlock) state.unlocks[r.unlock] = true;
+  if (r.unlock) {
+    state.unlocks[r.unlock] = true;
+    if (UNLOCK_GUN[r.unlock]) { state.owned[UNLOCK_GUN[r.unlock]] = true; toast('New weapon in your inventory: <b>' + WEAPONS[UNLOCK_GUN[r.unlock]].name + '</b> (TAB to equip).', 4200); }
+  }
   if (r.item) {
     questRegisterItems();   // make sure the reward item resolves
     var left = bagAdd(r.item, r.n || 1);
     if (left > 0) { spawnItemDrop(r.item, player.x - Math.sin(yaw) * 2.2, player.z - Math.cos(yaw) * 2.2, 180); }   // bag full -> drop it at feet
     var def = itemDef(r.item);
-    if (def) toast(itemIconHtml(r.item) + ' <b>REWARD:</b> ' + def.name, 4200);
+    if (def) toast(itemIconHtml(r.item) + ' <b>REWARD:</b> ' + def.name + (r.text ? '<br><span style="opacity:.85">' + r.text + '</span>' : ''), 5200);
   } else if (r.text) toast('<b>REWARD:</b> ' + r.text, 4200);
   saveQuests();
 }
@@ -11943,63 +12710,127 @@ function triggerAmbush(a) {
 var questArmed = {};
 function questArmAmbush(tag) { questArmed[tag] = true; }
 
-// ---- one concrete enterable secret sub-space: the "Gains Cave" cellar.
-// Modeled on the gas-station interior (a room under the map); qLoc switches the
-// floor height + collider set in updatePlayer. Built lazily on first entry.
-var QCELLAR = { x0: -186, x1: -174, z0: -206, z1: -194, y: -120 };
-var qcellarColliders = [];
-var qLoc = null;                       // null | 'cellar'
-var qCellarBuilt = false;
-var qHatch = { x: -180, z: -200 };     // surface hatch position (enter here)
-var qCellarExit = { x: -180, z: -196 }; // stand here inside to leave
-function qAddCellarCollider(cx, cz, w, d) { qcellarColliders.push({ x0: cx - w / 2, x1: cx + w / 2, z0: cz - d / 2, z1: cz + d / 2 }); }
-function buildCellar() {
-  if (qCellarBuilt) return; qCellarBuilt = true;
-  var Y = QCELLAR.y, cx = (QCELLAR.x0 + QCELLAR.x1) / 2, cz = (QCELLAR.z0 + QCELLAR.z1) / 2;
-  var W = QCELLAR.x1 - QCELLAR.x0, D = QCELLAR.z1 - QCELLAR.z0;
-  var stoneT = tex(64, function (g, s) {
-    g.fillStyle = '#6b6256'; g.fillRect(0, 0, s, s);
-    g.fillStyle = '#5a5248'; for (var y = 0; y < s; y += 12) for (var x = ((y / 12) & 1) ? 8 : 0; x < s; x += 16) g.fillRect(x, y, 14, 10);
-    noise(g, s, 90, 0.06, 0.05);
+// ---- generalized enterable secret sub-spaces (#77). Each POI room is a box
+// hidden under the map (like the gas interior); qLoc switches the floor height +
+// collider set in updatePlayer. A room is built lazily on first entry. Surface
+// hatches are registered in qHatches; E near one enters, E near the room's exit
+// climbs out. Rooms declare a themed floor/light + optional onEnter (drops, VO,
+// ambush) so all 10 quests reuse ONE room primitive. (QPOI itself is declared
+// above the QUESTS registry so beat waypoints can reference QPOI.<room>.)
+var qLoc = null;      // active room id | null
+var qRoom = null;     // active room spec | null
+var qHatches = [];    // surface enter points [{id,x,z}]
+for (var _qk in QPOI) qHatches.push({ id: _qk, x: QPOI[_qk].x, z: QPOI[_qk].z });
+function qAddCollider(spec, cx, cz, w, d) { spec.colliders.push({ x0: cx - w / 2, x1: cx + w / 2, z0: cz - d / 2, z1: cz + d / 2 }); }
+function buildRoom(id) {
+  var s = QPOI[id]; if (!s || s.built) return s; s.built = true;
+  s.colliders = [];
+  var Y = s.y, W = s.w, D = s.d, cx = s.x, cz = s.z;   // room centered under its surface hatch
+  s.cx = cx; s.cz = cz;
+  var stoneT = tex(64, function (g, sz) {
+    g.fillStyle = colHex(s.tint); g.fillRect(0, 0, sz, sz);
+    g.fillStyle = shade(colHex(s.tint), 0.82); for (var y = 0; y < sz; y += 12) for (var x = ((y / 12) & 1) ? 8 : 0; x < sz; x += 16) g.fillRect(x, y, 14, 10);
+    noise(g, sz, 90, 0.06, 0.05);
   }, W / 3, D / 3);
   var floor = new THREE.Mesh(new THREE.PlaneGeometry(W, D), lamb2(stoneT));
   floor.rotation.x = -Math.PI / 2; floor.position.set(cx, Y, cz); scene.add(floor);
-  var ceil = new THREE.Mesh(new THREE.PlaneGeometry(W, D), lamb({ color: 0x2a2620 }));
-  ceil.rotation.x = Math.PI / 2; ceil.position.set(cx, Y + 3, cz); scene.add(ceil);
+  var ceil = new THREE.Mesh(new THREE.PlaneGeometry(W, D), lamb({ color: s.ceil })); ceil.rotation.x = Math.PI / 2; ceil.position.set(cx, Y + 3.4, cz); scene.add(ceil);
   var wallM = lamb2(stoneT);
-  function wall(x, z, w, d) { var m = box(w, 3, d, wallM, x, Y + 1.5, z); scene.add(m); solidMeshes.push(m); qAddCellarCollider(x, z, w, d); }
-  wall(cx, QCELLAR.z0 - 0.3, W + 1.2, 0.6); wall(cx, QCELLAR.z1 + 0.3, W + 1.2, 0.6);
-  wall(QCELLAR.x0 - 0.3, cz, 0.6, D + 1.2); wall(QCELLAR.x1 + 0.3, cz, 0.6, D + 1.2);
-  // a dim glow so it isn't pitch black
-  var lamp = new THREE.PointLight(0xffd090, 0.9, 20); lamp.position.set(cx, Y + 2.4, cz); scene.add(lamp);
-  // a weight bench + crates prop hint (cheap boxes)
-  scene.add(box(1.4, 0.5, 0.5, lamb({ color: 0x33373f }), cx - 2, Y + 0.25, cz + 1.5));
-  scene.add(box(0.9, 0.9, 0.9, lamb({ color: 0x6b5a3a }), cx + 3, Y + 0.45, cz - 1.5));
+  function wall(x, z, w, d) { var m = box(w, 3.4, d, wallM, x, Y + 1.7, z); scene.add(m); solidMeshes.push(m); qAddCollider(s, x, z, w, d); }
+  wall(cx, cz - D / 2 - 0.3, W + 1.2, 0.6); wall(cx, cz + D / 2 + 0.3, W + 1.2, 0.6);
+  wall(cx - W / 2 - 0.3, cz, 0.6, D + 1.2); wall(cx + W / 2 + 0.3, cz, 0.6, D + 1.2);
+  var lamp = new THREE.PointLight(id === 'arcade' ? 0xff40d0 : 0xffd090, id === 'facility' ? 1.3 : 0.9, 40); lamp.position.set(cx, Y + 2.8, cz); scene.add(lamp);
+  s.exit = { x: cx, z: cz + D / 2 - 1.5 };   // near the entry wall — stand here + E to climb out
+  // a couple of cheap prop hints per room
+  scene.add(box(1.4, 0.5, 0.6, lamb({ color: 0x33373f }), cx - W / 4, Y + 0.25, cz + 1.5));
+  scene.add(box(0.9, 0.9, 0.9, lamb({ color: 0x6b5a3a }), cx + W / 4, Y + 0.45, cz - 1.5));
+  qDressRoom(id, s);   // #78: place the quest set-dressing props for this room
+  return s;
 }
-function enterPOI(id) {
-  if (id === 'cellar') {
-    buildCellar();
-    qLoc = 'cellar';
-    inside = false;   // mutually exclusive with the gas interior
-    player.x = (QCELLAR.x0 + QCELLAR.x1) / 2; player.z = QCELLAR.z1 - 1.5; player.y = QCELLAR.y + EYE;
-    player.vy = 0; player.grounded = true;
-    questInteract('cellar');
-    // once inside, the evidence (fetch item) is present to grab
-    if (activeQuestEntry()) spawnItemDrop('almond_vial', (QCELLAR.x0 + QCELLAR.x1) / 2 - 2, (QCELLAR.z0 + QCELLAR.z1) / 2, 999);
-    // fire any armed ambush tied to this space
-    if (questArmed['cellar_cleaner']) { questArmed['cellar_cleaner'] = false; }   // (kept quiet here; danger stays on the surface for the demo)
-    toast('You drop into a cramped stone cellar. Something was hidden down here.', 3600);
-    sfx('whoosh');
-    return true;
+// ---- #78 quest 3D prop placement (questprops.js meshes as set-dressing) ----
+// getEnvProp() builds a QUEST_PROPS mesh exactly like a street/env prop. We
+// ground it (base at y=0), face it, optionally add a collider. For POI-room
+// interiors the collider goes to the room's own list (blocks only in-room);
+// for surface props it goes to the world colliders. Flat floor hatches
+// (trapdoor/manhole_cover) skip colliders so the player can stand + press E.
+var qClueMeshes = [];   // #78: quest props the Detective's Loupe can highlight
+function qProp(name, x, z, ry, y, opts) {
+  if (typeof getEnvProp !== 'function' || typeof ENV_BY_NAME === 'undefined') return null;
+  var e = ENV_BY_NAME[name]; if (!e) return null;
+  var g = getEnvProp(name); if (!g) return null;
+  opts = opts || {}; ry = ry || 0;
+  var sc = opts.scale || 1;
+  g.position.set(x, y || 0, z); g.rotation.y = ry; if (sc !== 1) g.scale.set(sc, sc, sc);
+  scene.add(g);
+  if (opts.clue !== false) qClueMeshes.push({ mesh: g, x: x, z: z });
+  if (e.solid && !opts.noCol) {
+    solidMeshes.push(g);
+    var hw = e.dims[0] / 2 * sc, hd = e.dims[2] / 2 * sc;
+    if (opts.roomCols) {
+      var c = Math.abs(Math.cos(ry)), s = Math.abs(Math.sin(ry));
+      var ax = hw * c + hd * s, az = hw * s + hd * c;
+      opts.roomCols.push({ x0: x - ax, x1: x + ax, z0: z - az, z1: z + az });
+    } else if (typeof addColliderOBB === 'function') addColliderOBB(x, z, hw, hd, ry);
   }
-  return false;
+  return g;
+}
+// interior set-dressing per POI room (called at the end of buildRoom)
+function qDressRoom(id, s) {
+  if (!s || typeof getEnvProp !== 'function') return;
+  var cx = s.cx, cz = s.cz, Y = s.y, W = s.w, D = s.d, RC = s.colliders;
+  try {
+    if (id === 'boardroom') {
+      // the sealed vault-style door on the back wall + the cage-lift shaft down
+      qProp('vault_door', cx, cz - D / 2 + 0.7, 0, Y, { roomCols: RC });
+      qProp('cage_lift', cx + W / 2 - 1.2, cz + D / 2 - 2, Math.PI / 2, Y, { roomCols: RC });
+      qProp('seance_table', cx, cz, 0, Y, { roomCols: RC });   // long board table
+    } else if (id === 'facility') {
+      // sub-lake facility: tile the interior module along the back + a lift out
+      qProp('facility_module', cx - 4.2, cz - D / 2 + 1.2, 0, Y, { roomCols: RC });
+      qProp('facility_module', cx + 4.2, cz - D / 2 + 1.2, 0, Y, { roomCols: RC });
+      qProp('cage_lift', cx, cz + D / 2 - 2.2, 0, Y, { roomCols: RC });
+    } else if (id === 'arcade') {
+      qProp('arcade_portal', cx, cz - D / 2 + 1, 0, Y, { roomCols: RC });
+    }
+  } catch (e2) { }
+}
+// surface set-dressing at the POI entrances / quest sites (placed once at load)
+function placeQuestSurfaceProps() {
+  if (typeof QUEST_PROPS === 'undefined' || typeof getEnvProp !== 'function') return;
+  try {
+    qProp('trapdoor', QPOI.cellar.x, QPOI.cellar.z, 0, 0, { noCol: true });          // Gains Cave hatch
+    qProp('trapdoor', -40, -70, 0.6, 0, { noCol: true });                             // false-bottom dumpster (Q4/Q8)
+    qProp('manhole_cover', QPOI.manhole.x, QPOI.manhole.z, 0, 0.02, { noCol: true }); // Manhole Room entrance
+    qProp('hollow_oak', QPOI.hollow_oak.x, QPOI.hollow_oak.z, 0.4, 0);                // Hollow Oak exterior
+    qProp('arcade_portal', QPOI.arcade.x, QPOI.arcade.z, Math.PI, 0);                 // Wrong-Westchase portal
+    qProp('seance_table', -191, -211, 0, 0);                                          // Q1 murder-dinner set
+  } catch (e) { }
+}
+function colHex(n) { return '#' + ('000000' + (n >>> 0).toString(16)).slice(-6); }
+function enterPOI(id) {
+  var s = QPOI[id]; if (!s) return false;
+  buildRoom(id);
+  qLoc = id; qRoom = s;
+  inside = false;   // mutually exclusive with the gas interior
+  player.x = s.cx; player.z = s.cz + s.d / 2 - 1.5; player.y = s.y + EYE;
+  player.vy = 0; player.grounded = true;
+  questInteract(id);
+  if (typeof s.onEnter === 'function') { try { s.onEnter(s); } catch (e) { } }
+  toast(s.enterMsg || ('You enter ' + s.name + '.'), 3600);
+  sfx('whoosh');
+  return true;
 }
 function exitPOI() {
-  if (!qLoc) return false;
-  qLoc = null;
-  player.x = qHatch.x; player.z = qHatch.z + 2; player.y = EYE; player.vy = 0; player.grounded = true;
-  toast('You climb back out into the night air.', 2400);
+  if (!qLoc || !qRoom) return false;
+  var s = qRoom; qLoc = null; qRoom = null;
+  player.x = s.x; player.z = s.z + 2; player.y = EYE; player.vy = 0; player.grounded = true;
+  toast('You climb back out into the open air.', 2400);
   return true;
+}
+function nearestHatch() {   // closest surface hatch within ~3.5u, or null
+  var best = null, bd = 12.25;
+  for (var i = 0; i < qHatches.length; i++) { var h = qHatches[i], dx = player.x - h.x, dz = player.z - h.z, d = dx * dx + dz * dz; if (d < bd) { bd = d; best = h; } }
+  return best;
 }
 
 // ---- per-frame quest update: POIs, ambushes, active-beat completion ----
@@ -12022,6 +12853,9 @@ function updateQuests(dt) {
   // active-beat advancement
   var q = activeQuestEntry(); if (!q || q.completed) return;
   var b = questBeat(q); if (!b) return;
+  // pseudo-interact beats (a "search here" spot, not a room hatch) auto-satisfy
+  // on proximity so they never soft-lock; room-hatch interacts fire on enterPOI.
+  if (b.type === 'interact' && b.poi && b.poi !== 'q10_choice' && !QPOI[b.poi] && !questFlags(q)['b' + q.stage] && within(b.waypoint, b.r || 5)) questFlagBeat(q);
   if (b.type === 'timed' && q.timerEnd && T > q.timerEnd && !questFlags(q)['b' + q.stage]) {
     // ran out of time — restart the timed window (fail-forward, not a hard fail)
     q.timerEnd = T + (b.secs || 30);
@@ -12043,6 +12877,11 @@ function questGiverNear() {
 function questGiverTalk(d) {
   if (!d) return false;
   var q = questEntry(d.id);
+  // finale gate: Q10 (and any quest carrying a gate fn) refuses to start early.
+  if (!q && typeof d.gate === 'function' && !d.gate()) {
+    toast('<b>' + d.giver.name + ':</b> "You are not ready. Bring the key, the map, and the card — and know the Concierge first."', 4200);
+    return true;
+  }
   if (!q) { startQuest(d.id); if (state.activeQuest !== d.id) setActiveQuest(d.id); questTalk(d.giver.id); return true; }
   if (q.completed) { toast('<b>' + d.giver.name + ':</b> "Thank you again for everything."', 3000); return true; }
   if (state.activeQuest !== d.id) setActiveQuest(d.id);
@@ -12117,11 +12956,271 @@ function refreshQuestPanel() {
     g.position.set(x, 0, z); scene.add(g); return g;
   }
   for (var i = 0; i < QUEST_ORDER.length; i++) { var d = QUESTS[QUEST_ORDER[i]]; if (d && d.giver) beacon(d.giver.x, d.giver.z, 0xffcf4a); }
-  beacon(qHatch.x, qHatch.z, 0x7ad0ff);   // cellar hatch marker
 })();
+
+// ---- #77 placed quest NPCs (visible, interactive bodies). Givers are talked to
+// via the giver path (checked first); non-giver actors (Marcus, the champion,
+// Thorne-inside) advance talk beats through questActorTalk. Meshes are idle-posed.
+var qActors = [];
+var QACTOR_DEFS = [
+  { id: 'vivian', name: 'Vivian Crestwood', look: { char: 'VIVIAN' }, x: -196, z: -206, yaw: 2.4 },
+  { id: 'wendell', name: 'Wendell Pike', look: { char: 'WENDELL' }, x: -210, z: -245, yaw: 0.3 },
+  { id: 'agatha', name: 'Agatha Holloway', look: { char: 'AGATHA' }, x: -278, z: -72, yaw: 3.1 },
+  { id: 'sal', name: 'Sal Marino', look: { char: 'SAL' }, x: -116, z: -30, yaw: 1.6 },
+  { id: 'vlad', name: 'Vlad', look: { char: 'VLAD' }, x: -240, z: -140, yaw: 0.8 },
+  { id: 'concierge', name: 'The Concierge', look: { char: 'CONCIERGE' }, x: -40, z: -70, yaw: 2.0 },
+  { id: 'thorne', name: 'Chairman Thorne', look: { char: 'THORNE' }, x: -250, z: -140, yaw: 1.2, quest: 'q10_beneath' },
+  { id: 'marcus_q4', name: 'Marcus', look: { person: ['#245', '#222', 2] }, x: 150, z: -112, yaw: 3.0 },
+  { id: 'champion', name: 'Hide-and-Seek Champ', look: { kid: true }, x: -90, z: -80, yaw: 1.0 },
+  { id: 'spouse', name: 'Worried Spouse', look: { person: ['#8a3a5a', '#333', 3] }, x: 60, z: 42, yaw: 2.6 },
+  { id: 'xander', name: 'Xander', look: { person: ['#3a6ea5', '#222', 1] }, x: -150, z: 26, yaw: 1.4 },
+  { id: 'dylan', name: 'Dylan Sharp', look: { kid: true }, x: -72, z: -97, yaw: 0.5 },
+  { id: 'thorne_in', name: 'Chairman Thorne', look: { char: 'THORNE' }, x: -255, z: -150, y: QPOI.facility.y, yaw: 1.0 }
+];
+function qActorMesh(look) {
+  try {
+    if (look.char) return buildQuestChar(look.char);
+    if (look.reskin) return buildQuestChar(look.reskin);
+    if (look.kid && typeof buildKid === 'function' && typeof KID_LOOKS !== 'undefined' && KID_LOOKS.length) return buildKid((Math.random() * KID_LOOKS.length) | 0);
+    if (look.person) return buildPerson(look.person[0], look.person[1], CSKIN[look.person[2] || 2], {});
+  } catch (e) { }
+  return buildPerson('#555', '#333', CSKIN[2], {});
+}
+(function placeQActors() {
+  for (var i = 0; i < QACTOR_DEFS.length; i++) {
+    var s = QACTOR_DEFS[i];
+    var m = qActorMesh(s.look);
+    m.position.set(s.x, s.y || 0, s.z); m.rotation.y = s.yaw || 0;
+    scene.add(m);
+    qActors.push({ id: s.id, name: s.name, mesh: m, x: s.x, z: s.z, quest: s.quest });
+  }
+})();
+function questActorNear() {
+  var best = null, bd = 30;   // ~5.5u
+  for (var i = 0; i < qActors.length; i++) { var a = qActors[i], dx = player.x - a.x, dz = player.z - a.z, d = dx * dx + dz * dz; if (d < bd) { bd = d; best = a; } }
+  return best;
+}
+function questActorTalk() {
+  var a = questActorNear(); if (!a) return false;
+  // let the giver path own giver actors (it started/advances those)
+  var d = QUESTS[state.activeQuest];
+  var fired = questTalk(a.id);
+  if (!fired) toast('<b>' + a.name + ':</b> "…"', 1600);
+  return true;
+}
+// hatch gating: a POI is only enterable once the player has reason to know it.
+// cellar/manhole/hollow_oak/stormdrain/arcade open freely (their quests point
+// you there); boardroom needs the lantern; facility needs the three keys.
+function questHatchUnlocked(id) {
+  if (state.unlocks && state.unlocks.perk_signet) return true;   // #78 inherit: every secret door stays open
+  if (id === 'facility') return bagCount('etched_lake_key') > 0 && bagCount('tunnel_fragment') > 0 && bagCount('alien_keycard') > 0;
+  if (id === 'boardroom') return hasUnlock('lantern') || (state.activeQuest === 'q3_redhouse');
+  return true;
+}
 
 loadQuests();
 questRegisterItems();
+placeQuestSurfaceProps();   // #78: quest set-dressing props at the POI entrances
+
+// ================= #78 QUEST REWARD CAPABILITIES =================
+// The five stubbed rewards, made real. Each gated on its state.unlocks flag;
+// grant still fires the item + toast. Toggles bind to keys and __wc hooks.
+
+// ---- Detective's Loupe (Q1): highlight clues / reveal trapped containers ----
+var loupeOn = false, _loupeTinted = [];
+// known "trap"/false-bottom spots the Loupe warns about before you open them
+var qTraps = [{ x: -40, z: -70, name: 'false-bottom dumpster' }, { x: -132, z: 44, name: 'rigged liquor cabinet' }];
+var _loupeTrapT = 0;
+function tintClue(obj, hex) {
+  obj.traverse(function (o) {
+    if (o.isMesh && o.material && o.material.emissive) {
+      if (o.userData._emSaved === undefined) { o.userData._emSaved = o.material.emissive.getHex(); o.userData._emiSaved = o.material.emissiveIntensity || 0; }
+      o.material.emissive.setHex(hex); o.material.emissiveIntensity = 0.55 + 0.35 * Math.sin(T * 4);
+      _loupeTinted.push(o);
+    }
+  });
+}
+function clearLoupeTint() {
+  for (var i = 0; i < _loupeTinted.length; i++) { var o = _loupeTinted[i]; if (o.userData._emSaved !== undefined) { o.material.emissive.setHex(o.userData._emSaved); o.material.emissiveIntensity = o.userData._emiSaved; } }
+  _loupeTinted.length = 0;
+}
+function toggleLoupe(v) {
+  if (!hasUnlock('loupe')) { toast('You don\'t have the <b>Detective\'s Loupe</b> yet (Quest 1).', 2000); return false; }
+  loupeOn = (v == null) ? !loupeOn : !!v;
+  if (!loupeOn) clearLoupeTint();
+  toast(loupeOn ? '<b style="color:#ffcf6a">LOUPE UP</b> — clues glow amber; traps flagged.' : 'Loupe stowed.', 1600);
+  sfx(loupeOn ? 'buy' : 'whoosh');
+  return loupeOn;
+}
+function updateLoupe(dt) {
+  clearLoupeTint();
+  if (!loupeOn || !hasUnlock('loupe')) return;
+  var R2 = 26 * 26;
+  for (var i = 0; i < drops.length; i++) {
+    var d = drops[i]; if (!d.item) continue; var def = itemDef(d.itemId); if (!(def && def.quest)) continue;
+    var dx = d.mesh.position.x - player.x, dz = d.mesh.position.z - player.z; if (dx * dx + dz * dz > R2) continue;
+    tintClue(d.mesh, 0xffb020);
+  }
+  for (i = 0; i < qClueMeshes.length; i++) {
+    var c = qClueMeshes[i], cx = c.x - player.x, cz = c.z - player.z; if (cx * cx + cz * cz > R2) continue;
+    tintClue(c.mesh, 0xffb020);
+  }
+  // trap warning: within 5u of a flagged container, ping once every few sec
+  if (T - _loupeTrapT > 4) for (i = 0; i < qTraps.length; i++) {
+    var tp = qTraps[i], tx = tp.x - player.x, tz = tp.z - player.z;
+    if (tx * tx + tz * tz < 25) { toast('<b style="color:#e5533d">TRAP:</b> ' + tp.name + ' is rigged — the Loupe makes it safe to open.', 2600); _loupeTrapT = T; break; }
+  }
+}
+
+// ---- Spirit Lantern (Q3): dark-vision + reveal hidden doors/apparitions ----
+var lanternOn = false, lanternLight = null;
+function toggleLantern(v) {
+  if (!hasUnlock('lantern')) { toast('You don\'t have the <b>Spirit Lantern</b> yet (Quest 3).', 2000); return false; }
+  lanternOn = (v == null) ? !lanternOn : !!v;
+  if (lanternOn && !lanternLight) { lanternLight = new THREE.PointLight(0x9dffbe, 0, 40); scene.add(lanternLight); }
+  toast(lanternOn ? '<b style="color:#8effc0">SPIRIT LANTERN</b> — the dark parts before you; sealed doors reveal.' : 'The green flame gutters out.', 1800);
+  sfx(lanternOn ? 'buy' : 'whoosh');
+  return lanternOn;
+}
+function updateLantern(dt) {
+  if (!lanternLight) return;
+  var tgt = lanternOn && hasUnlock('lantern') ? 2.6 : 0;
+  lanternLight.intensity += (tgt - lanternLight.intensity) * Math.min(1, dt * 6);
+  lanternLight.position.set(player.x, player.y + 0.5, player.z);
+  lanternLight.visible = lanternLight.intensity > 0.03;
+  // part scripted apparitions: nudge quest foes back + stagger them while lit
+  if (lanternLight.intensity > 1.5) for (var i = 0; i < npcs.length; i++) {
+    var n = npcs[i]; if (!n.qfoe) continue;
+    var dx = n.x - player.x, dz = n.z - player.z, d2 = dx * dx + dz * dz;
+    if (d2 < 25 && d2 > 0.01) { var d = Math.sqrt(d2); n.x += (dx / d) * dt * 2.4; n.z += (dz / d) * dt * 2.4; n.jabT = Math.max(n.jabT, 0.5); }
+  }
+}
+
+// ---- 8-Bit Reflexes (Q6): ADS bullet-time on a drainable meter/cooldown ----
+var reflex = { active: false, meter: 1, cd: 0 };
+var adsDown = false;   // right-hold ADS (any weapon) for the reflexes bullet-time
+function reflexScale() { return reflex.active ? 0.34 : 1; }
+function setBulletTime(on) { reflex.forced = !!on; }   // debug/manual override
+function updateReflex(dt) {
+  var want = reflex.forced || (hasUnlock('reflexes') && (zoomed || adsDown) && reflex.meter > 0.03 && reflex.cd <= 0);
+  reflex.active = want;
+  if (want) { reflex.meter = Math.max(0, reflex.meter - dt * 0.55); if (reflex.meter <= 0) { reflex.cd = 3.5; reflex.active = false; } }
+  else { if (reflex.cd > 0) reflex.cd -= dt; reflex.meter = Math.min(1, reflex.meter + dt * 0.4); }
+}
+
+// ---- Biscuit the dog companion (Q9 Dog Whistle) ----
+var biscuit = null;   // { mesh, x, z, ... } — a following, non-harmable dog
+function summonBiscuit() {
+  if (!hasUnlock('dogwhistle')) { toast('You don\'t have the <b>Dog Whistle</b> yet (Quest 9).', 2000); return false; }
+  if (biscuit) { toast('Biscuit is already at your heel. <b>(B)</b> again to send him home.', 1800); return biscuit; }
+  var mesh = null;
+  try { if (typeof getAccessory === 'function') { var acc = getAccessory('dog'); if (acc && acc.mesh) mesh = acc.mesh; } } catch (e) { }
+  if (!mesh) { try { mesh = box(0.5, 0.4, 0.9, lamb({ color: 0x6b4a2e }), 0, 0.2, 0); } catch (e2) { mesh = new THREE.Group(); } }
+  var bx = player.x - Math.sin(yaw) * 2, bz = player.z - Math.cos(yaw) * 2;
+  mesh.position.set(bx, 0, bz); scene.add(mesh);
+  biscuit = { mesh: mesh, x: bx, z: bz, yaw: yaw, phase: 0, bark: 0 };
+  try { playQuestVoice('q9_BISCUIT', 'barks', 0, 0.8, 0.4); } catch (e3) { }
+  toast('<b style="color:#ffd98a">You whistle.</b> Biscuit bounds to your side! Good boy.', 2600);
+  sfx('cash');
+  return biscuit;
+}
+function dismissBiscuit() {
+  if (!biscuit) return false;
+  try { scene.remove(biscuit.mesh); } catch (e) { }
+  biscuit = null; toast('Biscuit trots off home. Blow the whistle to call him back.', 2200);
+  return true;
+}
+function toggleBiscuit() { return biscuit ? dismissBiscuit() : summonBiscuit(); }
+function updateBiscuit(dt) {
+  if (!biscuit) return;
+  var b = biscuit;
+  // heel target: just behind-left of the player (combat-exempt; never harmed)
+  var tx = player.x - Math.sin(yaw) * 2.1 - Math.cos(yaw) * 1.0;
+  var tz = player.z - Math.cos(yaw) * 2.1 + Math.sin(yaw) * 1.0;
+  var dx = tx - b.x, dz = tz - b.z, d = Math.sqrt(dx * dx + dz * dz);
+  var spd = d > 6 ? 7.5 : (d > 1.2 ? 4.2 : 0);   // sprint to catch up, trot near
+  if (spd > 0 && d > 0.01) { b.x += (dx / d) * spd * dt; b.z += (dz / d) * spd * dt; b.yaw = Math.atan2(dx, dz); }
+  b.phase += dt * (spd > 0 ? 9 : 2);
+  var y = qLoc && qRoom ? qRoom.y : (inside && curInterior ? curInterior.box.y : 0);
+  b.mesh.position.set(b.x, y + Math.abs(Math.sin(b.phase)) * (spd > 4 ? 0.12 : 0.03), b.z);
+  b.mesh.rotation.y = b.yaw;
+  // fetch nearby dropped cash toward the player (best-boy utility)
+  for (var i = 0; i < cashes.length; i++) {
+    var cs = cashes[i]; if (!cs || cs.taken) continue;
+    var cp = cs.mesh ? cs.mesh.position : cs;
+    var cdx = cp.x - b.x, cdz = cp.z - b.z, cd2 = cdx * cdx + cdz * cdz;
+    if (cd2 < 4 && cd2 > 0.01) { var cd = Math.sqrt(cd2); cp.x -= (cdx / cd) * dt * 3; cp.z -= (cdz / cd) * dt * 3; if (cs.x !== undefined) { cs.x = cp.x; cs.z = cp.z; } }
+  }
+}
+
+// ---- ghost (Q8): stealth kills via the silenced pistol don't raise wanted ----
+function ghostActive() { return hasUnlock('ghost') && state.equipped === 'silenced'; }
+// Cleaners fence connection: buy -10%, sell +15% once Ghost is unlocked
+function ghostBuy(p) { return hasUnlock('ghost') ? Math.max(0, Math.round(p * 0.9)) : p; }
+function ghostSell(v) { return hasUnlock('ghost') ? Math.round(v * 1.15) : v; }
+
+// ---- quest-NPC idle animation (C): the placed qActors are static-posed;
+// drive the standard idle (animPerson spd=0 → skinned idle clip / limb rest)
+// so they breathe and shift like every other townsperson. Near-camera only.
+function updateQActors(dt) {
+  if (typeof qActors === 'undefined' || !qActors) return;
+  for (var i = 0; i < qActors.length; i++) {
+    var a = qActors[i]; if (!a.mesh) continue;
+    if (a.phase === undefined) a.phase = Math.random() * 6.28;
+    var dx = a.x - player.x, dz = a.z - player.z; if (dx * dx + dz * dz > 130 * 130) continue;
+    a.phase += dt * 3.4;
+    try { animPerson(a.mesh, 0, dt, a.phase); } catch (e) { }
+  }
+}
+// ---- Q10 ending forks (D): expose / burn / inherit. The finale choice beat
+// (interact poi 'q10_choice') no longer auto-satisfies; the player selects an
+// ending (keys 1/2/3 or __wc.chooseEnding), which applies a distinct town-perk,
+// reward, and denouement toast, then advances the quest to its payoff beat.
+var q10Prompted = false;
+function q10ChoiceActive() {
+  var q = activeQuestEntry(); if (!q || q.completed || q.id !== 'q10_beneath') return false;
+  var b = questBeat(q); return !!(b && b.type === 'interact' && b.poi === 'q10_choice');
+}
+function applyEnding(kind) {
+  if (kind !== 'expose' && kind !== 'burn' && kind !== 'inherit') return false;
+  state.unlocks.ending = kind;
+  if (kind === 'expose') {
+    state.unlocks.perk_leniency = true;
+    toast('<b style="color:#8ee87f">THE WHISTLEBLOWER.</b> You surface the records. The lights over the lake go dark and Westchase becomes an ordinary town — cops run a star cooler and every shop greets a hero.', 8000);
+  } else if (kind === 'burn') {
+    state.unlocks.perk_scorched = true; state.owned.rocket = true;
+    try { if (typeof boomAt === 'function') boomAt(new THREE.Vector3(QPOI.facility.cx || QPOI.facility.x, (QPOI.facility.y || 0) + 1.4, QPOI.facility.cz || QPOI.facility.z), 7); } catch (e) { }
+    toast('<b style="color:#ff6a3d">SCORCHED EARTH.</b> You blow the facility and the thing with it. The Pact ends in fire — the Rocket Launcher is yours, and the town runs wilder now.', 8000);
+  } else {
+    state.unlocks.perk_signet = true;
+    for (var i = 0; i < GUN_LIST.length; i++) state.owned[GUN_LIST[i]] = true;   // free dealer stock tier
+    toast('<b style="color:#ffd24a">THE BOARD SIGNET.</b> You take Thorne\'s chair. You run Westchase now: cops look away, the dealer\'s whole stock is yours, every secret door stays open, and the lights over the lake answer to you.', 8000);
+  }
+  sfx('cash'); saveQuests();
+  return kind;
+}
+function chooseEnding(kind) {
+  if (!q10ChoiceActive()) { toast('There is no choice to make right now.', 1600); return false; }
+  var ok = applyEnding(kind); if (!ok) return false;
+  q10Prompted = false;
+  var q = activeQuestEntry(); if (q) questFlagBeat(q);   // advance past the choice beat
+  return ok;
+}
+// ---- master capability update (called from the loop + __wc.tick) ----
+function updateQuestCaps(dt) {
+  updateLoupe(dt); updateLantern(dt); updateReflex(dt); updateBiscuit(dt); updateQActors(dt);
+  // present the finale choice prompt once the player reaches the choice beat
+  if (q10ChoiceActive()) {
+    if (!q10Prompted) { q10Prompted = true; toast('<b style="color:#ffd98a">THE CHOICE — press a key:</b><br><b>[1] EXPOSE</b> the Pact · <b>[2] BURN</b> it down · <b>[3] INHERIT</b> the chair', 9000); }
+  } else q10Prompted = false;
+}
+// debug: force-grant a capability (and its item) without playing the quest
+function giveUnlock(flag) {
+  state.unlocks[flag] = true;
+  if (UNLOCK_GUN[flag]) state.owned[UNLOCK_GUN[flag]] = true;
+  saveQuests();
+  return state.unlocks;
+}
 
 // ================= END QUEST SYSTEM =================
 
@@ -13152,11 +14251,14 @@ document.addEventListener('mousemove', function (e) { if (document.pointerLockEl
 document.addEventListener('mousedown', function (e) {
   if (document.pointerLockElement !== canvas || state.menu) return;
   if (e.button === 0) { mouseDown = true; tryAttack(); }
-  else if (e.button === 2 && state.equipped === 'rifle' && !state.dead && !driving) setZoom(true);
+  else if (e.button === 2 && !state.dead && !driving) {
+    if (state.equipped === 'rifle') setZoom(true);
+    else adsDown = true;   // #78: right-hold = ADS (drives 8-Bit Reflexes bullet-time)
+  }
 });
 document.addEventListener('mouseup', function (e) {
   if (e.button === 0) mouseDown = false;
-  else if (e.button === 2) setZoom(false);
+  else if (e.button === 2) { setZoom(false); adsDown = false; }
 });
 function cycleEquip(dir) {
   // quick-swap through everything you own; TAB inventory still works too
@@ -13438,6 +14540,17 @@ document.addEventListener('keydown', function (e) {
   if (e.code === 'Tab') { e.preventDefault(); if (!state.running || state.dead) return; if (state.menu === 'inv') closeMenus(); else { closeMenus(false); openMenu('inv'); } }
   if (e.code === 'KeyJ' && !e.repeat) { e.preventDefault(); if (!state.running || state.dead) return; if (state.menu === 'quest') closeMenus(); else if (!state.menu) openMenu('quest'); return; }
   if (e.code === 'KeyQ' && state.menu === 'inv') { e.preventDefault(); if (bagSel >= 0 && state.bag[bagSel]) bagDrop(bagSel); return; }
+  // #78 quest-reward capability toggles (only while playing, no menu)
+  if (!e.repeat && state.running && !state.menu && !state.dead) {
+    if (e.code === 'KeyL' && hasUnlock('loupe')) { toggleLoupe(); return; }
+    if (e.code === 'KeyG' && hasUnlock('lantern')) { toggleLantern(); return; }
+    if (e.code === 'KeyB' && hasUnlock('dogwhistle')) { toggleBiscuit(); return; }
+    if (q10ChoiceActive()) {
+      if (e.code === 'Digit1' || e.code === 'Numpad1') { chooseEnding('expose'); return; }
+      if (e.code === 'Digit2' || e.code === 'Numpad2') { chooseEnding('burn'); return; }
+      if (e.code === 'Digit3' || e.code === 'Numpad3') { chooseEnding('inherit'); return; }
+    }
+  }
   if (e.code === 'KeyE') {
     // dead-guard matters: E during the 2.6s death window could enterStore
     // (respawn then never cleared `inside` → wrong floor/colliders forever),
@@ -13446,11 +14559,7 @@ document.addEventListener('keydown', function (e) {
     if (state.menu === 'shop' || state.menu === 'clerk') { closeMenus(); return; }
     if (state.menu) return;
     if (driving) { exitCar(); return; }
-    if (qLoc) {   // inside a quest sub-space (e.g. the cellar) — E near the exit climbs out
-      var qex = player.x - qCellarExit.x, qez = player.z - qCellarExit.z;
-      if (qex * qex + qez * qez < 9) exitPOI();
-      return;
-    }
+    if (qLoc && qRoom) { exitPOI(); return; }   // inside a quest sub-space — E climbs back out
     if (inside) {
       if (curInterior) { interiorInteractE(); return; }   // generalized interiors (Publix etc.)
       var cdx = player.x - clerkPos.x, cdz = player.z - clerkPos.z;
@@ -13461,8 +14570,9 @@ document.addEventListener('keydown', function (e) {
     }
     var qgv = questGiverNear();
     if (qgv) { questGiverTalk(qgv); return; }
-    var qhx = player.x - qHatch.x, qhz = player.z - qHatch.z;
-    if (qhx * qhx + qhz * qhz < 12) { enterPOI('cellar'); return; }
+    if (questActorTalk()) return;              // E near a placed quest NPC (Chet, Sal, Vlad…)
+    var qh = nearestHatch();
+    if (qh && questHatchUnlocked(qh.id)) { enterPOI(qh.id); return; }
     var ddx = player.x - dealerPos.x, ddz = player.z - dealerPos.z;
     if (ddx * ddx + ddz * ddz < 36) { openMenu('shop'); return; }
     var gdx = player.x - gasRob.x, gdz = player.z - gasRob.z;
@@ -13521,15 +14631,19 @@ function updatePlayer(dt) {
       if (prog >= 1) { resolveDive(diveState.p); diveState = null; }
     }
   }
-  var spd = keys['ShiftLeft'] || keys['ShiftRight'] ? 8.4 : 5.2;
+  // Vlad's Sprint Shoes (q7): faster run + a mid-air double jump.
+  var sprintOn = (typeof hasUnlock === 'function' && hasUnlock('sprint'));
+  var spd = (keys['ShiftLeft'] || keys['ShiftRight'] ? 8.4 : 5.2) * (sprintOn ? 1.28 : 1);
   if (f || s) { var inv = spd / Math.sqrt(f * f + s * s); var fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw); player.x += (fx * f + rx * s) * inv * dt; player.z += (fz * f + rz * s) * inv * dt; }
-  if (keys['Space'] && player.grounded) { player.vy = 5.6; player.grounded = false; }
+  var spaceDown = !!keys['Space'], spaceEdge = spaceDown && !player._spaceWas; player._spaceWas = spaceDown;
+  if (spaceDown && player.grounded) { player.vy = 5.6; player.grounded = false; player._jumps = 1; }
+  else if (sprintOn && spaceEdge && !player.grounded && (player._jumps || 0) < 2) { player.vy = 5.2; player._jumps = 2; }
   player.vy -= GRAV * dt; player.y += player.vy * dt;
-  var eyeFloor = (inside ? (curInterior ? curInterior.box.y : INT.y) : (qLoc ? QCELLAR.y : lakeBedY(player.x, player.z))) + EYE;
+  var eyeFloor = (inside ? (curInterior ? curInterior.box.y : INT.y) : (qRoom ? qRoom.y : lakeBedY(player.x, player.z))) + EYE;
   if (player.y <= eyeFloor) { player.y = eyeFloor; player.vy = 0; player.grounded = true; }
   player.x = Math.max(-HALF + 1.2, Math.min(HALF - 1.2, player.x)); player.z = Math.max(-HALF + 1.2, Math.min(HALF - 1.2, player.z));
   if (!landColliders) landColliders = colliders.filter(function (cc) { return !cc.lake; });
-  var p = pushOut(player.x, player.z, 0.55, inside ? (curInterior ? curInterior.colliders : intColliders) : (qLoc ? qcellarColliders : landColliders)); player.x = p.x; player.z = p.z;
+  var p = pushOut(player.x, player.z, 0.55, inside ? (curInterior ? curInterior.colliders : intColliders) : (qRoom ? qRoom.colliders : landColliders)); player.x = p.x; player.z = p.z;
   // pedestrians are solid-ish: you shoulder past them, not through them
   if (!inside && !qLoc && !state.dead) for (var pci = 0; pci < npcs.length; pci++) {
     var pcn = npcs[pci];
@@ -13645,10 +14759,7 @@ function updatePlayer(dt) {
   // context prompt
   var prompt = document.getElementById('prompt');
   if (state.menu) { prompt.textContent = ''; }
-  else if (qLoc) {
-    var qex = player.x - qCellarExit.x, qez = player.z - qCellarExit.z;
-    prompt.textContent = (qex * qex + qez * qez < 9) ? '[E] CLIMB OUT' : '';
-  }
+  else if (qLoc) { prompt.textContent = '[E] CLIMB OUT'; }
   else if (inside) {
     if (curInterior) { prompt.textContent = interiorPrompt(); }
     else {
@@ -13662,13 +14773,15 @@ function updatePlayer(dt) {
     var ddx = player.x - dealerPos.x, ddz = player.z - dealerPos.z;
     var gdx = player.x - gasRob.x, gdz = player.z - gasRob.z;
     var qgv2 = questGiverNear();
-    var qhx2 = player.x - qHatch.x, qhz2 = player.z - qHatch.z;
+    var qa2 = questActorNear();
+    var qh2 = nearestHatch();
     var idr2 = nearInteriorDoor();
     if (ddx * ddx + ddz * ddz < 36) prompt.textContent = '[E] BUY GUNS';
     else if (gdx * gdx + gdz * gdz < 40) prompt.textContent = (T < gasClosedUntil) ? 'STORE CLOSED' : '[E] ENTER GAS STATION';
     else if (idr2) prompt.textContent = '[E] ENTER ' + idr2.label;
     else if (qgv2) prompt.textContent = '[E] TALK TO ' + qgv2.giver.name.toUpperCase();
-    else if (qhx2 * qhx2 + qhz2 * qhz2 < 12) prompt.textContent = '[E] ENTER CELLAR HATCH';
+    else if (qa2) prompt.textContent = '[E] TALK TO ' + (qa2.name || 'THEM').toUpperCase();
+    else if (qh2 && questHatchUnlocked(qh2.id)) prompt.textContent = '[E] ENTER ' + (QPOI[qh2.id].name || 'HATCH').toUpperCase();
     else {
       var spp = breakIn ? null : (streetPropPrompt() || envPropPrompt() || bushPrompt());   // street + env + bush E-prompts
       var nsc = spp || breakIn ? null : nearestStealableCar();
@@ -13848,7 +14961,9 @@ function loop(now) {
   var dt = Math.min(0.05, (now - last) / 1000); last = now;
   if (!state.running) { renderer.render(scene, camera); renderCreatorFrame(dt); return; }
   T += dt;
-  updatePlayer(dt); updateNPCs(dt); updateKids(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateUfo(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); updateNpcTags(); updateHUD(); drawMinimap();
+  updateReflex(dt);                       // 8-Bit Reflexes: sets the slow-mo factor
+  var sdt = dt * reflexScale();           // world sim dt (bullet-time scales it)
+  updatePlayer(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); updateQuestCaps(dt); updateNpcTags(); updateHUD(); drawMinimap();
   renderer.render(scene, camera);
 }
 setEquipped('fists');
@@ -13891,6 +15006,8 @@ window.__wc = {
   tryAttack: tryAttack, setEquipped: setEquipped, cycleEquip: cycleEquip,
   enterStore: enterStore, exitStore: exitStore, refreshClerk: refreshClerk, animPerson: animPerson, animPersonClip: animPersonClip, playVoice: playVoice, oak: oak, bush: bush, getPackProp: getPackProp,
   enterInterior: enterInterior, enterPublix: function () { enterInterior('publix'); }, exitInterior: exitInterior,
+  enterDunkin: function () { enterInterior('dunkin'); }, enterStarbucks: function () { enterInterior('starbucks'); },
+  enterSakura: function () { enterInterior('sakura'); }, enterDollarTree: function () { enterInterior('dollar_tree'); }, enterBank: function () { enterInterior('bank'); },
   listInteriors: function () { var o = []; for (var id in interiors) o.push(id); return o; },
   interiorState: function () { return { inside: inside, id: curInterior ? curInterior.id : (inside ? 'gas' : null), staff: curInterior ? curInterior.staff.length : 0, colliders: curInterior ? curInterior.colliders.length : 0, box: curInterior ? curInterior.box : null }; },
   initAudio: initAudio, playNpcVoice: playNpcVoice, playVoiceAny: playVoiceAny,
@@ -14021,13 +15138,27 @@ window.__wc = {
   questTalk: questTalk, questInteract: questInteract, questKillTag: questKillTag, questFollowArrive: questFollowArrive, questTimedSub: questTimedSub,
   registerQuestPOI: registerQuestPOI, questPOIById: questPOIById, registerAmbush: registerAmbush, triggerAmbush: triggerAmbush,
   enterPOI: enterPOI, exitPOI: exitPOI, questLoc: function () { return qLoc; },
+  qProp: qProp, placeQuestSurfaceProps: placeQuestSurfaceProps, buildRoom: buildRoom,
+  // #78 reward capabilities
+  giveUnlock: giveUnlock,
+  toggleLoupe: toggleLoupe, loupeState: function () { return { on: loupeOn, tinted: _loupeTinted.length, clues: qClueMeshes.length }; },
+  toggleLantern: toggleLantern, lanternState: function () { return { on: lanternOn, intensity: lanternLight ? Math.round(lanternLight.intensity * 100) / 100 : 0 }; },
+  setBulletTime: setBulletTime, reflexState: function () { return { active: reflex.active, meter: Math.round(reflex.meter * 100) / 100, cd: Math.round(reflex.cd * 100) / 100, scale: reflexScale() }; },
+  summonBiscuit: summonBiscuit, dismissBiscuit: dismissBiscuit, toggleBiscuit: toggleBiscuit,
+  biscuitState: function () { return biscuit ? { x: Math.round(biscuit.x * 10) / 10, z: Math.round(biscuit.z * 10) / 10, dist: Math.round(Math.sqrt((biscuit.x - player.x) * (biscuit.x - player.x) + (biscuit.z - player.z) * (biscuit.z - player.z)) * 10) / 10 } : null; },
+  ghostActive: ghostActive, ghostBuy: ghostBuy, ghostSell: ghostSell,
+  qActorsRef: function () { return qActors; }, updateQActors: updateQActors,
+  chooseEnding: chooseEnding, applyEnding: applyEnding, q10ChoiceActive: q10ChoiceActive,
+  endingState: function () { return { ending: state.unlocks.ending || null, leniency: !!state.unlocks.perk_leniency, scorched: !!state.unlocks.perk_scorched, signet: !!state.unlocks.perk_signet, maxWanted: maxWanted() }; },
+  ownWeapon: function (k) { if (WEAPONS[k]) { state.owned[k] = true; return true; } return false; },
+  setAdsDown: function (v) { adsDown = !!v; },
   questGiverNear: questGiverNear, questGiverTalk: questGiverTalk, refreshQuestPanel: refreshQuestPanel,
   openQuestLog: function () { openMenu('quest'); }, saveQuests: saveQuests, loadQuests: loadQuests,
   // --- #77 quest-asset wiring test hooks ---
   buildQuestChar: buildQuestChar, playQuestVoice: playQuestVoice, getEnvProp: getEnvProp,
   questRegisterItems: questRegisterItems, itemDef: itemDef, itemTex: itemTex, bagAdd: bagAdd, bagCount: bagCount,
   questAssets: function () { return { chars: Object.keys(QUEST_IDX), reskins: Object.keys(QUEST_RESKIN_IDX), props: (typeof QUEST_PROPS !== 'undefined') ? QUEST_PROPS.map(function (p) { return p.n; }) : [], items: (typeof QUEST_ITEM_DEFS !== 'undefined') ? QUEST_ITEM_DEFS.length : 0, voices: (typeof QUEST_VOICES !== 'undefined') ? Object.keys(QUEST_VOICES).length : 0 }; },
-  tick: function (dt) { T += dt; updatePlayer(dt); updateNPCs(dt); updateKids(dt); updateCops(dt); updateCars(dt); updateRockets(dt); updateDrops(dt); updateUfo(dt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(dt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); renderer.render(scene, camera); }
+  tick: function (dt) { T += dt; updateReflex(dt); var sdt = dt * reflexScale(); updatePlayer(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); updateQuestCaps(dt); renderer.render(scene, camera); }
 };
 
 // ---------------- boot screen handoff + menu cover art ----------------

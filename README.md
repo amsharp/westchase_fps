@@ -160,6 +160,23 @@ gunfire and blasts send them fleeing, and they scramble out of the path of a
 speeding car. (They ride the same shared-world stream as the adults, so
 every player in town sees the same families.)
 
+## Out for a walk
+
+About one pedestrian in six is **out doing something** — walking a **dog** on
+a leash (it trots along a step behind on a taut line, catches up when they get
+ahead, and never stretches off across the block), pushing a **stroller** or a
+mobility **walker** out front, or carrying a **handheld** — an umbrella held
+overhead, a cane, a coffee cup, shopping bags, a skateboard, a balloon on a
+string. Wheeled things (a bike, a rolling suitcase, a kid's wagon) get walked
+alongside. Each prop rolls a colour/style variant so no two look alike.
+
+Like the kids, the **dogs and stroller babies are off-limits** — they're
+decorations riding along with their owner, never targets, so bullets, fists,
+cars and blasts can't touch them. If an owner is killed the leash drops and
+the dog slips away, a pushed stroller is just left standing where it was, and
+a carried item falls from the hand. (All of this is local colour — it isn't
+streamed over the network, so it stays smooth without adding traffic.)
+
 ## The loop
 
 You spawn **with no gun**. Punch pedestrians (they drop cash), pick up the
@@ -196,13 +213,82 @@ pointing the way if it's far off).
 Objectives come in a few flavors — **talk** to someone, **reach** a spot,
 **find** an item, **search/interact** with a place, take out a **target**,
 **escort** someone, or beat a **timer**. Some quests send you into hidden
-places the town keeps quiet — a **cellar hatch** behind a building, for one.
-Finish a quest and you keep the **reward**: a new item in your bag and/or a
-lasting **capability** (the first one, the *Detective's Loupe*, helps you
-read a scene). Your progress is saved between sessions.
+places the town keeps quiet — a cellar hatch behind the Dunkin, a manhole in
+the road, a hollow oak, a storm drain, the top floor of the red house, and
+somewhere under the lake. Press **E** at a hatch to drop in, **E** again to
+climb out. Finish a quest and you keep the **reward**: a new item in your bag
+and/or a lasting **capability**. Your progress is saved between sessions.
 
-*(The full story campaign is being built out quest by quest; the framework
-and its first demo quest, "A Night to Dismember," are in now.)*
+### The Countryway Pact — 10 quests
+
+An old rumor at the Dunkin says people who get rich start seeing lights over
+the lake. They're right. Ten linked quests slowly uncover why — the secret
+HOA board that's run Westchase for two generations, and the thing they feed
+beneath the fountain. Each drops one tile of the story and grants a tool:
+
+1. **A Night to Dismember** *(Vivian, lakeside townhouse)* — a murder-mystery
+   dinner turns real. Name the killer. → **Detective's Loupe**.
+2. **Someone's Watching** *(Wendell, townhouse row)* — tail the "watchers,"
+   stake out the lake at night. He's not as crazy as he sounds. → **Police
+   Scanner** (rings the nearest patrol on your minimap while wanted).
+3. **Where the Red House Weeps** *(Agatha, the red house at night)* — climb
+   the 5-story house to the sealed Board Room. → **Spirit Lantern**.
+4. **The Countryway Job** *(Sal, Starbucks — needs a gun)* — a four-phase bank
+   heist on Regions. → **Lockpick Set** (skip car break-in timers) + the
+   **Etched Lake Key**.
+5. **Roadside Assistance** *(the worried spouse, RaceTrac)* — bust the Siren's
+   roadside-lure crew from their manhole stash. → **Bait Car keys** (instant
+   hotwire).
+6. **Insert Coin to Continue** *(Xander, the arcade)* — dive into a cursed
+   cartridge to pull Derik out of an 8-bit glitch world. → **Neon Blaster**.
+7. **Leg Day** *(Vlad, lakeside)* — absurd fitness dares that lead to the
+   Gains Cave, a Pact tunnel node. → **Sprint Shoes** (faster run + double
+   jump) + the **Tunnel Map Fragment**.
+8. **The Cleaners** *(the Concierge)* — recruited into the Pact's enforcers;
+   three contracts, then a choice. → **Silenced Pistol + "Ghost."**
+9. **Where's Biscuit?** *(Dylan, Publix lot)* — find a lost dog down at the
+   storm drain, where he's dug up something not from here. No combat, all
+   heart. → **Dog Whistle** + the **Alien Keycard**.
+10. **What Lies Beneath** *(the finale)* — with the Etched Lake Key, Tunnel
+    Fragment, and Alien Keycard — and having met the Concierge — descend under
+    the lake, face the board and the thing, and decide what Westchase becomes.
+
+Quests 1, 2, 5, 7 and 9 open early with no prerequisites; the finale only
+unlocks once you're holding all three keys.
+
+### Earned capabilities — how to use them
+
+Each reward is a real, usable power once you finish its quest:
+
+- **Detective's Loupe** (Q1) — press **L** to toggle. Nearby quest clues and
+  interactable props glow amber, and rigged/false-bottom containers get a trap
+  warning before you open them.
+- **Police Scanner** (Q2) — passive: rings the nearest patrol on your minimap
+  whenever you're wanted.
+- **Spirit Lantern** (Q3) — press **G** to toggle a green dark-vision light that
+  follows you, lights the sealed rooms, and pushes scripted apparitions back.
+- **Lockpick Set** (Q4) / **Bait Car + Slim Jim** (Q5) — silent openings and
+  instant hotwiring; no jimmy timer on locked cars.
+- **Neon Blaster + 8-Bit Reflexes** (Q6) — a ray-tech blaster in your inventory
+  (**Tab** to equip); **hold right-mouse to aim** and time slows on a drainable
+  meter (recharges when you let go).
+- **Sprint Shoes** (Q7) — faster run + a double jump.
+- **Silenced Pistol + "Ghost"** (Q8) — a suppressed pistol (**Tab** to equip);
+  clean kills with it **don't raise your wanted level**, and the dealer gives you
+  a Cleaners fence discount (buy −10%, sell +15%).
+- **Dog Whistle → Biscuit** (Q9) — press **B** to whistle Biscuit to your side;
+  he heels, catches up when you run, and noses dropped cash toward you. Press
+  **B** again to send him home. He can't be harmed.
+
+**The finale, three ways.** At the end of *What Lies Beneath* you choose an
+ending — press **[1] EXPOSE**, **[2] BURN**, or **[3] INHERIT**:
+
+- **Expose (The Whistleblower)** — the Pact ends honestly; cops run a star
+  cooler town-wide.
+- **Burn (Scorched Earth)** — you blow the facility; you keep the Rocket
+  Launcher and the town runs wilder.
+- **Inherit (The Board Signet)** — you take the chair: cops ignore minor crimes,
+  the dealer's whole stock is yours, and every secret door stays open.
 
 ## Items & your bag
 
@@ -273,6 +359,28 @@ the manager — hold their posts. Walk the aisles, **E** to chat with the staff,
 grab a **free sample** near produce for **+20 hp**, and **E** at the door to
 leave. (Like the gas station, interiors are personal — they aren't shared in
 multiplayer.)
+
+## More shop interiors
+
+Five more storefronts open the same way — press **E** at the door:
+
+- **Dunkin'** (SW strip): an orange-and-pink counter with a glass donut case,
+  coffee machines and a menu board. Order a **coffee ($3)** or **donut ($2)**
+  into your bag, or chat with the baristas.
+- **Starbucks** (across the main road from Dunkin'): a wood café bar with a
+  pastry case, espresso machine and lounge armchairs. Order a **latte ($4)** or
+  **croissant ($3)**, or chat.
+- **Sakura Sushi** (NE corner): a lacquer sushi bar with a nigiri display,
+  sake shelf, booth seating and hanging red lanterns. The chef will make you a
+  **sushi platter ($8, +40 hp)** or pour **sake ($4, +16 hp)**.
+- **Dollar Tree** (SW corner): packed dollar-store aisles and a checkout. Buy a
+  **random cheap item ($1.25)** into your bag, browse, or chat with the cashier.
+- **Bank of America** (its BofA branch): a teller line behind glass, a vault
+  door, an ATM lobby and velvet-rope queues. **Use the ATM** to check your
+  balance or **see a teller**.
+
+Each has its own themed staff and props. Like the others, these interiors are
+personal (never shared in multiplayer).
 
 ## Wanted system
 
@@ -430,6 +538,9 @@ bed runs under everything.
   item to use it, right-click or **Q** to drop one)
 - **J** — quest log (see your active quest, all beats, and set which quest
   you're tracking)
+- **L / G / B** — toggle earned quest gear (Detective's Loupe / Spirit Lantern /
+  whistle Biscuit), once you've unlocked them
+- **1 / 2 / 3** — pick your ending at the Q10 finale (Expose / Burn / Inherit)
 - **Enter** — open text chat (multiplayer), **Esc** to cancel
 - **Hold V** — push-to-talk voice chat (multiplayer)
 - **F8** — report a bug (grabs a screenshot + your note, sent for triage)
