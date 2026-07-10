@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.15';
+var GAME_VERSION = 'v1.66.16';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -5061,7 +5061,7 @@ function buildPerson(shirtC, pantsC, skinC, opts) {
 }
 
 var npcs = [];
-var NPC_COUNT = 138;  // 3x density pass (was 46) — busy-street population
+var NPC_COUNT = 220;  // +60% density pass (was 138; report mrefogw8 asked 5x — hold at 220 until instancing/LOD, see TRIAGE)
 // home-zone weights: core intersection / residential neighborhoods / collectors+Lynmar
 var NPC_W_CORE = 0.60, NPC_W_RES = 0.32;   // remainder (~0.08) = collectors
 var WALK = WC_REMAP ? { x0: -240, x1: 120, z0: -180, z1: 170 }   // recentred on the true venue span
@@ -5587,6 +5587,17 @@ function spawnNPC() {
   var mesh = buildCharacter(cfg);
   var n = { mesh: mesh, x: 0, z: 0, tx: 0, tz: 0, hp: 100, state: 'walk', speed: 1.5 + Math.random() * 1.1, phase: Math.random() * 9, pause: 0, fleeT: 0, fleeDX: 0, fleeDZ: 0, downT: 0, hurtFlash: 0, vname: meshyNameFromCfg(cfg), fem: femFromCfg(cfg) };
   assignNpcHome(n);
+  // no doppelgangers IN VIEW: if a same-look pedestrian lives within 60u,
+  // re-home up to 3 times so twins spread across town (report mrefogw8)
+  for (var rh = 0; rh < 3; rh++) {
+    var twin = false;
+    for (var ti = 0; ti < npcs.length; ti++) {
+      var tn = npcs[ti];
+      if (tn.vname === n.vname && (tn.x - n.x) * (tn.x - n.x) + (tn.z - n.z) * (tn.z - n.z) < 3600) { twin = true; break; }
+    }
+    if (!twin) break;
+    assignNpcHome(n);
+  }
   mesh.position.set(n.x, 0, n.z); mesh.userData.npc = n;
   scene.add(mesh); npcs.push(n); setNpcTarget(n); maybeAttachAccessory(n); return n;
 }
@@ -9449,14 +9460,25 @@ function engNoise() {   // one shared noise second for every exhaust layer
 }
 function ensureEngine(c) {
   if (c.eng || !ac) return;
+  // per-car voice (report mrefsp85 'make them sound different from one
+  // another'): seed pitch / harmonic ratio / brightness / 2nd-osc waveform
+  // from the car's index so every engine has a stable personality
+  var sd = ((cars.indexOf(c) + 1) * 2654435761) >>> 0;
+  var r1 = ((sd & 255) / 255), r2 = (((sd >> 8) & 255) / 255), r3 = (((sd >> 16) & 255) / 255);
+  var chr = {
+    pitch: 0.82 + r1 * 0.42,                 // small revvy hatch <-> lazy V8
+    ratio: 1.9 + r2 * 0.7,                   // harmonic spacing = timbre
+    bright: 0.78 + r3 * 0.55,                // muffler quality
+    o2t: ['sawtooth', 'square', 'sawtooth', 'triangle'][sd % 4]
+  };
   var o = ac.createOscillator(); o.type = 'sawtooth'; o.frequency.value = 40;
-  var o2 = ac.createOscillator(); o2.type = 'sawtooth'; o2.frequency.value = 81;  // ~2x, detuned for beating
+  var o2 = ac.createOscillator(); o2.type = chr.o2t; o2.frequency.value = 81;
   var sub = ac.createOscillator(); sub.type = 'sine'; sub.frequency.value = 20;   // body
   var f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 280; f.Q.value = 1.2;
   var g = ac.createGain(); g.gain.value = 0;
   o.connect(f); o2.connect(f); sub.connect(f); f.connect(g); g.connect(ac.destination);
   o.start(); o2.start(); sub.start();
-  c.eng = { o: o, o2: o2, sub: sub, f: f, g: g, rpm: ENG_IDLE };
+  c.eng = { o: o, o2: o2, sub: sub, f: f, g: g, rpm: ENG_IDLE, chr: chr };
 }
 function ensureEngineRich(c) {
   // the player's car earns the full stack: band-passed combustion noise
@@ -9483,11 +9505,12 @@ function engineTick(c, dt, sp, throttle, dist, drivenLoud) {
   e.rpm += (target - e.rpm) * Math.min(1, dt * (target > e.rpm ? 4.5 : 2.2));
   // one doppler factor scales the whole layer stack
   var dop = dopplerShift(c, dist, dt);
-  var f0 = Math.max(20, Math.min(400, (e.rpm / 22) * dop));   // firing fundamental
+  var chr = e.chr || { pitch: 1, ratio: 2.04, bright: 1 };
+  var f0 = Math.max(20, Math.min(400, (e.rpm / 22) * dop * chr.pitch));   // firing fundamental
   e.o.frequency.value = f0;
-  e.o2.frequency.value = Math.min(820, f0 * 2.04);
+  e.o2.frequency.value = Math.min(820, f0 * chr.ratio);
   e.sub.frequency.value = Math.max(14, f0 * 0.5);
-  e.f.frequency.value = Math.max(140, Math.min(1400, 150 + e.rpm * 0.16));
+  e.f.frequency.value = Math.max(140, Math.min(1400, (150 + e.rpm * 0.16) * chr.bright));
   // loudness: distance falloff x rev-dependent presence (all gains clamped)
   var revs = Math.min(1, (e.rpm - ENG_IDLE) / 2600);
   var base;

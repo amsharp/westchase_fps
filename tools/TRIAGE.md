@@ -168,3 +168,15 @@ mref0pwi, mref3wds (bus stops backwards); mredxzx6, mreenqoe (no-road homes).
 - mreexz4c (-163,120) road area bad — IN-AGENT
 - mredxzx6 (140,-89) no-road homes — IN-AGENT (add minimal residential lane to REMAP_ROADS)
 - mreenqoe (-25,-347) no-road homes — IN-AGENT (same)
+
+## Batch 11 (API-spend round, user-approved; + code-only wins)
+- mrefsp85 varied car sounds — FIXED@v1.66.16 (per-car engine personality: seeded pitch/harmonic-ratio/brightness/waveform)
+- mrefogw8 duplicate NPCs + density — PARTIAL@v1.66.16 (least-used-look pool already global; NEW 60u same-look re-homing; NPC_COUNT 138->220. Full 5x needs instancing/LOD first)
+- mrefm6zw Publix sign (gpt-image) — IN-AGENT (gen-img)
+- mreed9ar smoke/fire sprites — IN-AGENT (gen-img)
+- mreeyfs8/mreeyvkn fountain sprites — IN-AGENT (gen-img)
+- mrefpkq1/mregli5y staff voice lines — IN-AGENT (gen-tts)
+- mreehkm9 lemonade kid vendor — IN-AGENT (gen-tts)
+- mreeipmy ice cream vendor — IN-AGENT (gen-tts)
+- mregnsjz fem pain grunt — IN-AGENT (gen-tts)
+- MESHY NOTE: balance 544cr, shared with the quest/kid pipelines — new civilian looks DEFERRED until those finish
