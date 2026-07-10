@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.64.2';
+var GAME_VERSION = 'v1.64.3';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -5518,6 +5518,19 @@ function friendsScript(grp) {
   }
   return beats;
 }
+// player-facing group-aware barks (the crew name-drops each other when you
+// stroll up). DON brags about his boys; a son name-drops his dad/brothers;
+// the gamer duo hype their duo.
+var grpAwareT = -99;
+var DON_ABOUT = ["That's my boy right there.", "Out with all my sons today.", "Three boys — never a dull minute.", "Sharp family, together as always."];
+var SON_ABOUT = ["That's my old man, Don Sharp.", "Out with my dad and my brothers.", "My brother's around here somewhere.", "Whole family's out today."];
+var XAN_ABOUT = ["Me and Derik run ranked later.", "That's my boy Derik — best duo in town.", "Derik and me, we don't lose."];
+var DERIK_ABOUT = ["Xander and me go way back.", "Gaming sesh with Xander tonight.", "That's my guy Xander."];
+function groupAwareLines(n) {
+  if (n.grp && n.grp.type === 'friends') return n.vname === 'XANDER' ? XAN_ABOUT : DERIK_ABOUT;
+  if (n.grp && n.grp.type === 'sharp') return n.vname === 'DON' ? DON_ABOUT : SON_ABOUT;
+  return null;
+}
 function groupClusteredIdle(grp) {
   var L = grp.lead; if (!L) return false;
   for (var i = 0; i < grp.members.length; i++) {
@@ -10176,6 +10189,22 @@ function updateNPCs(dt) {
         if (!qn.vname || qn.state !== 'walk') continue;
         var qdx = qn.x - player.x, qdz = qn.z - player.z;
         if (qdx * qdx + qdz * qdz < 20) { playNpcVoice(qn.vname, 'quirk', 0.55, 25, { x: qn.x, z: qn.z, ref: qn }); break; }
+      }
+    }
+    // #67: a GROUP member the player wanders up to name-drops their crew — "that's
+    // my boy over there" etc. Bubble (always readable) + their voice quirk. Own
+    // cooldown so it stays occasional and doesn't fight the signature line above.
+    if (!state.dead && !inside && !driving && T - grpAwareT > 14) {
+      for (var gqi = 0; gqi < npcs.length; gqi++) {
+        var gqn = npcs[gqi];
+        if (!gqn.grp || (gqn.state !== 'walk' && gqn.state !== 'stand')) continue;
+        var gqdx = gqn.x - player.x, gqdz = gqn.z - player.z;
+        if (gqdx * gqdx + gqdz * gqdz < 26 && Math.random() < 0.6) {
+          grpAwareT = T;
+          var lines = groupAwareLines(gqn);
+          if (lines) { speechBubble(gqn, grpPick(lines)); playNpcVoice(gqn.vname, 'quirk', 0.55, 8, { x: gqn.x, z: gqn.z, ref: gqn }); }
+          break;
+        }
       }
     }
     // bump reaction: player shoving through someone
