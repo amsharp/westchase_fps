@@ -5581,6 +5581,153 @@ function buildPublix(spec) {
   });
 }
 
+// ---- shared interior helpers (reused by Dunkin/Starbucks/Sakura/DollarTree/Bank)
+// Every generalized shop below is a distinct under-map room; the door is always
+// centered on the room's south wall (B.z1), so spec.doorIn/exitZone are placed
+// there by convention. World-side doorZone/doorOut use the REMAP_VENUES
+// front-face formula (nx=sin(rot), nz=cos(rot)) matching the NPC-door register.
+function intSign(x, y, z, ry, w, h, lines, bg, fg) {
+  var m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: signTex(lines, bg, fg, 256, 64) }));
+  m.position.set(x, y, z); m.rotation.y = ry; scene.add(m); return m;
+}
+function placeStaffIn(spec, name, x, z, ry) {
+  var m = buildStaff(name); m.position.set(x, spec.box.y, z); m.rotation.y = ry; scene.add(m); spec.staff.push(m); return m;
+}
+// build the room shell: floor / ceiling / light panels / 4 walls / glass
+// entrance door (south-wall center) / exit sign / optional banner. Returns
+// { cx, cz, W, D, Y } for the caller to lay fixtures against.
+function intShell(spec, o) {
+  var B = spec.box, Y = B.y, cx = (B.x0 + B.x1) / 2, cz = (B.z0 + B.z1) / 2, W = B.x1 - B.x0, D = B.z1 - B.z0;
+  var floor = new THREE.Mesh(new THREE.PlaneGeometry(W, D), o.floorM);
+  floor.rotation.x = -Math.PI / 2; floor.position.set(cx, Y, cz); scene.add(floor);
+  var ceil = new THREE.Mesh(new THREE.PlaneGeometry(W, D), lamb({ color: o.ceilColor || 0xdadcd6 }));
+  ceil.rotation.x = Math.PI / 2; ceil.position.set(cx, Y + 4.4, cz); scene.add(ceil);
+  var panelM = new THREE.MeshBasicMaterial({ color: o.lightColor || 0xf8f7ec });
+  for (var px = -W / 2 + 4; px <= W / 2 - 4; px += 7)
+    for (var pz = -D / 2 + 4; pz <= D / 2 - 4; pz += 7) {
+      var lp = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 1.2), panelM);
+      lp.rotation.x = Math.PI / 2; lp.position.set(cx + px, Y + 4.36, cz + pz); scene.add(lp);
+    }
+  function wall(x, z, w, d) { var m = box(w, 4.4, d, o.wallM, x, Y + 2.2, z); scene.add(m); solidMeshes.push(m); intCol(spec, x, z, w, d); }
+  wall(cx, B.z0, W, 0.5); wall(cx, B.z1, W, 0.5); wall(B.x0, cz, 0.5, D); wall(B.x1, cz, 0.5, D);
+  // transparent glass entrance (matches the Publix fix): daylight card + tinted
+  // panes + metal frame, centered on the south wall.
+  var daylightM = new THREE.MeshBasicMaterial({ color: 0xcfe6f2 });
+  var glassDoorM = new THREE.MeshPhongMaterial({ color: 0xbfe0ea, transparent: true, opacity: 0.3, shininess: 110, specular: 0xffffff, side: THREE.DoubleSide });
+  var frameM = lamb({ color: 0x8a9096 });
+  scene.add(box(4.4, 3.4, 0.06, daylightM, cx, Y + 1.7, B.z1 - 0.18));
+  var doorM = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 3.4), glassDoorM);
+  doorM.position.set(cx, Y + 1.7, B.z1 - 0.28); doorM.rotation.y = Math.PI; scene.add(doorM);
+  scene.add(box(4.7, 0.16, 0.14, frameM, cx, Y + 3.42, B.z1 - 0.26));   // top rail
+  scene.add(box(0.16, 3.4, 0.14, frameM, cx, Y + 1.7, B.z1 - 0.26));    // center mullion
+  var exitSign = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 0.5), new THREE.MeshBasicMaterial({ map: signTex(['EXIT'], '#103a18', '#4aff6a', 128, 40) }));
+  exitSign.position.set(cx, Y + 3.7, B.z1 - 0.28); exitSign.rotation.y = Math.PI; scene.add(exitSign);
+  if (o.bannerLines) intSign(cx, Y + 4.0, B.z1 - 0.3, Math.PI, Math.min(W - 4, 14), 1.7, o.bannerLines, o.bannerBg, o.bannerFg);
+  return { cx: cx, cz: cz, W: W, D: D, Y: Y };
+}
+
+// ---------------- DUNKIN' coffee & donut shop (venue dunkin, SW strip) --------
+var DUNKIN = registerInterior({
+  id: 'dunkin',
+  box: { x0: 587, x1: 613, z0: 590, z1: 610, y: -180 },      // 26 x 20 room, far off-map, y=-180
+  doorZone: { x: -39.15, z: 76.5, r2: 40 },                  // world front-face (rot 215)
+  doorIn: { x: 600, z: 605, yaw: 0 },                        // just inside, facing the counter (north)
+  doorOut: { x: -41.16, z: 73.63, yaw: -2.53 },              // step onto the strip-mall walk
+  exitZone: { x: 600, z: 607, r2: 11 },
+  label: 'DUNKIN',
+  build: buildDunkin
+});
+function buildDunkin(spec) {
+  var floorT = tex(64, function (g, s) {
+    g.fillStyle = '#efe6d8'; g.fillRect(0, 0, s, s);
+    g.fillStyle = '#e6d8c2'; g.fillRect(0, 0, s / 2, s / 2); g.fillRect(s / 2, s / 2, s / 2, s / 2);
+    g.strokeStyle = '#d8c6ac'; g.lineWidth = 2; g.strokeRect(0, 0, s, s);
+    noise(g, s, 60, 0.03, 0.03);
+  }, 8, 6);
+  var wallT = tex(64, function (g, s) {
+    g.fillStyle = '#fbf3ea'; g.fillRect(0, 0, s, s);
+    g.fillStyle = '#f36c21'; g.fillRect(0, s * 0.34, s, 8);       // Dunkin orange band
+    g.fillStyle = '#e01a7a'; g.fillRect(0, s * 0.34 + 8, s, 4);   // pink underline
+    noise(g, s, 50, 0.03, 0.03);
+  }, 8, 1);
+  var counterT = tex(64, function (g, s) {
+    g.fillStyle = '#f36c21'; g.fillRect(0, 0, s, s);
+    g.fillStyle = '#d85512'; g.fillRect(0, s * 0.7, s, s * 0.3);
+    g.fillStyle = '#e01a7a'; g.fillRect(0, 0, s, 5);
+    noise(g, s, 30, 0.04, 0.0);
+  }, 4, 1);
+  var donutT = tex(64, function (g, s) {
+    g.fillStyle = '#c9a878'; g.fillRect(0, 0, s, s);
+    var glaze = ['#e8a0c8', '#a86038', '#f0d84a', '#f2f2f2', '#8a4a20', '#e05050'];
+    for (var i = 0; i < 18; i++) {
+      var cxp = 6 + Math.random() * (s - 12), cyp = 6 + Math.random() * (s - 12), r = 4 + Math.random() * 2;
+      g.fillStyle = glaze[(Math.random() * glaze.length) | 0];
+      g.beginPath(); g.arc(cxp, cyp, r, 0, 7); g.fill();
+      g.fillStyle = '#c9a878'; g.beginPath(); g.arc(cxp, cyp, r * 0.4, 0, 7); g.fill();   // hole
+    }
+  }, 2, 1);
+  var menuT = tex(128, function (g, s) {
+    g.fillStyle = '#2a1c14'; g.fillRect(0, 0, s, s);
+    g.fillStyle = '#f36c21'; g.font = 'bold 15px sans-serif'; g.fillText('MENU', 8, 20);
+    g.fillStyle = '#ffe9d0'; g.font = '11px sans-serif';
+    var rows = ['Coffee ......... $3', 'Iced Coffee .... $3', 'Latte .......... $4', 'Donut .......... $2', 'Munchkins ...... $4', 'Bagel .......... $3'];
+    for (var i = 0; i < rows.length; i++) g.fillText(rows[i], 8, 40 + i * 14);
+  }, 1, 1);
+  var floorM = lamb2(floorT), wallM = lamb2(wallT), counterM = lamb2(counterT);
+  var glassM = new THREE.MeshPhongMaterial({ color: 0xcfe6ea, transparent: true, opacity: 0.3, shininess: 90, side: THREE.DoubleSide });
+  var steelM = lamb({ color: 0xc0c4c8 }), darkM = lamb({ color: 0x2a2018 }), whiteM = lamb({ color: 0xf0ece2 });
+  var s = intShell(spec, { floorM: floorM, wallM: wallM, ceilColor: 0xf2ede4, bannerLines: ["DUNKIN'"], bannerBg: '#e01a7a', bannerFg: '#f36c21' });
+  var Y = s.Y, cx = s.cx;
+
+  // service counter across the back (north), staff behind
+  var counter = box(16, 1.1, 1.4, [counterM, counterM, whiteM, counterM, counterM, counterM], cx, Y + 0.55, 594); scene.add(counter); solidMeshes.push(counter); intCol(spec, cx, 594, 16, 1.4);
+  scene.add(box(16, 0.1, 1.5, steelM, cx, Y + 1.12, 594));                                   // counter top
+  // donut display case in front of the counter (glass, colorful rings inside)
+  var caseBase = box(11, 0.9, 1.2, whiteM, cx, Y + 0.45, 595.9); scene.add(caseBase); solidMeshes.push(caseBase); intCol(spec, cx, 595.9, 11, 1.2);
+  scene.add(box(10.4, 0.5, 0.9, lamb2(donutT), cx, Y + 1.05, 595.9));                          // donut trays
+  scene.add(box(11, 0.75, 1.05, glassM, cx, Y + 1.28, 595.9));                                 // glass hood
+  // coffee machines + urns on the back counter (behind main counter, north wall)
+  for (var mx = -6; mx <= 6; mx += 4) scene.add(box(1.4, 1.2, 0.8, darkM, cx + mx, Y + 1.35, 591.2));
+  for (var ux = -4; ux <= 4; ux += 4) scene.add(cyl(0.35, 0.35, 0.9, 12, steelM, cx + ux + 2, Y + 1.25, 592));
+  // menu board over the counter (north wall)
+  var menu = new THREE.Mesh(new THREE.PlaneGeometry(9, 3), lamb2(menuT));
+  menu.position.set(cx, Y + 3.1, 590.4); scene.add(menu);
+  // seating: three little cafe tables near the entrance (south half)
+  var tableTopM = lamb({ color: 0xe8862e }), poleM = lamb({ color: 0x8a8f94 }), stoolM = lamb({ color: 0xe01a7a });
+  var tpos = [[593, 604], [600, 606], [607, 604]];
+  for (var ti = 0; ti < tpos.length; ti++) {
+    var tp = tpos[ti];
+    scene.add(cyl(0.7, 0.7, 0.1, 16, tableTopM, tp[0], Y + 1.05, tp[1]));
+    scene.add(cyl(0.1, 0.1, 1.0, 8, poleM, tp[0], Y + 0.5, tp[1]));
+    intCol(spec, tp[0], tp[1], 1.2, 1.2);
+    scene.add(cyl(0.32, 0.32, 0.5, 12, stoolM, tp[0] - 1.2, Y + 0.25, tp[1]));
+    scene.add(cyl(0.32, 0.32, 0.5, 12, stoolM, tp[0] + 1.2, Y + 0.25, tp[1]));
+  }
+
+  // staff behind the counter, facing customers (+z)
+  placeStaffIn(spec, 'DUNKIN_ASH', cx - 4, 592.6, Math.PI);
+  placeStaffIn(spec, 'DUNKIN_RAJ', cx + 4, 592.6, Math.PI);
+
+  // interact zones: order coffee / donut / chat (player stands at the case, z~597)
+  spec.zones.push({
+    x: cx - 5, z: 597.2, r2: 8, prompt: '[E] ORDER A COFFEE — $3',
+    fn: function () {
+      if (state.money < 3) { sfx('deny'); popup2("You can't afford it"); return; }
+      if (bagAdd('coffee', 1) > 0) { sfx('deny'); popup2('Your bag is full'); return; }
+      state.money -= 3; sfx('buy'); itemToast('coffee'); popup('+1 Coffee'); staffSay(['"America runs on Dunkin!"']);
+    }
+  });
+  spec.zones.push({
+    x: cx + 5, z: 597.2, r2: 8, prompt: '[E] GRAB A DONUT — $2',
+    fn: function () {
+      if (state.money < 2) { sfx('deny'); popup2("You can't afford it"); return; }
+      if (bagAdd('donut', 1) > 0) { sfx('deny'); popup2('Your bag is full'); return; }
+      state.money -= 2; sfx('buy'); itemToast('donut'); popup('+1 Donut'); staffSay(['"Time to make the donuts."']);
+    }
+  });
+  spec.zones.push({ x: cx, z: 597.2, r2: 5, prompt: '[E] CHAT WITH BARISTA', fn: function () { staffSay(['"What can I get started for ya?"', '"The iced coffee is on point today."', '"Fresh pot brewing — two minutes!"']); } });
+}
+
 // ---------------- street props (AI PSX props: streetprops.js) ----------------
 // 30 Meshy-generated quantized props placed contextually around the map.
 // Prop INTERACTION FX (vending machine, payphone, newspaper box, hydrant
@@ -14265,6 +14412,8 @@ window.__wc = {
   tryAttack: tryAttack, setEquipped: setEquipped, cycleEquip: cycleEquip,
   enterStore: enterStore, exitStore: exitStore, refreshClerk: refreshClerk, animPerson: animPerson, animPersonClip: animPersonClip, playVoice: playVoice, oak: oak, bush: bush, getPackProp: getPackProp,
   enterInterior: enterInterior, enterPublix: function () { enterInterior('publix'); }, exitInterior: exitInterior,
+  enterDunkin: function () { enterInterior('dunkin'); }, enterStarbucks: function () { enterInterior('starbucks'); },
+  enterSakura: function () { enterInterior('sakura'); }, enterDollarTree: function () { enterInterior('dollar_tree'); }, enterBank: function () { enterInterior('bank'); },
   listInteriors: function () { var o = []; for (var id in interiors) o.push(id); return o; },
   interiorState: function () { return { inside: inside, id: curInterior ? curInterior.id : (inside ? 'gas' : null), staff: curInterior ? curInterior.staff.length : 0, colliders: curInterior ? curInterior.colliders.length : 0, box: curInterior ? curInterior.box : null }; },
   initAudio: initAudio, playNpcVoice: playNpcVoice, playVoiceAny: playVoiceAny,
