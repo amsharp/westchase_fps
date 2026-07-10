@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.64.1';
+var GAME_VERSION = 'v1.64.2';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -3974,7 +3974,7 @@ function streetlight(x, z, ax, az) {
 // so the town-wide spans never balloon the draw count. Wires are overhead and
 // carry NO collider (you walk/drive under them). woodPoleM/wireM/xfmrM are the
 // materials declared with the legacy powerline() block above.
-var powerPoles = [], powerWireCount = 0, powerSpanCount = 0;
+var powerPoles = [], powerWireCount = 0, powerSpanCount = 0, powerServiceDrops = 0;
 // merge indexed geometries sharing position+normal (uv dropped — color mats)
 function pwMergeGeos(list) {
   var pos = [], nrm = [], idx = [], base = 0;
@@ -4074,6 +4074,28 @@ function sagWire(a, b) {
       var pole = powerPole(px, pz, nx * side, nz * side, (xf++ % 3) === 0);
       if (prev) { sagWire(prev.a[0], pole.a[0]); sagWire(prev.a[1], pole.a[1]); sagWire(prev.a[2], pole.a[2]); powerSpanCount++; }
       prev = pole;
+    }
+  }
+  // service drops: one wire from the nearest roadside pole to each commercial
+  // venue's roofline (realism — kept sparse, commercial only, drop must fall)
+  if (typeof REMAP_VENUES !== 'undefined') {
+    var COMMERCIAL = { racetrac: 1, publix: 1, dunkin: 1, starbucks: 1, sushi: 1, pharmacy: 1, bank: 1, strip: 1, dollar_tree: 1, offices: 1, yoga: 1, shop: 1 };
+    for (i = 0; i < REMAP_VENUES.length; i++) {
+      var v = REMAP_VENUES[i];
+      if (!COMMERCIAL[v.type]) continue;
+      var best = null, bd = 34 * 34;
+      for (q = 0; q < powerPoles.length; q++) {
+        var pl = powerPoles[q], dxp = pl.x - v.x, dzp = pl.z - v.z, d2 = dxp * dxp + dzp * dzp;
+        if (d2 < bd) { bd = d2; best = pl; }
+      }
+      if (!best) continue;
+      var roofY = groundHeightAt(v.x, v.z) - 0.2;              // building height at center
+      if (roofY < 2 || roofY > best.a[1].y - 0.6) continue;    // drop must actually descend
+      var tox = best.x - v.x, toz = best.z - v.z, tl = Math.sqrt(tox * tox + toz * toz) || 1;
+      var edge = Math.min(v.w, v.d) * 0.42;                    // attach just inside the roof edge
+      var rx = v.x + tox / tl * edge, rz = v.z + toz / tl * edge;
+      sagWire(best.a[1], { x: rx, y: roofY + 0.25, z: rz });
+      powerServiceDrops++;
     }
   }
   if (_pwPos.length) {
@@ -15225,7 +15247,7 @@ window.__wc = {
   openMenu: openMenu, closeMenus: closeMenus, spawnCashAt: spawnCash,
   renderer: renderer, scene: scene, camera: camera,
   listPowerlines: function () { return powerPoles; },
-  powerlineStats: function () { return { poles: powerPoles.length, wires: powerWireCount, spans: powerSpanCount }; },
+  powerlineStats: function () { return { poles: powerPoles.length, wires: powerWireCount, spans: powerSpanCount, serviceDrops: powerServiceDrops }; },
   cars: cars, boomAt: boomAt, killNpcRagdoll: killNpcRagdoll,
   drops: drops, rockets: rockets, setZoom: setZoom, hurtPlayer: hurtPlayer,
   bag: function () { return state.bag; }, bagAdd: bagAdd, bagRemove: bagRemove, bagUse: bagUse,

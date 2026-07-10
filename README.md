@@ -470,10 +470,18 @@ and tap the brakes for a beat at the smaller uncontrolled intersections.
 The streets are busy now — roughly triple the old traffic and pedestrian
 counts — and walkers who see a car bearing down on them bolt sideways out
 of the lane, whether it's an NPC car or one another player is driving.
-There are cobra-head streetlights, wood
-utility poles trailing sagging lines down the main road, sabal-palm
+There are cobra-head streetlights, sabal-palm
 clusters on every corner, and proper road paint — stop bars, ladder
-crosswalks, and left-turn arrows in the pockets.
+crosswalks, and left-turn arrows in the pockets. Wood utility poles now
+march down **every arterial and collector** — Race Track Rd, Countryway
+Blvd, Citrus Park Dr, Nine Eagles Dr and the rest — set back on the
+road-edge line about every 40 metres, crossarms and insulators up top and
+a transformer can on every third pole. Two or three power lines sag
+crossarm-to-crossarm in a natural catenary droop between them, with the
+odd service drop peeling off to a shop's roofline. The runs break cleanly
+around the big intersections so nothing crosses the junction at head
+height, and — like the trees and streetlights — a pole will snap and
+topple if you plow a car into it.
 
 ## Street furniture
 
