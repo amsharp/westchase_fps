@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.51';
+var GAME_VERSION = 'v1.66.52';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -10868,6 +10868,70 @@ function fountainSprite() {
   return vfxDropMat;
 }
 
+// ---------------- Hidden secrets & easter eggs (local-only flavor) ----------
+// Additive delight the curious stumble on: hand-authored loot stashes, a
+// Konami combo, a rare drifting-balloon ambient. All LOCAL (never on the MP
+// wire), null-guarded, no colliders, no per-frame allocation. Effects are
+// temporary / reversible. Driven from the main loop + __wc.tick via
+// updateSecrets(dt); test hooks live in the __wc export block.
+
+// Deterministic stash coords (authored, NOT load-randomized — a prior
+// regression reintroduced load-time Math.random() and broke MP determinism).
+// Tucked spots around the town core the curious will find. `mesh` = a subtle
+// bobbing gold glint marker, built lazily (no load-order dependency).
+var SECRET_STASHES = [
+  { x: 86, z: 70, val: 250 },     // behind the RaceTrac (SE corner)
+  { x: -162, z: 60, val: 300 },   // SW strip-mall service alley
+  { x: -96, z: -126, val: 250 },  // tucked behind Publix (NW)
+  { x: 96, z: -78, val: 300 },    // behind Regions Bank (NE)
+  { x: -232, z: -118, val: 350 }, // scrub by the middle school
+  { x: -305, z: -150, val: 400 }, // far west lake shore
+  { x: 250, z: -252, val: 400 },  // deep NE tree line
+  { x: 30, z: 96, val: 200 }      // south median nook
+];
+var stashInit = false, stashGeo = null;
+function initStashes() {
+  stashInit = true;
+  if (typeof THREE === 'undefined' || !scene) return;
+  stashGeo = new THREE.OctahedronGeometry(0.22);
+  for (var i = 0; i < SECRET_STASHES.length; i++) {
+    var s = SECRET_STASHES[i];
+    s.taken = false; s.baseY = 0.55;
+    var m = new THREE.Mesh(stashGeo, new THREE.MeshBasicMaterial({ color: 0xffe27a, transparent: true, opacity: 0.82 }));
+    m.position.set(s.x, s.baseY, s.z);
+    scene.add(m);
+    s.mesh = m;
+  }
+}
+var STASH_R2 = 4.2;   // walk near a glint to grab it
+function collectStash(s) {
+  if (s.taken) return;
+  s.taken = true;
+  if (s.mesh) { scene.remove(s.mesh); if (s.mesh.material && s.mesh.material.dispose) s.mesh.material.dispose(); s.mesh = null; }
+  state.money += s.val;
+  popup('HIDDEN STASH  +$' + s.val);
+  if (typeof sfx === 'function') sfx('cash');
+  if (typeof puff === 'function') puff(new THREE.Vector3(s.x, 0.6, s.z), 0xffe27a);
+  // little ascending jingle so a find feels rewarding
+  beep(880, 0.09, 0.12, 'square'); setTimeout(function () { beep(1320, 0.09, 0.12, 'square'); }, 80); setTimeout(function () { beep(1760, 0.12, 0.12, 'square'); }, 170);
+}
+function updateSecrets(dt) {
+  if (!state.running) return;
+  if (!stashInit) initStashes();
+  // stashes: bob + spin the glint, auto-collect on proximity. Skip while inside
+  // an interior (player.x/z can coincide with a surface stash under the map).
+  if (!inside) {
+    for (var i = 0; i < SECRET_STASHES.length; i++) {
+      var s = SECRET_STASHES[i];
+      if (s.taken || !s.mesh) continue;
+      s.mesh.rotation.y += dt * 1.6;
+      s.mesh.position.y = s.baseY + Math.sin(T * 2 + i) * 0.09;
+      var dx = player.x - s.x, dz = player.z - s.z;
+      if (dx * dx + dz * dz < STASH_R2) collectStash(s);
+    }
+  }
+}
+
 // ---------------- blood decals / scorch marks ----------------
 var decals = [];
 var decalGeo = new THREE.CircleGeometry(1, 10); decalGeo.rotateX(-Math.PI / 2);
@@ -17983,7 +18047,7 @@ function loop(now) {
   T += dt;
   updateReflex(dt);                       // 8-Bit Reflexes: sets the slow-mo factor
   var sdt = dt * reflexScale();           // world sim dt (bullet-time scales it)
-  updatePlayer(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); updateQuestCaps(dt); updateNpcTags(); updateHUD(); drawMinimap();
+  updatePlayer(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); updateQuestCaps(dt); updateSecrets(sdt); updateNpcTags(); updateHUD(); drawMinimap();
   renderer.render(scene, camera);
 }
 setEquipped('fists');
@@ -18105,6 +18169,9 @@ window.__wc = {
   enterCar: enterCar, exitCar: exitCar, nearestStealableCar: nearestStealableCar,
   isDriving: function () { return !!driving; }, drivingCar: function () { return driving; },
   pressKey: function (code, down) { keys[code] = down; },
+  // --- easter-egg / secret test hooks ---
+  stashes: function () { return SECRET_STASHES; },
+  secretState: function () { var left = 0; for (var i = 0; i < SECRET_STASHES.length; i++) if (!SECRET_STASHES[i].taken) left++; return { stashesLeft: left, stashTotal: SECRET_STASHES.length }; },
   setMinimapZoom: setMinimapZoom, cycleMinimapZoom: cycleMinimapZoom,
   minimapState: function () { if (!mmVenues) buildMMVenues(); return { zoom: mmZoom, scale: MM_ZOOMS[mmZoom], name: MM_ZOOM_NAMES[mmZoom], levels: MM_ZOOMS.length, venues: mmVenues.length }; },
   setRain: function (on) { raining = on; rainLeft = on ? 9999 : 0; if (on && rainTargetInten <= 0) rainTargetInten = rollInten(); },
@@ -18259,7 +18326,7 @@ window.__wc = {
   buildQuestChar: buildQuestChar, playQuestVoice: playQuestVoice, getEnvProp: getEnvProp,
   questRegisterItems: questRegisterItems, itemDef: itemDef, itemTex: itemTex, bagAdd: bagAdd, bagCount: bagCount,
   questAssets: function () { return { chars: Object.keys(QUEST_IDX), reskins: Object.keys(QUEST_RESKIN_IDX), props: (typeof QUEST_PROPS !== 'undefined') ? QUEST_PROPS.map(function (p) { return p.n; }) : [], items: (typeof QUEST_ITEM_DEFS !== 'undefined') ? QUEST_ITEM_DEFS.length : 0, voices: (typeof QUEST_VOICES !== 'undefined') ? Object.keys(QUEST_VOICES).length : 0 }; },
-  tick: function (dt) { T += dt; updateReflex(dt); var sdt = dt * reflexScale(); updatePlayer(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); updateQuestCaps(dt); renderer.render(scene, camera); }
+  tick: function (dt) { T += dt; updateReflex(dt); var sdt = dt * reflexScale(); updatePlayer(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); updateQuestCaps(dt); updateSecrets(sdt); renderer.render(scene, camera); }
 };
 
 // ---------------- boot screen handoff + menu cover art ----------------
