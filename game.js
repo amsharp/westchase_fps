@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.53';
+var GAME_VERSION = 'v1.66.54';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -13072,17 +13072,24 @@ spawnVendors();
 var wildlife = [], wildlifeReady = false;
 var wildRng = seededRng(0x63726974);       // seeded so first placement is reproducible
 var WILD_FAR = 95, WILD_FAR2 = WILD_FAR * WILD_FAR;
-var BIRD_COUNT = 8;
+var BIRD_COUNT = 8, DUCK_COUNT = 4, SQUIRREL_COUNT = 2;
 // shared geometry/materials (built lazily on first update so no load-time cost /
 // no dependency on load order)
-var wildGeo = null, BIRD_MATS = null, wBeakMat = null;
+var wildGeo = null, BIRD_MATS = null, wBeakMat = null, DUCK_MATS = null, SQ_MATS = null;
 function buildWildlifeAssets() {
   if (wildGeo) return;
   wildGeo = {
     birdBody: new THREE.SphereGeometry(0.12, 8, 6),
     birdHead: new THREE.SphereGeometry(0.085, 8, 6),
     birdBeak: new THREE.ConeGeometry(0.028, 0.07, 4),
-    birdWing: new THREE.PlaneGeometry(0.13, 0.17)
+    birdWing: new THREE.PlaneGeometry(0.13, 0.17),
+    duckBody: new THREE.SphereGeometry(0.2, 10, 7),
+    duckHead: new THREE.SphereGeometry(0.11, 9, 7),
+    duckBill: new THREE.BoxGeometry(0.1, 0.04, 0.12),
+    sqBody: new THREE.SphereGeometry(0.11, 8, 6),
+    sqHead: new THREE.SphereGeometry(0.075, 8, 6),
+    sqTail: new THREE.SphereGeometry(0.1, 8, 6),
+    sqEar: new THREE.ConeGeometry(0.03, 0.06, 4)
   };
   var L = lamb;
   BIRD_MATS = [
@@ -13091,6 +13098,16 @@ function buildWildlifeAssets() {
     { body: L({ color: 0x59504a }), belly: L({ color: 0xc4623a }), wing: L({ color: 0x494039, side: THREE.DoubleSide }) }   // robin
   ];
   wBeakMat = L({ color: 0xd9a02e });
+  // ducks: mallard drake (green head) + brown hen
+  DUCK_MATS = [
+    { body: L({ color: 0x6b5236 }), head: L({ color: 0x2f6a3f }), belly: L({ color: 0x8a7454 }), bill: L({ color: 0xdb9a24 }) },
+    { body: L({ color: 0x7a6142 }), head: L({ color: 0x6a533a }), belly: L({ color: 0xa08a68 }), bill: L({ color: 0xc79b52 }) }
+  ];
+  // squirrels: gray + a warmer brown (eastern gray / fox squirrel)
+  SQ_MATS = [
+    { body: L({ color: 0x8a8177 }), tail: L({ color: 0xa39a8f }), belly: L({ color: 0xcfc7bc }) },
+    { body: L({ color: 0x86603a }), tail: L({ color: 0x9c774c }), belly: L({ color: 0xd8b184 }) }
+  ];
 }
 function buildBird(variant) {
   var m = BIRD_MATS[variant], g = new THREE.Group();
@@ -13213,6 +13230,12 @@ function initWildlife() {
     var c = { kind: 'bird', variant: variant, mesh: g, x: 0, z: 0, y: 0, state: 'peck', phase: wildRng() * 6.28, hopT: 0.5 + wildRng() * 2, _hop: 0, chirpT: 3 + wildRng() * 8, tgt: null, flapPhase: 0 };
     scene.add(g); wildlife.push(c); relocateBird(c);
   }
+  spawnDucks();
+  for (var s = 0; s < SQUIRREL_COUNT; s++) {
+    var sv = (wildRng() * SQ_MATS.length) | 0, sg = buildSquirrel(sv);
+    var sc = { kind: 'squirrel', variant: sv, mesh: sg, x: 0, z: 0, y: 0, state: 'hidden', phase: wildRng() * 6.28, tree: null, tgt: null, wanderT: 0, chitT: 4 + wildRng() * 9, climbY: 0 };
+    sg.visible = false; scene.add(sg); wildlife.push(sc);
+  }
 }
 function updateWildlife(dt) {
   if (!state.running || inside || state.dead) return;
@@ -13221,12 +13244,203 @@ function updateWildlife(dt) {
   for (var i = 0; i < wildlife.length; i++) {
     var c = wildlife[i];
     if (c.kind === 'bird') updateBird(c, dt, px, pz);
+    else if (c.kind === 'duck') updateDuck(c, dt, px, pz);
+    else if (c.kind === 'squirrel') updateSquirrel(c, dt, px, pz);
   }
+}
+// ---- ducks (lake + fountain): float on the water surface, paddle to gentle
+// wander targets inside the lake, bob. Anchored to the lake (they do NOT follow
+// the player); paused entirely when the player is far from the water. ----
+function buildDuck(variant) {
+  var m = DUCK_MATS[variant], g = new THREE.Group();
+  var body = new THREE.Mesh(wildGeo.duckBody, m.body);
+  body.scale.set(1, 0.78, 1.5); body.position.y = 0.13; g.add(body);
+  var belly = new THREE.Mesh(wildGeo.duckBody, m.belly);
+  belly.scale.set(0.86, 0.5, 1.25); belly.position.set(0, 0.08, 0.02); g.add(belly);
+  var tail = new THREE.Mesh(wildGeo.duckBody, m.body);
+  tail.scale.set(0.5, 0.35, 0.7); tail.position.set(0, 0.17, -0.28); g.add(tail);
+  // upright neck + head at the front
+  var neck = new THREE.Mesh(wildGeo.duckHead, m.head); neck.scale.set(0.62, 1.1, 0.62); neck.position.set(0, 0.26, 0.22); g.add(neck);
+  var head = new THREE.Mesh(wildGeo.duckHead, m.head); head.position.set(0, 0.37, 0.27); g.add(head);
+  var bill = new THREE.Mesh(wildGeo.duckBill, m.bill); bill.position.set(0, 0.35, 0.4); g.add(bill);
+  g.add(blobShadow(0.24, 0.3, 0.02));
+  g.userData.head = head;
+  return g;
+}
+function lakeWaterSpot() {
+  if (typeof LAKE === 'undefined') return null;
+  for (var t = 0; t < 20; t++) {
+    var a = wildRng() * 6.2832, rr = 0.2 + wildRng() * 0.65;
+    var x = LAKE.x + Math.cos(a) * LAKE.r * 1.2 * rr, z = LAKE.z + Math.sin(a) * LAKE.r * 0.8 * rr;
+    if (typeof inLake === 'function' && !inLake(x, z)) continue;
+    var fdx = x - LAKE.x, fdz = z - LAKE.z; if (fdx * fdx + fdz * fdz < 64) continue;   // clear of the fountain
+    return { x: x, z: z };
+  }
+  return { x: LAKE.x + 20, z: LAKE.z + 8 };
+}
+function spawnDucks() {
+  if (typeof LAKE === 'undefined') return;
+  for (var i = 0; i < DUCK_COUNT; i++) {
+    var v = (wildRng() * DUCK_MATS.length) | 0, g = buildDuck(v), sp = lakeWaterSpot();
+    var c = { kind: 'duck', variant: v, mesh: g, x: sp.x, z: sp.z, y: (typeof WATER_Y !== 'undefined' ? WATER_Y : 0.2) + 0.02, state: 'swim', phase: wildRng() * 6.28, tgt: lakeWaterSpot(), pauseT: wildRng() * 3, quackT: 5 + wildRng() * 12 };
+    g.position.set(c.x, c.y, c.z); g.rotation.y = wildRng() * 6.28;
+    scene.add(g); wildlife.push(c);
+  }
+}
+function updateDuck(c, dt, px, pz) {
+  var m = c.mesh, wy = (typeof WATER_Y !== 'undefined' ? WATER_Y : 0.2);
+  if (typeof LAKE !== 'undefined') {
+    var ldx = px - LAKE.x, ldz = pz - LAKE.z;
+    if (ldx * ldx + ldz * ldz > 150 * 150) { m.visible = true; return; }   // player far from the lake: freeze (still visible)
+  }
+  m.visible = true; c.phase += dt;
+  c.pauseT -= dt;
+  if (c.pauseT > 0) {
+    // idle float: bob + preen head dip
+    c.y = wy + 0.02 + Math.sin(c.phase * 1.4) * 0.02;
+    if (c.head) c.head.rotation.x = Math.min(0, Math.sin(c.phase * 0.8)) * 0.4;
+  } else {
+    var tdx = c.tgt.x - c.x, tdz = c.tgt.z - c.z, td = Math.sqrt(tdx * tdx + tdz * tdz);
+    if (td < 0.7) { c.tgt = lakeWaterSpot(); c.pauseT = 1.5 + Math.random() * 3.5; }
+    else {
+      var sp = 0.85;
+      c.x += (tdx / td) * sp * dt; c.z += (tdz / td) * sp * dt;
+      var ty = Math.atan2(tdx, tdz); m.rotation.y += (ty - m.rotation.y) * Math.min(1, dt * 2.5);
+      c.y = wy + 0.02 + Math.sin(c.phase * 3) * 0.012;   // slight paddle bob
+      if (c.head) c.head.rotation.x = 0;
+    }
+  }
+  m.position.set(c.x, c.y, c.z);
+  c.quackT -= dt;
+  if (c.quackT <= 0) { c.quackT = 6 + Math.random() * 14; var qd = (c.x - px) * (c.x - px) + (c.z - pz) * (c.z - pz); if (qd < 3600 && !inside && Math.random() < 0.5) wildQuack(); }
+}
+// ---- squirrels (near big trees): scurry on the ground close to an oak, and
+// dart UP the trunk + freeze when the player approaches. Follow the player like
+// birds (relocate to the nearest tree near the player). ----
+function buildSquirrel(variant) {
+  var m = SQ_MATS[variant], g = new THREE.Group();
+  var body = new THREE.Mesh(wildGeo.sqBody, m.body); body.scale.set(1, 0.95, 1.5); body.position.set(0, 0.11, 0); body.rotation.x = -0.15; g.add(body);
+  var belly = new THREE.Mesh(wildGeo.sqBody, m.belly); belly.scale.set(0.8, 0.7, 1.1); belly.position.set(0, 0.08, 0.05); g.add(belly);
+  var head = new THREE.Mesh(wildGeo.sqHead, m.body); head.position.set(0, 0.18, 0.16); g.add(head);
+  var earL = new THREE.Mesh(wildGeo.sqEar, m.body); earL.position.set(-0.04, 0.25, 0.15); g.add(earL);
+  var earR = new THREE.Mesh(wildGeo.sqEar, m.body); earR.position.set(0.04, 0.25, 0.15); g.add(earR);
+  // signature bushy tail arcing up over the back
+  var tail = new THREE.Mesh(wildGeo.sqTail, m.tail); tail.scale.set(0.62, 1.7, 0.62); tail.position.set(0, 0.22, -0.2); tail.rotation.x = 0.7; g.add(tail);
+  g.add(blobShadow(0.14, 0.16, 0.02));
+  g.userData.tail = tail; g.userData.head = head;
+  return g;
+}
+function nearestTree(x, z, maxD) {
+  if (typeof breakables === 'undefined') return null;
+  var best = null, bd = maxD * maxD;
+  for (var i = 0; i < breakables.length; i++) {
+    var b = breakables[i]; if (b.type !== 'tree' || b.broken) continue;
+    var dx = b.x - x, dz = b.z - z, d = dx * dx + dz * dz;
+    if (d < bd) { bd = d; best = b; }
+  }
+  return best;
+}
+function relocateSquirrel(c) {
+  var tr = nearestTree(player.x, player.z, 62);
+  if (!tr) { c.tree = null; c.state = 'hidden'; c.mesh.visible = false; return; }
+  c.tree = tr; c.state = 'ground'; c.climbY = 0;
+  // start a little way out from the trunk on the ground
+  var a = wildRng() * 6.2832, rr = 1.6 + wildRng() * 2.4;
+  c.x = tr.x + Math.cos(a) * rr; c.z = tr.z + Math.sin(a) * rr; c.y = 0;
+  c.tgt = { x: tr.x + Math.cos(a + 1) * (1.2 + wildRng() * 2), z: tr.z + Math.sin(a + 1) * (1.2 + wildRng() * 2) };
+  c.wanderT = 0.6 + wildRng() * 2; c.mesh.visible = true; c.mesh.position.set(c.x, 0, c.z);
+}
+function updateSquirrel(c, dt, px, pz) {
+  var m = c.mesh;
+  // (re)acquire a tree near the player when hidden or when ours got far/broken
+  if (c.state === 'hidden' || !c.tree || c.tree.broken || ((c.tree.x - px) * (c.tree.x - px) + (c.tree.z - pz) * (c.tree.z - pz) > WILD_FAR2)) {
+    relocateSquirrel(c); if (c.state === 'hidden') return;
+  }
+  m.visible = true; c.phase += dt;
+  var tr = c.tree, pdx = c.x - px, pdz = c.z - pz, pd2 = pdx * pdx + pdz * pdz;
+  if (c.state === 'ground') {
+    if (pd2 < 25) {   // player within 5u -> dart up the trunk
+      c.state = 'climb';
+      c.x = tr.x + (c.x < tr.x ? -0.35 : 0.35); c.z = tr.z + (c.z < tr.z ? -0.35 : 0.35);   // hop to the trunk (far side-ish)
+      if (typeof ambFlutter === 'function') { /* soft scramble via quiet chitter */ }
+    } else {
+      c.wanderT -= dt;
+      if (c.wanderT <= 0) {
+        c.wanderT = 0.7 + Math.random() * 2.2;
+        var a = Math.random() * 6.2832, rr = 1.2 + Math.random() * 2.6;
+        c.tgt = { x: tr.x + Math.cos(a) * rr, z: tr.z + Math.sin(a) * rr };
+      }
+      var tdx = c.tgt.x - c.x, tdz = c.tgt.z - c.z, td = Math.sqrt(tdx * tdx + tdz * tdz);
+      if (td > 0.25) { var sp = 2.6; c.x += (tdx / td) * sp * dt; c.z += (tdz / td) * sp * dt; m.rotation.y = Math.atan2(tdx, tdz); }
+      c.y = 0;
+      if (c.head) c.head.rotation.x = Math.min(0, Math.sin(c.phase * 4)) * 0.4;   // quick nervous head dips
+      c.chitT -= dt;
+      if (c.chitT <= 0) { c.chitT = 5 + Math.random() * 10; if (pd2 < 900 && !inside && Math.random() < 0.4) wildChitter(); }
+    }
+  } else if (c.state === 'climb') {
+    c.climbY += dt * 3.2; if (c.climbY >= 2.3) { c.climbY = 2.3; c.state = 'cling'; }
+    c.y = c.climbY;
+    m.rotation.y = Math.atan2(tr.x - c.x, tr.z - c.z);   // face into the trunk
+    if (c.head) c.head.rotation.x = 0;
+  } else {   // 'cling' — frozen on the trunk until the player backs off
+    c.y = c.climbY;
+    if (pd2 > 100) { c.state = 'descend'; }   // player >10u away
+  }
+  if (c.state === 'descend') {
+    c.climbY -= dt * 2.0; if (c.climbY <= 0) { c.climbY = 0; c.state = 'ground'; c.wanderT = 0.3; }
+    c.y = c.climbY;
+  }
+  m.position.set(c.x, c.y, c.z);
 }
 function wildlifeCounts() {
   var o = { bird: 0, duck: 0, squirrel: 0, cat: 0 };
   for (var i = 0; i < wildlife.length; i++) if (o[wildlife[i].kind] !== undefined) o[wildlife[i].kind]++;
   return o;
+}
+// ---- critter one-shot voices (procedural, routed through ac.destination = the
+// SFX bus so the settings slider governs them; kept quiet — ambience). ----
+function wildQuack() {
+  if (!ac) return;
+  var quacks = 2 + (Math.random() * 2 | 0), t = ac.currentTime;
+  for (var i = 0; i < quacks; i++) {
+    var o = ac.createOscillator(); o.type = 'sawtooth';
+    var f = 300 + Math.random() * 90, g = ac.createGain();
+    var bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 900; bp.Q.value = 3;
+    o.frequency.setValueAtTime(f * 1.35, t); o.frequency.exponentialRampToValueAtTime(f * 0.8, t + 0.13);
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.05, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0006, t + 0.16);
+    o.connect(bp); bp.connect(g); g.connect(ac.destination); o.start(t); o.stop(t + 0.2); if (typeof ambTrack === 'function') ambTrack(o);
+    t += 0.17 + Math.random() * 0.08;
+  }
+}
+function wildChitter() {
+  if (!ac) return;
+  var n = 4 + (Math.random() * 4 | 0), t = ac.currentTime;
+  for (var i = 0; i < n; i++) {
+    var o = ac.createOscillator(); o.type = 'square';
+    var f = 1500 + Math.random() * 900, g = ac.createGain();
+    o.frequency.setValueAtTime(f, t); o.frequency.exponentialRampToValueAtTime(f * 1.3, t + 0.03);
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.02, t + 0.005); g.gain.exponentialRampToValueAtTime(0.0005, t + 0.04);
+    o.connect(g); g.connect(ac.destination); o.start(t); o.stop(t + 0.05); if (typeof ambTrack === 'function') ambTrack(o);
+    t += 0.05 + Math.random() * 0.03;
+  }
+}
+function wildMeow() {
+  if (!ac) return;
+  var t = ac.currentTime, o = ac.createOscillator(); o.type = 'sawtooth';
+  var bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1100; bp.Q.value = 4;
+  var g = ac.createGain();
+  o.frequency.setValueAtTime(560, t); o.frequency.linearRampToValueAtTime(820, t + 0.18); o.frequency.linearRampToValueAtTime(500, t + 0.5);
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.06, t + 0.08); g.gain.setValueAtTime(0.055, t + 0.32); g.gain.exponentialRampToValueAtTime(0.0006, t + 0.55);
+  o.connect(bp); bp.connect(g); g.connect(ac.destination); o.start(t); o.stop(t + 0.58); if (typeof ambTrack === 'function') ambTrack(o);
+}
+function wildPurr() {
+  if (!ac) return;
+  var t = ac.currentTime, dur = 1.4, n = ac.sampleRate * dur | 0, buf = ac.createBuffer(1, n, ac.sampleRate), d = buf.getChannelData(0), last = 0;
+  for (var i = 0; i < n; i++) { var w = Math.random() * 2 - 1; last = (last + 0.08 * w) / 1.08; d[i] = last * (1.6 + Math.sin(i / ac.sampleRate * 2 * Math.PI * 26) * 0.9); }   // ~26 Hz amplitude rumble
+  var src = ac.createBufferSource(); src.buffer = buf;
+  var lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 320;
+  var g = ac.createGain(); g.gain.value = 0.09;
+  src.connect(lp); lp.connect(g); g.connect(ac.destination); src.start(t); src.stop(t + dur); if (typeof ambTrack === 'function') ambTrack(src);
 }
 
 // ---------------- collision ----------------
