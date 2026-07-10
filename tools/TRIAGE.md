@@ -62,14 +62,14 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mreed9ar (-194,21)  smoke/fire: redo as AI sprite sheets (research game VFX)
 
 ## Round 5 — IN-AGENT (round5-vegetation) — trees/palms/bushes/sidewalk-greenery/flies/pizza-sign + task#51 landscaping
-- mreelboe (-70,-115) big green blob shrub — IN-AGENT (round5-vegetation)
+- mreelboe (-70,-115) big green blob shrub — FIXED@v1.66.22 (landscape shrub() was a single flattened icosahedron dome = featureless blob; now a bushy mound of 3-5 overlapping size/rotation-jittered blobs, lead blob lower+wider with lifted satellites. Applies town-wide to every landscape shrub)
 - mredw3ho (237,-175) palm canopy too sparse; want variants — IN-AGENT (round5-vegetation)
 - mree6ten (-276,261) crepe myrtle looks unnatural — IN-AGENT (round5-vegetation)
 - mredt4y2 (151,-143) sidewalk trees need pavement cutouts — IN-AGENT (round5-vegetation)
 - mredxgss (180,-125) bushes on sidewalk (skinnier-sidewalk part logged larger) — IN-AGENT (round5-vegetation)
-- mredznws (98,12) flies smaller + 2-3x count — IN-AGENT (round5-vegetation)
+- mredznws (98,12) flies smaller + 2-3x count — FIXED@v1.66.22 (dumpster fly sprite radius 0.05->0.024, swarm 3->9 with per-fly orbit radius/height/speed/phase so it reads as a buzzing cloud, not a 3-dot ring)
 - mredr84j (52,-120) 2D trashbags look bad — IN-AGENT (round5-vegetation)
-- mree4o24 (-82,148) pizza sign rotates on wrong axis — IN-AGENT (round5-vegetation)
+- mree4o24 (-82,148) pizza sign rotates on wrong axis — FIXED@v1.66.22 (round pizza disc faces +z but spun around Y = edge-on revolving-door that vanished each half-turn. Now the disc is re-centered on a pivot at its own centre and spins about its face-normal Z, so the pizza rotates in-plane like a wheel, always face-on)
 - task#51 finish landscaping: parking-lot islands + residential foundation shrubs + house-front bed placement — IN-AGENT (round5-vegetation)
 
 ## Round 5 — IN-AGENT (round5-features) — quirky vendor/fence/traffic slice

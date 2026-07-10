@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.21';
+var GAME_VERSION = 'v1.66.22';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -7795,17 +7795,24 @@ if (WC_REMAP) (function landscapePass() {
     lbake('ls_hedge', hedgeMat, geo, mtx((ax + bx) / 2, h / 2 + 0.02, (az + bz) / 2, ry, 1, 1, 1));
     landscapeStats.hedge++;
   }
-  // shrub clump: 1-3 flattened blobs, colour by species key
+  // shrub clump: a bushy mound of 3-5 overlapping blobs (a lone flattened dome
+  // read as a featureless "green blob" — report mreelboe). A slightly lower/
+  // wider lead blob + satellites clustered around it and lifted give an organic
+  // rounded silhouette; per-blob scale/rotation jitter breaks the ball look.
   var SHRUB_KEYS = ['dark', 'mid', 'olive'];
   function shrub(x, z, scale, key) {
     // never on asphalt: frontage math near the diagonal junction landed
     // flower beds mid-road (report mrefti0d) — guard at the source
     if (WC_REMAP && !remapPointClear(x, z, 1.0)) return;
     scale = scale || rnd(0.75, 1.25); key = key || pick(SHRUB_KEYS);
-    var n = 1 + (Math.random() * 2.5 | 0);
+    var n = 3 + (Math.random() * 3 | 0);   // 3-5 blobs
     for (var i = 0; i < n; i++) {
-      var r = scale * rnd(0.55, 0.9), ox = n > 1 ? rnd(-scale * 0.5, scale * 0.5) : 0, oz = n > 1 ? rnd(-scale * 0.5, scale * 0.5) : 0;
-      lbake('ls_shrub_' + key, shrubMats[key], USPH, mtx(x + ox, r * 0.72, z + oz, rnd(0, 6.28), r * 2, r * 1.7, r * 2));
+      var lead = i === 0;
+      var r = scale * (lead ? rnd(0.62, 0.84) : rnd(0.38, 0.62));
+      var ang = i / n * 6.28 + rnd(-0.5, 0.5), rad = lead ? scale * rnd(0, 0.14) : scale * rnd(0.26, 0.52);
+      var ox = Math.cos(ang) * rad, oz = Math.sin(ang) * rad;
+      var oy = lead ? r * 0.82 : r * rnd(0.55, 0.98);
+      lbake('ls_shrub_' + key, shrubMats[key], USPH, mtx(x + ox, oy, z + oz, rnd(0, 6.28), r * rnd(1.9, 2.2), r * rnd(1.65, 2.05), r * rnd(1.9, 2.2)));
     }
     landscapeStats.shrub++;
   }
@@ -8550,7 +8557,7 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
     rec.phase = Math.random() * 6.28;
     if (a === 'spin') {
       if (rec.name === 'barber_pole') { rec.spinMesh = mesh; rec.spinSpd = 2.4; }
-      else if (rec.name === 'pizza_sign') { var top = splitMesh(mesh, function (x, y, z) { return y > d[1] * 0.74; }, 0); rec.g.add(top); rec.spinChild = top; rec.spinAxis = 'y'; rec.spinSpd = 1.6; }
+      else if (rec.name === 'pizza_sign') { var top = splitMesh(mesh, function (x, y, z) { return y > d[1] * 0.74; }, 0); top.geometry.computeBoundingBox(); var pcy = (top.geometry.boundingBox.min.y + top.geometry.boundingBox.max.y) / 2; top.geometry.translate(0, -pcy, 0); var ppv = new THREE.Group(); ppv.position.y = pcy; ppv.add(top); rec.g.add(ppv); rec.spinChild = ppv; rec.spinAxis = 'z'; rec.spinSpd = 1.6; }   // round disc faces +z: spin in-plane (about its face-normal) like a wheel, not edge-on around Y
       else { var hy = d[1] * 0.6; var bl = splitMesh(mesh, function (x, y, z) { return y > hy; }, hy); var piv = new THREE.Group(); piv.position.y = hy; piv.add(bl); rec.g.add(piv); rec.spinChild = piv; rec.spinAxis = 'x'; rec.spinSpd = 1.9; }   // windmill blades
     } else if (a === 'wave') {   // flagpole cloth
       var fl = splitMesh(mesh, function (x, y, z) { return y > d[1] * 0.62 && (Math.abs(x) > 0.25 || Math.abs(z) > 0.25); }, 0);
@@ -10778,7 +10785,8 @@ function spawnDumpsterBum(p) {
   sfx('grunt', { x: p.x, z: p.z, range: 32 });
 }
 // ---- dumpster flies (cooldown "readiness" tell) + critter motion ----
-var flyGeo = new THREE.SphereGeometry(0.05, 4, 3), flyMat = new THREE.MeshBasicMaterial({ color: 0x1a1712 });
+var flyGeo = new THREE.SphereGeometry(0.024, 4, 3), flyMat = new THREE.MeshBasicMaterial({ color: 0x1a1712 });
+var FLY_N = 9;   // swarm size (was 3; smaller sprites, ~3x count for a proper cloud)
 function updateScavengeFx(dt) {
   var i, c;
   for (i = critters.length - 1; i >= 0; i--) {
@@ -10793,11 +10801,11 @@ function updateScavengeFx(dt) {
   for (i = 0; i < sp.length; i++) {
     var p = sp[i]; if (p.kind !== 'dumpster') continue;
     var dxp = p.x - player.x, dzp = p.z - player.z, near = dxp * dxp + dzp * dzp < 1600;   // within 40u
-    if (!p.flies) { if (!near) continue; p.flies = []; for (var k = 0; k < 3; k++) { var m = new THREE.Mesh(flyGeo, flyMat); m.visible = false; scene.add(m); p.flies.push(m); } }
+    if (!p.flies) { if (!near) continue; p.flies = []; for (var k = 0; k < FLY_N; k++) { var m = new THREE.Mesh(flyGeo, flyMat); m.visible = false; scene.add(m); p.flies.push({ m: m, rad: 0.28 + Math.random() * 0.5, ph: Math.random() * 6.28, sp: 4.5 + Math.random() * 4, hz: 1.4 + Math.random() * 0.8, hy: 1.5 + Math.random() * 0.55 }); } }
     var ready = T >= p.cd;
     for (var k2 = 0; k2 < p.flies.length; k2++) {
-      var fm = p.flies[k2]; fm.visible = ready && near;
-      if (fm.visible) { var a = T * 6 + k2 * 2.1; fm.position.set(p.x + Math.cos(a) * 0.55, 1.75 + Math.sin(a * 1.7) * 0.22, p.z + Math.sin(a) * 0.55); }
+      var f = p.flies[k2], fm = f.m; fm.visible = ready && near;
+      if (fm.visible) { var a = T * f.sp + f.ph; fm.position.set(p.x + Math.cos(a) * f.rad, f.hy + Math.sin(a * f.hz) * 0.26, p.z + Math.sin(a * 0.9 + f.ph) * f.rad); }
     }
   }
 }
