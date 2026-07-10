@@ -334,7 +334,7 @@
   <div id="bootLabel">warming up the engine…</div>
 </div>
 <script>
-var wcBootDone = 0, WC_BOOT_TOTAL = 44.3;   // ~sum of script MB below
+var wcBootDone = 0, WC_BOOT_TOTAL = 45.2;   // ~sum of script MB below
 function wcTick(w, nextLabel) {
   wcBootDone += w;
   var b = document.getElementById('bootBar');
@@ -378,6 +378,10 @@ function wcTick(w, nextLabel) {
      misc props); placed contextually by the env-props layer in game.js,
      guarded with typeof ENV_PROPS -->
 <script src="envprops.js" onload="wcTick(0.9,'stocking the shelves…')"></script>
+<!-- pedestrian accessory pack (#70): dogs to walk, strollers to push,
+     umbrellas/canes/bags to carry; attached to a fraction of walking NPCs by
+     the accessory layer in game.js, guarded with typeof ACCESS_PROPS -->
+<script src="accessprops.js" onload="wcTick(0.85,'walking the dogs…')"></script>
 <!-- grid-inventory item bank: 45 alpha-PNG pickup icons + item defs; wired by
      the item-inventory layer in game.js, guarded with typeof ITEM_DEFS -->
 <script src="itemicons.js" onload="wcTick(0.2,'building the town…')"></script>

@@ -4853,6 +4853,243 @@ function femFromCfg(cfg) {
   if (cfg.hair === 3 || cfg.hair === 6) return Math.random() < 0.75;   // long / ponytail
   return Math.random() < 0.35;   // ambiguous look: rolled once, stored, consistent for life
 }
+
+// ============================ NPC ACCESSORIES (#70) ============================
+// A fraction of walking pedestrians carry a prop from accessprops.js: a DOG on
+// a leash (trots alongside in world space), a STROLLER/walker pushed in front,
+// or a HANDHELD item (umbrella/cane/bag/cup...) parented to the right hand so it
+// swings with the arm. Decoded EXACTLY like getStreetProp / getEnvProp (int16 p
+// over per-entry q, uint16 uv with the 1-v flip, NearestFilter Lambert map).
+// Purely cosmetic + singleplayer-local: accessories are NEVER entries in `npcs`
+// (so bullets/melee/explosions/cars can never target a walked dog or a baby),
+// NEVER simulated on clients, and NEVER put on the wire — like breakables they
+// stay per-peer. `accessories[]` is the only registry; owners just carry a back
+// pointer `n.acc`. Must sit ABOVE the load-time spawnNPC loop (vars don't hoist).
+var ACCESS_BY_NAME = {};
+if (typeof ACCESS_PROPS !== 'undefined') for (var api = 0; api < ACCESS_PROPS.length; api++) ACCESS_BY_NAME[ACCESS_PROPS[api].n] = ACCESS_PROPS[api];
+var accessories = [];             // active attachment records (local-only)
+var accGeoCache = {}, accTexCache = {};
+var accStats = { attached: 0, byMode: {} };
+// scratch vectors/quats reused every frame — no allocations in the hot loop
+var _accV = new THREE.Vector3(), _accV2 = new THREE.Vector3(), _accQ = new THREE.Quaternion(), _accDir = new THREE.Vector3();
+function accDecodeGeo(e) {
+  if (accGeoCache[e.n]) return accGeoCache[e.n];
+  var qp = new Int16Array(b64Bytes(e.p).buffer), qu = new Uint16Array(b64Bytes(e.u).buffer);
+  var fp = new Float32Array(qp.length), fu = new Float32Array(qu.length);
+  for (var i = 0; i < qp.length; i++) fp[i] = qp[i] / e.q;
+  for (i = 0; i < qu.length; i += 2) { fu[i] = qu[i] / 8192; fu[i + 1] = 1 - qu[i + 1] / 8192; }
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(fp, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(fu, 2));
+  if (e.i) geo.setIndex(new THREE.BufferAttribute(new Uint16Array(b64Bytes(e.i).buffer), 1));   // set BEFORE normals
+  geo.computeVertexNormals();
+  return (accGeoCache[e.n] = geo);
+}
+function accTex(e, variant) {
+  // variant >= 0 -> texVariants[variant] recolor atlas; else the base tex
+  var key = e.n + '_' + (variant >= 0 ? variant : 'b');
+  if (accTexCache[key]) return accTexCache[key];
+  var src = (variant >= 0 && e.texVariants && e.texVariants[variant]) ? e.texVariants[variant] : e.tex;
+  var im = new Image(), tx = new THREE.Texture(im);
+  tx.magFilter = THREE.NearestFilter; tx.minFilter = THREE.NearestFilter; tx.generateMipmaps = false;
+  im.onload = function () { tx.needsUpdate = true; };
+  im.src = src;
+  return (accTexCache[key] = tx);
+}
+// build a fresh Group (one Mesh) for accessory `name`, optional texture variant
+function getAccessory(name, variant) {
+  var e = ACCESS_BY_NAME[name]; if (!e) return null;
+  if (variant === undefined) variant = -1;
+  var g = new THREE.Group();
+  var mesh = new THREE.Mesh(accDecodeGeo(e), lamb({ map: accTex(e, variant), side: THREE.DoubleSide }));
+  g.add(mesh);
+  g.userData.accDims = e.dims; g.userData.accName = name;
+  return g;
+}
+function accVariantCount(name) { var e = ACCESS_BY_NAME[name]; return (e && e.texVariants) ? e.texVariants.length : 0; }
+function accModeFor(e) {
+  if (e.n === 'dog') return 'leash';
+  if (e.cat === 'push') return 'push';    // stroller / walker: in front, hands on bar
+  if (e.cat === 'hold') return 'hand';    // umbrella / cane / bag / cup: in the hand
+  return 'side';                          // wheeled walk items: bicycle / suitcase / wagon
+}
+function listAccessories() {
+  var o = [];
+  for (var i = 0; i < (typeof ACCESS_PROPS !== 'undefined' ? ACCESS_PROPS.length : 0); i++) {
+    var e = ACCESS_PROPS[i];
+    o.push({ n: e.n, cat: e.cat, mode: accModeFor(e), variants: accVariantCount(e.n) });
+  }
+  return o;
+}
+// group-local placement for push (front) / side (beside) modes. The owner group
+// is upright (yaw only), local +z is forward; authored front is -x so a yaw of
+// +PI/2 turns the prop's front to face the owner's forward.
+var ACC_PLACE = {
+  stroller:  { mode: 'push', x: 0,     z: 0.62,  ry: Math.PI / 2 },
+  walker:    { mode: 'push', x: 0,     z: 0.5,   ry: Math.PI / 2 },
+  bicycle:   { mode: 'side', x: 0.5,   z: 0.05,  ry: Math.PI / 2 },
+  suitcase:  { mode: 'side', x: 0.34,  z: -0.42, ry: Math.PI / 2 },
+  wagon:     { mode: 'side', x: 0.0,   z: 0.72,  ry: Math.PI / 2 }
+};
+// right-hand local rest transforms for held items (tuned against the Meshy hand
+// bone frame — forearm hangs down at rest). p = position, r = euler, s = scale.
+var ACC_HAND = {
+  umbrella:      { p: [0.02, 0.02, 0.02],  r: [-1.4, 0, 0],   s: 1 },
+  cane:          { p: [0.0, 0.0, 0.0],     r: [-1.5, 0, 0],   s: 1 },
+  coffee_cup:    { p: [0.03, 0.02, 0.02],  r: [-1.5, 0, 0],   s: 1 },
+  shopping_bags: { p: [0.0, -0.04, 0.0],   r: [-1.5, 0, 0],   s: 1 },
+  skateboard:    { p: [0.0, 0.0, 0.06],    r: [-1.5, 0, 1.2], s: 1 },
+  boombox:       { p: [0.02, 0.0, 0.0],    r: [-1.5, 0, 0],   s: 1 },
+  balloon:       { p: [0.0, 0.0, 0.0],     r: [-1.5, 0, 0],   s: 1 }
+};
+// pick an accessory name for a spawning NPC by rolling a category first, so dogs
+// don't dominate; returns null when the rolled pool is empty.
+var ACC_POOL_WALK = ['dog', 'bicycle', 'suitcase', 'wagon'];
+var ACC_POOL_HOLD = ['umbrella', 'shopping_bags', 'coffee_cup', 'cane', 'skateboard', 'boombox', 'balloon'];
+var ACC_POOL_PUSH = ['stroller', 'walker'];
+function rollAccessoryName() {
+  var r = Math.random();
+  var pool;
+  if (r < 0.42) pool = ACC_POOL_HOLD;         // handhelds most common
+  else if (r < 0.80) pool = ACC_POOL_WALK;    // dogs + wheeled walkers
+  else pool = ACC_POOL_PUSH;                  // strollers/walkers rarer
+  // keep only names that actually exist in the loaded pack
+  var live = [];
+  for (var i = 0; i < pool.length; i++) if (ACCESS_BY_NAME[pool[i]]) live.push(pool[i]);
+  if (!live.length) return null;
+  return live[(Math.random() * live.length) | 0];
+}
+// attach a specific accessory to NPC n (skips if the pack's absent, n already
+// has one, or the hand-mode item can't find a hand bone).
+function attachAccessory(n, name, variant) {
+  if (!n || typeof ACCESS_PROPS === 'undefined' || !ACCESS_BY_NAME[name] || n.acc) return null;
+  var e = ACCESS_BY_NAME[name], mode = accModeFor(e);
+  var vc = accVariantCount(name);
+  if (variant === undefined) variant = vc ? ((Math.random() * vc) | 0) : -1;
+  var g = getAccessory(name, variant); if (!g) return null;
+  var rec = { owner: n, name: name, cat: e.cat, mode: mode, mesh: g, dims: e.dims, variant: variant, phase: Math.random() * 6.28 };
+  if (mode === 'leash') {
+    // dog lives in world space and trots after the owner (kid-style follow)
+    rec.x = n.x; rec.z = n.z; rec.yaw = n.mesh.rotation.y;
+    rec.side = (Math.random() < 0.5 ? 1 : -1) * (0.55 + Math.random() * 0.4);
+    rec.back = 0.35 + Math.random() * 0.3; rec.wob = Math.random() * 6.28;
+    g.position.set(n.x, 0, n.z); scene.add(g);
+    var lm = new THREE.Mesh(accLeashGeo(), accLeashMat());
+    scene.add(lm); rec.leash = lm;
+  } else if (mode === 'hand') {
+    var hand = n.mesh.userData.handR;
+    if (!hand) return null;
+    var h = ACC_HAND[name] || { p: [0, 0, 0], r: [-1.5, 0, 0], s: 1 };
+    g.position.set(h.p[0], h.p[1], h.p[2]);
+    g.rotation.set(h.r[0], h.r[1], h.r[2]);
+    g.scale.setScalar(h.s || 1);
+    if (name === 'balloon') { var str = new THREE.Mesh(accLeashGeo(), accStringMat()); g.userData.balloonStr = str; g.add(str); }
+    hand.add(g);
+  } else {
+    // push / side: ride the owner group at a fixed local offset (auto-follows)
+    var pl = ACC_PLACE[name] || { x: 0.4, z: 0, ry: Math.PI / 2 };
+    g.position.set(pl.x, 0, pl.z);
+    g.rotation.y = pl.ry;
+    n.mesh.add(g);
+  }
+  n.acc = rec; accessories.push(rec);
+  accStats.attached++; accStats.byMode[mode] = (accStats.byMode[mode] || 0) + 1;
+  return rec;
+}
+// roll a dice at NPC spawn: ~18% of pedestrians carry something
+function maybeAttachAccessory(n) {
+  if (typeof ACCESS_PROPS === 'undefined' || !n || n.acc) return;
+  if (Math.random() > 0.18) return;
+  var name = rollAccessoryName();
+  if (name) attachAccessory(n, name);
+}
+// shared thin leash/string cylinder (unit height along +Y, scaled per frame)
+function accLeashGeo() { if (!accGeoCache.__leash) accGeoCache.__leash = new THREE.CylinderGeometry(0.012, 0.012, 1, 4); return accGeoCache.__leash; }
+function accLeashMat() { if (!accTexCache.__leash) accTexCache.__leash = lamb({ color: 0x2e2620 }); return accTexCache.__leash; }
+function accStringMat() { if (!accTexCache.__string) accTexCache.__string = lamb({ color: 0xdddddd }); return accTexCache.__string; }
+// remove & clean up one accessory record (index i into accessories)
+function detachAccessory(a, i) {
+  if (a.mode === 'leash') {
+    if (a.leash && a.leash.parent) a.leash.parent.remove(a.leash);
+    if (a.mesh && a.mesh.parent) a.mesh.parent.remove(a.mesh);   // dog vanishes with a dropped leash
+  } else if (a.mode === 'push' || a.mode === 'side') {
+    // reparent to the world at its current spot so it doesn't spin with the
+    // ragdolling owner — a pushed stroller is left standing where it was
+    if (a.mesh && a.mesh.parent) {
+      a.mesh.getWorldPosition(_accV); a.mesh.getWorldQuaternion(_accQ);
+      a.mesh.parent.remove(a.mesh); scene.add(a.mesh);
+      a.mesh.position.copy(_accV); a.mesh.position.y = 0; a.mesh.quaternion.copy(_accQ);
+    }
+    a.dropped = true;   // now inert scenery; leave it (never re-owned)
+  } else {   // hand: the item drops from the hand and vanishes
+    if (a.mesh && a.mesh.parent) a.mesh.parent.remove(a.mesh);
+  }
+  if (a.owner) a.owner.acc = null;
+  accessories.splice(i, 1);
+}
+// per-frame accessory driver — called from updateNPCs after animPerson has posed
+// every NPC this frame (so hand items ride the freshly-posed arm)
+var _accFace = function (dx, dz) { return Math.atan2(dz, -dx); };   // authored front -x -> world dir
+function updateAccessories(dt) {
+  for (var i = accessories.length - 1; i >= 0; i--) {
+    var a = accessories[i];
+    if (a.dropped) continue;                 // detached scenery, nothing to do
+    var n = a.owner;
+    // owner died / despawned -> graceful detach (dog wanders off, stroller stays)
+    if (!n || n.state === 'ragdoll' || n.state === 'down' || (n.hp !== undefined && n.hp <= 0)) { detachAccessory(a, i); continue; }
+    // owner ducked into a building (temporary) -> hide the accessory, don't drop
+    if (n.state === 'hidden') {
+      if (a.mesh) a.mesh.visible = false;
+      if (a.leash) a.leash.visible = false;
+      continue;
+    }
+    if (a.mesh && !a.mesh.visible) a.mesh.visible = true;
+    if (a.leash && !a.leash.visible) a.leash.visible = true;
+    if (a.mode === 'leash') updateLeashDog(a, n, dt);
+    else if (a.mode === 'push') updatePushAcc(a, n, dt);
+    // hand & side ride their parent transform — no per-frame work needed
+  }
+}
+function updateLeashDog(a, n, dt) {
+  var g = a.mesh;
+  var hy = n.mesh.rotation.y;
+  var fx = Math.sin(hy), fz = Math.cos(hy);       // owner forward
+  var rx = Math.cos(hy), rz = -Math.sin(hy);      // owner right
+  a.wob += dt;
+  // trot target: a little behind + to one side, with a lazy wander wobble
+  var tx = n.x - fx * a.back + rx * a.side + Math.sin(a.wob * 1.7) * 0.18;
+  var tz = n.z - fz * a.back + rz * a.side + Math.cos(a.wob * 1.3) * 0.18;
+  var dx = tx - a.x, dz = tz - a.z, d = Math.sqrt(dx * dx + dz * dz);
+  var spd = Math.min(6.5, Math.max((n.speed || 1.5) + 0.4, d * 3.2));   // catch up when the lead stretches
+  if (d > 0.02) {
+    var mv = Math.min(d, spd * dt);
+    a.x += dx / d * mv; a.z += dz / d * mv;
+    if (mv > 0.004) a.yaw = _accFace(dx, dz);      // face travel direction
+  }
+  var bob = Math.abs(Math.sin(a.wob * 6.5)) * 0.03;   // gentle trot bob
+  g.position.set(a.x, bob, a.z);
+  g.rotation.y = a.yaw;
+  // leash: thin line from the owner's right hand (~0.9m up) to the dog's collar
+  var hxx = n.x + fx * 0.12 + rx * 0.22, hyy = 0.92, hzz = n.z + fz * 0.12 + rz * 0.22;
+  var cfx = Math.sin(a.yaw), cfz = Math.cos(a.yaw);
+  var cxx = a.x - cfx * (a.dims ? a.dims[0] : 0.2), cyy = 0.42, czz = a.z - cfz * (a.dims ? a.dims[0] : 0.2);
+  var lm = a.leash;
+  lm.position.set((hxx + cxx) / 2, (hyy + cyy) / 2, (hzz + czz) / 2);
+  var ldx = cxx - hxx, ldy = cyy - hyy, ldz = czz - hzz;
+  var llen = Math.sqrt(ldx * ldx + ldy * ldy + ldz * ldz) || 0.001;
+  lm.scale.set(1, llen, 1);
+  lm.quaternion.setFromUnitVectors(Y_UP, _accDir.set(ldx / llen, ldy / llen, ldz / llen));
+}
+function updatePushAcc(a, n, dt) {
+  // stroller/walker already rides the owner group; nudge both arms forward so
+  // the hands reach the push bar. animPerson re-poses the arm bones from the
+  // clip every frame, so setting rotation.x here (after the loop) reads as a
+  // steady reach without accumulating.
+  var L = n.mesh.userData.limbs; if (!L) return;
+  if (L.armL) L.armL.rotation.x = -0.9;
+  if (L.armR) L.armR.rotation.x = -0.9;
+}
+
 function spawnNPC() {
   var cfg = randomCharConfig();
   // pedestrians always wear the Meshy roster — the old blocky PSX bodies
@@ -4873,7 +5110,7 @@ function spawnNPC() {
   var n = { mesh: mesh, x: 0, z: 0, tx: 0, tz: 0, hp: 100, state: 'walk', speed: 1.5 + Math.random() * 1.1, phase: Math.random() * 9, pause: 0, fleeT: 0, fleeDX: 0, fleeDZ: 0, downT: 0, hurtFlash: 0, vname: meshyNameFromCfg(cfg), fem: femFromCfg(cfg) };
   assignNpcHome(n);
   mesh.position.set(n.x, 0, n.z); mesh.userData.npc = n;
-  scene.add(mesh); npcs.push(n); setNpcTarget(n); return n;
+  scene.add(mesh); npcs.push(n); setNpcTarget(n); maybeAttachAccessory(n); return n;
 }
 for (var ni = 0; ni < NPC_COUNT; ni++) spawnNPC();
 
@@ -8856,7 +9093,7 @@ function npcChatLine(n, cat) {
   return false;
 }
 function updateNPCs(dt) {
-  if (isClient()) { updateNPCExtras(); return; }   // npcs mirrored from host snapshot
+  if (isClient()) { updateNPCExtras(); updateAccessories(dt); return; }   // npcs mirrored from host snapshot; accessories still ride them locally
   // sample car velocities (player/remote-driven cars have no analytic speed —
   // approximate from last frame's position delta, same idea as _bx/_bz in
   // updateWorldFx but sampled here so the delta isn't already consumed)
@@ -9172,6 +9409,7 @@ function updateNPCs(dt) {
     if (!animSkip) animPerson(m, spd, dt, n.phase);
   }
   updateNPCExtras();
+  updateAccessories(dt);
 }
 var handsUpQ = new THREE.Quaternion();
 var X_AXIS = new THREE.Vector3(1, 0, 0);
@@ -13483,6 +13721,25 @@ window.__wc = {
   playOnline: playOnline, becomeHost: becomeHost,
   buildIceConfig: buildIceConfig, hmacSha1B64: hmacSha1B64,
   buildCharacter: buildCharacter, randomCharConfig: randomCharConfig, buildMeshySkinned: buildMeshySkinned,
+  // NPC accessories (#70) — local-only cosmetic props on a fraction of walkers
+  listAccessories: listAccessories, accessories: function () { return accessories; }, accStats: function () { return accStats; },
+  getAccessory: getAccessory, attachAccessory: attachAccessory,
+  spawnAccessoryNpc: function (cat) {
+    // spawn a walking NPC near the player and force-attach an accessory. `cat`
+    // may be an exact accessory name (e.g. 'dog') or a category (walk|push|hold)
+    var n = spawnNPC();
+    if (n.acc) { detachAccessory(n.acc, accessories.indexOf(n.acc)); }
+    var name = cat;
+    if (!ACCESS_BY_NAME[name]) {
+      var pool = cat === 'push' ? ACC_POOL_PUSH : cat === 'hold' ? ACC_POOL_HOLD : cat === 'walk' ? ACC_POOL_WALK : null;
+      if (pool) { var live = []; for (var i = 0; i < pool.length; i++) if (ACCESS_BY_NAME[pool[i]]) live.push(pool[i]); name = live[(Math.random() * live.length) | 0]; }
+      else name = rollAccessoryName();
+    }
+    n.x = player.x + (Math.random() - 0.5) * 6; n.z = player.z + 4 + Math.random() * 3;
+    n.tx = n.x; n.tz = n.z + 20; n.state = 'walk'; n.mesh.position.set(n.x, 0, n.z);
+    if (name) attachAccessory(n, name);
+    return { npc: n, acc: n.acc, name: name };
+  },
   sendChat: sendChat, attachHeldGun: attachHeldGun, addChatMsg: addChatMsg, updateNpcTags: updateNpcTags, npcTagPool: function () { return npcTagPool; },
   voiceStart: voiceStart, voiceStop: voiceStop, voiceState: function () { return { on: voice.on, play: voicePlay }; },
   openBug: openBug, closeBug: closeBug, submitBug: submitBug, bugServerUrl: bugServerUrl,
