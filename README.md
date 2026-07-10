@@ -109,6 +109,11 @@ pedestrians leave a trail of blood drips that slows and clots; kills
 leave real blood pools on the pavement. Only the ambient bed — wind,
 rain — is everywhere at once.
 
+Your own feet make noise too: footsteps play in time with your stride and
+change with the ground underfoot — a dull thud on asphalt, a harder click
+on the sidewalk, a soft scuff on grass, a wet splash through the lake
+shallows, and a hollow tap indoors. They speed up when you sprint.
+
 Engines got real too: every car runs a layered synth with gears — revs
 climb as it accelerates, drop on each upshift, and settle to a low
 idle rumble at a stop. Your own stolen ride is louder and richer, and
@@ -212,10 +217,34 @@ the dog slips away, a pushed stroller is just left standing where it was, and
 a carried item falls from the hand. (All of this is local colour — it isn't
 streamed over the network, so it stays smooth without adding traffic.)
 
+## Wildlife
+
+The suburb is alive with small critters — the visible source of the birdsong
+and nature sounds drifting over the neighbourhood:
+
+- **Ground birds** (pigeons, sparrows, robins) peck and hop on the sidewalks
+  and parking lots. Walk up on one, or drive a car past, and the flock
+  **flutters up and flies off** to resettle somewhere quieter — with a real
+  wing-flutter and the occasional chirp.
+- **Ducks** paddle around the **lake**, drifting between spots on the water,
+  bobbing and dipping their heads, with a soft quack now and then.
+- **Squirrels** scurry on the ground around the big **oaks**. Get close and one
+  **darts up the nearest trunk** and freezes, clinging, until you back off — then
+  it climbs back down.
+- **Stray cats** amble along the sidewalks and yards. They're **skittish** — move
+  in too fast and one bolts a short way — but approach gently and you can press
+  **[E] to pet it**: a meow, a purr, and a little heart. Wholesome.
+
+Like the kids and dogs, **every critter is off-limits** — weapons, cars and
+blasts pass right through, and they never count toward your wanted level. It's
+all local colour (not streamed in multiplayer), and only a small handful stay
+active near you at a time, so it never costs the framerate.
+
 ## The loop
 
-You spawn **with no gun**. Punch pedestrians (they drop cash), pick up the
-green bills, then find the **gold $ on the minimap** — that's the dealer at
+You spawn **with no gun**. Punch pedestrians (they drop cash) — just walk
+near the green bills and you scoop them up automatically — then find the
+**gold $ on the minimap** — that's the dealer at
 Westchase Guns & Ammo. He sells three guns:
 
 | Weapon | Price | Notes |
@@ -225,6 +254,11 @@ Westchase Guns & Ammo. He sells three guns:
 | Rifle  | $600  | one shot, one nap — right-click to scope |
 | AK-47  | $1000 | full-auto, long range, accurate |
 | Rocket launcher | $2000 | 5s reload; the blast doesn't care whose side you're on |
+
+Each weapon carries its own **crosshair**: a tight cross-and-dot for the
+pistol, a wider spread for the SMG and AK (it blooms open as you spray), a
+fine cross for the scoped rifle (which vanishes at the scope), corner
+brackets for the rocket launcher, and a boxed reticle for alien tech.
 
 Die and you drop every gun you own — run back within 2 minutes to grab
 them off the pavement. Picking up a gun you already own sells it for half
@@ -419,6 +453,23 @@ Five more storefronts open the same way — press **E** at the door:
 Each has its own themed staff and props. Like the others, these interiors are
 personal (never shared in multiplayer).
 
+## The shops are alive
+
+Every one of the six interiors now bustles with **fellow shoppers**. They
+wander in through the door, browse the aisles and cases, then **line up
+single-file at a checkout** — picking the shortest lane when there's more
+than one (Publix has four, the bank two). The front shopper is rung up (a
+quick beat and a register **ka-ching**), the line shuffles forward, and they
+head out the door; a fresh trickle of customers replaces them, so a store is
+never empty and never overcrowded. Browsing shoppers will **stop a staffer to
+ask a question** ("which aisle is that in?" — the staffer answers back), and
+idle staff **trade shop-talk** between themselves, all in their real voices.
+Walk up and press **E** on a customer for a bit of banter of your own.
+
+And they're only human — **draw a weapon inside and the whole store panics**,
+dropping everything to bolt for the door. (Kids who wander in are always
+off-limits.) All of this is personal and local, like the interiors themselves.
+
 ## Wanted system
 
 Crimes earn GTA-style stars (max 5, shown top-center), and each star costs
@@ -592,17 +643,33 @@ dry land, which makes the water a decent (slow) escape route.
 ## Weather & time
 
 Day fades into properly dark night on a cycle; street lights along the
-roads and parking lots switch on automatically. Rain rolls in at random —
-grey skies by day, pitch black at night — with rain that lands on roofs
-and streets (splashes included) and its own sound. A quiet ambient noise
-bed runs under everything.
+roads and parking lots switch on automatically, each casting a soft warm
+pool of light on the asphalt below. After dark the town reads as lived-in:
+windows glow warm in a scattered, inhabited pattern across the buildings,
+and the storefront and venue signs (RaceTrac, Publix, Dollar Tree and the
+rest) pick up a warm neon backglow. All of it is gated to night and fades
+away by morning. Rain rolls in at random —
+grey skies by day, pitch black at night — and now comes in different
+strengths, from a light drizzle to a heavy downpour, each with matching
+rain density, sound, and haze. Overcast spells drift through on their own,
+softening the sky, and once a heavier rain clears on a bright day you might
+catch a faint rainbow arc over the intersection.
+
+The town also has its own soundscape that shifts with the clock: gentle
+birdsong and a soft suburban hum by day, a cicada/cricket shimmer at night,
+plus the occasional far-off dog bark, passing car, or fluttering bird — all
+kept low and sparse so it stays background ambience. Everything runs under
+the same quiet noise bed as before, and the SFX volume slider controls it.
 
 ## Controls
 
 - **WASD** — move, **Shift** — run, **Space** — jump, **Mouse** — look
 - **Left click** — punch / shoot
 - **Scroll wheel** — quick-swap to your next / previous weapon
+- **`[` / `]`** — zoom the minimap out / in (WIDE / NORMAL / CLOSE); **Ctrl+scroll**
+  does the same. Your choice is remembered between sessions.
 - **E** — talk to the dealer (when close)
+- **H** — honk the horn (while driving)
 - **Tab** — inventory: equip/unequip weapons + your 6×4 item grid (click an
   item to use it, right-click or **Q** to drop one)
 - **J** — quest log (see your active quest, all beats, and set which quest
@@ -615,6 +682,19 @@ bed runs under everything.
 - **F8** — report a bug (grabs a screenshot + your note, sent for triage)
 - **Esc** — release mouse / close menus
 
+## Minimap
+
+The bordered map in the top-right is fixed-north (an **N** sits at the top edge)
+and your marker is a **heading arrow** that turns as you look around. Named
+venues show as colour-coded blips with short labels — **RT** RaceTrac, **PUB**
+Publix, **DD** Dunkin, **SB** Starbucks, **BK** banks, **RX** pharmacy, **SU**
+sushi, **SCH** the school, **DT** Dollar Tree — plus the **LAKE** and a crosshair
+on the main intersection. Live blips overlay the map: cars (amber), pedestrians
+(white), cops (blue), other players (green), cash (green), dropped weapons
+(magenta), and your active quest waypoint (blinking amber). Zoom with **`[` / `]`**
+(or Ctrl+scroll): the WIDE level shows the whole town, and NORMAL / CLOSE scale in
+and follow you for detail work.
+
 ## Settings
 
 Hit **SETTINGS** on the main menu — or open it from the pause screen mid-game —
@@ -622,7 +702,8 @@ to tune the game to your taste. Everything applies live and saves automatically
 (stored in your browser), so it's the way you left it next time:
 
 - **Mouse sensitivity** and **Invert Look Y** — dial in your aim.
-- **Field of view** — 70–100°, wider if you like more on screen.
+- **Field of view** — 70–100°, wider if you like more on screen. Sprinting
+  eases the view a few degrees wider for a sense of speed, then settles back.
 - **Master / SFX / Voice volume** — three sliders. Master scales everything;
   SFX covers world and UI sounds; Voice controls the characters' dialogue.
 - **Draw distance** — Low / Medium / High. Higher pushes the fog back for a
@@ -637,6 +718,19 @@ Old-timers at the Dunkin swear that folks who get *seriously* rich around
 here start seeing strange lights over town. They also swear it only ever
 happens once — and that whatever falls out of the sky belongs to whoever
 gets to it first, not to whoever made it show up. Probably nothing.
+
+The same regulars will tell you the town keeps a few smaller secrets, too.
+Somebody's been tucking little **gold glints** away in the parts of town
+nobody looks twice at — round the *backs* of the big stores, down a service
+alley, out where the tree line closes in, along the far shore. Walk close
+enough to one and it's yours. Nobody's ever found them all in one afternoon.
+
+And if you're the sort who remembers *old* secrets — the kind you'd punch
+into a controller, up and down and left and right, a couple of letters to
+finish — well. Try it standing still sometime and see what falls out of the
+air. Every so often, if you're just wandering, you might also catch a stray
+knot of **party balloons** that got away from somebody, drifting up over the
+rooftops and gone. Wave if you see them.
 
 ## Notes
 

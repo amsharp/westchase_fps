@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.32';
+var GAME_VERSION = 'v1.66.57';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -326,12 +326,18 @@ var oakBarkT = tex(64, function (g, s) {
 var PASTELS = ['#f2e3c6', '#f7d9b0', '#eec4b4', '#f5eed8', '#e6d7ae', '#f0cfa0', '#dfe4d0'];
 
 function stucco(g, s, base) { g.fillStyle = base; g.fillRect(0, 0, s, s); noise(g, s, 700, 0.05, 0.06); }
+// deterministic string -> 32-bit seed (FNV-1a). Used to seed the per-facade
+// lit-window pattern so the "which windows are lit at night" choice is STABLE
+// across page loads (was Math.random() at texture-build time — non-deterministic).
+function strHash(s) { var h = 2166136261 >>> 0; for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; } return h >>> 0; }
 var facadeCache = {};
 function facadeTex(base, w, h, withDoor) {
   var rows = Math.max(1, Math.min(6, Math.round(h / 3)));
   var cols = Math.max(2, Math.min(6, Math.round(w / 4)));
   var key = base + '_' + rows + '_' + cols + '_' + (withDoor ? 1 : 0);
   if (facadeCache[key]) return facadeCache[key];
+  // seeded per-facade stream (keyed by the cache key) — stable lit-window pattern
+  var rng = seededRng(strHash(key));
   var c = document.createElement('canvas'); c.width = c.height = 256;
   var g = c.getContext('2d');
   stucco(g, 256, base);
@@ -354,7 +360,7 @@ function facadeTex(base, w, h, withDoor) {
       continue;
     }
     g.fillStyle = '#ddd6c4'; g.fillRect(x - 2.5, y - 2.5, ww + 5, hh + 5);
-    var lit = Math.random() < 0.1;
+    var lit = rng() < 0.1;
     var gr = g.createLinearGradient(0, y, 0, y + hh);
     if (lit) { gr.addColorStop(0, '#ffe9b0'); gr.addColorStop(1, '#cf9d48'); }
     else { gr.addColorStop(0, '#a9c6da'); gr.addColorStop(0.5, '#63809a'); gr.addColorStop(1, '#3c4c5e'); }
@@ -362,7 +368,7 @@ function facadeTex(base, w, h, withDoor) {
     if (!lit) { g.strokeStyle = 'rgba(255,255,255,0.3)'; g.lineWidth = 2.5; g.beginPath(); g.moveTo(x + ww * 0.18, y + hh); g.lineTo(x + ww * 0.62, y); g.stroke(); }
     g.fillStyle = 'rgba(35,40,46,0.85)'; g.fillRect(x + ww / 2 - 1, y, 2, hh); g.fillRect(x, y + hh / 2 - 1, ww, 2);
     // ~38% of windows are lit warm at night; the rest a faint cool (dark room)
-    if (Math.random() < 0.38) { var eg = ge.createLinearGradient(0, y, 0, y + hh); eg.addColorStop(0, '#fff0c6'); eg.addColorStop(1, '#e2b465'); ge.fillStyle = eg; }
+    if (rng() < 0.38) { var eg = ge.createLinearGradient(0, y, 0, y + hh); eg.addColorStop(0, '#fff0c6'); eg.addColorStop(1, '#e2b465'); ge.fillStyle = eg; }
     else ge.fillStyle = '#16283e';
     ge.fillRect(x, y, ww, hh);
   }
@@ -371,6 +377,7 @@ function facadeTex(base, w, h, withDoor) {
   facadeCache[key] = t; return t;
 }
 function storefrontTex(base) {
+  var rng = seededRng(strHash('sf_' + base));   // stable lit-bay pattern across loads
   var c = document.createElement('canvas'); c.width = c.height = 256;
   var g = c.getContext('2d');
   stucco(g, 256, base);
@@ -381,7 +388,7 @@ function storefrontTex(base) {
     var gr = g.createLinearGradient(0, y0, 0, 248);
     gr.addColorStop(0, '#b8d2e2'); gr.addColorStop(0.4, '#6d8aa2'); gr.addColorStop(1, '#2e3d4c');
     g.fillStyle = gr; g.fillRect(x, y0 + 6, 38, 256 - y0 - 24);
-    if (Math.random() < 0.5) {
+    if (rng() < 0.5) {
       var ig = g.createRadialGradient(x + 19, 190, 4, x + 19, 190, 26);
       ig.addColorStop(0, 'rgba(255,220,150,0.5)'); ig.addColorStop(1, 'rgba(255,220,150,0)');
       g.fillStyle = ig; g.fillRect(x, y0 + 6, 38, 256 - y0 - 24);
@@ -775,10 +782,35 @@ var zebraT = (function () {
 })();
 
 // ---------------- signs & generic buildings ----------------
-function signPlane(x, y, z, ry, w, h, lines, bg, fg) {
+// warm night backglow for storefront/venue signage: a soft additive halo that
+// ramps in after dark (wcNightGlow, driven in updateEnv) so lit signs read as a
+// warm neon glow at night and stay invisible by day. One shared halo texture;
+// each halo is a single quad drawn only at night. Perimeter ROAD CLOSED barrier
+// signs opt out via noGlow.
+var signHaloT = (function () {
+  var c = document.createElement('canvas'); c.width = c.height = 64;
+  var g = c.getContext('2d');
+  var gr = g.createRadialGradient(32, 32, 1, 32, 32, 32);
+  gr.addColorStop(0, 'rgba(255,226,150,0.55)'); gr.addColorStop(0.5, 'rgba(255,206,120,0.30)'); gr.addColorStop(1, 'rgba(255,200,110,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+  var t = new THREE.CanvasTexture(c); t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter; t.generateMipmaps = false;
+  return t;
+})();
+var signGlows = [];
+function addSignGlow(x, y, z, ry, w, h) {
+  var hm = new THREE.Mesh(new THREE.PlaneGeometry(w * 1.6, h * 2.6),
+    new THREE.MeshBasicMaterial({ map: signHaloT, color: 0xffdc9a, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
+  var nx = Math.sin(ry), nz = Math.cos(ry);       // nudge just in front of the sign face
+  hm.position.set(x + nx * 0.05, y, z + nz * 0.05); hm.rotation.y = ry;
+  hm.visible = false; scene.add(hm); signGlows.push(hm);
+  return hm;
+}
+function signPlane(x, y, z, ry, w, h, lines, bg, fg, noGlow) {
   var m = new THREE.Mesh(new THREE.PlaneGeometry(w, h),
     new THREE.MeshBasicMaterial({ map: signTex(lines, bg, fg), side: THREE.DoubleSide }));
-  m.position.set(x, y, z); m.rotation.y = ry; scene.add(m); return m;
+  m.position.set(x, y, z); m.rotation.y = ry; scene.add(m);
+  if (!noGlow) addSignGlow(x, y, z, ry, w, h);
+  return m;
 }
 // AI PUBLIX wordmark strip (publixsign.js), repeat-tiled so each instance keeps
 // its natural aspect on a wide banner instead of the old stretched/cut-off text
@@ -793,7 +825,9 @@ function publixSign(x, y, z, ry, w, h) {
   im.onload = function () { tx.needsUpdate = true; };
   im.src = PUBLIX_SIGN;
   var m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: tx, side: THREE.DoubleSide }));
-  m.position.set(x, y, z); m.rotation.y = ry; m.name = 'publixSign'; scene.add(m); return m;
+  m.position.set(x, y, z); m.rotation.y = ry; m.name = 'publixSign'; scene.add(m);
+  addSignGlow(x, y, z, ry, w, h);
+  return m;
 }
 function parapetM(color) { return lamb({ color: new THREE.Color(color).multiplyScalar(0.85) }); }
 
@@ -880,25 +914,91 @@ function stripMall(x, z, w, names) {
 }
 
 // ---------------- specific landmarks ----------------
+// RaceTrac (bug mreepojo "half ass gas station"): the town's signature gas
+// station. Built local-space (venue system rotates/places it); local -z faces
+// the road. A proper branded canopy over a curbed 3-island forecourt with
+// detailed dispensers + bollards, a monument price sign, and forecourt
+// amenities so it reads as a complete station, not a bare slab + two boxes.
+var RT_RED = 0xd0202f;
+var gasFasciaCache = null;
+function gasFasciaTex() {
+  if (gasFasciaCache) return gasFasciaCache;
+  return gasFasciaCache = tex(128, function (g, s) {
+    g.fillStyle = '#d0202f'; g.fillRect(0, 0, s, s);
+    g.fillStyle = 'rgba(0,0,0,0.14)'; g.fillRect(0, 0, s, s * 0.12); g.fillRect(0, s * 0.88, s, s * 0.12);
+    g.fillStyle = '#ffffff'; g.font = 'bold ' + (s * 0.34) + 'px sans-serif';
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText('RaceTrac', s / 2, s / 2);
+  }, 4, 1);
+}
 function gasStation(x, z) {
   // convenience store (robbable), front faces north (-z) toward the road
   shop(x + 6, z, 16, 13, 5, '#e8e4da', ['RACETRAC'], '#c0392b', '#ffd94a', { face: -1, mmColor: '#e05a3a' });
-  // fuel canopy toward road/west
-  var cw = 20, cd = 13, cy = 5.6;
-  scene.add(box(cw, 0.7, cd, lamb({ color: 0xe8e2d0 }), x - 8, cy, z));
-  scene.add(box(cw, 0.5, 0.6, lamb({ color: 0xc0392b }), x - 8, cy - 0.55, z - cd / 2));
-  scene.add(box(cw, 0.5, 0.6, lamb({ color: 0xc0392b }), x - 8, cy - 0.55, z + cd / 2));
-  var poleM = lamb({ color: 0xb8b2a4 });
-  [[x - 16, z - 4], [x, z - 4], [x - 16, z + 4], [x, z + 4]].forEach(function (p) { scene.add(cyl(0.25, 0.25, cy, 8, poleM, p[0], cy / 2, p[1])); });
-  // pump islands
-  [[x - 12, z], [x - 4, z]].forEach(function (p) {
-    scene.add(box(3.2, 0.3, 1.4, lamb({ color: 0x555b60 }), p[0], 0.25, p[1]));
-    scene.add(box(0.9, 1.3, 0.9, lamb({ color: 0xcc3b2b }), p[0] - 0.7, 0.95, p[1]));
-    scene.add(box(0.9, 1.3, 0.9, lamb({ color: 0xcc3b2b }), p[0] + 0.7, 0.95, p[1]));
+  var concM = lamb({ color: 0xcfccc2 }), curbM = lamb({ color: 0xdedbd2 });
+  var poleM = lamb({ color: 0xb8b2a4 }), redM = lamb({ color: RT_RED });
+  var dispM = lamb({ color: 0x3a3d42 }), faceM = lamb({ color: 0xd8dcde }), screenM = lamb({ color: 0x0d1418 });
+  var soffitM = lamb({ color: 0xf3f1ea }), hoseM = lamb({ color: 0x2a2a2a }), boltM = lamb({ color: 0xe6b800 });
+  var fasciaM = lamb({ map: gasFasciaTex() });
+  var cx = x - 8, cw = 22, cd = 14, cy = 6.0;                     // canopy centre/size
+  // light concrete forecourt pad under the canopy (reads as a real pump court)
+  scene.add(box(cw + 3, 0.09, cd + 2.5, concM, cx, 0.13, z));
+  // canopy: white soffit + roof slab + branded red fascia band on all 4 sides
+  scene.add(box(cw, 0.55, cd, soffitM, cx, cy, z));               // roof slab
+  scene.add(box(cw - 1.2, 0.12, cd - 1.2, soffitM, cx, cy - 0.34, z)); // bright soffit underside
+  scene.add(box(cw + 0.2, 0.78, 0.5, fasciaM, cx, cy - 0.25, z - cd / 2 - 0.02));
+  scene.add(box(cw + 0.2, 0.78, 0.5, fasciaM, cx, cy - 0.25, z + cd / 2 + 0.02));
+  var fsE = box(0.5, 0.78, cd + 0.2, fasciaM, cx - cw / 2 - 0.02, cy - 0.25, z); scene.add(fsE);
+  var fsW = box(0.5, 0.78, cd + 0.2, fasciaM, cx + cw / 2 + 0.02, cy - 0.25, z); scene.add(fsW);
+  // recessed light panels on the soffit
+  var litM = lamb({ color: 0xfffef2 });
+  for (var li = -1; li <= 1; li++) scene.add(box(cw - 3, 0.05, 0.7, litM, cx, cy - 0.41, z + li * 3.6));
+  // 4 sturdy canopy columns with red bases
+  [[cx - cw / 2 + 1.5, z - 5], [cx + cw / 2 - 1.5, z - 5], [cx - cw / 2 + 1.5, z + 5], [cx + cw / 2 - 1.5, z + 5]].forEach(function (p) {
+    scene.add(cyl(0.32, 0.32, cy - 0.3, 10, poleM, p[0], (cy - 0.3) / 2, p[1]));
+    scene.add(cyl(0.42, 0.5, 0.9, 10, redM, p[0], 0.45, p[1]));
   });
-  // tall price sign at road
-  scene.add(cyl(0.2, 0.2, 6, 6, poleM, x - 17, 3, z + 5));
-  signPlane(x - 17, 6.4, z + 5, 0, 3.2, 2, ['GAS', '$3.29'], '#12508f', '#ffd94a');
+  // one detailed fuel dispenser (body + display face + screen + red topper + hose)
+  function dispenser(dx, dz, ry) {
+    var g = new THREE.Group();
+    g.add(box(0.85, 1.55, 1.05, dispM, 0, 0.9, 0));
+    g.add(box(0.7, 1.15, 0.06, faceM, 0, 1.0, 0.56));            // display face front
+    g.add(box(0.7, 1.15, 0.06, faceM, 0, 1.0, -0.56));           // display face back
+    g.add(box(0.46, 0.34, 0.08, screenM, 0, 1.32, 0.58));        // price screen
+    g.add(box(0.46, 0.34, 0.08, screenM, 0, 1.32, -0.58));
+    g.add(box(0.95, 0.26, 1.12, redM, 0, 1.78, 0));              // red brand topper
+    g.add(cyl(0.05, 0.05, 0.55, 5, hoseM, 0.5, 1.0, 0.2));       // nozzle holster/hose
+    g.position.set(dx, 0, dz); g.rotation.y = ry || 0; scene.add(g);
+  }
+  // 3 curbed pump islands, 2 dispensers each, bollards at the ends. Each island
+  // gets a collider so the pumps read as solid (you route around them, not
+  // through) — matches the raised curb footprint, inset a touch so the player's
+  // body radius doesn't snag the kerb edge. (placeVenueData captures + rotates
+  // these into the venue's world OBB.)
+  [cx - 6.5, cx, cx + 6.5].forEach(function (ix) {
+    scene.add(box(2.0, 0.22, 5.4, curbM, ix, 0.24, z));          // raised safety island
+    dispenser(ix, z - 1.4, 0); dispenser(ix, z + 1.4, Math.PI);
+    scene.add(cyl(0.12, 0.14, 0.85, 8, boltM, ix, 0.42, z - 2.5)); // end bollards
+    scene.add(cyl(0.12, 0.14, 0.85, 8, boltM, ix, 0.42, z + 2.5));
+    addCollider(ix, z, 1.8, 5.0);                                 // solid pump island
+  });
+  // monument price sign at the road corner (pole + red brand cabinet + prices)
+  var sx = cx - cw / 2 - 3, sz = z + cd / 2 + 1;
+  scene.add(box(0.9, 6.2, 0.5, poleM, sx, 3.1, sz));
+  scene.add(box(3.6, 1.7, 0.7, redM, sx, 6.3, sz));               // brand cabinet
+  signPlane(sx, 6.3, sz + 0.38, 0, 3.2, 1.4, ['RaceTrac'], '#d0202f', '#ffffff');
+  signPlane(sx, 6.3, sz - 0.38, Math.PI, 3.2, 1.4, ['RaceTrac'], '#d0202f', '#ffffff');
+  scene.add(box(3.4, 2.5, 0.5, lamb({ color: 0x14243a }), sx, 4.2, sz));  // price panel body
+  signPlane(sx, 4.2, sz + 0.28, 0, 3.0, 2.2, ['REG 3.29', 'PLUS 3.59', 'PREM 3.89'], '#14243a', '#ffd94a');
+  signPlane(sx, 4.2, sz - 0.28, Math.PI, 3.0, 2.2, ['REG 3.29', 'PLUS 3.59', 'PREM 3.89'], '#14243a', '#ffd94a');
+  addCollider(sx, sz, 1.2, 1.2);
+  // forecourt amenities against the store front: air/water, ice box, trash, propane
+  var afx = x + 6, afz = z - 7.2;                                 // store front line
+  var airM = lamb({ color: 0xe23b2e }), iceM = lamb({ color: 0xf2f2f2 }), binM = lamb({ color: 0x2e6b3a });
+  scene.add(box(0.7, 1.4, 0.8, airM, afx - 6, 0.7, afz)); scene.add(box(0.75, 0.4, 0.85, screenM, afx - 6, 1.5, afz)); // air machine
+  var iceB = box(1.6, 1.3, 1.0, iceM, afx - 3.6, 0.65, afz); scene.add(iceB); signPlane(afx - 3.6, 0.75, afz - 0.51, Math.PI, 1.3, 0.6, ['ICE'], '#2f6fb0', '#ffffff'); // ice merchandiser
+  scene.add(box(0.7, 0.9, 0.7, binM, afx + 3.6, 0.5, afz));       // trash can
+  scene.add(cyl(0.5, 0.5, 1.3, 8, lamb({ color: 0xd8b23a }), afx + 5.4, 0.75, afz)); // propane exchange cage
+  addCollider(afx - 6, afz, 1.0, 1.0); addCollider(afx - 3.6, afz, 1.8, 1.2);
 }
 
 // self-storage: rows of roll-up doors under low gray standing-seam metal gable
@@ -1411,7 +1511,7 @@ function roadblock(x, z, w, d) {
     scene.add(b);
   }
   addCollider(x, z, w, d);
-  signPlane(x, 2.2, z + (horizontal ? (z < 0 ? 1.5 : -1.5) : 0), horizontal ? 0 : Math.PI / 2, 6, 1.6, ['ROAD', 'CLOSED'], '#b03018', '#ffffff');
+  signPlane(x, 2.2, z + (horizontal ? (z < 0 ? 1.5 : -1.5) : 0), horizontal ? 0 : Math.PI / 2, 6, 1.6, ['ROAD', 'CLOSED'], '#b03018', '#ffffff', true);
 }
 (function roadblocks() {
   if (WC_REMAP) return;   // remapPerimeter places rotated barriers at the 6 true exits
@@ -2498,6 +2598,25 @@ function onSidewalk(x, z) {
   }
   return false;
 }
+// true when (x,z) sits on the paved carriageway of any true road (within its
+// half-width). Used by footSurface for the asphalt timbre.
+function onRoad(x, z) {
+  if (typeof REMAP_ROADS === 'undefined') return false;
+  for (var i = 0; i < REMAP_ROADS.length; i++) {
+    var r = REMAP_ROADS[i]; if (r.cls > 2) continue;
+    var lim = r.hw + 0.4, pts = r.pts;
+    for (var j = 0; j < pts.length - 1; j++) {
+      var ax = pts[j][0], az = pts[j][1], bx = pts[j + 1][0], bz = pts[j + 1][1];
+      if (x < (ax < bx ? ax : bx) - lim || x > (ax > bx ? ax : bx) + lim ||
+          z < (az < bz ? az : bz) - lim || z > (az > bz ? az : bz) + lim) continue;
+      var dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz || 1;
+      var t = ((x - ax) * dx + (z - az) * dz) / L2; t = t < 0 ? 0 : (t > 1 ? 1 : t);
+      var px = ax + dx * t - x, pz = az + dz * t - z;
+      if (px * px + pz * pz <= lim * lim) return true;
+    }
+  }
+  return false;
+}
 // true when the axis rect keeps `pad` clearance from every true road
 // (segments sampled every 4u — load-time checks only)
 function remapRectClear(x0, x1, z0, z1, pad) {
@@ -2917,7 +3036,7 @@ function remapBarrier(e) {
     scene.add(b);
   }
   addColliderOBB(bx, bz, half, 0.8, yaw);
-  signPlane(bx + e.dx * 1.2, 2.2, bz + e.dz * 1.2, Math.atan2(e.dx, e.dz), 6, 1.6, ['ROAD', 'CLOSED'], '#b03018', '#ffffff');
+  signPlane(bx + e.dx * 1.2, 2.2, bz + e.dz * 1.2, Math.atan2(e.dx, e.dz), 6, 1.6, ['ROAD', 'CLOSED'], '#b03018', '#ffffff', true);
 }
 
 // ---- streetlight rows along the true arterials/collectors ----
@@ -3915,6 +4034,17 @@ function carHorn(c, angry) {
   beep(f, angry ? 0.5 : 0.26, g, 'sawtooth'); beep(f * 1.5, angry ? 0.5 : 0.26, g * 0.5, 'square');   // beep() self-guards when audio is off
   if (angry) setTimeout(function () { beep(f, 0.34, g, 'sawtooth'); beep(f * 1.5, 0.34, g * 0.5, 'square'); }, 240);
 }
+// ---- player horn (#47): H honks the car you're driving. Bypasses the traffic
+// anti-cacophony/per-car gaps (you're in control) but keeps its own short
+// cooldown so leaning on the key doesn't machine-gun the tone. 2D/player-sourced,
+// routed through beep() -> sfxBus. ----
+var lastPlayerHornT = -99, playerHornCount = 0;
+function playerHorn() {
+  if (!driving || T - lastPlayerHornT < 0.4) return;
+  lastPlayerHornT = T; playerHornCount++;
+  var f = 360 + (driving._hornHz || 0);
+  beep(f, 0.3, 0.17, 'sawtooth'); beep(f * 1.5, 0.3, 0.085, 'square');
+}
 // desired speed for a remap traffic car: the min of free-flow cruise, the gap
 // to the leader ahead, the distance to a red light, and any stop-sign hold.
 function carDesiredSpeed(c, idx, dt) {
@@ -4062,11 +4192,16 @@ if (WC_REMAP) (function r3Junction() {
     { ux: 0.659, uz: 0.753, hw: 11, D: 23, grp: 'cross', sign: 'RACE TRACK RD' },     // Countryway SE
     { ux: -0.033, uz: -0.999, hw: 8, D: 21, grp: 'cross', sign: 'RACE TRACK RD', ox: -1, oz: 0 } // Nine Eagles N
   ];
-  // plain box: ribbons ladder up to y.158 and their dashed/yellow textures
-  // cross each other here — cover with the same plain asphalt the collectors
-  // use (0.162 stays under all junction paint at 0.165+)
+  // plain box: the two arterial ribbons cross here (race_track y.164 +
+  // countryway y.16415 under the current class-band ladder) and their dashed/
+  // yellow textures overlap in a messy X — cover with the same plain asphalt
+  // the collectors use. Must sit ABOVE the arterial ribbons (>.16415) yet BELOW
+  // all junction paint (stop bars .165 / arrows .166 / crosswalks .167), so it
+  // masks the crossing without hiding the markings. (Was .162, calibrated for
+  // the OLD ladder where arterials topped out at .158 — the ladder change left
+  // the box buried under the ribbons, so the crossing paint showed through.)
   var boxGeo = new THREE.CircleGeometry(27, 30); boxGeo.rotateX(-Math.PI / 2);
-  var boxM = new THREE.Mesh(boxGeo, expResM); boxM.position.set(0, 0.162, 0); scene.add(boxM);
+  var boxM = new THREE.Mesh(boxGeo, expResM); boxM.position.set(0, 0.1646, 0); scene.add(boxM);
   // painted quad rotated to a leg: PlaneGeometry width runs ACROSS the road
   function paintQuad(cx, cz, w, d, yaw, y, mat) {
     var g = new THREE.PlaneGeometry(w, d); g.rotateX(-Math.PI / 2);
@@ -4228,8 +4363,20 @@ var lampGlowT = (function () {
   g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
   return new THREE.CanvasTexture(c);
 })();
-var poolGeo = new THREE.CircleGeometry(4.5, 14); poolGeo.rotateX(-Math.PI / 2);
-var poolM = new THREE.MeshBasicMaterial({ color: 0xffdf90, transparent: true, opacity: 0.16, depthWrite: false });
+// warm ground pool: a soft radial-gradient disc (was a hard-edged flat disc) so
+// the amber spill fades out at the rim instead of cutting off. Additive over the
+// dark night asphalt reads as a cozy pool of light; hidden by day (lampsOn gate).
+var poolT = (function () {
+  var c = document.createElement('canvas'); c.width = c.height = 64;
+  var g = c.getContext('2d');
+  var gr = g.createRadialGradient(32, 32, 1, 32, 32, 32);
+  gr.addColorStop(0, 'rgba(255,224,150,0.62)'); gr.addColorStop(0.45, 'rgba(255,206,120,0.28)'); gr.addColorStop(1, 'rgba(255,200,110,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+  var t = new THREE.CanvasTexture(c); t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter; t.generateMipmaps = false;
+  return t;
+})();
+var poolGeo = new THREE.CircleGeometry(5.2, 20); poolGeo.rotateX(-Math.PI / 2);
+var poolM = new THREE.MeshBasicMaterial({ map: poolT, color: 0xffe4b0, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending });
 function streetlight(x, z, ax, az) {
   // silver cobra-head on a tapered pole, arm overhanging the road (matches the
   // Street Views). ax,az = unit direction toward the road; the arm is built
@@ -4500,6 +4647,13 @@ var DAY_LEN = 360;             // full day/night cycle (6 min)
 var envT = 60;                 // start in daylight
 var wcNightGlow = 0;           // 0 = full day, 1 = full night (drives self-lit prop glows)
 var raining = false, rainLeft = 0, nextRainCheck = 25;
+// weather-variety pass: rain has a live INTENSITY (drizzle↔steady↔heavier) that
+// scales particle density / sound / fog; independent overcast/haze spells thicken
+// fog + desaturate the sky; weatherMode !== 'auto' pins a forced state (setWeather).
+var rainIntensity = 0, rainTargetInten = 0, weatherMode = 'auto', wasRaining = false, wasHeavy = false;
+var overcast = 0, overcastTarget = 0, overcastCheck = 45, rainbowT = 0;
+var C_HAZE = new THREE.Color(0x9aa6ad);
+function rollInten() { var r = Math.random(); return r < 0.4 ? 0.35 : (r < 0.8 ? 0.65 : 1.0); }
 var fogTmp = new THREE.Color(), skyTmp = new THREE.Color();
 var C_DAY_FOG = new THREE.Color(0xcfe4ee), C_NIGHT_FOG = new THREE.Color(0x0b1018);
 var C_RAIN_FOG = new THREE.Color(0x6a7580), C_RAINNIGHT_FOG = new THREE.Color(0x05070a);
@@ -4574,7 +4728,10 @@ function updateRainFx(dt) {
   splashPts.visible = show;
   if (!show) return;
   var pos = rainLines.geometry.attributes.position.array;
+  // particle density tracks rain intensity — drizzle shows a fraction of the drops
+  var activeN = Math.max(24, Math.round(RAIN_N * Math.max(0.1, Math.min(1, rainIntensity))));
   for (var i = 0; i < RAIN_N; i++) {
+    if (i >= activeN) { pos[i * 6 + 1] = -999; pos[i * 6 + 4] = -999; continue; }
     var d = rainDrops[i];
     d.y -= d.speed * dt;
     if (d.y <= d.landH) {
@@ -4597,13 +4754,51 @@ function updateRainFx(dt) {
   }
   splashPts.geometry.attributes.position.needsUpdate = true;
 }
+// faint additive rainbow arc — a single billboard shown briefly after heavier
+// rain clears on a bright day. One draw call; hidden (visible=false) otherwise.
+var rainbow = (function () {
+  var c = document.createElement('canvas'); c.width = 128; c.height = 128;
+  var g = c.getContext('2d');
+  var grd = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grd.addColorStop(0.0, 'rgba(0,0,0,0)');
+  grd.addColorStop(0.80, 'rgba(0,0,0,0)');
+  grd.addColorStop(0.85, 'rgba(80,90,220,0.5)');    // violet/blue inner
+  grd.addColorStop(0.885, 'rgba(70,180,120,0.52)'); // green
+  grd.addColorStop(0.915, 'rgba(240,220,90,0.55)'); // yellow
+  grd.addColorStop(0.945, 'rgba(240,150,60,0.55)'); // orange
+  grd.addColorStop(0.975, 'rgba(230,80,70,0.45)');  // red outer
+  grd.addColorStop(1.0, 'rgba(230,80,70,0)');
+  g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
+  var t = new THREE.CanvasTexture(c);
+  var geo = new THREE.RingGeometry(176, 224, 48, 1, 0, Math.PI);
+  var mat = new THREE.MeshBasicMaterial({ map: t, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false });
+  var m = new THREE.Mesh(geo, mat);
+  m.visible = false; m.frustumCulled = false; m.renderOrder = -1;
+  scene.add(m);
+  return m;
+})();
+var RB_DIR = new THREE.Vector3(0.35, 0, -1).normalize();
+function updateRainbow(dt) {
+  if (rainbowT > 0) rainbowT -= dt;
+  var f = dayFactor();
+  var op = Math.max(0, Math.min(1, rainbowT / 3)) * 0.26 * Math.max(0, Math.min(1, (f - 0.4) / 0.6));
+  if (op <= 0.002 && rainbow.material.opacity <= 0.004) { rainbow.visible = false; rainbow.material.opacity = 0; return; }
+  rainbow.visible = true;
+  rainbow.material.opacity += (op - rainbow.material.opacity) * Math.min(1, dt * 2);
+  var cx = camera.position.x, cz = camera.position.z;
+  rainbow.position.set(cx + RB_DIR.x * 300, 2, cz + RB_DIR.z * 300);
+  rainbow.lookAt(cx, 55, cz);   // stand upright, arc facing back toward the player
+}
 function updateEnv(dt) {
   envT += dt;
   // the sky dome (r=520) is smaller than the expanded map — keep it centered
   // on the camera so the far corners never poke outside it
   if (skyDome) { skyDome.position.x = camera.position.x; skyDome.position.z = camera.position.z; }
-  // rain scheduling (clients follow the host's weather instead)
-  if (!isClient()) {
+  // rain + weather scheduling. weatherMode !== 'auto' pins a forced state; else
+  // the host/SP rolls rain on/off (with a random intensity) plus occasional
+  // independent overcast/haze spells. Clients follow the host's on/off flag but
+  // roll their own local intensity/haze (weather variety is local flavor).
+  if (weatherMode === 'auto' && !isClient()) {
     if (raining) {
       rainLeft -= dt;
       if (rainLeft <= 0) { raining = false; nextRainCheck = 30 + Math.random() * 40; }
@@ -4611,10 +4806,24 @@ function updateEnv(dt) {
       nextRainCheck -= dt;
       if (nextRainCheck <= 0) {
         nextRainCheck = 25 + Math.random() * 35;
-        if (Math.random() < 0.4) { raining = true; rainLeft = 35 + Math.random() * 35; }
+        if (Math.random() < 0.4) { raining = true; rainLeft = 35 + Math.random() * 35; rainTargetInten = rollInten(); }
       }
     }
+    overcastCheck -= dt;
+    if (overcastCheck <= 0) {
+      overcastCheck = 40 + Math.random() * 70;
+      overcastTarget = (overcast > 0.06) ? 0 : (Math.random() < 0.5 ? 0.32 + Math.random() * 0.42 : 0);
+    }
   }
+  // rain transitions (from any source) — roll a local intensity on start, and
+  // pop a rainbow after heavier rain clears on a bright day
+  if (raining && !wasRaining && rainTargetInten <= 0) rainTargetInten = rollInten();
+  if (raining && rainTargetInten >= 0.85) wasHeavy = true;
+  if (!raining && wasRaining) { if (wasHeavy && dayFactor() > 0.55) rainbowT = 15 + Math.random() * 8; wasHeavy = false; rainTargetInten = 0; }
+  wasRaining = raining;
+  // smooth the live intensity + overcast (rain builds/eases; haze drifts in/out)
+  rainIntensity += ((raining ? rainTargetInten : 0) - rainIntensity) * Math.min(1, dt * 0.8);
+  overcast += (overcastTarget - overcast) * Math.min(1, dt * 0.4);
   var f = dayFactor();
   var night = f < 0.3;
   setLamps(night);
@@ -4630,23 +4839,34 @@ function updateEnv(dt) {
   var nightGlow = Math.max(0, Math.min(1, 1 - f * 1.6));
   wcNightGlow = nightGlow;
   for (var ne = 0; ne < nightEmis.length; ne++) nightEmis[ne].emissiveIntensity = nightGlow * (nightEmis[ne].userData.emisBase || 0.24);
+  // storefront/venue sign backglow — a warm halo that fades in after dark, off by day
+  var sgO = nightGlow * 0.42;
+  for (var sg = 0; sg < signGlows.length; sg++) { var hm = signGlows[sg]; hm.visible = sgO > 0.02; if (hm.visible) hm.material.opacity = sgO; }
   if (raining) skyTmp.copy(C_RAINNIGHT_SKY).lerp(C_RAIN_SKY, f);
   else skyTmp.copy(C_NIGHT_SKY).lerp(C_DAY_SKY, f);
+  if (overcast > 0.01) skyTmp.lerp(C_HAZE, 0.5 * overcast * f);   // desaturate a touch, day only
   if (skyDome) skyDome.material.color.lerp(skyTmp, k);
   // rain brings a dense fog the color of the rain sky; both fade with the
   // same lerp when the rain stops
   if (raining) fogTmp.copy(skyTmp);
   else fogTmp.copy(C_NIGHT_FOG).lerp(C_DAY_FOG, f);
+  if (overcast > 0.01) fogTmp.lerp(C_HAZE, 0.4 * overcast * f);
   scene.fog.color.lerp(fogTmp, k);
-  var farT = (raining ? 95 : (120 + 400 * f)) * viewDistScale;   // draw-distance quality knob
+  // fog draw distance: heavier rain AND overcast/haze both thicken it
+  var rainFar = 135 - 55 * Math.max(0, Math.min(1, rainIntensity));   // drizzle ~118 .. heavy ~80
+  var farT = (raining ? rainFar : (120 + 400 * f)) * viewDistScale * (1 - 0.32 * overcast);
   scene.fog.far += (farT - scene.fog.far) * k;
-  scene.fog.near += ((raining ? 12 : 60 + 60 * f) - scene.fog.near) * k;
-  // rain sound
+  var nearT = (raining ? 12 : 60 + 60 * f) * (1 - 0.3 * overcast);
+  scene.fog.near += (nearT - scene.fog.near) * k;
+  // rain sound — level scales with intensity
   if (rainGain) {
-    var tgt = raining ? (inside ? 0.02 : 0.07) : 0;
+    var wetLv = Math.max(0, Math.min(1, rainIntensity));
+    var tgt = raining ? (inside ? 0.02 : 0.075) * (0.35 + 0.65 * wetLv) : 0;
     rainGain.gain.value += (tgt - rainGain.gain.value) * Math.min(1, dt * 2);
   }
   updateRainFx(dt);
+  updateRainbow(dt);
+  if (typeof updateAmbient === 'function') updateAmbient(dt);
 }
 
 // ---------------- people ----------------
@@ -6464,6 +6684,8 @@ function interiorInteractE() {   // inside a generalized interior: E resolves ex
     var t = spec.zones[i], dx = player.x - t.x, dz = player.z - t.z;
     if (dx * dx + dz * dz < t.r2 && t.fn) { t.fn(spec); return; }
   }
+  var cc = nearestShopCust(10);   // #65: chat with a nearby shopper for a flavor line
+  if (cc) barkAtCustomer(cc);
 }
 function interiorPrompt() {
   var spec = curInterior; if (!spec) return '';
@@ -6473,6 +6695,7 @@ function interiorPrompt() {
     var t = spec.zones[i], dx = player.x - t.x, dz = player.z - t.z;
     if (dx * dx + dz * dz < t.r2) return t.prompt || '[E] TALK';
   }
+  if (nearestShopCust(10)) return '[E] CHAT';   // #65
   return '';
 }
 function updateInterior(dt) {   // idle-animate the current room's staff in place
@@ -7147,6 +7370,16 @@ function buildBank(spec) {
 var shopCust = [];            // active customer objects for the CURRENT interior
 var SHOP_QGAP = 1.4;          // single-file queue spacing (metres)
 var SHOP_CUST_SPD = 1.55;
+// ---- shop conversation state (#65 step 2): a single in-flight exchange at a
+// time so voices/bubbles never pile up. shopTalk = {kind, a, b, phase, t} where
+// a asks first and b answers; kind 'qa' = customer->staff, 'banter' = staff pair.
+var shopTalk = null, shopPanic = false, shopQAcd = 8, shopBanterCd = 12;
+// readable bubble text (voices carry the audio flavor; text is the subtitle)
+var SHOP_ASK = ["Excuse me, where's the...?", "Do you have any more in back?", "Is this on sale?", "Which aisle is that in?", "Any recommendations?", "Do you carry oat milk?", "How fresh is this?"];
+var SHOP_ANS = ["Right over there!", "Let me check for you.", "Aisle four, hon.", "Sure — coming right up.", "Fresh batch just landed.", "Absolutely, follow me.", "Good choice!"];
+var SHOP_BQ = ["Slow shift today, huh?", "Did you restock the back?", "Break in ten?", "Catch the game last night?", "Register two's acting up again.", "Long day already."];
+var SHOP_BA = ["Tell me about it.", "Yep, all done.", "Finally!", "What a nail-biter.", "I'll take a look.", "You and me both."];
+var SHOP_CUSTLINE = ["This line's brutal...", "Almost my turn!", "So many choices today.", "Where'd I put my list?", "Try the new donuts, they're great.", "Just grabbing a few things.", "They restocked, nice."];
 // per-interior sim data: cap (population ceiling), spawn cadence, browse spots
 // (x,z stand point + fx,fz fixture the customer faces), checkout lanes
 // (sx,sz serve spot + face yaw + qx,qz queue-back unit vector), the door point
@@ -7276,14 +7509,26 @@ function custFace(c, tx, tz) { c.mesh.rotation.y = Math.atan2(tx - c.x, tz - c.z
 function pickBrowse(cfg, c) {
   var b = cfg.browse, pick;
   for (var t = 0; t < 6; t++) { pick = b[(Math.random() * b.length) | 0]; if (pick !== c.lastBrowse) break; }
-  c.lastBrowse = pick; c.tx = pick.x; c.tz = pick.z; c.fx = pick.fx; c.fz = pick.fz;
+  c.lastBrowse = pick; c.tx = pick.x; c.tz = pick.z; c.fx = pick.fx; c.fz = pick.fz; resetGoal(c);
+}
+// ---- stuck-progress watchdog: the browse-steering whisker can't fully path
+// through Publix's long aisles, so track best distance-to-goal and time-since-
+// progress. When a customer stops making headway past `limit` seconds it is
+// nudged onward (arrive early / force-serve / despawn) — this is what keeps a
+// checkout lane draining even if the front shopper can't physically reach the
+// register (the #65 "drain on a timer, never deadlock" requirement).
+function resetGoal(c) { c.bestD = 1e9; c.progT = 0; }
+function goalProgress(c, rem, dt, limit) {
+  if (rem < c.bestD - 0.04) { c.bestD = rem; c.progT = 0; return false; }
+  c.progT += dt;
+  return c.progT > limit;
 }
 // spawn one customer into the CURRENT interior. atDoor===false seeds an
 // already-present shopper straight at a fixture (store looks alive on entry).
 function spawnCustomer(atDoor) {
   var sc = shopCfg(); if (!sc || !curInterior || shopCust.length >= sc.cap) return null;
   var Y = curInterior.box.y;
-  var c = { mesh: buildCharacter(customerCfg()), state: 'enter', phase: Math.random() * 9, animT: Math.random() * 2, stateT: 0, beats: 2 + (Math.random() * 3 | 0), iy: Y, lane: -1, qi: -1, avoidT: 0 };
+  var c = { mesh: buildCharacter(customerCfg()), state: 'enter', phase: Math.random() * 9, animT: Math.random() * 2, stateT: 0, beats: 2 + (Math.random() * 3 | 0), iy: Y, lane: -1, qi: -1, avoidT: 0, progT: 0, bestD: 1e9 };
   if (atDoor === false) {
     var b0 = sc.browse[(Math.random() * sc.browse.length) | 0];
     c.x = b0.x; c.z = b0.z; c.state = 'look'; c.stateT = 1 + Math.random() * 3; c.lastBrowse = b0; c.fx = b0.fx; c.fz = b0.fz;
@@ -7299,7 +7544,37 @@ function spawnCustomer(atDoor) {
 function clearCustomers() {
   for (var i = 0; i < shopCust.length; i++) { if (shopCust[i].mesh) scene.remove(shopCust[i].mesh); }
   shopCust.length = 0;
+  shopTalk = null; shopPanic = false;
 }
+
+// ---- checkout queue helpers (single-file lines at the SHOP_CFG lanes) ----
+// A customer in a lane owns c.lane (index) + c.qi (0 = front / serve spot).
+// The slot world-position walks backward from the serve spot along the lane's
+// (qx,qz) unit vector at SHOP_QGAP spacing. No per-lane arrays are stored on the
+// shared SHOP_CFG — occupancy is derived from shopCust each time (n small).
+function laneOccupancy(li) {
+  var n = 0;
+  for (var j = 0; j < shopCust.length; j++) { var o = shopCust[j]; if (o.lane === li && (o.state === 'queue' || o.state === 'serve')) n++; }
+  return n;
+}
+function shortestLane(sc) {
+  var best = 0, bn = 1e9;
+  for (var i = 0; i < sc.lanes.length; i++) { var n = laneOccupancy(i); if (n < bn) { bn = n; best = i; } }
+  return best;
+}
+function queueSlot(sc, li, qi) {
+  var L = sc.lanes[li];
+  return { x: L.sx + L.qx * qi * SHOP_QGAP, z: L.sz + L.qz * qi * SHOP_QGAP };
+}
+// front customer left the lane — everyone behind shuffles one slot forward
+function shiftLaneForward(li) {
+  for (var j = 0; j < shopCust.length; j++) { var o = shopCust[j]; if (o.lane === li && o.qi > 0 && o.state === 'queue') { o.qi--; resetGoal(o); } }
+}
+function joinQueue(sc, c) {
+  if (!sc.lanes || !sc.lanes.length) { c.tx = sc.door.x; c.tz = sc.door.z; c.state = 'leave'; resetGoal(c); return; }
+  c.lane = shortestLane(sc); c.qi = laneOccupancy(c.lane); c.state = 'queue'; c.served = false; resetGoal(c);
+}
+
 var shopSpawnT = 6;
 function initCustomers(spec) {
   clearCustomers();
@@ -7307,20 +7582,41 @@ function initCustomers(spec) {
   var n = 2 + (Math.random() * (sc.cap - 2) | 0);
   for (var i = 0; i < n; i++) spawnCustomer(false);
   shopSpawnT = sc.spawn[0] + Math.random() * (sc.spawn[1] - sc.spawn[0]);
+  shopTalk = null; shopPanic = false;
+  shopQAcd = 5 + Math.random() * 6; shopBanterCd = 8 + Math.random() * 8;
 }
+// a real gun drawn (or fired) inside empties the store
+function shopThreat() { return typeof GUN_LIST !== 'undefined' && GUN_LIST.indexOf(state.equipped) >= 0; }
 function updateCustomers(dt) {
   var sc = shopCfg(); if (!sc) { if (shopCust.length) clearCustomers(); return; }
   var Y = curInterior.box.y;
+  // panic: a weapon is out — flee everyone to the door, kill conversations
+  if (shopThreat()) {
+    if (!shopPanic) {
+      shopPanic = true; shopTalk = null;
+      for (var pi = 0; pi < shopCust.length; pi++) {
+        var pc = shopCust[pi];
+        if (pc.state !== 'flee') { pc.state = 'flee'; pc.lane = -1; pc.qi = -1; pc.tx = sc.door.x + (Math.random() - 0.5) * 2; pc.tz = sc.door.z; }
+      }
+      playShopVoice('CUSTOMER', 'excuse', 0.75, 0.2);
+    }
+  } else if (shopPanic) shopPanic = false;
+
   shopSpawnT -= dt;
   if (shopSpawnT <= 0) {
     shopSpawnT = sc.spawn[0] + Math.random() * (sc.spawn[1] - sc.spawn[0]);
-    if (shopCust.length < sc.cap) spawnCustomer(true);
+    // don't trickle a new shopper in while two are still funneling through the
+    // doorway — keeps the entrance from clumping when steering is slow (Publix).
+    var entering = 0;
+    for (var e = 0; e < shopCust.length; e++) if (shopCust[e].state === 'enter') entering++;
+    if (!shopPanic && shopCust.length < sc.cap && entering < 2) spawnCustomer(true);
   }
   for (var i = shopCust.length - 1; i >= 0; i--) {
     var c = shopCust[i], m = c.mesh;
     if (c.state === 'enter' || c.state === 'browse') {
       var rem = moveCust(c, curInterior, dt, SHOP_CUST_SPD);
-      if (rem < 0.9) { c.state = 'look'; c.stateT = 2 + Math.random() * 3.5; c.animT = Math.random() * 2; custFace(c, c.fx, c.fz); }
+      // arrived, OR gave up trying to path there (whisker stuck > 6s)
+      if (rem < 0.9 || goalProgress(c, rem, dt, 6)) { c.state = 'look'; c.stateT = 2 + Math.random() * 3.5; c.animT = Math.random() * 2; custFace(c, c.fx, c.fz); }
     } else if (c.state === 'look') {
       c.stateT -= dt; c.animT += dt;
       animPersonClip(m, (c.beats & 1) ? 'idle2' : 'idle', c.animT);
@@ -7328,13 +7624,113 @@ function updateCustomers(dt) {
       if (c.stateT <= 0) {
         c.beats--;
         if (c.beats > 0) { pickBrowse(sc, c); c.state = 'browse'; }
-        else { c.tx = sc.door.x; c.tz = sc.door.z; c.state = 'leave'; }
+        else joinQueue(sc, c);   // #65: done browsing -> get in line
       }
-    } else if (c.state === 'leave') {
-      var rd = moveCust(c, curInterior, dt, SHOP_CUST_SPD * 1.1);
-      if (rd < 1.2) { scene.remove(m); shopCust.splice(i, 1); }
+    } else if (c.state === 'queue') {
+      var slot = queueSlot(sc, c.lane, c.qi);
+      c.tx = slot.x; c.tz = slot.z;
+      var dxq = slot.x - c.x, dzq = slot.z - c.z, dq = Math.sqrt(dxq * dxq + dzq * dzq);
+      // front-of-line gets a longer grace before force-serving (drain-on-timer,
+      // never deadlock); anyone behind just idles wherever they got stuck.
+      var stuck = goalProgress(c, dq, dt, c.qi === 0 ? 6 : 4);
+      if (dq > 0.55 && !stuck) moveCust(c, curInterior, dt, SHOP_CUST_SPD);
+      else {
+        c.animT += dt; animPersonClip(m, 'idle', c.animT);
+        m.rotation.y = sc.lanes[c.lane].face; m.position.set(c.x, Y, c.z);
+        if (c.qi === 0 && (dq <= 0.55 || stuck)) {   // at the register (or timed out) -> serve
+          c.state = 'serve'; c.serveT = 1.8 + Math.random() * 1.6; c.animT = 0;
+          if (!playShopVoice(sc.payRole, 'nextinline', 0.7, 3)) playShopVoice(sc.payRole, 'greet', 0.7, 3);
+        }
+      }
+    } else if (c.state === 'serve') {
+      c.serveT -= dt; c.animT += dt; animPersonClip(m, 'idle', c.animT);
+      m.rotation.y = sc.lanes[c.lane].face; m.position.set(c.x, Y, c.z);
+      if (c.serveT <= 0) {                      // ka-ching -> transaction done, leave
+        sfx('cash');   // register ka-ching
+        playShopVoice(sc.payRole, 'receipt', 0.7, 2.5);
+        var li = c.lane; c.lane = -1; c.qi = -1; c.served = true;
+        c.tx = sc.door.x + (Math.random() - 0.5) * 1.5; c.tz = sc.door.z; c.state = 'leave'; resetGoal(c);
+        shiftLaneForward(li);
+      }
+    } else if (c.state === 'leave' || c.state === 'flee') {
+      var rd = moveCust(c, curInterior, dt, SHOP_CUST_SPD * (c.state === 'flee' ? 1.9 : 1.1));
+      // despawn at the door, or if wedged on the way out (never leak a stuck NPC)
+      if (rd < 1.2 || goalProgress(c, rd, dt, c.state === 'flee' ? 6 : 9)) { scene.remove(m); shopCust.splice(i, 1); }
     }
   }
+  updateShopTalk(dt, sc);   // #65: Q&A + staff banter
+}
+
+// ---- shop dialogue: customer<->staff Q&A + idle staff banter + player barks --
+// One in-flight exchange at a time (shopTalk); voiced from shopvoices1.js where
+// a matching line exists, text bubble always shown as the readable subtitle.
+// Out-of-combat only (no chatter with heat/panic). All per-player + local.
+function staffRef(m) {   // stable bubble ref wrapper for a static staff mesh
+  if (!m) return null;
+  if (!m.userData._sref) m.userData._sref = { mesh: m, x: m.position.x, z: m.position.z, state: 'idle' };
+  return m.userData._sref;
+}
+function nearestStaff(c) {
+  var st = curInterior.staff, best = null, bd = 1e9;
+  for (var i = 0; i < st.length; i++) { var s = st[i], dx = s.position.x - c.x, dz = s.position.z - c.z, d = dx * dx + dz * dz; if (d < bd) { bd = d; best = s; } }
+  return best;
+}
+function faceTarget(mesh, x, z) { mesh.rotation.y = Math.atan2(x - mesh.position.x, z - mesh.position.z); }
+function updateShopTalk(dt, sc) {
+  var st = curInterior.staff;
+  if (shopTalk) {
+    shopTalk.t -= dt;
+    if (shopTalk.t <= 0) {
+      if (shopTalk.phase === 0) {                 // second speaker answers
+        speechBubble(shopTalk.b, shopTalk.ans);
+        if (shopTalk.kind === 'qa') { if (!playShopVoice(sc.ansRole, sc.ansCat, 0.7, 2)) playShopVoice(sc.payRole, 'answer', 0.7, 2); }
+        else playShopVoice('STAFF', 'chatA', 0.7, 2);
+        shopTalk.phase = 1; shopTalk.t = 1.9;
+      } else shopTalk = null;
+    }
+    return;                                       // strictly one exchange at a time
+  }
+  if (shopPanic || (typeof state !== 'undefined' && state.wanted > 0)) return;
+  shopQAcd -= dt; shopBanterCd -= dt;
+  // a browsing customer asks the nearest staffer a product question
+  if (shopQAcd <= 0 && st.length) {
+    shopQAcd = 9 + Math.random() * 8;
+    var cand = [];
+    for (var i = 0; i < shopCust.length; i++) if (shopCust[i].state === 'look') cand.push(shopCust[i]);
+    if (cand.length) {
+      var c = cand[(Math.random() * cand.length) | 0], s = nearestStaff(c);
+      if (s) {
+        faceTarget(c.mesh, s.position.x, s.position.z);
+        speechBubble(c, SHOP_ASK[(Math.random() * SHOP_ASK.length) | 0]);
+        playShopVoice('CUSTOMER', 'ask', 0.7, 2);
+        shopTalk = { kind: 'qa', a: c, b: staffRef(s), phase: 0, t: 1.7, ans: SHOP_ANS[(Math.random() * SHOP_ANS.length) | 0] };
+        return;
+      }
+    }
+  }
+  // two idle staffers trade work banter
+  if (shopBanterCd <= 0 && st.length >= 2) {
+    shopBanterCd = 12 + Math.random() * 10;
+    var ai = (Math.random() * st.length) | 0, bi = (ai + 1 + ((Math.random() * (st.length - 1)) | 0)) % st.length;
+    speechBubble(staffRef(st[ai]), SHOP_BQ[(Math.random() * SHOP_BQ.length) | 0]);
+    playShopVoice('STAFF', 'chatQ', 0.7, 2);
+    shopTalk = { kind: 'banter', a: staffRef(st[ai]), b: staffRef(st[bi]), phase: 0, t: 1.9, ans: SHOP_BA[(Math.random() * SHOP_BA.length) | 0] };
+  }
+}
+// player-facing bark: talk to a nearby browsing/queued customer for a flavor line
+function nearestShopCust(maxD2) {
+  var best = null, bd = maxD2 || 10;
+  for (var i = 0; i < shopCust.length; i++) {
+    var c = shopCust[i]; if (c.state === 'flee') continue;
+    var dx = c.x - player.x, dz = c.z - player.z, d = dx * dx + dz * dz;
+    if (d < bd) { bd = d; best = c; }
+  }
+  return best;
+}
+function barkAtCustomer(c) {
+  faceTarget(c.mesh, player.x, player.z);
+  speechBubble(c, SHOP_CUSTLINE[(Math.random() * SHOP_CUSTLINE.length) | 0]);
+  if (!playShopVoice('CUSTOMER', 'checkout', 0.75, 1.5)) playShopVoice('CUSTOMER', 'excuse', 0.75, 1.5);
 }
 
 // ---------------- street props (AI PSX props: streetprops.js) ----------------
@@ -7885,8 +8281,12 @@ if (WC_REMAP) (function densityLayer() {
 
   // ============ 5. CLUTTER (behind commercial, wall units, entrances) ============
   var BACK_CLUTTER = ['cardboard_box', 'wooden_crate', 'trash_bags', 'wood_pallet', 'blue_tarp', 'bucket'];
+  // Banks don't get a loading-dock back yard: the Regions branch's back wall
+  // faces the main-intersection pedestrian plaza, so a dumpster + crate pile
+  // there reads as random unidentifiable junk (bug mregiwcv). Other commercial
+  // formats keep their service clutter.
   for (var vc = 0; vc < VENUES.length; vc++) {
-    var vv3 = VENUES[vc]; if (!COMM[vv3.type]) continue;
+    var vv3 = VENUES[vc]; if (!COMM[vv3.type] || vv3.type === 'bank') continue;
     var f3 = vFront(vv3);
     // dumpster + junk pile behind the store (opposite the front)
     var backx = vv3.x - f3.fx * (vv3.d / 2 + 2.6), backz = vv3.z - f3.fz * (vv3.d / 2 + 2.6);
@@ -7944,7 +8344,22 @@ if (WC_REMAP) (function densityLayer() {
   for (var vh = 0; vh < VENUES.length; vh++) {
     var vv4 = VENUES[vh];
     if (vv4.type === 'storage') fenceRect(vv4.x, vv4.z, vv4.w + 6, vv4.d + 6, vv4.rot || 0, 'chainlink_fence', true);
-    if (vv4.type === 'farnell') fenceRect(vv4.x, vv4.z, vv4.w + 10, vv4.d + 14, vv4.rot || 0, 'chainlink_fence', true);
+    // Farnell school: the NEW per-panel breakable run FENCE_RUNS[0] (chainlink,
+    // "W+front") sits directly on the W + front(N) edges of this old solid ring.
+    // Building BOTH z-fought the diamond cards AND the old merged-solid OBB never
+    // deactivated, so ramming a panel there never opened a drivable gap
+    // (mreejak5 per-panel break defeated). Build ONLY the two sides the breakable
+    // run does NOT cover (S back + E) so the field stays enclosed, no double fence.
+    if (vv4.type === 'farnell') {
+      var fr = (vv4.rot || 0) * deg, fc = Math.cos(fr), fs = Math.sin(fr);
+      var fhw = (vv4.w + 10) / 2, fhd = (vv4.d + 14) / 2;
+      // rect corners (mirror fenceRect's cp): p0=(-hw,-hd) p1=(hw,-hd) p2=(hw,hd)
+      var q0x = vv4.x - fhw * fc - fhd * fs, q0z = vv4.z + fhw * fs - fhd * fc;
+      var q1x = vv4.x + fhw * fc - fhd * fs, q1z = vv4.z - fhw * fs - fhd * fc;
+      var q2x = vv4.x + fhw * fc + fhd * fs, q2z = vv4.z - fhw * fs + fhd * fc;
+      fenceRun(q0x, q0z, q1x, q1z, 'chainlink_fence', true);   // S / back edge
+      fenceRun(q1x, q1z, q2x, q2z, 'chainlink_fence', true);   // E edge
+    }
     // hedge along the back of each townhouse row
     if (vv4.type === 'townhouse') {
       var f4 = vFront(vv4), hw2 = vv4.w / 2 - 1, bx2 = vv4.x - f4.fx * (vv4.d / 2 + 1.2), bz2 = vv4.z - f4.fz * (vv4.d / 2 + 1.2);
@@ -8055,8 +8470,12 @@ var landscapeStats = { hedge: 0, shrub: 0, mulch: 0, grass: 0, myrtle: 0, palm: 
 var landscapeMeshes = [];
 if (WC_REMAP) (function landscapePass() {
   var deg = Math.PI / 180;
-  function rnd(a, b) { return a + Math.random() * (b - a); }
-  function pick(a) { return a[(Math.random() * a.length) | 0]; }
+  // Placement RNG MUST be the shared seeded stream (treeRnd) so tree/collider/
+  // breakable COUNTS are identical every load (MP host/client consistency —
+  // task #73 / Sweep #2 determinism). Only the canvas texture builders below
+  // stay on bare Math.random (cosmetic pixels, don't affect any count).
+  function rnd(a, b) { return a + treeRnd() * (b - a); }
+  function pick(a) { return a[(treeRnd() * a.length) | 0]; }
   var VENUES = (typeof REMAP_VENUES !== 'undefined') ? REMAP_VENUES : [];
   var SURF = (typeof REMAP_SURFACES !== 'undefined') ? REMAP_SURFACES : [];
   // front-face + rotated-rect helpers (mirror densityLayer — keyed off rot alone)
@@ -8158,7 +8577,7 @@ if (WC_REMAP) (function landscapePass() {
     // planting-strip greenery, not obstacles blocking the walk.
     if (WC_REMAP && (!remapPointClear(x, z, 1.0) || onSidewalk(x, z))) return;
     scale = scale || rnd(0.75, 1.25); key = key || pick(SHRUB_KEYS);
-    var n = lite ? 2 + (Math.random() * 2 | 0) : 3 + (Math.random() * 3 | 0);   // lite: 2-3, else 3-5 blobs
+    var n = lite ? 2 + (treeRnd() * 2 | 0) : 3 + (treeRnd() * 3 | 0);   // lite: 2-3, else 3-5 blobs
     for (var i = 0; i < n; i++) {
       var lead = i === 0;
       var r = scale * (lead ? rnd(0.62, 0.84) : rnd(0.38, 0.62));
@@ -8234,7 +8653,7 @@ if (WC_REMAP) (function landscapePass() {
       for (var t = la + 0.6; t < lb - 0.4 && okShrub(); t += stp) {
         var jit = rnd(-0.35, 0.35);
         var sx = fcx + f.fx * foff + f.rx * (t + jit), sz = fcz + f.fz * foff + f.rz * (t + jit);
-        if (Math.random() < 0.78) shrub(sx, sz, rnd(0.6, 1.0), pick(SHRUB_KEYS));
+        if (treeRnd() < 0.78) shrub(sx, sz, rnd(0.6, 1.0), pick(SHRUB_KEYS));
         else grass(sx, sz, rnd(0.7, 1.0));
       }
     }
@@ -8276,8 +8695,8 @@ if (WC_REMAP) (function landscapePass() {
     var iw = rnd(3.2, 4.6), id = rnd(2.6, 3.6);
     curbRing(x, z, iw, id, ry);
     mulchBed(x, z, iw - 0.3, id - 0.3, ry);
-    if (Math.random() < 0.42) myrtle(x, z); else ipalm(x, z);
-    var ns = 3 + (Math.random() * 2 | 0);
+    if (treeRnd() < 0.42) myrtle(x, z); else ipalm(x, z);
+    var ns = 3 + (treeRnd() * 2 | 0);
     for (var i = 0; i < ns; i++) {
       var a = i / ns * Math.PI * 2 + rnd(-0.3, 0.3), rr = Math.min(iw, id) * 0.32;
       shrub(x + Math.cos(a) * rr, z + Math.sin(a) * rr, rnd(0.5, 0.8), pick(SHRUB_KEYS));
@@ -8313,7 +8732,7 @@ if (WC_REMAP) (function landscapePass() {
   // corners.
   function grassCluster(x, z, ry) {
     mulchBed(x, z, rnd(2.0, 2.6), rnd(1.5, 2.0), ry);
-    var n = 3 + (Math.random() * 3 | 0);
+    var n = 3 + (treeRnd() * 3 | 0);
     for (var i = 0; i < n; i++) grass(x + rnd(-0.9, 0.9), z + rnd(-0.7, 0.7), rnd(0.7, 1.05));
   }
   if (RM) {
@@ -8326,14 +8745,14 @@ if (WC_REMAP) (function landscapePass() {
         if (!spotClear(fx3, fz3) || inLake(fx3, fz3)) continue;
         if (typeof remapInClear !== 'undefined' && remapInClear(fx3, fz3, 1)) continue;
         if (typeof houseBlocksSpot !== 'undefined' && houseBlocksSpot(fx3, fz3)) continue;
-        var roll = Math.random();
+        var roll = treeRnd();
         if (roll < 0.42) {
           grassCluster(fx3, fz3, Math.atan2(pf.ux, pf.uz));
         } else if (roll < 0.72) {
           var hl = rnd(1.6, 2.4);   // low hedge parallel to the road
           hedge(fx3 - pf.ux * hl, fz3 - pf.uz * hl, fx3 + pf.ux * hl, fz3 + pf.uz * hl, rnd(0.55, 0.72), 0.6);
           mulchBed(fx3, fz3, hl * 2 + 0.5, 1.4, Math.atan2(pf.ux, pf.uz));
-          if (Math.random() < 0.5) shrub(fx3, fz3, rnd(0.5, 0.75), pick(SHRUB_KEYS));
+          if (treeRnd() < 0.5) shrub(fx3, fz3, rnd(0.5, 0.75), pick(SHRUB_KEYS));
         } else {
           myrtle(fx3, fz3);
           if (okShrub()) shrub(fx3 + rnd(-1.2, 1.2), fz3 + rnd(-1.2, 1.2), rnd(0.55, 0.8), pick(SHRUB_KEYS));
@@ -8352,10 +8771,10 @@ if (WC_REMAP) (function landscapePass() {
         if (!openClear(cx, cz)) continue;
         mulchBed(cx, cz, rnd(3.4, 4.4), rnd(2.8, 3.6), rnd(0, 3.14));
         myrtle(cx, cz);
-        var nb = 4 + (Math.random() * 2 | 0);
+        var nb = 4 + (treeRnd() * 2 | 0);
         for (var bi = 0; bi < nb; bi++) {
           var ba = bi / nb * Math.PI * 2, brr = rnd(1.0, 1.6);
-          shrub(cx + Math.cos(ba) * brr, cz + Math.sin(ba) * brr, rnd(0.55, 0.85), Math.random() < 0.4 ? 'bloom' : pick(SHRUB_KEYS));
+          shrub(cx + Math.cos(ba) * brr, cz + Math.sin(ba) * brr, rnd(0.55, 0.85), treeRnd() < 0.4 ? 'bloom' : pick(SHRUB_KEYS));
         }
         grass(cx + rnd(-1.5, 1.5), cz + rnd(-1.5, 1.5), rnd(0.8, 1.1));
         grass(cx + rnd(-1.5, 1.5), cz + rnd(-1.5, 1.5), rnd(0.8, 1.1));
@@ -8381,12 +8800,12 @@ if (WC_REMAP) (function landscapePass() {
       for (var tt = -halfW; tt <= halfW + 0.01 && hfDone < HF_CAP; tt += 1.85) {
         if (Math.abs(tt - hf.doorX) < doorHalf) continue;   // keep the entry walk clear
         var sx = cxF + hf.rgx * tt + hf.nx * rnd(-0.15, 0.2), sz = czF + hf.rgz * tt + hf.nz * rnd(-0.15, 0.2);
-        if (Math.random() < 0.82) shrub(sx, sz, rnd(0.45, 0.72), pick(SHRUB_KEYS), true);   // lite foundation shrub
+        if (treeRnd() < 0.82) shrub(sx, sz, rnd(0.45, 0.72), pick(SHRUB_KEYS), true);   // lite foundation shrub
         else grass(sx, sz, rnd(0.55, 0.8));
         hfDone++;
       }
       // a flowering accent shrub flanking one side of the door
-      var da = hf.doorX + (Math.random() < 0.5 ? 1 : -1) * (doorHalf + 0.5);
+      var da = hf.doorX + (treeRnd() < 0.5 ? 1 : -1) * (doorHalf + 0.5);
       if (Math.abs(da) <= halfW + 0.5) { shrub(cxF + hf.rgx * da, czF + hf.rgz * da, rnd(0.55, 0.8), 'bloom', true); hfDone++; }
     }
     landscapeStats.foundation = hfDone;
@@ -9070,6 +9489,38 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
     }
   }
 
+  // ---------- 2b. STRIP-MALL PLAZA COURTYARD (bug mreeuu2g) ----------
+  // strip_a's big paved rear plaza read as a barren, confusing tile field —
+  // strips aren't in the STEP-2 storefront COMM set, so nothing furnished it.
+  // Curate an intentional pedestrian courtyard: a central raised planting bed
+  // flanked by café seating + benches, edged with planters + park lamps, plus a
+  // directory board, recycling, and a bike rack. Spaced (not crowded) and
+  // clutter-registered so later passes don't stack on top.
+  (function stripPlaza() {
+    var sv = byId.strip_a; if (!sv) return; var f = vFront(sv);
+    // rear plaza frame: base at the back wall, push +p OUT into the plaza (-f), t lateral (r)
+    var bx = sv.x - f.fx * (sv.d / 2), bz = sv.z - f.fz * (sv.d / 2);
+    function P(t, p) { return [bx - f.fx * p + f.rx * t, bz - f.fz * p + f.rz * t]; }
+    var faceOut = faceDir(-f.fx, -f.fz), faceIn = faceDir(f.fx, f.fz);
+    function put(name, t, p, ry, opts) { var w = P(t, p); if (typeof propClutterBusy === 'function' && propClutterBusy(w[0], w[1], 2.4, 1)) return; place(name, w[0], w[1], ry, opts); if (typeof propClutterReg === 'function') propClutterReg(w[0], w[1]); }
+    // edge line against the wall: lamps, planters, a directory board, recycling
+    put('park_lamp', -17, 2.6, 0); put('park_lamp', 17, 2.6, 0);
+    put('concrete_planter', -10.5, 2.6, 0); put('concrete_planter', 10.5, 2.6, 0);
+    put('aframe_sign', 0, 2.8, faceOut);                    // plaza directory / menu board
+    put('trash_recycle', 13.5, 3.0, faceOut, { instance: true });
+    put('bench_back', -4.2, 3.2, faceOut); put('bench_back', 4.2, 3.2, faceOut);  // seating along the wall
+    // centre planting bed with café seating + facing benches around it
+    put('raised_bed', 0, 8.5, 0);
+    put('bench_back', -5.4, 12.4, faceIn); put('bench_back', 5.4, 12.4, faceIn);
+    put('cafe_set', -13, 8.5, faceOut, { instance: true }); put('patio_umbrella', -13, 8.5, faceOut, { instance: true });
+    put('cafe_set', 13, 8.5, faceOut, { instance: true }); put('patio_umbrella', 13, 8.5, faceOut, { instance: true });
+    // a bike rack (street prop — no env equivalent) near the wall edge
+    if (typeof getStreetProp === 'function') {
+      var br = getStreetProp('bikerack'), w = P(7.5, 3.0);
+      if (br) { br.position.set(w[0], 0, w[1]); br.rotation.y = faceOut; scene.add(br); addCollider(w[0], w[1], 1.8, 0.6); if (typeof propClutterReg === 'function') propClutterReg(w[0], w[1]); }
+    }
+  })();
+
   // ---------- 3. VENDING / ARCADE cluster near shopfronts (exterior) ----------
   // v1.65.5 prop-placement fix: bug report — a gumball machine + a cluster of
   // vending/trash/bins randomly jammed at the Publix walkway. These machines are
@@ -9176,8 +9627,10 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
 
   // ---------- 9. ROADWORK / UTILITY (porta-potty + screen walls) ----------
   if (byId.storage) { var st = byId.storage, stf = vFront(st); place('porta_potty', st.x - stf.fx * (st.d / 2 + 3), st.z - stf.fz * (st.d / 2 + 3), faceDir(stf.fx, stf.fz), { instance: true }); place('trash_recycle', st.x - stf.fx * (st.d / 2 + 3) + stf.rx * 3, st.z - stf.fz * (st.d / 2 + 3) + stf.rz * 3, 0, { instance: true }); }
-  // screen walls hiding the mechanical yard behind a bank/strip
-  if (byId.regions) { var rg = byId.regions, rgf = vFront(rg); var scx = rg.x - rgf.fx * (rg.d / 2 + 2), scz = rg.z - rgf.fz * (rg.d / 2 + 2); run(scx - rgf.rx * 2.5, scz - rgf.rz * 2.5, scx + rgf.rx * 2.5, scz + rgf.rz * 2.5, 'screen_wall', -1); }
+  // (bug mregiwcv) The Regions bank's back faces the main-intersection plaza,
+  // not a hidden mechanical yard — a short run of 3 lone screen-wall panels
+  // there read as unidentifiable free-standing slabs. Removed; the back wall
+  // is now clean (its service clutter is gated off above too).
 
   // ---------- 10. PARK LAMPS + retaining-wall accents along a lot edge ----------
   if (lots[0]) { var lo = lots[0], loc = Math.cos((lo.rot || 0) * deg), los = Math.sin((lo.rot || 0) * deg); var ex0 = lo.x - loc * (lo.w / 2 + 2), ez0 = lo.z + los * (lo.w / 2 + 2); place('park_lamp', ex0, ez0, 0); place('park_lamp', lo.x + loc * (lo.w / 2 + 2), lo.z - los * (lo.w / 2 + 2), 0); run(lo.x - lo.w / 2 * loc, lo.z + lo.w / 2 * los, lo.x + lo.w / 2 * loc, lo.z - lo.w / 2 * los, 'retaining_wall', 1); }
@@ -10456,6 +10909,10 @@ function spawnCash(x, z, val, baseY) { var m = new THREE.Mesh(cashGeo, cashMats)
 // cash from client-triggered events (ATM/meter) must be spawned on the HOST,
 // or the authoritative cash-snapshot rebuild wipes it before it can be looted.
 function spawnCashNet(x, z, val) { if (isClient()) netToHost({ t: 'atmCash', x: x, z: z, val: val }); else spawnCash(x, z, val); }
+// auto-pickup radius^2 (#47): walk NEAR a bill to grab it, not exactly onto
+// it. Kept under the host's takeCash tolerance (r^2=6) so a client's request
+// always resolves.
+var CASH_PICK_R2 = 3.4;
 function updateCash(dt) {
   for (var i = cashes.length - 1; i >= 0; i--) {
     var c = cashes[i]; c.life -= dt; c.mesh.rotation.y += dt * 3; c.mesh.position.y = c.baseY + 0.38 + Math.sin(T * 3 + i) * 0.12;
@@ -10464,10 +10921,10 @@ function updateCash(dt) {
       // host owns the cash: ask for it, the money arrives as a 'cash' message
       // (pend un-sticks after 1.5s in case the host awarded it to someone else)
       if (c.pend && T - (c.pendT || 0) > 1.5) c.pend = false;
-      if (dx * dx + dz * dz < 2.1 && !c.pend) { c.pend = true; c.pendT = T; netToHost({ t: 'takeCash', x: c.mesh.position.x, z: c.mesh.position.z }); }
+      if (dx * dx + dz * dz < CASH_PICK_R2 && !c.pend) { c.pend = true; c.pendT = T; netToHost({ t: 'takeCash', x: c.mesh.position.x, z: c.mesh.position.z }); }
       continue;
     }
-    if (dx * dx + dz * dz < 2.1 || c.life <= 0) { if (c.life > 0) { state.money += c.val; popup('+$' + c.val); sfx('cash'); } scene.remove(c.mesh); cashes.splice(i, 1); }
+    if (dx * dx + dz * dz < CASH_PICK_R2 || c.life <= 0) { if (c.life > 0) { state.money += c.val; popup('+$' + c.val); sfx('cash'); } scene.remove(c.mesh); cashes.splice(i, 1); }
   }
 }
 var puffs = [];
@@ -10553,6 +11010,172 @@ function fountainSprite() {
     vfxDropMat = new THREE.MeshBasicMaterial({ map: smokeFrames[3], color: 0xbfe6ff, transparent: true, opacity: 0.82, depthWrite: false });
   }
   return vfxDropMat;
+}
+
+// ---------------- Hidden secrets & easter eggs (local-only flavor) ----------
+// Additive delight the curious stumble on: hand-authored loot stashes, a
+// Konami combo, a rare drifting-balloon ambient. All LOCAL (never on the MP
+// wire), null-guarded, no colliders, no per-frame allocation. Effects are
+// temporary / reversible. Driven from the main loop + __wc.tick via
+// updateSecrets(dt); test hooks live in the __wc export block.
+
+// Deterministic stash coords (authored, NOT load-randomized — a prior
+// regression reintroduced load-time Math.random() and broke MP determinism).
+// Tucked spots around the town core the curious will find. `mesh` = a subtle
+// bobbing gold glint marker, built lazily (no load-order dependency).
+var SECRET_STASHES = [
+  { x: 86, z: 70, val: 250 },     // behind the RaceTrac (SE corner)
+  { x: -162, z: 60, val: 300 },   // SW strip-mall service alley
+  { x: -96, z: -126, val: 250 },  // tucked behind Publix (NW)
+  { x: 96, z: -78, val: 300 },    // behind Regions Bank (NE)
+  { x: -232, z: -118, val: 350 }, // scrub by the middle school
+  { x: -305, z: -150, val: 400 }, // far west lake shore
+  { x: 250, z: -252, val: 400 },  // deep NE tree line
+  { x: 30, z: 96, val: 200 }      // south median nook
+];
+var stashInit = false, stashGeo = null;
+function initStashes() {
+  stashInit = true;
+  if (typeof THREE === 'undefined' || !scene) return;
+  stashGeo = new THREE.OctahedronGeometry(0.22);
+  for (var i = 0; i < SECRET_STASHES.length; i++) {
+    var s = SECRET_STASHES[i];
+    s.taken = false; s.baseY = 0.55;
+    var m = new THREE.Mesh(stashGeo, new THREE.MeshBasicMaterial({ color: 0xffe27a, transparent: true, opacity: 0.82 }));
+    m.position.set(s.x, s.baseY, s.z);
+    scene.add(m);
+    s.mesh = m;
+  }
+}
+var STASH_R2 = 4.2;   // walk near a glint to grab it
+function collectStash(s) {
+  if (s.taken) return;
+  s.taken = true;
+  if (s.mesh) { scene.remove(s.mesh); if (s.mesh.material && s.mesh.material.dispose) s.mesh.material.dispose(); s.mesh = null; }
+  state.money += s.val;
+  popup('HIDDEN STASH  +$' + s.val);
+  if (typeof sfx === 'function') sfx('cash');
+  if (typeof puff === 'function') puff(new THREE.Vector3(s.x, 0.6, s.z), 0xffe27a);
+  // little ascending jingle so a find feels rewarding
+  beep(880, 0.09, 0.12, 'square'); setTimeout(function () { beep(1320, 0.09, 0.12, 'square'); }, 80); setTimeout(function () { beep(1760, 0.12, 0.12, 'square'); }, 170);
+}
+// --- Konami combo -> harmless confetti + jingle party. Purely cosmetic and
+// self-cleaning (particles despawn) so it never touches gameplay balance.
+var confetti = [], confettiGeo = null, confettiMats = null, comboCD = 0;
+function ensureConfettiAssets() {
+  if (confettiGeo) return;
+  confettiGeo = new THREE.PlaneGeometry(0.14, 0.2);
+  var cols = [0xff5a5a, 0xffd24a, 0x5ad1ff, 0x6aff8a, 0xff8ad6, 0xffffff];
+  confettiMats = [];
+  for (var i = 0; i < cols.length; i++) confettiMats.push(new THREE.MeshBasicMaterial({ color: cols[i], side: THREE.DoubleSide }));
+}
+function burstConfetti() {
+  ensureConfettiAssets();
+  var cx = player.x, cy = (player.y || 1.5) + 2.4, cz = player.z, n = 46;
+  for (var i = 0; i < n; i++) {
+    var m = new THREE.Mesh(confettiGeo, confettiMats[(Math.random() * confettiMats.length) | 0]);
+    m.position.set(cx + (Math.random() - 0.5) * 1.2, cy, cz + (Math.random() - 0.5) * 1.2);
+    m.rotation.set(Math.random() * 6.28, Math.random() * 6.28, Math.random() * 6.28);
+    scene.add(m);
+    confetti.push({ mesh: m, life: 2.6, vx: (Math.random() - 0.5) * 3.4, vy: 2.2 + Math.random() * 2.6, vz: (Math.random() - 0.5) * 3.4, spin: (Math.random() - 0.5) * 9 });
+  }
+}
+function updateConfetti(dt) {
+  if (comboCD > 0) comboCD -= dt;
+  for (var i = confetti.length - 1; i >= 0; i--) {
+    var p = confetti[i]; p.life -= dt; p.vy -= 5.5 * dt;
+    p.mesh.position.x += p.vx * dt; p.mesh.position.y += p.vy * dt; p.mesh.position.z += p.vz * dt;
+    p.mesh.rotation.z += p.spin * dt; p.mesh.rotation.x += p.spin * 0.6 * dt;
+    if (p.mesh.position.y < 0.05) { p.mesh.position.y = 0.05; p.vy = 0; p.vx *= 0.68; p.vz *= 0.68; }
+    if (p.life <= 0) { scene.remove(p.mesh); confetti.splice(i, 1); }   // shared mats, no dispose
+  }
+}
+function triggerParty() {
+  if (comboCD > 0) return false;
+  comboCD = 4;
+  burstConfetti();
+  var notes = [523, 659, 784, 1047];
+  for (var i = 0; i < notes.length; i++) (function (f, d) { setTimeout(function () { beep(f, 0.14, 0.13, 'square'); }, d); })(notes[i], i * 110);
+  popup('PARTY MODE!');
+  return true;
+}
+// Classic Konami sequence. A dedicated read-only listener: never preventDefault,
+// never writes `keys`, so normal input is untouched. Ignored unless in-play.
+var KONAMI = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'KeyB', 'KeyA'];
+var konamiIdx = 0;
+document.addEventListener('keydown', function (e) {
+  if (!state.running || state.menu || state.dead) { konamiIdx = 0; return; }
+  if (e.code === KONAMI[konamiIdx]) {
+    konamiIdx++;
+    if (konamiIdx >= KONAMI.length) { konamiIdx = 0; triggerParty(); }
+  } else {
+    konamiIdx = (e.code === KONAMI[0]) ? 1 : 0;   // allow a fresh restart
+  }
+});
+
+// --- Rare ambient surprise: a lost cluster of party balloons drifts up and
+// away over town. Cosmetic, cheap, on a multi-minute cooldown. Reuses the
+// game's soft lambert look; despawns on its own when it clears the skyline.
+var balloons = [], balloonGeo = null, balloonStrGeo = null;
+var balloonCD = 130 + Math.random() * 90;   // first check well after boot
+function ensureBalloonGeo() {
+  if (balloonGeo) return;
+  balloonGeo = new THREE.SphereGeometry(0.5, 10, 8);
+  balloonStrGeo = new THREE.CylinderGeometry(0.015, 0.015, 1.4, 4);
+}
+function spawnBalloonCluster() {
+  ensureBalloonGeo();
+  var ang = Math.random() * Math.PI * 2, dist = 16 + Math.random() * 12;
+  var ox = player.x + Math.cos(ang) * dist, oz = player.z + Math.sin(ang) * dist;
+  var cols = [0xff5a5a, 0x5aa0ff, 0xffd24a, 0x6aff8a, 0xff8ad6, 0xb07aff];
+  var n = 3 + (Math.random() * 3 | 0);
+  for (var i = 0; i < n; i++) {
+    var g = new THREE.Group();
+    var bod = new THREE.Mesh(balloonGeo, lamb({ color: cols[(Math.random() * cols.length) | 0] }));
+    bod.scale.set(0.82, 1.0, 0.82);
+    g.add(bod);
+    var str = new THREE.Mesh(balloonStrGeo, lamb({ color: 0x333333 }));
+    str.position.y = -1.1; g.add(str);
+    g.position.set(ox + (Math.random() - 0.5) * 2.2, 3 + Math.random() * 2, oz + (Math.random() - 0.5) * 2.2);
+    scene.add(g);
+    balloons.push({ g: g, vy: 1.4 + Math.random() * 0.8, ph: Math.random() * 6.28, swx: (Math.random() - 0.5) * 0.6, swz: (Math.random() - 0.5) * 0.6 });
+  }
+  // soft ascending chime the moment they appear
+  beep(660, 0.16, 0.06, 'sine'); setTimeout(function () { beep(880, 0.18, 0.055, 'sine'); }, 140);
+}
+function disposeBalloon(b) { scene.remove(b.g); b.g.traverse(function (o) { if (o.material && o.material.dispose) o.material.dispose(); }); }
+function updateBalloons(dt) {
+  if (!inside) {
+    balloonCD -= dt;
+    if (balloonCD <= 0) { balloonCD = 150 + Math.random() * 180; if (Math.random() < 0.5) spawnBalloonCluster(); }
+  }
+  for (var i = balloons.length - 1; i >= 0; i--) {
+    var b = balloons[i]; b.ph += dt;
+    b.g.position.y += b.vy * dt;
+    b.g.position.x += Math.sin(b.ph) * b.swx * dt;
+    b.g.position.z += Math.cos(b.ph * 0.8) * b.swz * dt;
+    b.g.rotation.z = Math.sin(b.ph) * 0.12;
+    if (b.g.position.y > 46) { disposeBalloon(b); balloons.splice(i, 1); }
+  }
+}
+
+function updateSecrets(dt) {
+  if (!state.running) return;
+  if (!stashInit) initStashes();
+  // stashes: bob + spin the glint, auto-collect on proximity. Skip while inside
+  // an interior (player.x/z can coincide with a surface stash under the map).
+  if (!inside) {
+    for (var i = 0; i < SECRET_STASHES.length; i++) {
+      var s = SECRET_STASHES[i];
+      if (s.taken || !s.mesh) continue;
+      s.mesh.rotation.y += dt * 1.6;
+      s.mesh.position.y = s.baseY + Math.sin(T * 2 + i) * 0.09;
+      var dx = player.x - s.x, dz = player.z - s.z;
+      if (dx * dx + dz * dz < STASH_R2) collectStash(s);
+    }
+  }
+  updateConfetti(dt);
+  updateBalloons(dt);
 }
 
 // ---------------- blood decals / scorch marks ----------------
@@ -12681,6 +13304,509 @@ function spawnVendors() {
 }
 spawnVendors();
 
+// ======================= AMBIENT WILDLIFE =======================
+// Small, wholesome, COMBAT-EXEMPT ambient animals: ground birds (this step),
+// with ducks / squirrels / a stray cat layered in later. They live in their OWN
+// `wildlife` array — NEVER in npcs/kids/cops/cars — so no bullet, melee,
+// explosion, berserk-car, or cop code (all of which iterate those arrays
+// explicitly) can ever target, damage, ragdoll, or kill one. They carry NO
+// colliders (fully pass-through) and are LOCAL-ONLY (never serialized to the MP
+// wire). Cheap by construction: tiny fixed pools, shared geometry/materials, no
+// per-frame allocation, and a hard distance LOD — an animal far from the player
+// pauses and (for the roaming kinds) relocates to fresh ground near the player
+// rather than being simmed across the whole town. They are the visible source
+// of the ambient bird chirps / wing-flutters the atmosphere audio pass ships.
+// (NOTE: separate from the `critters` billboard array above — that one is the
+// short-lived dumpster-scavenge flutter/scurry fx, not persistent animals.)
+var wildlife = [], wildlifeReady = false;
+var wildRng = seededRng(0x63726974);       // seeded so first placement is reproducible
+var WILD_FAR = 95, WILD_FAR2 = WILD_FAR * WILD_FAR;
+var BIRD_COUNT = 8, DUCK_COUNT = 4, SQUIRREL_COUNT = 2, CAT_COUNT = 2;
+var wildPlayerSpeed = 0, wildPrevPX = null, wildPrevPZ = null;
+// shared geometry/materials (built lazily on first update so no load-time cost /
+// no dependency on load order)
+var wildGeo = null, BIRD_MATS = null, wBeakMat = null, DUCK_MATS = null, SQ_MATS = null, CAT_MATS = null;
+function buildWildlifeAssets() {
+  if (wildGeo) return;
+  wildGeo = {
+    birdBody: new THREE.SphereGeometry(0.12, 8, 6),
+    birdHead: new THREE.SphereGeometry(0.085, 8, 6),
+    birdBeak: new THREE.ConeGeometry(0.028, 0.07, 4),
+    birdWing: new THREE.PlaneGeometry(0.13, 0.17),
+    duckBody: new THREE.SphereGeometry(0.2, 10, 7),
+    duckHead: new THREE.SphereGeometry(0.11, 9, 7),
+    duckBill: new THREE.BoxGeometry(0.1, 0.04, 0.12),
+    sqBody: new THREE.SphereGeometry(0.11, 8, 6),
+    sqHead: new THREE.SphereGeometry(0.075, 8, 6),
+    sqTail: new THREE.SphereGeometry(0.1, 8, 6),
+    sqEar: new THREE.ConeGeometry(0.03, 0.06, 4),
+    catBody: new THREE.SphereGeometry(0.13, 10, 7),
+    catHead: new THREE.SphereGeometry(0.1, 9, 7),
+    catEar: new THREE.ConeGeometry(0.045, 0.09, 4),
+    catLeg: new THREE.CylinderGeometry(0.028, 0.022, 0.24, 5),
+    catTail: new THREE.CylinderGeometry(0.032, 0.02, 0.42, 5)
+  };
+  var L = lamb;
+  BIRD_MATS = [
+    { body: L({ color: 0x8b9099 }), belly: L({ color: 0xc4c8ce }), wing: L({ color: 0x767b84, side: THREE.DoubleSide }) },  // pigeon
+    { body: L({ color: 0x6e5334 }), belly: L({ color: 0xc3a578 }), wing: L({ color: 0x5b4426, side: THREE.DoubleSide }) },  // sparrow
+    { body: L({ color: 0x59504a }), belly: L({ color: 0xc4623a }), wing: L({ color: 0x494039, side: THREE.DoubleSide }) }   // robin
+  ];
+  wBeakMat = L({ color: 0xd9a02e });
+  // ducks: mallard drake (green head) + brown hen
+  DUCK_MATS = [
+    { body: L({ color: 0x6b5236 }), head: L({ color: 0x2f6a3f }), belly: L({ color: 0x8a7454 }), bill: L({ color: 0xdb9a24 }) },
+    { body: L({ color: 0x7a6142 }), head: L({ color: 0x6a533a }), belly: L({ color: 0xa08a68 }), bill: L({ color: 0xc79b52 }) }
+  ];
+  // squirrels: gray + a warmer brown (eastern gray / fox squirrel)
+  SQ_MATS = [
+    { body: L({ color: 0x8a8177 }), tail: L({ color: 0xa39a8f }), belly: L({ color: 0xcfc7bc }) },
+    { body: L({ color: 0x86603a }), tail: L({ color: 0x9c774c }), belly: L({ color: 0xd8b184 }) }
+  ];
+  // stray cats: gray tabby, ginger, tuxedo
+  CAT_MATS = [
+    { body: L({ color: 0x8d8b86 }), belly: L({ color: 0xc2c0ba }) },
+    { body: L({ color: 0xb5702f }), belly: L({ color: 0xe0b784 }) },
+    { body: L({ color: 0x2c2c30 }), belly: L({ color: 0xe8e8ea }) }
+  ];
+}
+function buildBird(variant) {
+  var m = BIRD_MATS[variant], g = new THREE.Group();
+  var body = new THREE.Mesh(wildGeo.birdBody, m.body);
+  body.scale.set(1, 0.9, 1.35); body.position.y = 0.14; body.rotation.x = -0.18; g.add(body);
+  var belly = new THREE.Mesh(wildGeo.birdBody, m.belly);
+  belly.scale.set(0.78, 0.6, 0.92); belly.position.set(0, 0.12, 0.09); g.add(belly);
+  var head = new THREE.Mesh(wildGeo.birdHead, m.body); head.position.set(0, 0.22, 0.15); g.add(head);
+  var beak = new THREE.Mesh(wildGeo.birdBeak, wBeakMat); beak.rotation.x = Math.PI / 2; beak.position.set(0, 0.21, 0.25); g.add(beak);
+  var tail = new THREE.Mesh(wildGeo.birdWing, m.wing); tail.rotation.x = -Math.PI / 2.3; tail.scale.set(0.55, 1, 0.66); tail.position.set(0, 0.16, -0.2); g.add(tail);
+  // wing pivot groups high on the body sides; rotation.z flaps the outer tip.
+  // at rest the wings tuck up along the back (base) so the silhouette stays clean
+  var wl = new THREE.Group(); wl.position.set(-0.04, 0.19, 0.0);
+  var wlm = new THREE.Mesh(wildGeo.birdWing, m.wing); wlm.rotation.x = -Math.PI / 2; wlm.position.set(-0.06, 0, 0); wl.add(wlm); g.add(wl);
+  var wr = new THREE.Group(); wr.position.set(0.04, 0.19, 0.0);
+  var wrm = new THREE.Mesh(wildGeo.birdWing, m.wing); wrm.rotation.x = -Math.PI / 2; wrm.position.set(0.06, 0, 0); wr.add(wrm); g.add(wr);
+  g.userData.wingL = wl; g.userData.wingR = wr; g.userData.head = head;
+  g.add(blobShadow(0.16, 0.16, 0.02));
+  g.scale.setScalar(0.9);
+  return g;
+}
+function setBirdWings(c, f) {
+  // f in -1..1 during flight; folded flat at rest
+  var flying = c.state === 'fly';
+  var base = flying ? 0.05 : 0.16, amt = flying ? 0.9 * f : 0;
+  var wl = c.mesh.userData.wingL, wr = c.mesh.userData.wingR;
+  if (wl) wl.rotation.z = -(base + amt);
+  if (wr) wr.rotation.z = (base + amt);
+}
+// pick a walkable, non-water spot minD..maxD from `near` (prefers sidewalk/lot
+// concrete, avoids the middle of roads, lake, buildings, and the map edge)
+function wildGroundSpot(near, minD, maxD) {
+  var fallback = null;
+  for (var t = 0; t < 14; t++) {
+    var a = wildRng() * 6.2832, d = minD + wildRng() * (maxD - minD);
+    var x = near.x + Math.cos(a) * d, z = near.z + Math.sin(a) * d;
+    if (x < -HALF + 8 || x > HALF - 8 || z < -HALF + 8 || z > HALF - 8) continue;
+    if (typeof inLake === 'function' && inLake(x, z)) continue;
+    var s = footSurface(x, z);
+    if (s === 'water' || s === 'interior') continue;
+    if (!pointFree(x, z, 0.5)) continue;             // not inside a building/prop
+    if (s === 'concrete' || s === 'grass') return { x: x, z: z, surf: s };
+    if (!fallback) fallback = { x: x, z: z, surf: s };  // asphalt: acceptable if nothing better
+  }
+  return fallback;
+}
+function relocateBird(c) {
+  var spot = wildGroundSpot(player, 30, 54) || wildGroundSpot(player, 12, 30);
+  if (spot) { c.x = spot.x; c.z = spot.z; } else { c.x = player.x + (wildRng() - 0.5) * 44; c.z = player.z + (wildRng() - 0.5) * 44; }
+  c.y = 0; c.state = 'peck'; c.hopT = 0.4 + wildRng() * 2; c._hop = 0; c.chirpT = 2 + wildRng() * 8;
+  c.mesh.position.set(c.x, 0, c.z); c.mesh.rotation.y = wildRng() * 6.2832;
+  setBirdWings(c, 0);
+}
+function birdCarThreat(c) {
+  for (var i = 0; i < cars.length; i++) {
+    var g = cars[i].car && cars[i].car.group; if (!g) continue;
+    var dx = c.x - g.position.x, dz = c.z - g.position.z;
+    if (dx * dx + dz * dz < 49) return { x: g.position.x, z: g.position.z };   // 7u
+  }
+  return null;
+}
+function birdTakeOff(c, from) {
+  var baseA = Math.atan2(c.z - from.z, c.x - from.x), spot = null;   // flee heading = away from the threat
+  for (var t = 0; t < 10; t++) {
+    var a = baseA + (wildRng() - 0.5) * 1.7, d = 22 + wildRng() * 18;
+    var x = c.x + Math.cos(a) * d, z = c.z + Math.sin(a) * d;
+    if (x < -HALF + 8 || x > HALF - 8 || z < -HALF + 8 || z > HALF - 8) continue;
+    if (typeof inLake === 'function' && inLake(x, z)) continue;
+    var s = footSurface(x, z); if (s === 'water' || s === 'interior') continue;
+    if (!pointFree(x, z, 0.5)) continue;
+    spot = { x: x, z: z }; break;
+  }
+  if (!spot) spot = { x: c.x + Math.cos(baseA) * 24, z: c.z + Math.sin(baseA) * 24 };
+  c.tgt = spot; c.state = 'fly'; c.flyT = 0; c.flyH = 3.2 + wildRng() * 3.4; c.flySpd = 9 + wildRng() * 4;
+  if (!inside && !underwater) { if (typeof ambFlutter === 'function') ambFlutter(); if (Math.random() < 0.5 && typeof ambChirp === 'function') ambChirp(); }
+}
+function updateBird(c, dt, px, pz) {
+  var m = c.mesh, dx = c.x - px, dz = c.z - pz, d2 = dx * dx + dz * dz;
+  if (d2 > WILD_FAR2) { relocateBird(c); m.visible = true; return; }   // LOD: far -> hop to fresh ground near the player
+  m.visible = true; c.phase += dt;
+  if (c.state === 'peck') {
+    var thr = null, close = d2 < 36;                 // player within 6u
+    if (!close) thr = birdCarThreat(c);
+    if (close || thr) { birdTakeOff(c, close ? { x: px, z: pz } : thr); return; }
+    c.hopT -= dt;
+    if (c.hopT <= 0 && c._hop <= 0) {
+      c.hopT = 0.7 + Math.random() * 2.6; c.hopA = Math.random() * 6.2832; c.hopV = 0.5 + Math.random() * 0.7; c._hop = 0.28;
+      m.rotation.y = Math.atan2(Math.cos(c.hopA), Math.sin(c.hopA));
+    }
+    if (c._hop > 0) {
+      c._hop -= dt;
+      c.x += Math.cos(c.hopA) * c.hopV * dt; c.z += Math.sin(c.hopA) * c.hopV * dt;
+      c.y = Math.sin((1 - Math.max(0, c._hop) / 0.28) * Math.PI) * 0.08;
+      if (c.head) c.head.rotation.x = 0;
+    } else {
+      c.y = 0;
+      if (c.head) c.head.rotation.x = Math.min(0, Math.sin(c.phase * 3.2)) * 0.55;   // head-bob peck
+    }
+    setBirdWings(c, 0);
+    c.chirpT -= dt;
+    if (c.chirpT <= 0) { c.chirpT = 4 + Math.random() * 11; if (d2 < 1600 && dayFactor() > 0.35 && !inside && !underwater && Math.random() < 0.6 && typeof ambChirp === 'function') ambChirp(); }
+  } else {   // 'fly'
+    var tdx = c.tgt.x - c.x, tdz = c.tgt.z - c.z, td = Math.sqrt(tdx * tdx + tdz * tdz);
+    c.flyT += dt;
+    if (td > 0.5) { c.x += (tdx / td) * c.flySpd * dt; c.z += (tdz / td) * c.flySpd * dt; m.rotation.y = Math.atan2(tdx, tdz); }
+    var tgtY = td < 3 ? c.flyH * (td / 3) : Math.min(c.flyH, c.flyT * 6);   // rise fast, ease down onto the spot
+    c.y += (tgtY - c.y) * Math.min(1, dt * 4);
+    c.flapPhase = (c.flapPhase || 0) + dt * (c.y > 0.6 ? 20 : 13);
+    setBirdWings(c, Math.sin(c.flapPhase));
+    if (td <= 0.6 && c.y < 0.35) { c.state = 'peck'; c.y = 0; c.hopT = 0.3 + Math.random() * 1.4; c._hop = 0; setBirdWings(c, 0); }
+  }
+  m.position.set(c.x, c.y, c.z);
+}
+function initWildlife() {
+  if (wildlifeReady) return;
+  wildlifeReady = true;
+  buildWildlifeAssets();
+  for (var i = 0; i < BIRD_COUNT; i++) {
+    var variant = (wildRng() * BIRD_MATS.length) | 0, g = buildBird(variant);
+    var c = { kind: 'bird', variant: variant, mesh: g, x: 0, z: 0, y: 0, state: 'peck', phase: wildRng() * 6.28, hopT: 0.5 + wildRng() * 2, _hop: 0, chirpT: 3 + wildRng() * 8, tgt: null, flapPhase: 0 };
+    scene.add(g); wildlife.push(c); relocateBird(c);
+  }
+  spawnDucks();
+  for (var s = 0; s < SQUIRREL_COUNT; s++) {
+    var sv = (wildRng() * SQ_MATS.length) | 0, sg = buildSquirrel(sv);
+    var sc = { kind: 'squirrel', variant: sv, mesh: sg, x: 0, z: 0, y: 0, state: 'hidden', phase: wildRng() * 6.28, tree: null, tgt: null, wanderT: 0, chitT: 4 + wildRng() * 9, climbY: 0 };
+    sg.visible = false; scene.add(sg); wildlife.push(sc);
+  }
+  for (var ci = 0; ci < CAT_COUNT; ci++) {
+    var cv = (wildRng() * CAT_MATS.length) | 0, cg = buildCat(cv);
+    var cc = { kind: 'cat', variant: cv, mesh: cg, x: 0, z: 0, y: 0, state: 'wander', phase: wildRng() * 6.28, tgt: null, wanderT: 0, sitT: 0, fleeT: 0, meowT: 6 + wildRng() * 12, petCD: 0 };
+    scene.add(cg); wildlife.push(cc); relocateCat(cc);
+  }
+}
+function updateWildlife(dt) {
+  if (!state.running || inside || state.dead) return;
+  initWildlife();
+  var px = player.x, pz = player.z;
+  // track player speed (drives the cat's skittishness) — cheap, once per frame
+  if (wildPrevPX !== null && dt > 0) { var mvd = Math.hypot(px - wildPrevPX, pz - wildPrevPZ) / dt; wildPlayerSpeed += (mvd - wildPlayerSpeed) * Math.min(1, dt * 8); }
+  wildPrevPX = px; wildPrevPZ = pz;
+  for (var i = 0; i < wildlife.length; i++) {
+    var c = wildlife[i];
+    if (c.kind === 'bird') updateBird(c, dt, px, pz);
+    else if (c.kind === 'duck') updateDuck(c, dt, px, pz);
+    else if (c.kind === 'squirrel') updateSquirrel(c, dt, px, pz);
+    else if (c.kind === 'cat') updateCat(c, dt, px, pz);
+  }
+}
+// ---- ducks (lake + fountain): float on the water surface, paddle to gentle
+// wander targets inside the lake, bob. Anchored to the lake (they do NOT follow
+// the player); paused entirely when the player is far from the water. ----
+function buildDuck(variant) {
+  var m = DUCK_MATS[variant], g = new THREE.Group();
+  var body = new THREE.Mesh(wildGeo.duckBody, m.body);
+  body.scale.set(1, 0.78, 1.5); body.position.y = 0.13; g.add(body);
+  var belly = new THREE.Mesh(wildGeo.duckBody, m.belly);
+  belly.scale.set(0.86, 0.5, 1.25); belly.position.set(0, 0.08, 0.02); g.add(belly);
+  var tail = new THREE.Mesh(wildGeo.duckBody, m.body);
+  tail.scale.set(0.5, 0.35, 0.7); tail.position.set(0, 0.17, -0.28); g.add(tail);
+  // upright neck + head at the front
+  var neck = new THREE.Mesh(wildGeo.duckHead, m.head); neck.scale.set(0.62, 1.1, 0.62); neck.position.set(0, 0.26, 0.22); g.add(neck);
+  var head = new THREE.Mesh(wildGeo.duckHead, m.head); head.position.set(0, 0.37, 0.27); g.add(head);
+  var bill = new THREE.Mesh(wildGeo.duckBill, m.bill); bill.position.set(0, 0.35, 0.4); g.add(bill);
+  g.add(blobShadow(0.24, 0.3, 0.02));
+  g.userData.head = head;
+  return g;
+}
+function lakeWaterSpot() {
+  if (typeof LAKE === 'undefined') return null;
+  for (var t = 0; t < 20; t++) {
+    var a = wildRng() * 6.2832, rr = 0.2 + wildRng() * 0.65;
+    var x = LAKE.x + Math.cos(a) * LAKE.r * 1.2 * rr, z = LAKE.z + Math.sin(a) * LAKE.r * 0.8 * rr;
+    if (typeof inLake === 'function' && !inLake(x, z)) continue;
+    var fdx = x - LAKE.x, fdz = z - LAKE.z; if (fdx * fdx + fdz * fdz < 64) continue;   // clear of the fountain
+    return { x: x, z: z };
+  }
+  return { x: LAKE.x + 20, z: LAKE.z + 8 };
+}
+function spawnDucks() {
+  if (typeof LAKE === 'undefined') return;
+  for (var i = 0; i < DUCK_COUNT; i++) {
+    var v = (wildRng() * DUCK_MATS.length) | 0, g = buildDuck(v), sp = lakeWaterSpot();
+    var c = { kind: 'duck', variant: v, mesh: g, x: sp.x, z: sp.z, y: (typeof WATER_Y !== 'undefined' ? WATER_Y : 0.2) + 0.02, state: 'swim', phase: wildRng() * 6.28, tgt: lakeWaterSpot(), pauseT: wildRng() * 3, quackT: 5 + wildRng() * 12 };
+    g.position.set(c.x, c.y, c.z); g.rotation.y = wildRng() * 6.28;
+    scene.add(g); wildlife.push(c);
+  }
+}
+function updateDuck(c, dt, px, pz) {
+  var m = c.mesh, wy = (typeof WATER_Y !== 'undefined' ? WATER_Y : 0.2);
+  if (typeof LAKE !== 'undefined') {
+    var ldx = px - LAKE.x, ldz = pz - LAKE.z;
+    if (ldx * ldx + ldz * ldz > 150 * 150) { m.visible = true; return; }   // player far from the lake: freeze (still visible)
+  }
+  m.visible = true; c.phase += dt;
+  c.pauseT -= dt;
+  if (c.pauseT > 0) {
+    // idle float: bob + preen head dip
+    c.y = wy + 0.02 + Math.sin(c.phase * 1.4) * 0.02;
+    if (c.head) c.head.rotation.x = Math.min(0, Math.sin(c.phase * 0.8)) * 0.4;
+  } else {
+    var tdx = c.tgt.x - c.x, tdz = c.tgt.z - c.z, td = Math.sqrt(tdx * tdx + tdz * tdz);
+    if (td < 0.7) { c.tgt = lakeWaterSpot(); c.pauseT = 1.5 + Math.random() * 3.5; }
+    else {
+      var sp = 0.85;
+      c.x += (tdx / td) * sp * dt; c.z += (tdz / td) * sp * dt;
+      var ty = Math.atan2(tdx, tdz); m.rotation.y += (ty - m.rotation.y) * Math.min(1, dt * 2.5);
+      c.y = wy + 0.02 + Math.sin(c.phase * 3) * 0.012;   // slight paddle bob
+      if (c.head) c.head.rotation.x = 0;
+    }
+  }
+  m.position.set(c.x, c.y, c.z);
+  c.quackT -= dt;
+  if (c.quackT <= 0) { c.quackT = 6 + Math.random() * 14; var qd = (c.x - px) * (c.x - px) + (c.z - pz) * (c.z - pz); if (qd < 3600 && !inside && Math.random() < 0.5) wildQuack(); }
+}
+// ---- squirrels (near big trees): scurry on the ground close to an oak, and
+// dart UP the trunk + freeze when the player approaches. Follow the player like
+// birds (relocate to the nearest tree near the player). ----
+function buildSquirrel(variant) {
+  var m = SQ_MATS[variant], g = new THREE.Group();
+  var body = new THREE.Mesh(wildGeo.sqBody, m.body); body.scale.set(1, 0.95, 1.5); body.position.set(0, 0.11, 0); body.rotation.x = -0.15; g.add(body);
+  var belly = new THREE.Mesh(wildGeo.sqBody, m.belly); belly.scale.set(0.8, 0.7, 1.1); belly.position.set(0, 0.08, 0.05); g.add(belly);
+  var head = new THREE.Mesh(wildGeo.sqHead, m.body); head.position.set(0, 0.18, 0.16); g.add(head);
+  var earL = new THREE.Mesh(wildGeo.sqEar, m.body); earL.position.set(-0.04, 0.25, 0.15); g.add(earL);
+  var earR = new THREE.Mesh(wildGeo.sqEar, m.body); earR.position.set(0.04, 0.25, 0.15); g.add(earR);
+  // signature bushy tail arcing up over the back
+  var tail = new THREE.Mesh(wildGeo.sqTail, m.tail); tail.scale.set(0.62, 1.7, 0.62); tail.position.set(0, 0.22, -0.2); tail.rotation.x = 0.7; g.add(tail);
+  g.add(blobShadow(0.14, 0.16, 0.02));
+  g.userData.tail = tail; g.userData.head = head;
+  return g;
+}
+function nearestTree(x, z, maxD) {
+  if (typeof breakables === 'undefined') return null;
+  var best = null, bd = maxD * maxD;
+  for (var i = 0; i < breakables.length; i++) {
+    var b = breakables[i]; if (b.type !== 'tree' || b.broken) continue;
+    var dx = b.x - x, dz = b.z - z, d = dx * dx + dz * dz;
+    if (d < bd) { bd = d; best = b; }
+  }
+  return best;
+}
+function relocateSquirrel(c) {
+  var tr = nearestTree(player.x, player.z, 62);
+  if (!tr) { c.tree = null; c.state = 'hidden'; c.mesh.visible = false; return; }
+  c.tree = tr; c.state = 'ground'; c.climbY = 0;
+  // start a little way out from the trunk on the ground
+  var a = wildRng() * 6.2832, rr = 1.6 + wildRng() * 2.4;
+  c.x = tr.x + Math.cos(a) * rr; c.z = tr.z + Math.sin(a) * rr; c.y = 0;
+  c.tgt = { x: tr.x + Math.cos(a + 1) * (1.2 + wildRng() * 2), z: tr.z + Math.sin(a + 1) * (1.2 + wildRng() * 2) };
+  c.wanderT = 0.6 + wildRng() * 2; c.mesh.visible = true; c.mesh.position.set(c.x, 0, c.z);
+}
+function updateSquirrel(c, dt, px, pz) {
+  var m = c.mesh;
+  // (re)acquire a tree near the player when hidden or when ours got far/broken
+  if (c.state === 'hidden' || !c.tree || c.tree.broken || ((c.tree.x - px) * (c.tree.x - px) + (c.tree.z - pz) * (c.tree.z - pz) > WILD_FAR2)) {
+    relocateSquirrel(c); if (c.state === 'hidden') return;
+  }
+  m.visible = true; c.phase += dt;
+  var tr = c.tree, pdx = c.x - px, pdz = c.z - pz, pd2 = pdx * pdx + pdz * pdz;
+  if (c.state === 'ground') {
+    if (pd2 < 25) {   // player within 5u -> dart up the trunk
+      c.state = 'climb';
+      c.x = tr.x + (c.x < tr.x ? -0.35 : 0.35); c.z = tr.z + (c.z < tr.z ? -0.35 : 0.35);   // hop to the trunk (far side-ish)
+      if (typeof ambFlutter === 'function') { /* soft scramble via quiet chitter */ }
+    } else {
+      c.wanderT -= dt;
+      if (c.wanderT <= 0) {
+        c.wanderT = 0.7 + Math.random() * 2.2;
+        var a = Math.random() * 6.2832, rr = 1.2 + Math.random() * 2.6;
+        c.tgt = { x: tr.x + Math.cos(a) * rr, z: tr.z + Math.sin(a) * rr };
+      }
+      var tdx = c.tgt.x - c.x, tdz = c.tgt.z - c.z, td = Math.sqrt(tdx * tdx + tdz * tdz);
+      if (td > 0.25) { var sp = 2.6; c.x += (tdx / td) * sp * dt; c.z += (tdz / td) * sp * dt; m.rotation.y = Math.atan2(tdx, tdz); }
+      c.y = 0;
+      if (c.head) c.head.rotation.x = Math.min(0, Math.sin(c.phase * 4)) * 0.4;   // quick nervous head dips
+      c.chitT -= dt;
+      if (c.chitT <= 0) { c.chitT = 5 + Math.random() * 10; if (pd2 < 900 && !inside && Math.random() < 0.4) wildChitter(); }
+    }
+  } else if (c.state === 'climb') {
+    c.climbY += dt * 3.2; if (c.climbY >= 2.3) { c.climbY = 2.3; c.state = 'cling'; }
+    c.y = c.climbY;
+    m.rotation.y = Math.atan2(tr.x - c.x, tr.z - c.z);   // face into the trunk
+    if (c.head) c.head.rotation.x = 0;
+  } else {   // 'cling' — frozen on the trunk until the player backs off
+    c.y = c.climbY;
+    if (pd2 > 100) { c.state = 'descend'; }   // player >10u away
+  }
+  if (c.state === 'descend') {
+    c.climbY -= dt * 2.0; if (c.climbY <= 0) { c.climbY = 0; c.state = 'ground'; c.wanderT = 0.3; }
+    c.y = c.climbY;
+  }
+  m.position.set(c.x, c.y, c.z);
+}
+// ---- stray cats: amble slowly along sidewalks/yards near the player, sit,
+// and are SKITTISH — bolt a short way if you get too close too fast. Approach
+// gently and press [E] to pet (a meow, a purr, and a little heart). ----
+function buildCat(variant) {
+  var m = CAT_MATS[variant], g = new THREE.Group();
+  var body = new THREE.Mesh(wildGeo.catBody, m.body); body.scale.set(1, 0.85, 1.75); body.position.set(0, 0.26, 0); g.add(body);
+  var belly = new THREE.Mesh(wildGeo.catBody, m.belly); belly.scale.set(0.8, 0.55, 1.4); belly.position.set(0, 0.2, 0.02); g.add(belly);
+  var head = new THREE.Mesh(wildGeo.catHead, m.body); head.scale.set(1, 0.92, 0.92); head.position.set(0, 0.34, 0.26); g.add(head);
+  var earL = new THREE.Mesh(wildGeo.catEar, m.body); earL.position.set(-0.055, 0.45, 0.24); g.add(earL);
+  var earR = new THREE.Mesh(wildGeo.catEar, m.body); earR.position.set(0.055, 0.45, 0.24); g.add(earR);
+  var snout = new THREE.Mesh(wildGeo.catHead, m.belly); snout.scale.set(0.5, 0.4, 0.5); snout.position.set(0, 0.31, 0.34); g.add(snout);
+  var lx = [-0.07, 0.07, -0.07, 0.07], lz = [0.14, 0.14, -0.14, -0.14];
+  for (var i = 0; i < 4; i++) { var leg = new THREE.Mesh(wildGeo.catLeg, m.body); leg.position.set(lx[i], 0.12, lz[i]); g.add(leg); }
+  // tail pivot at the rear; sways in updateCat
+  var tp = new THREE.Group(); tp.position.set(0, 0.28, -0.24);
+  var tail = new THREE.Mesh(wildGeo.catTail, m.body); tail.position.set(0, 0.16, -0.04); tail.rotation.x = 0.5; tp.add(tail); g.add(tp);
+  g.add(blobShadow(0.16, 0.26, 0.02));
+  g.userData.tail = tp; g.userData.head = head;
+  return g;
+}
+function relocateCat(c) {
+  var spot = wildGroundSpot(player, 24, 50) || wildGroundSpot(player, 10, 24);
+  if (spot) { c.x = spot.x; c.z = spot.z; } else { c.x = player.x + (wildRng() - 0.5) * 40; c.z = player.z + (wildRng() - 0.5) * 40; }
+  c.y = 0; c.state = 'wander'; c.wanderT = 0; c.tgt = null; c.mesh.visible = true; c.mesh.position.set(c.x, 0, c.z); c.mesh.rotation.y = wildRng() * 6.2832;
+}
+function catNewTarget(c) {
+  var spot = wildGroundSpot({ x: c.x, z: c.z }, 3, 10);
+  c.tgt = spot ? { x: spot.x, z: spot.z } : { x: c.x + (Math.random() - 0.5) * 8, z: c.z + (Math.random() - 0.5) * 8 };
+}
+function updateCat(c, dt, px, pz) {
+  var m = c.mesh, dx = c.x - px, dz = c.z - pz, d2 = dx * dx + dz * dz;
+  if (d2 > WILD_FAR2) { relocateCat(c); return; }   // LOD: far -> amble in from fresh ground near the player
+  m.visible = true; c.phase += dt;
+  if (c.petCD > 0) c.petCD -= dt;
+  // tail sway (idle motion, always)
+  if (m.userData.tail) m.userData.tail.rotation.z = Math.sin(c.phase * 1.8) * 0.3;
+  var spd = 0, vx = 0, vz = 0;
+  if (c.state === 'pet') {
+    c.sitT -= dt; m.rotation.y = Math.atan2(px - c.x, pz - c.z);   // look up at the player
+    if (m.userData.head) m.userData.head.rotation.x = -0.15;
+    if (c.sitT <= 0) { c.state = 'wander'; c.wanderT = 0; if (m.userData.head) m.userData.head.rotation.x = 0; }
+  } else {
+    // skittish: bolt if the player is very close, or close AND moving fast
+    if (c.state !== 'flee' && (d2 < 4.84 || (d2 < 20 && wildPlayerSpeed > 3.4))) {
+      c.state = 'flee'; c.fleeT = 1.0 + Math.random() * 0.8;
+      var fa = Math.atan2(dz, dx); c.tgt = { x: c.x + Math.cos(fa) * 8, z: c.z + Math.sin(fa) * 8 };
+      if (!inside && Math.random() < 0.5) wildMeow();
+    }
+    if (c.state === 'flee') {
+      c.fleeT -= dt; spd = 5.2;
+      var tdx = c.tgt.x - c.x, tdz = c.tgt.z - c.z, td = Math.hypot(tdx, tdz) || 1; vx = tdx / td; vz = tdz / td;
+      if (c.fleeT <= 0) { c.state = 'wander'; c.wanderT = 0; }
+    } else if (c.state === 'sit') {
+      c.sitT -= dt; if (c.sitT <= 0) { c.state = 'wander'; c.wanderT = 0; }
+    } else {   // wander
+      if (!c.tgt || c.wanderT <= 0) { catNewTarget(c); c.wanderT = 2 + Math.random() * 3; if (Math.random() < 0.3) { c.state = 'sit'; c.sitT = 2 + Math.random() * 3.5; } }
+      c.wanderT -= dt;
+      var wdx = c.tgt.x - c.x, wdz = c.tgt.z - c.z, wd = Math.hypot(wdx, wdz);
+      if (wd > 0.4) { spd = 1.25; vx = wdx / wd; vz = wdz / wd; } else { c.state = 'sit'; c.sitT = 1.5 + Math.random() * 3; }
+    }
+    if (m.userData.head) m.userData.head.rotation.x = 0;
+  }
+  if (spd > 0.05) {
+    c.x += vx * spd * dt; c.z += vz * spd * dt;
+    c.x = Math.max(-HALF + 6, Math.min(HALF - 6, c.x)); c.z = Math.max(-HALF + 6, Math.min(HALF - 6, c.z));
+    var pos = pushOut(c.x, c.z, 0.2); c.x = pos.x; c.z = pos.z;
+    m.rotation.y = Math.atan2(vx, vz);
+    if (m.userData.tail) m.userData.tail.rotation.z += Math.sin(c.phase * 9) * 0.12;   // faster sway on the move
+  }
+  m.position.set(c.x, 0, c.z);
+  // occasional meow near the player (not while fleeing)
+  c.meowT -= dt;
+  if (c.meowT <= 0) { c.meowT = 8 + Math.random() * 16; if (c.state !== 'flee' && d2 < 400 && !inside && Math.random() < 0.5) wildMeow(); }
+}
+// nearest pettable cat within reach (calm, not fleeing) — for the E prompt/handler
+function nearestPetCat() {
+  if (!state.running || state.dead || driving || inside) return null;
+  var best = null, bd = 2.4 * 2.4;
+  for (var i = 0; i < wildlife.length; i++) {
+    var c = wildlife[i]; if (c.kind !== 'cat' || c.state === 'flee' || !c.mesh.visible) continue;
+    var dx = c.x - player.x, dz = c.z - player.z, d2 = dx * dx + dz * dz;
+    if (d2 < bd) { bd = d2; best = c; }
+  }
+  return best;
+}
+function petCat(c) {
+  if (!c || c.petCD > 0) return false;
+  c.state = 'pet'; c.sitT = 2.6; c.petCD = 4; c.tgt = null;
+  if (!inside) { wildMeow(); setTimeout(function () { wildPurr(); }, 320); }
+  // a little floating heart + a wholesome line
+  popup('♥');
+  toast('🐈 You pet the stray cat. <b>Purrrr…</b>', 2400);
+  return true;
+}
+function wildlifeCounts() {
+  var o = { bird: 0, duck: 0, squirrel: 0, cat: 0 };
+  for (var i = 0; i < wildlife.length; i++) if (o[wildlife[i].kind] !== undefined) o[wildlife[i].kind]++;
+  return o;
+}
+// ---- critter one-shot voices (procedural, routed through ac.destination = the
+// SFX bus so the settings slider governs them; kept quiet — ambience). ----
+function wildQuack() {
+  if (!ac) return;
+  var quacks = 2 + (Math.random() * 2 | 0), t = ac.currentTime;
+  for (var i = 0; i < quacks; i++) {
+    var o = ac.createOscillator(); o.type = 'sawtooth';
+    var f = 300 + Math.random() * 90, g = ac.createGain();
+    var bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 900; bp.Q.value = 3;
+    o.frequency.setValueAtTime(f * 1.35, t); o.frequency.exponentialRampToValueAtTime(f * 0.8, t + 0.13);
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.05, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0006, t + 0.16);
+    o.connect(bp); bp.connect(g); g.connect(ac.destination); o.start(t); o.stop(t + 0.2); if (typeof ambTrack === 'function') ambTrack(o);
+    t += 0.17 + Math.random() * 0.08;
+  }
+}
+function wildChitter() {
+  if (!ac) return;
+  var n = 4 + (Math.random() * 4 | 0), t = ac.currentTime;
+  for (var i = 0; i < n; i++) {
+    var o = ac.createOscillator(); o.type = 'square';
+    var f = 1500 + Math.random() * 900, g = ac.createGain();
+    o.frequency.setValueAtTime(f, t); o.frequency.exponentialRampToValueAtTime(f * 1.3, t + 0.03);
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.02, t + 0.005); g.gain.exponentialRampToValueAtTime(0.0005, t + 0.04);
+    o.connect(g); g.connect(ac.destination); o.start(t); o.stop(t + 0.05); if (typeof ambTrack === 'function') ambTrack(o);
+    t += 0.05 + Math.random() * 0.03;
+  }
+}
+function wildMeow() {
+  if (!ac) return;
+  var t = ac.currentTime, o = ac.createOscillator(); o.type = 'sawtooth';
+  var bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1100; bp.Q.value = 4;
+  var g = ac.createGain();
+  o.frequency.setValueAtTime(560, t); o.frequency.linearRampToValueAtTime(820, t + 0.18); o.frequency.linearRampToValueAtTime(500, t + 0.5);
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.06, t + 0.08); g.gain.setValueAtTime(0.055, t + 0.32); g.gain.exponentialRampToValueAtTime(0.0006, t + 0.55);
+  o.connect(bp); bp.connect(g); g.connect(ac.destination); o.start(t); o.stop(t + 0.58); if (typeof ambTrack === 'function') ambTrack(o);
+}
+function wildPurr() {
+  if (!ac) return;
+  var t = ac.currentTime, dur = 1.4, n = ac.sampleRate * dur | 0, buf = ac.createBuffer(1, n, ac.sampleRate), d = buf.getChannelData(0), last = 0;
+  for (var i = 0; i < n; i++) { var w = Math.random() * 2 - 1; last = (last + 0.08 * w) / 1.08; d[i] = last * (1.6 + Math.sin(i / ac.sampleRate * 2 * Math.PI * 26) * 0.9); }   // ~26 Hz amplitude rumble
+  var src = ac.createBufferSource(); src.buffer = buf;
+  var lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 320;
+  var g = ac.createGain(); g.gain.value = 0.09;
+  src.connect(lp); lp.connect(g); g.connect(ac.destination); src.start(t); src.stop(t + dur); if (typeof ambTrack === 'function') ambTrack(src);
+}
+
 // ---------------- collision ----------------
 // cheap boolean "is this point clear of colliders" — used by the NPC steer-ahead
 // probe. Same slab math as pushOut but returns on FIRST overlap (no push vector).
@@ -13859,6 +14985,113 @@ function startAmbient() {
   uwGain = ac.createGain(); uwGain.gain.value = 0;
   us.connect(uf); uf.connect(uwGain); uwGain.connect(ac.destination); us.start();
   if (underwater) uwGain.gain.value = 0.65;
+  // ---- day/night ambient life beds (atmosphere pass) ----
+  // Two persistent looping beds cross-faded by the day fraction: a faint daytime
+  // suburban hum and a night cicada/cricket shimmer. Built ONCE here; updateAmbient
+  // only nudges their gains + fires sparse one-shots (no per-frame node alloc for
+  // the beds). Routed through ac.destination (= sfxBus) so the SFX slider governs
+  // them; levels are deliberately tiny (ambience, not foreground).
+  var dl = ac.sampleRate * 3, dbf = ac.createBuffer(1, dl, ac.sampleRate), dd = dbf.getChannelData(0), dlast = 0;
+  for (i = 0; i < dl; i++) { var dw = Math.random() * 2 - 1; dlast = (dlast + 0.04 * dw) / 1.04; dd[i] = dlast * 3; }
+  var dsrc = ac.createBufferSource(); dsrc.buffer = dbf; dsrc.loop = true;
+  var dfl = ac.createBiquadFilter(); dfl.type = 'bandpass'; dfl.frequency.value = 420; dfl.Q.value = 0.7;
+  ambDayGain = ac.createGain(); ambDayGain.gain.value = 0;
+  dsrc.connect(dfl); dfl.connect(ambDayGain); ambDayGain.connect(ac.destination); dsrc.start();
+  // night cicada/cricket bed: narrow high-band noise with a fast tremolo shimmer
+  var nl = ac.sampleRate * 3, nbf = ac.createBuffer(1, nl, ac.sampleRate), ndat = nbf.getChannelData(0);
+  for (i = 0; i < nl; i++) ndat[i] = Math.random() * 2 - 1;
+  var nsrc = ac.createBufferSource(); nsrc.buffer = nbf; nsrc.loop = true;
+  var nfl = ac.createBiquadFilter(); nfl.type = 'bandpass'; nfl.frequency.value = 4600; nfl.Q.value = 7;
+  var ntrem = ac.createGain(); ntrem.gain.value = 0.55;              // tremolo centre
+  var nlfo = ac.createOscillator(); nlfo.type = 'sine'; nlfo.frequency.value = 9;   // ~9 Hz shimmer
+  var nlg = ac.createGain(); nlg.gain.value = 0.42;
+  nlfo.connect(nlg); nlg.connect(ntrem.gain); nlfo.start();
+  ambNightGain = ac.createGain(); ambNightGain.gain.value = 0;
+  nsrc.connect(nfl); nfl.connect(ntrem); ntrem.connect(ambNightGain); ambNightGain.connect(ac.destination); nsrc.start();
+  ambReady = true;
+}
+// ---- ambient bed state (cross-fade + sparse one-shot scheduling) ----
+var ambDayGain = null, ambNightGain = null, ambReady = false;
+var ambBirdT = 4, ambDogT = 30, ambCarT = 22, ambFlutterT = 18, ambLive = 0;
+function ambTrack(src) { ambLive++; try { src.onended = function () { if (ambLive > 0) ambLive--; }; } catch (e) { } }
+// one-shot: a short bird warble (2-4 quick sine notes)
+function ambChirp() {
+  if (!ac) return;
+  var g = ac.createGain(); g.connect(ac.destination);
+  var o = ac.createOscillator(); o.type = 'sine';
+  var base = 2600 + Math.random() * 1800, t0 = ac.currentTime, notes = 2 + (Math.random() * 3 | 0), t = t0;
+  g.gain.setValueAtTime(0.0001, t0);
+  for (var ci = 0; ci < notes; ci++) {
+    var fr = base * (0.85 + Math.random() * 0.5);
+    o.frequency.setValueAtTime(fr, t);
+    o.frequency.exponentialRampToValueAtTime(fr * (1.1 + Math.random() * 0.5), t + 0.05);
+    g.gain.setValueAtTime(0.03, t);
+    g.gain.exponentialRampToValueAtTime(0.0006, t + 0.07);
+    t += 0.09 + Math.random() * 0.06;
+  }
+  o.connect(g); o.start(t0); o.stop(t + 0.05); ambTrack(o);
+}
+// one-shot: distant dog bark (dull low-passed saw yaps)
+function ambDog() {
+  if (!ac) return;
+  var barks = 2 + (Math.random() * 2 | 0), t = ac.currentTime;
+  for (var bi = 0; bi < barks; bi++) {
+    var o = ac.createOscillator(); o.type = 'sawtooth';
+    var fr = 175 + Math.random() * 60, g = ac.createGain();
+    var lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 850;   // distant = muffled
+    o.frequency.setValueAtTime(fr * 1.6, t); o.frequency.exponentialRampToValueAtTime(fr, t + 0.12);
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.04, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0006, t + 0.16);
+    o.connect(lp); lp.connect(g); g.connect(ac.destination); o.start(t); o.stop(t + 0.2); ambTrack(o);
+    t += 0.22 + Math.random() * 0.1;
+  }
+}
+// one-shot: far car pass (band-swept noise swell)
+function ambCarPass() {
+  if (!ac) return;
+  var dur = 1.6 + Math.random() * 0.8, t = ac.currentTime;
+  var n = ac.sampleRate * dur | 0, buf = ac.createBuffer(1, n, ac.sampleRate), d = buf.getChannelData(0), last = 0;
+  for (var i = 0; i < n; i++) { var w = Math.random() * 2 - 1; last = (last + 0.05 * w) / 1.05; d[i] = last * 3; }
+  var src = ac.createBufferSource(); src.buffer = buf;
+  var bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 0.8;
+  bp.frequency.setValueAtTime(300, t); bp.frequency.linearRampToValueAtTime(1200, t + dur * 0.5); bp.frequency.linearRampToValueAtTime(300, t + dur);
+  var g = ac.createGain();
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.045, t + dur * 0.5); g.gain.linearRampToValueAtTime(0.0001, t + dur);
+  src.connect(bp); bp.connect(g); g.connect(ac.destination); src.start(t); src.stop(t + dur); ambTrack(src);
+}
+// one-shot: quick bird wing flutter (high-passed noise bursts)
+function ambFlutter() {
+  if (!ac) return;
+  var t = ac.currentTime, n = ac.sampleRate * 0.3 | 0, buf = ac.createBuffer(1, n, ac.sampleRate), d = buf.getChannelData(0);
+  for (var i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (i % 900 < 220 ? 1 : 0.18);   // fluttery bursts
+  var src = ac.createBufferSource(); src.buffer = buf;
+  var hp = ac.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1800;
+  var g = ac.createGain(); g.gain.value = 0.03;
+  src.connect(hp); hp.connect(g); g.connect(ac.destination); src.start(t); src.stop(t + 0.3); ambTrack(src);
+}
+// cross-fade the beds by day fraction + schedule sparse ambient flavor. Cheap:
+// two gain nudges + a few countdown timers per frame; one-shots are rare.
+function updateAmbient(dt) {
+  if (!ac || !ambReady) return;
+  var f = dayFactor();                                  // 0 night .. 1 day
+  var wet = raining ? Math.min(1, rainIntensity) : 0;   // nature hushes in rain
+  var muffle = inside ? 0.32 : (underwater ? 0.18 : 1);
+  var quiet = 1 - 0.6 * wet;
+  var dayLv = 0.014 * Math.max(0, Math.min(1, (f - 0.2) / 0.5)) * quiet * muffle;
+  var nightLv = 0.02 * Math.max(0, Math.min(1, (0.45 - f) / 0.4)) * quiet * muffle;
+  var kk = Math.min(1, dt * 1.5);
+  ambDayGain.gain.value += (dayLv - ambDayGain.gain.value) * kk;
+  ambNightGain.gain.value += (nightLv - ambNightGain.gain.value) * kk;
+  // sparse one-shot flavor — long randomized cooldowns so it never gets busy
+  if (!inside && !underwater) {
+    ambBirdT -= dt;
+    if (ambBirdT <= 0) { ambBirdT = 1.6 + Math.random() * 4.5; if (f > 0.4 && wet < 0.4) ambChirp(); }
+    ambFlutterT -= dt;
+    if (ambFlutterT <= 0) { ambFlutterT = 22 + Math.random() * 40; if (f > 0.35 && wet < 0.5 && Math.random() < 0.6) ambFlutter(); }
+    ambDogT -= dt;
+    if (ambDogT <= 0) { ambDogT = 35 + Math.random() * 70; if (wet < 0.7 && Math.random() < 0.7) ambDog(); }
+    ambCarT -= dt;
+    if (ambCarT <= 0) { ambCarT = 26 + Math.random() * 55; if (Math.random() < 0.7) ambCarPass(); }
+  }
 }
 // ---- PS1-crunched TTS dialogue (optional voicelines.js) ----
 var voiceBufs = {}, voiceLastT = {}, dealerMet = false, shopBought = false, clerkScaredT = -99;
@@ -14199,6 +15432,42 @@ function sfx(kind, at) {
     case 'boom': nb(0.8, 320, 1.3); bp(60, 0.6, 0.6, 'sine', 24); setTimeout(function () { nb(0.4, 700, 0.4); }, 120); break;
   }
 }
+// ---- surface footsteps (#47): cheap per-surface noise blips synced to the
+// walk/run cadence in updatePlayer. All route through ac.destination (= sfxBus)
+// so the settings SFX slider controls them. Kept subtle (low gains).
+var footStepCount = 0;
+function footStep(surf, run) {
+  footStepCount++;
+  if (!ac) return;
+  var g = run ? 1.35 : 1;   // heavier stomp at a run
+  switch (surf) {
+    case 'water':                                     // wet splash
+      noiseBurst(0.11, 2200, 0.16 * g); beep(520, 0.06, 0.05 * g, 'sine', 190);
+      setTimeout(function () { noiseBurst(0.08, 1500, 0.09 * g); }, 45); break;
+    case 'grass':                                     // soft muffled scuff
+      noiseBurst(0.06, 480, 0.085 * g); break;
+    case 'interior':                                  // hollow wood/tile tap
+      noiseBurst(0.045, 900, 0.10 * g); beep(150, 0.05, 0.055 * g, 'sine', 90); break;
+    case 'concrete':                                  // hard sidewalk click
+      noiseBurst(0.04, 1600, 0.11 * g); beep(210, 0.04, 0.05 * g, 'square', 120); break;
+    default:                                          // asphalt: dull road thud
+      noiseBurst(0.05, 1050, 0.10 * g); beep(140, 0.05, 0.05 * g, 'sine', 80); break;
+  }
+}
+// classify the ground under (x,z) for footstep timbre. order matters:
+// interior floor > lake water > sidewalk concrete > road asphalt > grass.
+function footSurface(x, z) {
+  if (inside || qLoc) return 'interior';
+  if (typeof inLake === 'function' && inLake(x, z)) return 'water';
+  var az = x < 0 ? -x : x, aze = z < 0 ? -z : z;
+  // main axis carriageways (E-W @ z=0, N-S @ x=0) + their flanking sidewalks
+  if (aze <= MAIN_HW || az <= CROSS_HW) return 'asphalt';
+  if (aze <= MAIN_HW + 5.5 || az <= CROSS_HW + 5.5) return 'concrete';
+  // true-geometry secondary roads/sidewalks (REMAP set)
+  if (onSidewalk(x, z)) return 'concrete';
+  if (onRoad(x, z)) return 'asphalt';
+  return 'grass';
+}
 
 // ---------------- UI ----------------
 function popup(txt) { var el = document.createElement('div'); el.className = 'pop'; el.textContent = txt; document.getElementById('popups').appendChild(el); setTimeout(function () { el.remove(); }, 900); }
@@ -14314,8 +15583,84 @@ var mm = document.getElementById('mm');
 var mg = mm.getContext('2d');
 var MMS = mm.width / TOTAL;
 function w2m(v) { return (v + HALF) * MMS; }
+
+// ---- minimap zoom (#46): WIDE / NORMAL / CLOSE. Level 0 = the classic whole-
+// map fixed-north view; higher levels scale up and centre on the player,
+// clamped so the view never runs past the world edge. Persisted in localStorage.
+var MM_ZOOMS = [1, 2, 3.4];
+var MM_ZOOM_NAMES = ['WIDE', 'NORMAL', 'CLOSE'];
+var mmZoom = 0;
+(function () { try { var z = parseInt(localStorage.getItem('wc_mmzoom'), 10); if (z >= 0 && z < MM_ZOOMS.length) mmZoom = z; } catch (e) { } })();
+function setMinimapZoom(i) {
+  i = Math.max(0, Math.min(MM_ZOOMS.length - 1, i | 0));
+  if (i !== mmZoom) {
+    mmZoom = i;
+    try { localStorage.setItem('wc_mmzoom', String(mmZoom)); } catch (e) { }
+    if (typeof toast === 'function' && state.running && !state.menu) toast('MAP: ' + MM_ZOOM_NAMES[mmZoom], 900);
+  }
+  return mmZoom;
+}
+function cycleMinimapZoom(dir) { return setMinimapZoom(mmZoom + (dir > 0 ? 1 : -1)); }
+
+// ---- venue/landmark blips (#46): REMAP_VENUES is parsed ONCE into a compact
+// blip list (colour + short glyph per named venue) so drawMinimap never walks
+// the raw venue table per frame. Blips render at constant PIXEL size in screen
+// space, so they stay crisp and readable at every zoom level (no fuzzy upscaled
+// baked text). Townhouses/houses get no blip — they'd swamp the map.
+var MM_VENUE_STYLE = {
+  racetrac:    { c: '#ff5a3a', g: 'RT', major: 1 },
+  publix:      { c: '#4fae5a', g: 'PUB', major: 1 },
+  dunkin:      { c: '#ff8a2a', g: 'DD', major: 1 },
+  starbucks:   { c: '#1c9f6e', g: 'SB', major: 1 },
+  bank:        { c: '#ffd24a', g: 'BK', major: 1 },
+  pharmacy:    { c: '#4f9fe0', g: 'RX', major: 1 },
+  sushi:       { c: '#e0506a', g: 'SU', major: 1 },
+  farnell:     { c: '#f0c24a', g: 'SCH', major: 1 },
+  dollar_tree: { c: '#3fbf7a', g: 'DT', major: 1 },
+  offices:     { c: '#b0b6c0', g: 'OF', major: 0 },
+  yoga:        { c: '#c07ae0', g: 'YG', major: 0 },
+  storage:     { c: '#9a8a6a', g: 'ST', major: 0 },
+  strip:       { c: '#8fb0d0', g: '', major: 0 },
+  red_house:   { c: '#d05a4a', g: '', major: 0 },
+  shop:        { c: '#c0c0a0', g: '', major: 0 }
+};
+// landmark blips: world POIs that aren't in REMAP_VENUES (lake, intersection).
+var MM_LANDMARKS = [
+  { x: LAKE.x, z: LAKE.z, c: '#bfe6ff', g: 'LAKE', major: 1, land: 1 },
+  { x: 0, z: 0, c: '#ffffff', g: '+', major: 1, land: 1 }
+];
+var mmVenues = null;
+function buildMMVenues() {
+  mmVenues = [];
+  if (typeof REMAP_VENUES !== 'undefined') {
+    for (var i = 0; i < REMAP_VENUES.length; i++) {
+      var v = REMAP_VENUES[i], st = MM_VENUE_STYLE[v.type];
+      if (!st) continue;
+      mmVenues.push({ x: v.x, z: v.z, c: st.c, g: st.g, major: st.major, land: 0 });
+    }
+  }
+  for (var k = 0; k < MM_LANDMARKS.length; k++) mmVenues.push(MM_LANDMARKS[k]);
+}
+
 function drawMinimap() {
-  mg.fillStyle = '#5f8a45'; mg.fillRect(0, 0, mm.width, mm.height);
+  if (!mmVenues) buildMMVenues();
+  var cw = mm.width, ch = mm.height;
+  var Z = MM_ZOOMS[mmZoom];
+  // clamp the view centre (in minimap px) so a zoomed view never runs off the
+  // world; at Z=1 this forces the classic whole-map centre (sx/sz === w2m).
+  var halfW = cw / (2 * Z), halfH = ch / (2 * Z);
+  var bx = Math.max(halfW, Math.min(cw - halfW, w2m(player.x)));
+  var by = Math.max(halfH, Math.min(ch - halfH, w2m(player.z)));
+  var txp = cw / 2 - bx * Z, typ = ch / 2 - by * Z;
+  function sx(x) { return w2m(x) * Z + txp; }   // world x -> minimap px (pan+zoom)
+  function sz(z) { return w2m(z) * Z + typ; }
+
+  // ---------- STATIC WORLD LAYER: drawn under a pan/zoom transform so every
+  // existing w2m-based rect/line works unchanged. Background fills the whole
+  // canvas in identity space first (the world ground is grass everywhere).
+  mg.setTransform(1, 0, 0, 1, 0, 0);
+  mg.fillStyle = '#5f8a45'; mg.fillRect(0, 0, cw, ch);
+  mg.setTransform(Z, 0, 0, Z, txp, typ);
   // forest
   mg.fillStyle = '#33562c';
   for (var f = 0; f < mapForest.length; f++) { var z = mapForest[f]; mg.fillRect(w2m(z.x0), w2m(z.z0), (z.x1 - z.x0) * MMS, (z.z1 - z.z0) * MMS); }
@@ -14342,51 +15687,86 @@ function drawMinimap() {
   // buildings (survey houses come from a pre-rendered layer — ~600 rects)
   if (typeof HOUSE_CLUSTERS !== 'undefined') mg.drawImage(houseMMLayer(w2m, mm.width, MMS), 0, 0);
   for (var b = 0; b < mapBuildings.length; b++) { var m = mapBuildings[b]; if (m.hs) continue; mg.fillStyle = m.c; mg.fillRect(w2m(m.x - m.w / 2), w2m(m.z - m.d / 2), Math.max(2, m.w * MMS), Math.max(2, m.d * MMS)); }
+
+  // ---------- DYNAMIC OVERLAY: identity space, constant pixel sizes (crisp at
+  // every zoom). All world positions go through sx()/sz() for pan+zoom.
+  mg.setTransform(1, 0, 0, 1, 0, 0);
+  // venue + landmark blips (precomputed once; constant size + short glyphs).
+  // Labels only when zoomed in (or always for the two anchor venues) so the
+  // WIDE view stays a clean colour-coded map.
+  mg.textAlign = 'center'; mg.textBaseline = 'middle';
+  for (var vi = 0; vi < mmVenues.length; vi++) {
+    var vv = mmVenues[vi], vx = sx(vv.x), vy = sz(vv.z);
+    if (vx < -6 || vx > cw + 6 || vy < -6 || vy > ch + 6) continue;   // cull off-map
+    if (vv.land && vv.g === '+') {   // intersection crosshair
+      mg.strokeStyle = 'rgba(255,255,255,0.85)'; mg.lineWidth = 1;
+      mg.beginPath(); mg.moveTo(vx - 3, vy); mg.lineTo(vx + 3, vy); mg.moveTo(vx, vy - 3); mg.lineTo(vx, vy + 3); mg.stroke();
+    } else {
+      mg.fillStyle = '#000'; mg.fillRect(vx - 2.5, vy - 2.5, 5, 5);       // dark outline
+      mg.fillStyle = vv.c; mg.fillRect(vx - 1.5, vy - 1.5, 3, 3);         // colour blip
+    }
+    if (vv.g && vv.major && (Z >= 2 || vv.g === 'RT' || vv.g === 'PUB' || vv.land)) {
+      mg.font = 'bold 7px "Courier New",monospace';
+      mg.fillStyle = '#000'; mg.fillText(vv.g, vx + 0.6, vy - 5.4);
+      mg.fillStyle = '#fff'; mg.fillText(vv.g, vx, vy - 6);
+    }
+  }
   // cars
-  mg.fillStyle = '#e8a13a'; for (var c = 0; c < cars.length; c++) { var cm = cars[c].car.group.position; mg.fillRect(w2m(cm.x) - 1, w2m(cm.z) - 1, 2, 2); }
+  mg.fillStyle = '#e8a13a'; for (var c = 0; c < cars.length; c++) { var cm = cars[c].car.group.position; mg.fillRect(sx(cm.x) - 1, sz(cm.z) - 1, 2, 2); }
   // npcs
-  mg.fillStyle = '#eeeeee'; for (var n = 0; n < npcs.length; n++) { if (npcs[n].state === 'down' || npcs[n].state === 'hidden') continue; mg.fillRect(w2m(npcs[n].x) - 1, w2m(npcs[n].z) - 1, 2, 2); }
+  mg.fillStyle = '#eeeeee'; for (var n = 0; n < npcs.length; n++) { if (npcs[n].state === 'down' || npcs[n].state === 'hidden') continue; mg.fillRect(sx(npcs[n].x) - 1, sz(npcs[n].z) - 1, 2, 2); }
   // cops (blue, slightly bigger)
-  mg.fillStyle = '#3f8fe8'; for (var cop = 0; cop < cops.length; cop++) { if (cops[cop].state === 'down') continue; mg.fillRect(w2m(cops[cop].x) - 1.5, w2m(cops[cop].z) - 1.5, 3, 3); }
-  for (var cop2 = 0; cop2 < copsM.length; cop2++) { mg.fillRect(w2m(copsM[cop2].x) - 1.5, w2m(copsM[cop2].z) - 1.5, 3, 3); }
+  mg.fillStyle = '#3f8fe8'; for (var cop = 0; cop < cops.length; cop++) { if (cops[cop].state === 'down') continue; mg.fillRect(sx(cops[cop].x) - 1.5, sz(cops[cop].z) - 1.5, 3, 3); }
+  for (var cop2 = 0; cop2 < copsM.length; cop2++) { mg.fillRect(sx(copsM[cop2].x) - 1.5, sz(copsM[cop2].z) - 1.5, 3, 3); }
   // Police Scanner (q2): while wanted, ring the nearest patrol so you can route
   // around it — turns the wanted system from surprise into strategy.
   if (hasUnlock('scanner') && state.wanted > 0 && cops.length) {
     var near = null, nd = 1e9;
     for (var cs = 0; cs < cops.length; cs++) { var cc = cops[cs]; if (cc.state === 'down') continue; var ddx = cc.x - player.x, ddz = cc.z - player.z, dd = ddx * ddx + ddz * ddz; if (dd < nd) { nd = dd; near = cc; } }
-    if (near) { mg.strokeStyle = 'rgba(120,200,255,' + (0.5 + 0.4 * (Math.sin(T * 6) * 0.5 + 0.5)).toFixed(2) + ')'; mg.lineWidth = 1.4; mg.beginPath(); mg.arc(w2m(near.x), w2m(near.z), 5.5, 0, Math.PI * 2); mg.stroke(); }
+    if (near) { mg.strokeStyle = 'rgba(120,200,255,' + (0.5 + 0.4 * (Math.sin(T * 6) * 0.5 + 0.5)).toFixed(2) + ')'; mg.lineWidth = 1.4; mg.beginPath(); mg.arc(sx(near.x), sz(near.z), 5.5, 0, Math.PI * 2); mg.stroke(); }
   }
   // other players (cyan)
   // real players as bright-green blips (match their name-tag color); dim the
   // dead, draw drivers as a slightly bigger square
-  for (var rp in net.remotes) { var rpp = net.remotes[rp]; mg.fillStyle = rpp.dead ? '#2f7a3a' : '#6dff8b'; var sz = rpp.drv ? 6 : 4; mg.fillRect(w2m(rpp.x) - sz / 2, w2m(rpp.z) - sz / 2, sz, sz); }
+  for (var rp in net.remotes) { var rpp = net.remotes[rp]; mg.fillStyle = rpp.dead ? '#2f7a3a' : '#6dff8b'; var sz2 = rpp.drv ? 6 : 4; mg.fillRect(sx(rpp.x) - sz2 / 2, sz(rpp.z) - sz2 / 2, sz2, sz2); }
   // cash
-  mg.fillStyle = '#59e04a'; for (var k = 0; k < cashes.length; k++) { var cp = cashes[k].mesh.position; mg.fillRect(w2m(cp.x) - 1, w2m(cp.z) - 1, 2, 2); }
+  mg.fillStyle = '#59e04a'; for (var k = 0; k < cashes.length; k++) { var cp = cashes[k].mesh.position; mg.fillRect(sx(cp.x) - 1, sz(cp.z) - 1, 2, 2); }
   // dropped weapons
-  mg.fillStyle = '#d060e8'; for (var dw = 0; dw < drops.length; dw++) { var dp = drops[dw].mesh.position; mg.fillRect(w2m(dp.x) - 1.5, w2m(dp.z) - 1.5, 3, 3); }
+  mg.fillStyle = '#d060e8'; for (var dw = 0; dw < drops.length; dw++) { var dp = drops[dw].mesh.position; mg.fillRect(sx(dp.x) - 1.5, sz(dp.z) - 1.5, 3, 3); }
   // gas station marker
-  mg.fillStyle = '#e05a3a'; mg.font = 'bold 11px Courier New'; mg.textAlign = 'center'; mg.textBaseline = 'middle'; mg.fillText('G', w2m(gasRob.x), w2m(gasRob.z));
+  mg.fillStyle = '#e05a3a'; mg.font = 'bold 11px Courier New'; mg.textAlign = 'center'; mg.textBaseline = 'middle'; mg.fillText('G', sx(gasRob.x), sz(gasRob.z));
   // dealer marker
-  mg.fillStyle = '#ffd94a'; mg.font = 'bold 12px Courier New'; mg.fillText('$', w2m(dealerPos.x), w2m(dealerPos.z));
-  // player arrow
-  mg.save(); mg.translate(w2m(player.x), w2m(player.z)); mg.rotate(-yaw); mg.fillStyle = '#ffffff'; mg.strokeStyle = '#000'; mg.beginPath(); mg.moveTo(0, -5); mg.lineTo(3.6, 4); mg.lineTo(-3.6, 4); mg.closePath(); mg.fill(); mg.stroke(); mg.restore();
+  mg.fillStyle = '#ffd94a'; mg.font = 'bold 12px Courier New'; mg.fillText('$', sx(dealerPos.x), sz(dealerPos.z));
+  // player heading arrow (fixed-north map -> the arrow itself shows facing)
+  mg.save(); mg.translate(sx(player.x), sz(player.z)); mg.rotate(-yaw); mg.fillStyle = '#ffffff'; mg.strokeStyle = '#000'; mg.beginPath(); mg.moveTo(0, -5); mg.lineTo(3.6, 4); mg.lineTo(-3.6, 4); mg.closePath(); mg.fill(); mg.stroke(); mg.restore();
   // active-quest waypoint: amber diamond at the current beat's waypoint; if it
   // maps outside the minimap it clamps to the border as a pointing arrow
   var wp = questWaypoint();
   if (wp) {
-    var mx = w2m(wp.x), my = w2m(wp.z), inb = mx >= 5 && mx <= mm.width - 5 && my >= 5 && my <= mm.height - 5;
+    var mx = sx(wp.x), my = sz(wp.z), inb = mx >= 5 && mx <= cw - 5 && my >= 5 && my <= ch - 5;
     var blink = (Math.sin(T * 5) * 0.5 + 0.5);
     mg.fillStyle = 'rgba(255,190,40,' + (0.55 + 0.45 * blink).toFixed(2) + ')'; mg.strokeStyle = '#3a2600'; mg.lineWidth = 1;
     if (inb) {
       mg.save(); mg.translate(mx, my); mg.rotate(Math.PI / 4); var dd2 = 3.4; mg.fillRect(-dd2, -dd2, dd2 * 2, dd2 * 2); mg.strokeRect(-dd2, -dd2, dd2 * 2, dd2 * 2); mg.restore();
     } else {
       // off-map: clamp to the border and draw a chevron pointing toward it
-      var cx = mm.width / 2, cy = mm.height / 2, ang = Math.atan2(my - cy, mx - cx);
-      var ex = Math.max(7, Math.min(mm.width - 7, mx)), ey = Math.max(7, Math.min(mm.height - 7, my));
+      var cx = cw / 2, cy = ch / 2, ang = Math.atan2(my - cy, mx - cx);
+      var ex = Math.max(7, Math.min(cw - 7, mx)), ey = Math.max(7, Math.min(ch - 7, my));
       mg.save(); mg.translate(ex, ey); mg.rotate(ang); mg.beginPath(); mg.moveTo(6, 0); mg.lineTo(-4, 4); mg.lineTo(-4, -4); mg.closePath(); mg.fill(); mg.stroke(); mg.restore();
     }
   }
-  mg.strokeStyle = '#222'; mg.strokeRect(0.5, 0.5, mm.width - 1, mm.height - 1);
+  // north indicator: this minimap is fixed-north (top edge = -z = north), so an
+  // 'N' chip at the top centre makes orientation unambiguous.
+  mg.fillStyle = '#0a0e16'; mg.fillRect(cw / 2 - 7, 1, 14, 12);
+  mg.fillStyle = '#ffe08a'; mg.font = 'bold 9px "Courier New",monospace'; mg.textAlign = 'center'; mg.textBaseline = 'middle';
+  mg.fillText('N', cw / 2, 7);
+  // zoom badge (bottom-left) when zoomed past WIDE
+  if (mmZoom > 0) {
+    mg.fillStyle = '#0a0e16'; mg.fillRect(2, ch - 12, 22, 10);
+    mg.fillStyle = '#cfe0ff'; mg.font = 'bold 8px "Courier New",monospace'; mg.textAlign = 'left'; mg.textBaseline = 'middle';
+    mg.fillText('x' + Z.toFixed(1), 4, ch - 7);
+  }
+  mg.strokeStyle = '#222'; mg.strokeRect(0.5, 0.5, cw - 1, ch - 1);
 }
 
 // ================= QUEST SYSTEM (framework) =================
@@ -16581,6 +17961,7 @@ function cycleEquip(dir) {
 }
 document.addEventListener('wheel', function (e) {
   if (document.pointerLockElement !== canvas) return;
+  if (e.ctrlKey) { cycleMinimapZoom(e.deltaY < 0 ? 1 : -1); return; }   // #46 Ctrl+scroll = zoom minimap
   cycleEquip(e.deltaY > 0 ? 1 : -1);
 }, { passive: true });
 // ---------------- multiplayer text chat ----------------
@@ -16906,10 +18287,16 @@ document.addEventListener('keydown', function (e) {
   if (e.code === 'F8' && state.running) { e.preventDefault(); openBug(); return; }
   if (e.code === 'KeyV' && !e.repeat && state.running && !state.menu && netActive()) { voiceStart(); return; }
   keys[e.code] = true;
+  if (e.code === 'KeyH' && driving && state.running && !state.menu && !state.dead) { playerHorn(); return; }
   if ((e.code === 'Enter' || e.code === 'NumpadEnter') && state.running && !state.menu && netActive()) { e.preventDefault(); openChat(); return; }
   if (e.code === 'Tab') { e.preventDefault(); if (!state.running || state.dead) return; if (state.menu === 'inv') closeMenus(); else { closeMenus(false); openMenu('inv'); } }
   if (e.code === 'KeyJ' && !e.repeat) { e.preventDefault(); if (!state.running || state.dead) return; if (state.menu === 'quest') closeMenus(); else if (!state.menu) openMenu('quest'); return; }
   if (e.code === 'KeyQ' && state.menu === 'inv') { e.preventDefault(); if (bagSel >= 0 && state.bag[bagSel]) bagDrop(bagSel); return; }
+  // #46 minimap zoom: [ zooms out (wider), ] zooms in (closer)
+  if (!e.repeat && state.running && !state.menu) {
+    if (e.code === 'BracketRight') { e.preventDefault(); cycleMinimapZoom(1); return; }
+    if (e.code === 'BracketLeft') { e.preventDefault(); cycleMinimapZoom(-1); return; }
+  }
   // #78 quest-reward capability toggles (only while playing, no menu)
   if (!e.repeat && state.running && !state.menu && !state.dead) {
     if (e.code === 'KeyL' && hasUnlock('loupe')) { toggleLoupe(); return; }
@@ -16949,6 +18336,7 @@ document.addEventListener('keydown', function (e) {
     if (gdx * gdx + gdz * gdz < 40) { enterStore(); return; }
     var idr = nearInteriorDoor();
     if (idr) { enterInterior(idr.id); return; }   // Publix (and future shop interiors)
+    if (petCat(nearestPetCat())) return;   // pet a nearby stray cat (wholesome, local-only)
     if (streetPropInteract()) return;   // vending / payphone / ATM / newsbox / dumpster / kick / mailbox
     if (envPropInteract()) return;      // env props: sit / drink / buy / play / vend / read / mailbox
     if (bushRummage()) return;          // rummage a bush/hedge for lost items
@@ -16967,6 +18355,7 @@ window.addEventListener('blur', function () { voiceStop(); });
 document.addEventListener('pointerlockchange', function () { if (document.pointerLockElement !== canvas) voiceStop(); });
 
 // ---------------- player update ----------------
+var stepPhase = 0;   // footstep cadence accumulator (#47)
 function updatePlayer(dt) {
   if (state.menu || state.dead) return;
   if (driving) {
@@ -17051,6 +18440,20 @@ function updatePlayer(dt) {
   recoilPitch += -recoilPitch * Math.min(1, dt * 5);   // recoil recovers back to the aim over ~0.4s (was: pitch climbed and stuck)
   camera.position.set(player.x, player.y, player.z); camera.rotation.y = yaw; camera.rotation.x = Math.max(-1.45, Math.min(1.45, pitch + recoilPitch + divePitch));
   var moving = (f || s) && player.grounded; var bob = moving ? Math.sin(T * (spd > 6 ? 13 : 9)) * 0.035 : 0; camera.position.y += bob;
+  // ---- surface footsteps (#47): advance a step phase by cadence; each wrap
+  // plays one footstep whose timbre matches the ground underfoot ----
+  if (moving && !state.sitting) {
+    var runStep = spd > 6;
+    stepPhase += dt * (runStep ? 3.5 : 2.5);
+    if (stepPhase >= 1) { stepPhase -= 1; footStep(footSurface(player.x, player.z), runStep); }
+  } else { stepPhase = 0.72; }   // primed so the first stride sounds promptly
+  // ---- sprint FOV (#47): ease the view a few degrees wider while running,
+  // ease back on stop. Relative to the settings baseFov; never while scoped. ----
+  if (!zoomed) {
+    var sprintFov = (keys['ShiftLeft'] || keys['ShiftRight']) && moving ? baseFov + 7 : baseFov;
+    if (Math.abs(camera.fov - sprintFov) > 0.03) { camera.fov += (sprintFov - camera.fov) * Math.min(1, dt * 8); camera.updateProjectionMatrix(); }
+    else if (camera.fov !== sprintFov) { camera.fov = sprintFov; camera.updateProjectionMatrix(); }
+  }
   if (state.sitting) camera.position.y -= 0.55;   // seated eye height
   camera.position.y += diveDip;                    // dumpster-dive head dip
   recoil = Math.max(0, recoil - dt * 8); vm.position.z = recoil * 0.07; vm.position.y = bob * 0.5; vm.rotation.x = recoil * 0.06;
@@ -17153,9 +18556,11 @@ function updatePlayer(dt) {
     else if (qa2) prompt.textContent = '[E] TALK TO ' + (qa2.name || 'THEM').toUpperCase();
     else if (qh2 && questHatchUnlocked(qh2.id)) prompt.textContent = '[E] ENTER ' + (QPOI[qh2.id].name || 'HATCH').toUpperCase();
     else {
-      var spp = breakIn ? null : (streetPropPrompt() || envPropPrompt() || bushPrompt());   // street + env + bush E-prompts
-      var nsc = spp || breakIn ? null : nearestStealableCar();
+      var petc = breakIn ? null : (typeof nearestPetCat === 'function' ? nearestPetCat() : null);
+      var spp = (breakIn || petc) ? null : (streetPropPrompt() || envPropPrompt() || bushPrompt());   // street + env + bush E-prompts
+      var nsc = spp || petc || breakIn ? null : nearestStealableCar();
       if (breakIn) prompt.textContent = 'BREAKING IN…';
+      else if (petc) prompt.textContent = (petc.petCD > 0 ? '' : '[E] PET THE CAT');
       else if (spp) prompt.textContent = spp;
       else if (nsc) prompt.textContent = carDrivenByPlayer(nsc) ? '[E] HIJACK CAR' : (nsc.parked ? '[E] BREAK IN' : '[E] STEAL CAR');
       else prompt.textContent = '';
@@ -17259,9 +18664,54 @@ function drawSprite(rows, x, y, px, color) {
   for (r = 0; r < 9; r++) for (c = 0; c < 9; c++) if (rows[r] & (256 >> c))
     hudCx.fillRect(x + c * px, y + r * px, px, px);
 }
+// ---- weapon-specific crosshair (#47): PS1-chunky reticle drawn on the HUD
+// canvas per equipped weapon. The hidden #crosshair element's inline
+// style.display is the visibility flag (setZoom/driving toggle it); we read it
+// so a scoped rifle / driving view hides the reticle exactly as before.
+function drawCrosshair(W, H) {
+  var crossEl = document.getElementById('crosshair');
+  if (crossEl && crossEl.style.display === 'none') return;   // scoped / driving / hidden
+  var cx = Math.round(W / 2), cy = Math.round(H / 2), w = state.equipped, col = '#eef4ff';
+  function bar(x, y, bw, bh) { hudCx.fillStyle = '#000'; hudCx.fillRect(x - 1, y - 1, bw + 2, bh + 2); hudCx.fillStyle = col; hudCx.fillRect(x, y, bw, bh); }
+  function dot(r) { bar(cx - r, cy - r, r * 2, r * 2); }
+  var wd = WEAPONS[w] || {};
+  // minimal marker for melee / consumables
+  if (w === 'fists' || w === 'snack' || w === 'soda') { dot(2); return; }
+  // rocket launcher: four corner brackets framing the blast
+  if (w === 'rocket') {
+    var g = 11, L = 6, t = 2, cs = [[-1, -1], [1, -1], [-1, 1], [1, 1]];
+    for (var i = 0; i < cs.length; i++) {
+      var sx = cs[i][0], sy = cs[i][1], ccx = cx + sx * g, ccy = cy + sy * g;
+      bar(sx > 0 ? ccx : ccx - L, ccy - t / 2, L, t);       // horizontal arm
+      bar(ccx - t / 2, sy > 0 ? ccy : ccy - L, t, L);       // vertical arm
+    }
+    dot(2); return;
+  }
+  // alien/laser guns: boxed reticle + center dot
+  if (wd.laser) {
+    var b = 7, t2 = 2;
+    bar(cx - b, cy - b, 2 * b, t2); bar(cx - b, cy + b - t2, 2 * b, t2);   // top/bottom edges
+    bar(cx - b, cy - b, t2, 2 * b); bar(cx + b - t2, cy - b, t2, 2 * b);   // left/right edges
+    dot(2); return;
+  }
+  // cross-hair weapons: gap+arm length varies by spread class
+  var gap, len, th = 2, showDot = true;
+  if (w === 'rifle') { gap = 5, len = 9, showDot = false; }   // fine precision cross, no dot
+  else if (w === 'auto') { gap = 9, len = 8; }                // AK: wide
+  else if (w === 'smg') { gap = 8, len = 7; }                 // SMG: wide-ish
+  else { gap = 6, len = 6; }                                  // pistol / silenced
+  if (wd.auto) gap += Math.min(10, (gunBloom || 0) * 260);    // spray blooms the reticle open
+  gap = Math.round(gap);
+  bar(cx - th / 2, cy - gap - len, th, len);   // top
+  bar(cx - th / 2, cy + gap, th, len);         // bottom
+  bar(cx - gap - len, cy - th / 2, len, th);   // left
+  bar(cx + gap, cy - th / 2, len, th);         // right
+  if (showDot) dot(1.5);
+}
 function drawHudCanvas() {
   var W = hudW, H = hudH, M = 14;
   hudCx.clearRect(0, 0, W, H);
+  drawCrosshair(W, H);
   // ---- directional damage indicators: red chevrons around screen center
   // pointing at whoever hurt you, fading over 0.9s (report mregrr51) ----
   for (var di = dmgDirs.length - 1; di >= 0; di--) {
@@ -17352,7 +18802,7 @@ function loop(now) {
   T += dt;
   updateReflex(dt);                       // 8-Bit Reflexes: sets the slow-mo factor
   var sdt = dt * reflexScale();           // world sim dt (bullet-time scales it)
-  updatePlayer(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); updateQuestCaps(dt); updateNpcTags(); updateHUD(); drawMinimap();
+  updatePlayer(dt); updateNPCs(sdt); updateKids(sdt); updateWildlife(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); updateQuestCaps(dt); updateSecrets(sdt); updateNpcTags(); updateHUD(); drawMinimap();
   renderer.render(scene, camera);
 }
 setEquipped('fists');
@@ -17405,6 +18855,13 @@ window.__wc = {
   shopPopulation: function () { return shopCust.length; },
   spawnCustomer: function () { return !!spawnCustomer(true); },
   listShopNpcs: function () { return shopCust.map(function (c) { return { state: c.state, x: Math.round(c.x * 10) / 10, z: Math.round(c.z * 10) / 10, lane: c.lane, qi: c.qi, beats: c.beats }; }); },
+  queueState: function () {
+    var sc = shopCfg(); if (!sc) return null;
+    var lanes = sc.lanes.map(function () { return []; }), serving = 0, panic = shopPanic;
+    for (var i = 0; i < shopCust.length; i++) { var c = shopCust[i]; if (c.lane >= 0 && lanes[c.lane]) lanes[c.lane].push(c.qi); if (c.state === 'serve') serving++; }
+    for (var l = 0; l < lanes.length; l++) lanes[l].sort(function (a, b) { return a - b; });
+    return { lanes: lanes, serving: serving, panic: panic, talk: shopTalk ? shopTalk.kind : null };
+  },
   initAudio: initAudio, playNpcVoice: playNpcVoice, playVoiceAny: playVoiceAny,
   audioVoices: function () { return activeVoices; }, getAC: function () { return ac; },
   voiceDbg: function () { return { local: dbgVoiceLocal, net: dbgVoiceNet, bcast: dbgVoiceBcast }; },
@@ -17467,9 +18924,43 @@ window.__wc = {
   enterCar: enterCar, exitCar: exitCar, nearestStealableCar: nearestStealableCar,
   isDriving: function () { return !!driving; }, drivingCar: function () { return driving; },
   pressKey: function (code, down) { keys[code] = down; },
-  setRain: function (on) { raining = on; rainLeft = on ? 9999 : 0; },
+  // --- easter-egg / secret test hooks ---
+  stashes: function () { return SECRET_STASHES; },
+  secretState: function () { var left = 0; for (var i = 0; i < SECRET_STASHES.length; i++) if (!SECRET_STASHES[i].taken) left++; return { stashesLeft: left, stashTotal: SECRET_STASHES.length, confetti: confetti.length, comboIdx: konamiIdx }; },
+  secretParty: function () { return triggerParty(); },
+  konamiSeq: function () { return KONAMI; },
+  spawnBalloons: function () { spawnBalloonCluster(); return balloons.length; },
+  balloonCount: function () { return balloons.length; },
+  setMinimapZoom: setMinimapZoom, cycleMinimapZoom: cycleMinimapZoom,
+  minimapState: function () { if (!mmVenues) buildMMVenues(); return { zoom: mmZoom, scale: MM_ZOOMS[mmZoom], name: MM_ZOOM_NAMES[mmZoom], levels: MM_ZOOMS.length, venues: mmVenues.length }; },
+  setRain: function (on) { raining = on; rainLeft = on ? 9999 : 0; if (on && rainTargetInten <= 0) rainTargetInten = rollInten(); },
+  // force a weather mode: auto | clear | drizzle | rain | storm | overcast | rainbow
+  setWeather: function (mode) {
+    var m = ('' + mode).toLowerCase();
+    if (m === 'clear') { weatherMode = m; raining = false; rainLeft = 0; overcastTarget = 0; }
+    else if (m === 'drizzle') { weatherMode = m; raining = true; rainLeft = 9999; rainTargetInten = 0.35; overcastTarget = 0.1; }
+    else if (m === 'rain') { weatherMode = m; raining = true; rainLeft = 9999; rainTargetInten = 0.65; overcastTarget = 0.25; }
+    else if (m === 'storm') { weatherMode = m; raining = true; rainLeft = 9999; rainTargetInten = 1.0; overcastTarget = 0.55; }
+    else if (m === 'overcast') { weatherMode = m; raining = false; rainLeft = 0; overcastTarget = 0.7; }
+    else if (m === 'rainbow') { weatherMode = 'auto'; rainbowT = 20; }
+    else { weatherMode = 'auto'; }
+    return weatherMode;
+  },
   setClock: function (t2) { envT = t2; },
   envState: function () { return { envT: envT, raining: raining, dayFactor: dayFactor(), lampsOn: lampsOn, sun: sun.intensity, fogFar: scene.fog.far }; },
+  ambientState: function () {
+    var r4 = function (v) { return Math.round(v * 1e4) / 1e4; };
+    return {
+      ac: !!ac, ready: ambReady,
+      day: ambDayGain ? r4(ambDayGain.gain.value) : 0,
+      night: ambNightGain ? r4(ambNightGain.gain.value) : 0,
+      rain: rainGain ? r4(rainGain.gain.value) : 0,
+      live: ambLive, dayFactor: Math.round(dayFactor() * 100) / 100,
+      weather: (typeof weatherMode !== 'undefined' ? weatherMode : 'auto'),
+      intensity: Math.round(rainIntensity * 100) / 100,
+      overcast: (typeof overcast !== 'undefined' ? Math.round(overcast * 100) / 100 : 0)
+    };
+  },
   sigState: function () { return { t: sigClock, main: sigMain, cross: sigCross }; },
   setSigClock: function (t2) { sigClock = t2; updateSignals(0); },   // force a phase for tests
   carSignalsRef: function () { return carSignals; },
@@ -17503,7 +18994,14 @@ window.__wc = {
   solidMeshesReg: solidMeshes,
   buildFenceRun: function (pts, type, opts) { return buildFenceRun(pts, type, opts); }, fenceRuns: FENCE_RUNS,
   carHornStats: function () { return { count: carHornCount, lastHornT: lastHornT }; },
+  footSurface: function () { return footSurface(player.x, player.z); },
+  footStepStats: function () { return { count: footStepCount }; },
+  footStep: footStep,
+  drawHud: function () { drawHudCanvas(); },
+  updateCash: updateCash, cashPickR2: function () { return CASH_PICK_R2; },
   carHorn: function (i, angry) { if (cars[i]) carHorn(cars[i], angry); },
+  playerHorn: playerHorn,
+  playerHornStats: function () { return { count: playerHornCount, lastT: lastPlayerHornT }; },
   remapPointClear: function (x, z, pad) { return remapPointClear(x, z, pad); },
   oakInfo: function () { return { count: oakCount, cap: OAK_CAP }; },
   densityInfo: function () { return densityStats; },
@@ -17518,7 +19016,7 @@ window.__wc = {
   spawnDumpsterRat: spawnDumpsterRat, spawnDumpsterBum: spawnDumpsterBum,
   bushSpots: function () { return bushSpots; }, bushRummage: bushRummage, checkMail: checkMail,
   envProps: envProps, envPropInteractables: envPropInteractables, envStats: envStats, getEnvProp: getEnvProp, envPropInteract: envPropInteract, envPropPrompt: envPropPrompt, envToys: envToys,
-  solidMeshes: solidMeshes, nightEmis: nightEmis, colliders: colliders,
+  solidMeshes: solidMeshes, nightEmis: nightEmis, signGlows: signGlows, colliders: colliders,
   houses: houseStats, houseBlocksSpot: houseBlocksSpot, houseMeshesRef: houseMeshesRef,
   isUnderwater: function () { return underwater; },
   net: net, startGame: startGame, hostGame: hostGame, joinGame: joinGame, handleNet: handleNet,
@@ -17587,7 +19085,8 @@ window.__wc = {
   buildQuestChar: buildQuestChar, playQuestVoice: playQuestVoice, getEnvProp: getEnvProp,
   questRegisterItems: questRegisterItems, itemDef: itemDef, itemTex: itemTex, bagAdd: bagAdd, bagCount: bagCount,
   questAssets: function () { return { chars: Object.keys(QUEST_IDX), reskins: Object.keys(QUEST_RESKIN_IDX), props: (typeof QUEST_PROPS !== 'undefined') ? QUEST_PROPS.map(function (p) { return p.n; }) : [], items: (typeof QUEST_ITEM_DEFS !== 'undefined') ? QUEST_ITEM_DEFS.length : 0, voices: (typeof QUEST_VOICES !== 'undefined') ? Object.keys(QUEST_VOICES).length : 0 }; },
-  tick: function (dt) { T += dt; updateReflex(dt); var sdt = dt * reflexScale(); updatePlayer(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); updateQuestCaps(dt); renderer.render(scene, camera); }
+  wildlife: wildlife, wildlifeCounts: wildlifeCounts, updateWildlife: updateWildlife, initWildlife: initWildlife, nearestPetCat: nearestPetCat, petCat: petCat,
+  tick: function (dt) { T += dt; updateReflex(dt); var sdt = dt * reflexScale(); updatePlayer(dt); updateNPCs(sdt); updateKids(sdt); updateWildlife(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); updateQuestCaps(dt); updateSecrets(sdt); renderer.render(scene, camera); }
 };
 
 // ---------------- boot screen handoff + menu cover art ----------------
