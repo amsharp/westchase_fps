@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.43';
+var GAME_VERSION = 'v1.66.44';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -9220,6 +9220,38 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
       run(h0x, h0z, h1x, h1z, 'handrail', 1);
     }
   }
+
+  // ---------- 2b. STRIP-MALL PLAZA COURTYARD (bug mreeuu2g) ----------
+  // strip_a's big paved rear plaza read as a barren, confusing tile field —
+  // strips aren't in the STEP-2 storefront COMM set, so nothing furnished it.
+  // Curate an intentional pedestrian courtyard: a central raised planting bed
+  // flanked by café seating + benches, edged with planters + park lamps, plus a
+  // directory board, recycling, and a bike rack. Spaced (not crowded) and
+  // clutter-registered so later passes don't stack on top.
+  (function stripPlaza() {
+    var sv = byId.strip_a; if (!sv) return; var f = vFront(sv);
+    // rear plaza frame: base at the back wall, push +p OUT into the plaza (-f), t lateral (r)
+    var bx = sv.x - f.fx * (sv.d / 2), bz = sv.z - f.fz * (sv.d / 2);
+    function P(t, p) { return [bx - f.fx * p + f.rx * t, bz - f.fz * p + f.rz * t]; }
+    var faceOut = faceDir(-f.fx, -f.fz), faceIn = faceDir(f.fx, f.fz);
+    function put(name, t, p, ry, opts) { var w = P(t, p); if (typeof propClutterBusy === 'function' && propClutterBusy(w[0], w[1], 2.4, 1)) return; place(name, w[0], w[1], ry, opts); if (typeof propClutterReg === 'function') propClutterReg(w[0], w[1]); }
+    // edge line against the wall: lamps, planters, a directory board, recycling
+    put('park_lamp', -17, 2.6, 0); put('park_lamp', 17, 2.6, 0);
+    put('concrete_planter', -10.5, 2.6, 0); put('concrete_planter', 10.5, 2.6, 0);
+    put('aframe_sign', 0, 2.8, faceOut);                    // plaza directory / menu board
+    put('trash_recycle', 13.5, 3.0, faceOut, { instance: true });
+    put('bench_back', -4.2, 3.2, faceOut); put('bench_back', 4.2, 3.2, faceOut);  // seating along the wall
+    // centre planting bed with café seating + facing benches around it
+    put('raised_bed', 0, 8.5, 0);
+    put('bench_back', -5.4, 12.4, faceIn); put('bench_back', 5.4, 12.4, faceIn);
+    put('cafe_set', -13, 8.5, faceOut, { instance: true }); put('patio_umbrella', -13, 8.5, faceOut, { instance: true });
+    put('cafe_set', 13, 8.5, faceOut, { instance: true }); put('patio_umbrella', 13, 8.5, faceOut, { instance: true });
+    // a bike rack (street prop — no env equivalent) near the wall edge
+    if (typeof getStreetProp === 'function') {
+      var br = getStreetProp('bikerack'), w = P(7.5, 3.0);
+      if (br) { br.position.set(w[0], 0, w[1]); br.rotation.y = faceOut; scene.add(br); addCollider(w[0], w[1], 1.8, 0.6); if (typeof propClutterReg === 'function') propClutterReg(w[0], w[1]); }
+    }
+  })();
 
   // ---------- 3. VENDING / ARCADE cluster near shopfronts (exterior) ----------
   // v1.65.5 prop-placement fix: bug report — a gumball machine + a cluster of
