@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.52';
+var GAME_VERSION = 'v1.66.53';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -13055,6 +13055,180 @@ function spawnVendors() {
 }
 spawnVendors();
 
+// ======================= AMBIENT WILDLIFE =======================
+// Small, wholesome, COMBAT-EXEMPT ambient animals: ground birds (this step),
+// with ducks / squirrels / a stray cat layered in later. They live in their OWN
+// `wildlife` array — NEVER in npcs/kids/cops/cars — so no bullet, melee,
+// explosion, berserk-car, or cop code (all of which iterate those arrays
+// explicitly) can ever target, damage, ragdoll, or kill one. They carry NO
+// colliders (fully pass-through) and are LOCAL-ONLY (never serialized to the MP
+// wire). Cheap by construction: tiny fixed pools, shared geometry/materials, no
+// per-frame allocation, and a hard distance LOD — an animal far from the player
+// pauses and (for the roaming kinds) relocates to fresh ground near the player
+// rather than being simmed across the whole town. They are the visible source
+// of the ambient bird chirps / wing-flutters the atmosphere audio pass ships.
+// (NOTE: separate from the `critters` billboard array above — that one is the
+// short-lived dumpster-scavenge flutter/scurry fx, not persistent animals.)
+var wildlife = [], wildlifeReady = false;
+var wildRng = seededRng(0x63726974);       // seeded so first placement is reproducible
+var WILD_FAR = 95, WILD_FAR2 = WILD_FAR * WILD_FAR;
+var BIRD_COUNT = 8;
+// shared geometry/materials (built lazily on first update so no load-time cost /
+// no dependency on load order)
+var wildGeo = null, BIRD_MATS = null, wBeakMat = null;
+function buildWildlifeAssets() {
+  if (wildGeo) return;
+  wildGeo = {
+    birdBody: new THREE.SphereGeometry(0.12, 8, 6),
+    birdHead: new THREE.SphereGeometry(0.085, 8, 6),
+    birdBeak: new THREE.ConeGeometry(0.028, 0.07, 4),
+    birdWing: new THREE.PlaneGeometry(0.13, 0.17)
+  };
+  var L = lamb;
+  BIRD_MATS = [
+    { body: L({ color: 0x8b9099 }), belly: L({ color: 0xc4c8ce }), wing: L({ color: 0x767b84, side: THREE.DoubleSide }) },  // pigeon
+    { body: L({ color: 0x6e5334 }), belly: L({ color: 0xc3a578 }), wing: L({ color: 0x5b4426, side: THREE.DoubleSide }) },  // sparrow
+    { body: L({ color: 0x59504a }), belly: L({ color: 0xc4623a }), wing: L({ color: 0x494039, side: THREE.DoubleSide }) }   // robin
+  ];
+  wBeakMat = L({ color: 0xd9a02e });
+}
+function buildBird(variant) {
+  var m = BIRD_MATS[variant], g = new THREE.Group();
+  var body = new THREE.Mesh(wildGeo.birdBody, m.body);
+  body.scale.set(1, 0.9, 1.35); body.position.y = 0.14; body.rotation.x = -0.18; g.add(body);
+  var belly = new THREE.Mesh(wildGeo.birdBody, m.belly);
+  belly.scale.set(0.78, 0.6, 0.92); belly.position.set(0, 0.12, 0.09); g.add(belly);
+  var head = new THREE.Mesh(wildGeo.birdHead, m.body); head.position.set(0, 0.22, 0.15); g.add(head);
+  var beak = new THREE.Mesh(wildGeo.birdBeak, wBeakMat); beak.rotation.x = Math.PI / 2; beak.position.set(0, 0.21, 0.25); g.add(beak);
+  var tail = new THREE.Mesh(wildGeo.birdWing, m.wing); tail.rotation.x = -Math.PI / 2.3; tail.scale.set(0.55, 1, 0.66); tail.position.set(0, 0.16, -0.2); g.add(tail);
+  // wing pivot groups high on the body sides; rotation.z flaps the outer tip.
+  // at rest the wings tuck up along the back (base) so the silhouette stays clean
+  var wl = new THREE.Group(); wl.position.set(-0.04, 0.19, 0.0);
+  var wlm = new THREE.Mesh(wildGeo.birdWing, m.wing); wlm.rotation.x = -Math.PI / 2; wlm.position.set(-0.06, 0, 0); wl.add(wlm); g.add(wl);
+  var wr = new THREE.Group(); wr.position.set(0.04, 0.19, 0.0);
+  var wrm = new THREE.Mesh(wildGeo.birdWing, m.wing); wrm.rotation.x = -Math.PI / 2; wrm.position.set(0.06, 0, 0); wr.add(wrm); g.add(wr);
+  g.userData.wingL = wl; g.userData.wingR = wr; g.userData.head = head;
+  g.add(blobShadow(0.16, 0.16, 0.02));
+  g.scale.setScalar(0.9);
+  return g;
+}
+function setBirdWings(c, f) {
+  // f in -1..1 during flight; folded flat at rest
+  var flying = c.state === 'fly';
+  var base = flying ? 0.05 : 0.16, amt = flying ? 0.9 * f : 0;
+  var wl = c.mesh.userData.wingL, wr = c.mesh.userData.wingR;
+  if (wl) wl.rotation.z = -(base + amt);
+  if (wr) wr.rotation.z = (base + amt);
+}
+// pick a walkable, non-water spot minD..maxD from `near` (prefers sidewalk/lot
+// concrete, avoids the middle of roads, lake, buildings, and the map edge)
+function wildGroundSpot(near, minD, maxD) {
+  var fallback = null;
+  for (var t = 0; t < 14; t++) {
+    var a = wildRng() * 6.2832, d = minD + wildRng() * (maxD - minD);
+    var x = near.x + Math.cos(a) * d, z = near.z + Math.sin(a) * d;
+    if (x < -HALF + 8 || x > HALF - 8 || z < -HALF + 8 || z > HALF - 8) continue;
+    if (typeof inLake === 'function' && inLake(x, z)) continue;
+    var s = footSurface(x, z);
+    if (s === 'water' || s === 'interior') continue;
+    if (!pointFree(x, z, 0.5)) continue;             // not inside a building/prop
+    if (s === 'concrete' || s === 'grass') return { x: x, z: z, surf: s };
+    if (!fallback) fallback = { x: x, z: z, surf: s };  // asphalt: acceptable if nothing better
+  }
+  return fallback;
+}
+function relocateBird(c) {
+  var spot = wildGroundSpot(player, 30, 54) || wildGroundSpot(player, 12, 30);
+  if (spot) { c.x = spot.x; c.z = spot.z; } else { c.x = player.x + (wildRng() - 0.5) * 44; c.z = player.z + (wildRng() - 0.5) * 44; }
+  c.y = 0; c.state = 'peck'; c.hopT = 0.4 + wildRng() * 2; c._hop = 0; c.chirpT = 2 + wildRng() * 8;
+  c.mesh.position.set(c.x, 0, c.z); c.mesh.rotation.y = wildRng() * 6.2832;
+  setBirdWings(c, 0);
+}
+function birdCarThreat(c) {
+  for (var i = 0; i < cars.length; i++) {
+    var g = cars[i].car && cars[i].car.group; if (!g) continue;
+    var dx = c.x - g.position.x, dz = c.z - g.position.z;
+    if (dx * dx + dz * dz < 49) return { x: g.position.x, z: g.position.z };   // 7u
+  }
+  return null;
+}
+function birdTakeOff(c, from) {
+  var baseA = Math.atan2(c.z - from.z, c.x - from.x), spot = null;   // flee heading = away from the threat
+  for (var t = 0; t < 10; t++) {
+    var a = baseA + (wildRng() - 0.5) * 1.7, d = 22 + wildRng() * 18;
+    var x = c.x + Math.cos(a) * d, z = c.z + Math.sin(a) * d;
+    if (x < -HALF + 8 || x > HALF - 8 || z < -HALF + 8 || z > HALF - 8) continue;
+    if (typeof inLake === 'function' && inLake(x, z)) continue;
+    var s = footSurface(x, z); if (s === 'water' || s === 'interior') continue;
+    if (!pointFree(x, z, 0.5)) continue;
+    spot = { x: x, z: z }; break;
+  }
+  if (!spot) spot = { x: c.x + Math.cos(baseA) * 24, z: c.z + Math.sin(baseA) * 24 };
+  c.tgt = spot; c.state = 'fly'; c.flyT = 0; c.flyH = 3.2 + wildRng() * 3.4; c.flySpd = 9 + wildRng() * 4;
+  if (!inside && !underwater) { if (typeof ambFlutter === 'function') ambFlutter(); if (Math.random() < 0.5 && typeof ambChirp === 'function') ambChirp(); }
+}
+function updateBird(c, dt, px, pz) {
+  var m = c.mesh, dx = c.x - px, dz = c.z - pz, d2 = dx * dx + dz * dz;
+  if (d2 > WILD_FAR2) { relocateBird(c); m.visible = true; return; }   // LOD: far -> hop to fresh ground near the player
+  m.visible = true; c.phase += dt;
+  if (c.state === 'peck') {
+    var thr = null, close = d2 < 36;                 // player within 6u
+    if (!close) thr = birdCarThreat(c);
+    if (close || thr) { birdTakeOff(c, close ? { x: px, z: pz } : thr); return; }
+    c.hopT -= dt;
+    if (c.hopT <= 0 && c._hop <= 0) {
+      c.hopT = 0.7 + Math.random() * 2.6; c.hopA = Math.random() * 6.2832; c.hopV = 0.5 + Math.random() * 0.7; c._hop = 0.28;
+      m.rotation.y = Math.atan2(Math.cos(c.hopA), Math.sin(c.hopA));
+    }
+    if (c._hop > 0) {
+      c._hop -= dt;
+      c.x += Math.cos(c.hopA) * c.hopV * dt; c.z += Math.sin(c.hopA) * c.hopV * dt;
+      c.y = Math.sin((1 - Math.max(0, c._hop) / 0.28) * Math.PI) * 0.08;
+      if (c.head) c.head.rotation.x = 0;
+    } else {
+      c.y = 0;
+      if (c.head) c.head.rotation.x = Math.min(0, Math.sin(c.phase * 3.2)) * 0.55;   // head-bob peck
+    }
+    setBirdWings(c, 0);
+    c.chirpT -= dt;
+    if (c.chirpT <= 0) { c.chirpT = 4 + Math.random() * 11; if (d2 < 1600 && dayFactor() > 0.35 && !inside && !underwater && Math.random() < 0.6 && typeof ambChirp === 'function') ambChirp(); }
+  } else {   // 'fly'
+    var tdx = c.tgt.x - c.x, tdz = c.tgt.z - c.z, td = Math.sqrt(tdx * tdx + tdz * tdz);
+    c.flyT += dt;
+    if (td > 0.5) { c.x += (tdx / td) * c.flySpd * dt; c.z += (tdz / td) * c.flySpd * dt; m.rotation.y = Math.atan2(tdx, tdz); }
+    var tgtY = td < 3 ? c.flyH * (td / 3) : Math.min(c.flyH, c.flyT * 6);   // rise fast, ease down onto the spot
+    c.y += (tgtY - c.y) * Math.min(1, dt * 4);
+    c.flapPhase = (c.flapPhase || 0) + dt * (c.y > 0.6 ? 20 : 13);
+    setBirdWings(c, Math.sin(c.flapPhase));
+    if (td <= 0.6 && c.y < 0.35) { c.state = 'peck'; c.y = 0; c.hopT = 0.3 + Math.random() * 1.4; c._hop = 0; setBirdWings(c, 0); }
+  }
+  m.position.set(c.x, c.y, c.z);
+}
+function initWildlife() {
+  if (wildlifeReady) return;
+  wildlifeReady = true;
+  buildWildlifeAssets();
+  for (var i = 0; i < BIRD_COUNT; i++) {
+    var variant = (wildRng() * BIRD_MATS.length) | 0, g = buildBird(variant);
+    var c = { kind: 'bird', variant: variant, mesh: g, x: 0, z: 0, y: 0, state: 'peck', phase: wildRng() * 6.28, hopT: 0.5 + wildRng() * 2, _hop: 0, chirpT: 3 + wildRng() * 8, tgt: null, flapPhase: 0 };
+    scene.add(g); wildlife.push(c); relocateBird(c);
+  }
+}
+function updateWildlife(dt) {
+  if (!state.running || inside || state.dead) return;
+  initWildlife();
+  var px = player.x, pz = player.z;
+  for (var i = 0; i < wildlife.length; i++) {
+    var c = wildlife[i];
+    if (c.kind === 'bird') updateBird(c, dt, px, pz);
+  }
+}
+function wildlifeCounts() {
+  var o = { bird: 0, duck: 0, squirrel: 0, cat: 0 };
+  for (var i = 0; i < wildlife.length; i++) if (o[wildlife[i].kind] !== undefined) o[wildlife[i].kind]++;
+  return o;
+}
+
 // ---------------- collision ----------------
 // cheap boolean "is this point clear of colliders" — used by the NPC steer-ahead
 // probe. Same slab math as pushOut but returns on FIRST overlap (no push vector).
@@ -18047,7 +18221,7 @@ function loop(now) {
   T += dt;
   updateReflex(dt);                       // 8-Bit Reflexes: sets the slow-mo factor
   var sdt = dt * reflexScale();           // world sim dt (bullet-time scales it)
-  updatePlayer(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); updateQuestCaps(dt); updateSecrets(sdt); updateNpcTags(); updateHUD(); drawMinimap();
+  updatePlayer(dt); updateNPCs(sdt); updateKids(sdt); updateWildlife(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); updateQuestCaps(dt); updateSecrets(sdt); updateNpcTags(); updateHUD(); drawMinimap();
   renderer.render(scene, camera);
 }
 setEquipped('fists');
@@ -18326,7 +18500,8 @@ window.__wc = {
   buildQuestChar: buildQuestChar, playQuestVoice: playQuestVoice, getEnvProp: getEnvProp,
   questRegisterItems: questRegisterItems, itemDef: itemDef, itemTex: itemTex, bagAdd: bagAdd, bagCount: bagCount,
   questAssets: function () { return { chars: Object.keys(QUEST_IDX), reskins: Object.keys(QUEST_RESKIN_IDX), props: (typeof QUEST_PROPS !== 'undefined') ? QUEST_PROPS.map(function (p) { return p.n; }) : [], items: (typeof QUEST_ITEM_DEFS !== 'undefined') ? QUEST_ITEM_DEFS.length : 0, voices: (typeof QUEST_VOICES !== 'undefined') ? Object.keys(QUEST_VOICES).length : 0 }; },
-  tick: function (dt) { T += dt; updateReflex(dt); var sdt = dt * reflexScale(); updatePlayer(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); updateQuestCaps(dt); updateSecrets(sdt); renderer.render(scene, camera); }
+  wildlife: wildlife, wildlifeCounts: wildlifeCounts, updateWildlife: updateWildlife, initWildlife: initWildlife,
+  tick: function (dt) { T += dt; updateReflex(dt); var sdt = dt * reflexScale(); updatePlayer(dt); updateNPCs(sdt); updateKids(sdt); updateWildlife(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); updateQuestCaps(dt); updateSecrets(sdt); renderer.render(scene, camera); }
 };
 
 // ---------------- boot screen handoff + menu cover art ----------------
