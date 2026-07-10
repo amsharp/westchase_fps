@@ -10641,6 +10641,10 @@ function spawnCash(x, z, val, baseY) { var m = new THREE.Mesh(cashGeo, cashMats)
 // cash from client-triggered events (ATM/meter) must be spawned on the HOST,
 // or the authoritative cash-snapshot rebuild wipes it before it can be looted.
 function spawnCashNet(x, z, val) { if (isClient()) netToHost({ t: 'atmCash', x: x, z: z, val: val }); else spawnCash(x, z, val); }
+// auto-pickup radius^2 (#47): walk NEAR a bill to grab it, not exactly onto
+// it. Kept under the host's takeCash tolerance (r^2=6) so a client's request
+// always resolves.
+var CASH_PICK_R2 = 3.4;
 function updateCash(dt) {
   for (var i = cashes.length - 1; i >= 0; i--) {
     var c = cashes[i]; c.life -= dt; c.mesh.rotation.y += dt * 3; c.mesh.position.y = c.baseY + 0.38 + Math.sin(T * 3 + i) * 0.12;
@@ -10649,10 +10653,10 @@ function updateCash(dt) {
       // host owns the cash: ask for it, the money arrives as a 'cash' message
       // (pend un-sticks after 1.5s in case the host awarded it to someone else)
       if (c.pend && T - (c.pendT || 0) > 1.5) c.pend = false;
-      if (dx * dx + dz * dz < 2.1 && !c.pend) { c.pend = true; c.pendT = T; netToHost({ t: 'takeCash', x: c.mesh.position.x, z: c.mesh.position.z }); }
+      if (dx * dx + dz * dz < CASH_PICK_R2 && !c.pend) { c.pend = true; c.pendT = T; netToHost({ t: 'takeCash', x: c.mesh.position.x, z: c.mesh.position.z }); }
       continue;
     }
-    if (dx * dx + dz * dz < 2.1 || c.life <= 0) { if (c.life > 0) { state.money += c.val; popup('+$' + c.val); sfx('cash'); } scene.remove(c.mesh); cashes.splice(i, 1); }
+    if (dx * dx + dz * dz < CASH_PICK_R2 || c.life <= 0) { if (c.life > 0) { state.money += c.val; popup('+$' + c.val); sfx('cash'); } scene.remove(c.mesh); cashes.splice(i, 1); }
   }
 }
 var puffs = [];
@@ -17912,6 +17916,7 @@ window.__wc = {
   footStepStats: function () { return { count: footStepCount }; },
   footStep: footStep,
   drawHud: function () { drawHudCanvas(); },
+  updateCash: updateCash, cashPickR2: function () { return CASH_PICK_R2; },
   carHorn: function (i, angry) { if (cars[i]) carHorn(cars[i], angry); },
   playerHorn: playerHorn,
   playerHornStats: function () { return { count: playerHornCount, lastT: lastPlayerHornT }; },

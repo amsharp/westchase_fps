@@ -219,8 +219,9 @@ streamed over the network, so it stays smooth without adding traffic.)
 
 ## The loop
 
-You spawn **with no gun**. Punch pedestrians (they drop cash), pick up the
-green bills, then find the **gold $ on the minimap** — that's the dealer at
+You spawn **with no gun**. Punch pedestrians (they drop cash) — just walk
+near the green bills and you scoop them up automatically — then find the
+**gold $ on the minimap** — that's the dealer at
 Westchase Guns & Ammo. He sells three guns:
 
 | Weapon | Price | Notes |
