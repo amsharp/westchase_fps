@@ -43,6 +43,13 @@ steal each other's wheels: press **E** on a car a friend is driving to
 **hijack it** and dump them on the curb. A freshly hijacked car can't be
 hijacked again for 15 seconds, so make your getaway count.
 
+**Keep your progress.** Type a **PIN (4-8 digits)** under your name before
+pressing PLAY ONLINE and your progress — cash, guns, snacks, your item bag,
+your look, and your quest log — is saved to the server under that name+PIN
+and comes back on any browser or device. First sign-in creates the account;
+leave the PIN blank to play as a guest (nothing saved). Progress autosaves
+every few seconds while you play.
+
 **Talk to your crew.** Press **ENTER** to open text chat (a fading on-screen
 log shows who said what, with join/leave notices); press **ESC** to cancel.
 **Hold V to talk** over voice — push-to-talk mic streamed through the relay,
