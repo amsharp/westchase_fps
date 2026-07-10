@@ -5831,6 +5831,98 @@ function buildStarbucks(spec) {
   spec.zones.push({ x: cx, z: 597.2, r2: 5, prompt: '[E] CHAT WITH BARISTA', fn: function () { staffSay(['"Can I get a name for the cup?"', '"Oat milk or two percent?"', '"That\'ll be right up at the hand-off."']); } });
 }
 
+// ---------------- SAKURA SUSHI (venue sushi, NE corner) -----------------------
+var SAKURA = registerInterior({
+  id: 'sakura',
+  box: { x0: 583, x1: 617, z0: -612, z1: -588, y: -300 },    // 34 x 24 room, y=-300
+  doorZone: { x: 74, z: -122, r2: 40 },                      // world front-face (rot 0)
+  doorIn: { x: 600, z: -593, yaw: 0 },
+  doorOut: { x: 74, z: -118.5, yaw: 0 },
+  exitZone: { x: 600, z: -591, r2: 11 },
+  label: 'SAKURA SUSHI',
+  build: buildSakura
+});
+function buildSakura(spec) {
+  var floorT = tex(64, function (g, s) {
+    g.fillStyle = '#7a5a3a'; g.fillRect(0, 0, s, s);            // dark wood plank
+    for (var y = 0; y < s; y += 8) { g.fillStyle = 'rgba(30,18,8,' + (0.15 + Math.random() * 0.2) + ')'; g.fillRect(0, y, s, 2); }
+    noise(g, s, 40, 0.05, 0.02);
+  }, 8, 6);
+  var wallT = tex(64, function (g, s) {
+    g.fillStyle = '#efe8d6'; g.fillRect(0, 0, s, s);           // shoji rice-paper
+    g.strokeStyle = '#5a4a34'; g.lineWidth = 2;
+    for (var x = 0; x <= s; x += s / 4) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, s); g.stroke(); }
+    for (var y = 0; y <= s; y += s / 4) { g.beginPath(); g.moveTo(0, y); g.lineTo(s, y); g.stroke(); }
+    g.fillStyle = '#8a1e2c'; g.fillRect(0, 0, s, 6);           // red top band
+    noise(g, s, 30, 0.02, 0.02);
+  }, 5, 1);
+  var woodT = tex(64, function (g, s) {
+    g.fillStyle = '#4a3220'; g.fillRect(0, 0, s, s);
+    for (var y = 0; y < s; y += 5) { g.fillStyle = 'rgba(20,12,4,' + (0.2 + Math.random() * 0.2) + ')'; g.fillRect(0, y, s, 2); }
+  }, 4, 1);
+  var fishT = tex(64, function (g, s) {
+    g.fillStyle = '#f2ead6'; g.fillRect(0, 0, s, s);           // rice bed
+    var cols = ['#e86a5a', '#f0a070', '#e8c060', '#d84a4a', '#f2b0a0', '#c85030', '#3a6a4a'];   // tuna/salmon/roe/wasabi
+    for (var i = 0; i < 22; i++) { g.fillStyle = cols[(Math.random() * cols.length) | 0]; g.fillRect(4 + Math.random() * (s - 12), 4 + Math.random() * (s - 12), 8, 5); }
+  }, 3, 1);
+  var floorM = lamb2(floorT), wallM = lamb2(wallT), woodM = lamb2(woodT);
+  var glassM = new THREE.MeshPhongMaterial({ color: 0xcfe6ea, transparent: true, opacity: 0.28, shininess: 90, side: THREE.DoubleSide });
+  var blackM = lamb({ color: 0x1c1a18 }), redM = lamb({ color: 0x8a1e2c }), cushM = lamb({ color: 0x9a2432 });
+  var lanternM = new THREE.MeshBasicMaterial({ color: 0xe23a2a });   // self-lit red lanterns
+  var s = intShell(spec, { floorM: floorM, wallM: wallM, ceilColor: 0x2a2420, lightColor: 0xf2e2c0, bannerLines: ['SAKURA SUSHI'], bannerBg: '#8a1e2c', bannerFg: '#f2d06a' });
+  var Y = s.Y, cx = s.cx;
+
+  // sushi bar across the middle, chef works behind it (north side)
+  var bar = box(20, 1.1, 1.6, [woodM, woodM, blackM, woodM, woodM, woodM], cx, Y + 0.55, -603); scene.add(bar); solidMeshes.push(bar); intCol(spec, cx, -603, 20, 1.6);
+  scene.add(box(20, 0.12, 1.7, blackM, cx, Y + 1.13, -603));                                   // lacquer bar top
+  // glass sneeze-guard display with nigiri along the bar
+  scene.add(box(18, 0.55, 0.9, lamb2(fishT), cx, Y + 1.28, -602.4));                            // fish case bed
+  scene.add(box(18, 0.6, 1.0, glassM, cx, Y + 1.6, -602.4));                                    // glass guard
+  // sake / condiment shelf on the back wall (north), colored bottles
+  scene.add(box(16, 0.12, 0.8, woodM, cx, Y + 2.2, -611.2));
+  var bottleCols = [0x2a6a3a, 0xd8d8d8, 0x8a1e2c, 0x2a4a8a, 0xc8a030];
+  for (var bi = 0; bi < 14; bi++) scene.add(cyl(0.13, 0.13, 0.5, 8, lamb({ color: bottleCols[bi % bottleCols.length] }), cx - 7.5 + bi * 1.15, Y + 2.45, -611.2));
+  // bar stools in front of the bar (south side)
+  for (var sx = -8; sx <= 8; sx += 2.3) { scene.add(cyl(0.3, 0.3, 0.6, 12, redM, cx + sx, Y + 0.3, -601)); scene.add(cyl(0.32, 0.32, 0.1, 12, blackM, cx + sx, Y + 0.62, -601)); intCol(spec, cx + sx, -601, 0.7, 0.7); }
+  // booth seating along the east & west walls (bench + table + cushions)
+  var boothZ = [-596, -607];
+  for (var wsi = -1; wsi <= 1; wsi += 2) {
+    var wx = cx + wsi * 14;
+    for (var bz = 0; bz < boothZ.length; bz++) {
+      var zz = boothZ[bz];
+      scene.add(box(1.4, 0.45, 2.2, cushM, wx, Y + 0.35, zz)); intCol(spec, wx, zz, 1.4, 2.2);          // bench
+      scene.add(box(1.4, 0.9, 0.15, redM, wx + wsi * 0.6, Y + 0.75, zz));                                // backrest
+      scene.add(box(1.2, 0.6, 1.2, woodM, wx - wsi * 1.6, Y + 0.4, zz)); intCol(spec, wx - wsi * 1.6, zz, 1.2, 1.2); // table
+    }
+  }
+  // hanging red lanterns + noren fabric over the entrance
+  for (var li = -1; li <= 1; li++) { var lan = cyl(0.4, 0.4, 0.7, 12, lanternM, cx + li * 7, Y + 3.5, -600); scene.add(lan); scene.add(cyl(0.05, 0.05, 0.5, 6, blackM, cx + li * 7, Y + 4.0, -600)); }
+  for (var ni = -2; ni <= 2; ni++) scene.add(box(0.75, 1.0, 0.05, redM, cx + ni * 0.85, Y + 3.4, -589.4));   // noren panels at the door
+
+  // sushi chef behind the bar + a server near the booths
+  placeStaffIn(spec, 'SUSHI_KENJI', cx - 3, -604.2, Math.PI);
+  placeStaffIn(spec, 'CASHIER_ROSA', cx + 10, -600, -Math.PI / 2);
+
+  spec.sushiCd = -999;
+  spec.zones.push({
+    x: cx - 4, z: -600.4, r2: 8, prompt: '[E] ORDER A SUSHI PLATTER — $8  (+40 hp)',
+    fn: function (sp) {
+      if (state.money < 8) { sfx('deny'); popup2("You can't afford it"); return; }
+      state.money -= 8; state.hp = Math.min(100, state.hp + 40);
+      sfx('buy'); popup('+40 HP  fresh sushi'); staffSay(['"Omakase — enjoy!"', '"Freshest catch of the day."']);
+    }
+  });
+  spec.zones.push({
+    x: cx + 4, z: -600.4, r2: 8, prompt: '[E] ORDER SAKE — $4  (+16 hp)',
+    fn: function () {
+      if (state.money < 4) { sfx('deny'); popup2("You can't afford it"); return; }
+      state.money -= 4; state.hp = Math.min(100, state.hp + 16);
+      sfx('buy'); popup('+16 HP  warm sake'); staffSay(['"Kanpai!"']);
+    }
+  });
+  spec.zones.push({ x: cx, z: -600.4, r2: 5, prompt: '[E] CHAT WITH THE CHEF', fn: function () { staffSay(['"Irasshaimase! Welcome!"', '"The toro is exceptional today."', '"Chef\'s choice? You will not regret it."']); } });
+}
+
 // ---------------- street props (AI PSX props: streetprops.js) ----------------
 // 30 Meshy-generated quantized props placed contextually around the map.
 // Prop INTERACTION FX (vending machine, payphone, newspaper box, hydrant
