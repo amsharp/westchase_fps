@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.57.2';
+var GAME_VERSION = 'v1.57.3';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -12295,6 +12295,9 @@ function sizeHud() {
   mm.style.width = ms + 'px'; mm.style.height = ms + 'px';
 }
 window.addEventListener('resize', sizeHud); sizeHud();
+// PS1-on-a-TV CRT overlay (subtle scanlines + vignette). Flip to false to disable.
+var CRT_FX = true;
+(function () { var f = document.getElementById('crtFx'); if (f) f.classList.toggle('hidden', !CRT_FX); })();
 // chunky glyph: hard black drop-shadow → reads as an outlined bitmap once upscaled
 function hudText(txt, x, y, size, fill, align) {
   hudCx.font = 'bold ' + size + 'px "Courier New",monospace';
