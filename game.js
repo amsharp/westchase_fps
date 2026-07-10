@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.58.0';
+var GAME_VERSION = 'v1.58.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -877,7 +877,7 @@ function supermarket(x, z) {
   signPlane(x, h + 0.4, fz + 0.35, 0, 30, 2.4, ['PUBLIX'], '#1c7e3a', '#ffffff');
   for (i = -1; i <= 1; i++) vAC(x + i * 22, z - 6, h + 0.1, venAcM);
   parkingLot(x, z + 44, 78, 40);
-  for (i = -1; i <= 1; i++) scene.add(cyl(0.2, 0.2, 7, 6, lamb({ color: 0x555 }), x + i * 26, 3.5, z + 44));
+  for (i = -1; i <= 1; i++) scene.add(cyl(0.2, 0.2, 7, 6, lamb({ color: 0x8a8f94 }), x + i * 26, 3.5, z + 44));
 }
 
 // Farnell Middle (geo_ref sv_farnell): long 2-story tan panel building, ribbon
