@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.57.0';
+var GAME_VERSION = 'v1.57.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -8953,7 +8953,8 @@ function fleeKidsNear(x, z, r2) {
     var k = kids[i], dx = k.x - x, dz = k.z - z;
     if (dx * dx + dz * dz < r2) {
       var d = Math.sqrt(dx * dx + dz * dz) || 1;
-      if (k.state === 'play_on' || k.state === 'play_go') endKidPlay(k);   // chaos breaks up the game
+      if (k.state === 'play_on' || k.state === 'play_go') endKidPlay(k);   // chaos breaks off the game
+      if (k.game) leaveKidGame(k);
       k.state = 'flee'; k.stateT = 3 + Math.random() * 2.5; k.fleeDX = dx / d; k.fleeDZ = dz / d; k.fleeSpd = 5.6;
     }
   }
@@ -9044,10 +9045,150 @@ function updateKidPlayOn(k, dt, i) {
     if (cc < 0.02) playKidVoice(k.persona, 'play', 0.5, 7, voiceAt);
   }
 }
+// ---- STEP 4: kids' games (tag / hide-and-seek / red-light-green-light) ----
+// A handful of clustered follow-kids in the open form a group and play a simple
+// FSM game for ~30-60s while their parents idle nearby, then scatter back to
+// following. Host-simmed; combat-exempt like all kids (they live in `kids`);
+// chaos (flee) pulls a kid out and disbands the game if it drops below 2.
+var kidGames = [], kidGameCD = 0;
+function pickHideSpot(cx, cz) {
+  // duck behind a nearby collider (tree/prop/fence); fallback: a ring point
+  var best = null, bd = 1e9;
+  var L = (typeof colliders !== 'undefined') ? colliders : [];
+  for (var i = 0; i < L.length; i++) {
+    var b = L[i]; if (b.active === false) continue;
+    var bx = (b.x0 + b.x1) / 2, bz = (b.z0 + b.z1) / 2;
+    var dx = bx - cx, dz = bz - cz, d = dx * dx + dz * dz;
+    if (d > 16 && d < 625 && d < bd) { bd = d; best = { x: bx, z: bz }; }
+  }
+  if (best) { var dx2 = best.x - cx, dz2 = best.z - cz, dl = Math.sqrt(dx2 * dx2 + dz2 * dz2) || 1; return [best.x + dx2 / dl * 1.4, best.z + dz2 / dl * 1.4]; }
+  var a = Math.random() * 6.28; return [cx + Math.cos(a) * (7 + Math.random() * 5), cz + Math.sin(a) * (7 + Math.random() * 5)];
+}
+function tryStartKidGame(k) {
+  var group = [k];
+  for (var i = 0; i < kids.length; i++) {
+    var o = kids[i]; if (o === k || o.game || o.state !== 'follow') continue;
+    var dx = o.x - k.x, dz = o.z - k.z;
+    if (dx * dx + dz * dz < 100 && group.length < 4) group.push(o);
+  }
+  if (group.length < 2) return false;
+  var cx = 0, cz = 0, g;
+  for (g = 0; g < group.length; g++) { cx += group[g].x; cz += group[g].z; }
+  cx /= group.length; cz /= group.length;
+  var type = ['tag', 'hide', 'rlgl'][(Math.random() * 3) | 0];
+  var game = { type: type, members: group, cx: cx, cz: cz, t: 0, dur: 32 + Math.random() * 26, phase: 0, phaseT: 0, tagCD: 0, light: 'red' };
+  for (g = 0; g < group.length; g++) { var kk = group[g]; kk.game = game; kk.state = 'game'; kk.gameRole = null; kk.playY = 0; kk._mv = 0; kk.found = false; }
+  if (type === 'tag') {
+    group[(Math.random() * group.length) | 0].gameRole = 'it';
+    for (g = 0; g < group.length; g++) if (!group[g].gameRole) group[g].gameRole = 'runner';
+  } else if (type === 'hide') {
+    var si = (Math.random() * group.length) | 0;
+    game.phase = 0; game.phaseT = 4 + Math.random() * 2;
+    for (g = 0; g < group.length; g++) { if (g === si) { group[g].gameRole = 'seeker'; } else { group[g].gameRole = 'hider'; group[g].hideSpot = pickHideSpot(cx, cz); } }
+    game.countSpot = [cx, cz];
+  } else {
+    var ci = (Math.random() * group.length) | 0, mi = 0;
+    game.callX = cx; game.callZ = cz; game.light = 'red'; game.phaseT = 1.5 + Math.random() * 1.5;
+    for (g = 0; g < group.length; g++) { if (g === ci) { group[g].gameRole = 'caller'; } else { group[g].gameRole = 'mover'; group[g].lineZ = cz + 9; group[g].startZ = cz + 9; group[g].x = cx + (mi - 1) * 1.6; group[g].z = cz + 9; mi++; } }
+  }
+  kidGames.push(game);
+  return true;
+}
+function endKidGame(game) {
+  for (var i = 0; i < game.members.length; i++) { var k = game.members[i]; if (k.game === game) { k.game = null; k.gameRole = null; if (k.state === 'game') k.state = 'follow'; } }
+  var idx = kidGames.indexOf(game); if (idx >= 0) kidGames.splice(idx, 1);
+}
+function leaveKidGame(k) {
+  var game = k.game; if (!game) return;
+  k.game = null; k.gameRole = null;
+  var mi = game.members.indexOf(k); if (mi >= 0) game.members.splice(mi, 1);
+  if (game.members.length < 2) endKidGame(game);
+}
+function updateKidGames(dt) {
+  function step(k, tx, tz, spd) {
+    var dx = tx - k.x, dz = tz - k.z, d = Math.sqrt(dx * dx + dz * dz);
+    if (d < 0.02) { k._mv = 0; return d; }
+    var mv = Math.min(spd * dt, d);
+    k.x += dx / d * mv; k.z += dz / d * mv; k.mesh.rotation.y = Math.atan2(dx, dz);
+    k._mv = mv / dt; k.phase += mv * 3.4; return d;
+  }
+  for (var gi = kidGames.length - 1; gi >= 0; gi--) {
+    var game = kidGames[gi], M = game.members, i, j, k;
+    if (M.length < 2) { endKidGame(game); continue; }
+    game.t += dt; if (game.t > game.dur) { endKidGame(game); continue; }
+    for (i = 0; i < M.length; i++) M[i]._mv = 0;
+    if (game.type === 'tag') {
+      var it = null; for (i = 0; i < M.length; i++) if (M[i].gameRole === 'it') it = M[i];
+      if (!it) { M[0].gameRole = 'it'; it = M[0]; }
+      game.tagCD -= dt;
+      for (i = 0; i < M.length; i++) {
+        k = M[i];
+        if (k === it) {
+          var best = null, bd = 1e9;
+          for (j = 0; j < M.length; j++) { if (M[j] === it) continue; var o = M[j], d2 = (o.x - it.x) * (o.x - it.x) + (o.z - it.z) * (o.z - it.z); if (d2 < bd) { bd = d2; best = o; } }
+          if (best) {
+            step(it, best.x, best.z, 4.7);
+            if (bd < 2.25 && game.tagCD <= 0) { it.gameRole = 'runner'; best.gameRole = 'it'; game.tagCD = 1.6; playKidVoice(best.persona, 'tag', 0.6, 3, { x: best.x, z: best.z, kkey: 'g' + gi, ref: best, net: 1 }); }
+          } else step(it, game.cx, game.cz, 2);
+        } else {
+          var fdx = k.x - it.x, fdz = k.z - it.z, fd = Math.sqrt(fdx * fdx + fdz * fdz) || 1;
+          if (fd < 7) step(k, k.x + fdx / fd * 4, k.z + fdz / fd * 4, 4.2);
+          else { var ccd = (game.cx - k.x) * (game.cx - k.x) + (game.cz - k.z) * (game.cz - k.z); if (ccd > 144) step(k, game.cx, game.cz, 2.4); }
+        }
+      }
+    } else if (game.type === 'hide') {
+      var seeker = null; for (i = 0; i < M.length; i++) if (M[i].gameRole === 'seeker') seeker = M[i];
+      if (!seeker) { M[0].gameRole = 'seeker'; seeker = M[0]; }
+      if (game.phase === 0) {
+        game.phaseT -= dt;
+        seeker.mesh.rotation.y = Math.atan2(seeker.x - game.cx || 0.001, seeker.z - game.cz || 0.001);   // face away
+        if (!game.counted) { game.counted = 1; playKidVoice(seeker.persona, 'hide', 0.55, 4, { x: seeker.x, z: seeker.z, kkey: 'g' + gi, ref: seeker, net: 1 }); }
+        for (i = 0; i < M.length; i++) { k = M[i]; if (k.gameRole === 'hider') step(k, k.hideSpot[0], k.hideSpot[1], 4.2); }
+        if (game.phaseT <= 0) game.phase = 1;
+      } else {
+        var tgt = null, td = 1e9;
+        for (i = 0; i < M.length; i++) { k = M[i]; if (k.gameRole === 'hider' && !k.found) { var hd = (k.x - seeker.x) * (k.x - seeker.x) + (k.z - seeker.z) * (k.z - seeker.z); if (hd < td) { td = hd; tgt = k; } } }
+        if (!tgt) { endKidGame(game); continue; }
+        var dd = step(seeker, tgt.x, tgt.z, 3.7);
+        if (dd < 1.7) { tgt.found = true; playKidVoice(seeker.persona, 'hide', 0.6, 2, { x: seeker.x, z: seeker.z, kkey: 'g' + gi, ref: seeker, net: 1 }); }
+      }
+    } else {   // red-light-green-light
+      var caller = null; for (i = 0; i < M.length; i++) if (M[i].gameRole === 'caller') caller = M[i];
+      if (!caller) { M[0].gameRole = 'caller'; caller = M[0]; }
+      caller.mesh.rotation.y = Math.atan2(0, 1);   // face the line (+z)
+      game.phaseT -= dt;
+      if (game.phaseT <= 0) {
+        game.light = game.light === 'green' ? 'red' : 'green';
+        game.phaseT = game.light === 'green' ? (2 + Math.random() * 2) : (1.5 + Math.random() * 1.5);
+        playKidVoice(caller.persona, 'rlgl', 0.6, 2, { x: caller.x, z: caller.z, kkey: 'g' + gi, ref: caller, net: 1 });
+        if (game.light === 'red') {   // catch a straggler and send them back
+          var movers = []; for (i = 0; i < M.length; i++) if (M[i].gameRole === 'mover') movers.push(M[i]);
+          if (movers.length && Math.random() < 0.6) { var sb = movers[(Math.random() * movers.length) | 0]; sb.z = sb.startZ; }
+        }
+      }
+      for (i = 0; i < M.length; i++) {
+        k = M[i]; if (k.gameRole !== 'mover') continue;
+        if (game.light === 'green') { var wd = step(k, game.callX, game.callZ, 2.7); if (wd < 1.7) { playKidVoice(k.persona, 'tag', 0.6, 3, { x: k.x, z: k.z, kkey: 'g' + gi, ref: k, net: 1 }); endKidGame(game); break; } }
+        else { k._mv = 0; k.mesh.rotation.y = Math.atan2(game.callX - k.x || 0.001, game.callZ - k.z || 0.001); }
+      }
+      if (game.members.indexOf(caller) < 0) continue;   // game ended above
+    }
+    // commit: collision, mesh, gait, parents watch
+    for (i = 0; i < M.length; i++) {
+      k = M[i]; if (k.game !== game) continue;
+      var pos = pushOut(k.x, k.z, 0.32); k.x = pos.x; k.z = pos.z;
+      k.mesh.position.set(k.x, 0, k.z);
+      if ((k._mv || 0) > 0.15) animPerson(k.mesh, k._mv, dt, k.phase); else meshyPose(k.mesh.userData.skin, 'walk', 0);
+      watchParent(k);
+    }
+  }
+}
 function updateKids(dt) {
   if (isClient()) { mirrorKids(dt); return; }
+  updateKidGames(dt);
   for (var i = 0; i < kids.length; i++) {
     var k = kids[i], m = k.mesh, p = k.parent;
+    if (k.state === 'game') continue;   // driven by updateKidGames
     if (!p || p.state === 'down' || p.state === 'ragdoll' || (p.hp !== undefined && p.hp <= 0)) { repairKid(k); p = k.parent; }
     var spd = 0, vx = 0, vz = 0;
     // ---- STEP 3: playing on a piece — fully scripted motion, own Y, then skip
@@ -9075,6 +9216,14 @@ function updateKids(dt) {
     } else {
       var px = p ? p.x : k.x, pz = p ? p.z : k.z;
       var pdx = px - k.x, pdz = pz - k.z, pd = Math.sqrt(pdx * pdx + pdz * pdz);
+      // game trigger: several follow-kids clustered in the open -> start a game
+      if (k.state === 'follow' && p && T > kidGameCD) {
+        k.gameCheckT = (k.gameCheckT || 0) - dt;
+        if (k.gameCheckT <= 0) {
+          k.gameCheckT = 3 + Math.random() * 3;
+          if (tryStartKidGame(k)) kidGameCD = T + 22;   // one new game at a time-ish
+        }
+      }
       // play trigger: a pair loitering near a playset -> the kid runs off to play
       if (k.state === 'follow' && p) {
         k.playCheckT = (k.playCheckT || 0) - dt;
@@ -12226,6 +12375,7 @@ window.__wc = {
   state: state, player: player, npcs: npcs, cashes: cashes, cops: cops,
   kids: kids, adultRace: adultRace, spawnKids: spawnKids, updateKids: updateKids, playKidVoice: playKidVoice, kidVoiceDbg: function () { return kidVoiceDbg; },
   getKidPlaysets: getKidPlaysets, nearestPlayset: nearestPlayset, startKidPlay: startKidPlay,
+  kidGames: function () { return kidGames; }, tryStartKidGame: tryStartKidGame, endKidGame: endKidGame,
   setWanted: setWanted, damageCop: damageCop,
   start: function () { startScreen.classList.add('hidden'); state.running = true; },
   setYaw: function (y) { yaw = y; camera.position.set(player.x, player.y, player.z); camera.rotation.y = yaw; camera.rotation.x = pitch; },

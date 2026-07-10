@@ -143,6 +143,16 @@ watch: they climb the **slide** and whoosh down, pump on the **swings**, or
 scramble over the **climber** — squealing the whole time — then rejoin the
 grown-up after a while. Gunfire or a blast clears the playground instantly.
 
+When a few kids end up together in an open spot, they'll start a **game**
+while the parents idle nearby: **tag** (one kid is "it" and chases the rest,
+yelling "Tag! You're it!" and swapping roles on a touch), **hide-and-seek**
+(the seeker counts while the others scatter behind trees and fences, then
+gets hunted down one "Found you!" at a time), or **red-light-green-light** (a
+caller out front shouts "GREEN LIGHT!" and the line creeps forward, freezing
+on "RED LIGHT!" — dawdle and you get sent back to the start). Each game runs
+a half-minute or so, then everyone drifts back to their grown-up — and any
+gunfire, explosion, or speeding car scatters the whole group at once.
+
 **Kids are off-limits.** Bullets, fists, explosions and cars all pass
 through them harmlessly — you cannot hurt, ragdoll, or kill a child, and
 they earn you nothing. Like everyone else, though, they're not fearless:
