@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.48';
+var GAME_VERSION = 'v1.66.49';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -326,12 +326,18 @@ var oakBarkT = tex(64, function (g, s) {
 var PASTELS = ['#f2e3c6', '#f7d9b0', '#eec4b4', '#f5eed8', '#e6d7ae', '#f0cfa0', '#dfe4d0'];
 
 function stucco(g, s, base) { g.fillStyle = base; g.fillRect(0, 0, s, s); noise(g, s, 700, 0.05, 0.06); }
+// deterministic string -> 32-bit seed (FNV-1a). Used to seed the per-facade
+// lit-window pattern so the "which windows are lit at night" choice is STABLE
+// across page loads (was Math.random() at texture-build time — non-deterministic).
+function strHash(s) { var h = 2166136261 >>> 0; for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; } return h >>> 0; }
 var facadeCache = {};
 function facadeTex(base, w, h, withDoor) {
   var rows = Math.max(1, Math.min(6, Math.round(h / 3)));
   var cols = Math.max(2, Math.min(6, Math.round(w / 4)));
   var key = base + '_' + rows + '_' + cols + '_' + (withDoor ? 1 : 0);
   if (facadeCache[key]) return facadeCache[key];
+  // seeded per-facade stream (keyed by the cache key) — stable lit-window pattern
+  var rng = seededRng(strHash(key));
   var c = document.createElement('canvas'); c.width = c.height = 256;
   var g = c.getContext('2d');
   stucco(g, 256, base);
@@ -354,7 +360,7 @@ function facadeTex(base, w, h, withDoor) {
       continue;
     }
     g.fillStyle = '#ddd6c4'; g.fillRect(x - 2.5, y - 2.5, ww + 5, hh + 5);
-    var lit = Math.random() < 0.1;
+    var lit = rng() < 0.1;
     var gr = g.createLinearGradient(0, y, 0, y + hh);
     if (lit) { gr.addColorStop(0, '#ffe9b0'); gr.addColorStop(1, '#cf9d48'); }
     else { gr.addColorStop(0, '#a9c6da'); gr.addColorStop(0.5, '#63809a'); gr.addColorStop(1, '#3c4c5e'); }
@@ -362,7 +368,7 @@ function facadeTex(base, w, h, withDoor) {
     if (!lit) { g.strokeStyle = 'rgba(255,255,255,0.3)'; g.lineWidth = 2.5; g.beginPath(); g.moveTo(x + ww * 0.18, y + hh); g.lineTo(x + ww * 0.62, y); g.stroke(); }
     g.fillStyle = 'rgba(35,40,46,0.85)'; g.fillRect(x + ww / 2 - 1, y, 2, hh); g.fillRect(x, y + hh / 2 - 1, ww, 2);
     // ~38% of windows are lit warm at night; the rest a faint cool (dark room)
-    if (Math.random() < 0.38) { var eg = ge.createLinearGradient(0, y, 0, y + hh); eg.addColorStop(0, '#fff0c6'); eg.addColorStop(1, '#e2b465'); ge.fillStyle = eg; }
+    if (rng() < 0.38) { var eg = ge.createLinearGradient(0, y, 0, y + hh); eg.addColorStop(0, '#fff0c6'); eg.addColorStop(1, '#e2b465'); ge.fillStyle = eg; }
     else ge.fillStyle = '#16283e';
     ge.fillRect(x, y, ww, hh);
   }
@@ -371,6 +377,7 @@ function facadeTex(base, w, h, withDoor) {
   facadeCache[key] = t; return t;
 }
 function storefrontTex(base) {
+  var rng = seededRng(strHash('sf_' + base));   // stable lit-bay pattern across loads
   var c = document.createElement('canvas'); c.width = c.height = 256;
   var g = c.getContext('2d');
   stucco(g, 256, base);
@@ -381,7 +388,7 @@ function storefrontTex(base) {
     var gr = g.createLinearGradient(0, y0, 0, 248);
     gr.addColorStop(0, '#b8d2e2'); gr.addColorStop(0.4, '#6d8aa2'); gr.addColorStop(1, '#2e3d4c');
     g.fillStyle = gr; g.fillRect(x, y0 + 6, 38, 256 - y0 - 24);
-    if (Math.random() < 0.5) {
+    if (rng() < 0.5) {
       var ig = g.createRadialGradient(x + 19, 190, 4, x + 19, 190, 26);
       ig.addColorStop(0, 'rgba(255,220,150,0.5)'); ig.addColorStop(1, 'rgba(255,220,150,0)');
       g.fillStyle = ig; g.fillRect(x, y0 + 6, 38, 256 - y0 - 24);
