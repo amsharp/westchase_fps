@@ -621,9 +621,17 @@ dry land, which makes the water a decent (slow) escape route.
 
 Day fades into properly dark night on a cycle; street lights along the
 roads and parking lots switch on automatically. Rain rolls in at random —
-grey skies by day, pitch black at night — with rain that lands on roofs
-and streets (splashes included) and its own sound. A quiet ambient noise
-bed runs under everything.
+grey skies by day, pitch black at night — and now comes in different
+strengths, from a light drizzle to a heavy downpour, each with matching
+rain density, sound, and haze. Overcast spells drift through on their own,
+softening the sky, and once a heavier rain clears on a bright day you might
+catch a faint rainbow arc over the intersection.
+
+The town also has its own soundscape that shifts with the clock: gentle
+birdsong and a soft suburban hum by day, a cicada/cricket shimmer at night,
+plus the occasional far-off dog bark, passing car, or fluttering bird — all
+kept low and sparse so it stays background ambience. Everything runs under
+the same quiet noise bed as before, and the SFX volume slider controls it.
 
 ## Controls
 
