@@ -49,11 +49,11 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mreeccpr/mreebnfk (-226,152) prop set jarring in front of office tower (+anim)
 - mreedozu (-199,33)  unidentifiable mesh
 - mreeelik (-118,75)  car placement weird
-- mredwjpp (213,-160) house clips sidewalk
-- mredxzx6 (140,-89)  houses with no visible roads
-- mredtppi (184,-172) missing raised curb divider
+- mredwjpp (213,-160) house clips sidewalk — IN-AGENT (round5-structure)
+- mredxzx6 (140,-89)  houses with no visible roads — IN-AGENT (round5-structure)
+- mredtppi (184,-172) missing raised curb divider — IN-AGENT (round5-structure)
 - mreduh7z (187,-178) "looks awful" (see screenshot)
-- mreea4we (-469,275) road ends with no curb
+- mreea4we (-469,275) road ends with no curb — IN-AGENT (round5-structure)
 - mredw3ho (237,-175) palm canopy too sparse; want variants
 - mree6ten (-276,261) crepe myrtle looks unnatural
 - mredznws (98,12)    flies: smaller, 2-3x quantity
@@ -75,15 +75,15 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mreekjjq (-7,-57) walker accessory abandoned in street — R2 anim overlap
 - mreelboe (-70,-115) big green blob — R4
 - mreelusq (-113,-114) cop left arm buggy + walks into building — R3
-- mreemd0e (-194,-110) garage door between windows on facade — R5
-- mreendej (-8,-330) purple-home roof texture + overhangs sidewalk — R5
-- mreenqoe (-25,-347) homes with no road/walkway — R5 (same class as mredxzx6)
+- mreemd0e (-194,-110) garage door between windows on facade — R5 — IN-AGENT (round5-structure)
+- mreendej (-8,-330) purple-home roof texture + overhangs sidewalk — R5 — IN-AGENT (round5-structure)
+- mreenqoe (-25,-347) homes with no road/walkway — R5 (same class as mredxzx6) — IN-AGENT (round5-structure)
 - mreeoimw (-1,-517) traffic too uniform; want occasional honks — R5 feature
-- mreeosgw (-10,-492) lamp post + tree clipping — R5
+- mreeosgw (-10,-492) lamp post + tree clipping — R5 — IN-AGENT (round5-structure)
 - mreepojo (157,-74) 'half ass gas station' — R5
 - mreeq7nj (150,193) random barrier — R3 (re-probe post-OBB fix)
 - mreeqqbh (298,235) road looks awful — R5
-- mreer5b4 (419,172) houses riding the sidewalk — R5 (same as mredwjpp)
+- mreer5b4 (419,172) houses riding the sidewalk — R5 (same as mredwjpp) — IN-AGENT (round5-structure)
 - mreesgtd (238,516) parked cars with lights on — R4
 - mreet1el (273,474) NPC pacing left-right loop — R3 (check whisker ping-pong)
 - mreetig1 (233,306) secondary intersection looks bad — R5
@@ -112,7 +112,7 @@ don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 - mreeuf0c (-97,338) random wall — same class, RE-CHECK on current build
 - mref3ibd (535,126) AC unit 3x size wanted — R5 (with mreds4nw rooftop AC)
 - mref3wds (391,191) backwards bus stop — R5 (with mref0pwi)
-- mref48hy (374,195) sign clipping post — R5
+- mref48hy (374,195) sign clipping post — R5 — IN-AGENT (round5-structure)
 
 ## Batch 6
 - mrefkx0p (-49,17) pavement lines shimmer with camera motion — FIXED@v1.66.3 (logarithmicDepthBuffer on the main renderer; near-plane raise was rejected — viewmodels hug the camera)
