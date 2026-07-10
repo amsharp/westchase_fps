@@ -627,6 +627,7 @@ bed runs under everything.
 - **`[` / `]`** — zoom the minimap out / in (WIDE / NORMAL / CLOSE); **Ctrl+scroll**
   does the same. Your choice is remembered between sessions.
 - **E** — talk to the dealer (when close)
+- **H** — honk the horn (while driving)
 - **Tab** — inventory: equip/unequip weapons + your 6×4 item grid (click an
   item to use it, right-click or **Q** to drop one)
 - **J** — quest log (see your active quest, all beats, and set which quest

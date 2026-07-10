@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.40';
+var GAME_VERSION = 'v1.66.41';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -3994,6 +3994,17 @@ function carHorn(c, angry) {
   var g = 0.15 * (1 - dist / 62), f = angry ? 300 : 380 + (c._hornHz || 0);
   beep(f, angry ? 0.5 : 0.26, g, 'sawtooth'); beep(f * 1.5, angry ? 0.5 : 0.26, g * 0.5, 'square');   // beep() self-guards when audio is off
   if (angry) setTimeout(function () { beep(f, 0.34, g, 'sawtooth'); beep(f * 1.5, 0.34, g * 0.5, 'square'); }, 240);
+}
+// ---- player horn (#47): H honks the car you're driving. Bypasses the traffic
+// anti-cacophony/per-car gaps (you're in control) but keeps its own short
+// cooldown so leaning on the key doesn't machine-gun the tone. 2D/player-sourced,
+// routed through beep() -> sfxBus. ----
+var lastPlayerHornT = -99, playerHornCount = 0;
+function playerHorn() {
+  if (!driving || T - lastPlayerHornT < 0.4) return;
+  lastPlayerHornT = T; playerHornCount++;
+  var f = 360 + (driving._hornHz || 0);
+  beep(f, 0.3, 0.17, 'sawtooth'); beep(f * 1.5, 0.3, 0.085, 'square');
 }
 // desired speed for a remap traffic car: the min of free-flow cruise, the gap
 // to the leader ahead, the distance to a red light, and any stop-sign hold.
@@ -17193,6 +17204,7 @@ document.addEventListener('keydown', function (e) {
   if (e.code === 'F8' && state.running) { e.preventDefault(); openBug(); return; }
   if (e.code === 'KeyV' && !e.repeat && state.running && !state.menu && netActive()) { voiceStart(); return; }
   keys[e.code] = true;
+  if (e.code === 'KeyH' && driving && state.running && !state.menu && !state.dead) { playerHorn(); return; }
   if ((e.code === 'Enter' || e.code === 'NumpadEnter') && state.running && !state.menu && netActive()) { e.preventDefault(); openChat(); return; }
   if (e.code === 'Tab') { e.preventDefault(); if (!state.running || state.dead) return; if (state.menu === 'inv') closeMenus(); else { closeMenus(false); openMenu('inv'); } }
   if (e.code === 'KeyJ' && !e.repeat) { e.preventDefault(); if (!state.running || state.dead) return; if (state.menu === 'quest') closeMenus(); else if (!state.menu) openMenu('quest'); return; }
@@ -17816,6 +17828,8 @@ window.__wc = {
   footStepStats: function () { return { count: footStepCount }; },
   footStep: footStep,
   carHorn: function (i, angry) { if (cars[i]) carHorn(cars[i], angry); },
+  playerHorn: playerHorn,
+  playerHornStats: function () { return { count: playerHornCount, lastT: lastPlayerHornT }; },
   remapPointClear: function (x, z, pad) { return remapPointClear(x, z, pad); },
   oakInfo: function () { return { count: oakCount, cap: OAK_CAP }; },
   densityInfo: function () { return densityStats; },
