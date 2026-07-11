@@ -1,0 +1,3 @@
+# --- gemini-in-the-loop session (opus, AVI pipeline) ---
+2026-07-11 ak.webm(committed baseline) flash score=3 tokens=2749
+2026-07-11 ak.avi(new harness v3) flash score=3 tokens=4363 issues: hand-not-gripping(H), hand-static-in-recoil(H), bare-arm-mass(M), no-look-sway(M), no-idle-sway(L)

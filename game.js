@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.95';
+var GAME_VERSION = 'v1.66.96';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -15387,7 +15387,7 @@ var GRIP_TGT = {
   // (no pistol entry — one-handed, see SUPPORT_POSE)
   smg:    [0.248, -0.15, -0.696],   // v1.66.87: diagonal composition
   rifle:  [0.079, -0.173, -0.741],  // v1.66.87: diagonal composition
-  auto:   [0.08, -0.114, -0.718],   // v1.66.87: handguard, re-derived for the diagonal AK pose
+  auto:   [0.16, -0.05, -0.66],   // v1.66.94: raised+forward onto the wood handguard so the support hand wraps it (was floating below)
   rocket: [0.159, -0.231, -0.598],  // v1.66.87: diagonal composition
   silenced: [0.21, -0.40, -0.52]
 };
@@ -15995,7 +15995,7 @@ function tryAttack() {
     recoilPitch += 0.04;
     return;
   }
-  flash.visible = true; flash.position.set(w.flashAt[0], w.flashAt[1], w.flashAt[2]); flash.rotation.z = Math.random() * Math.PI; flash.scale.setScalar((w.flashScale || 1) * (0.85 + Math.random() * 0.35)); flashT = 0.045;
+  flash.visible = true; flash.position.set(w.flashAt[0], w.flashAt[1], w.flashAt[2]); flash.rotation.z = Math.random() * Math.PI; flash.scale.setScalar((w.flashScale || 1) * (0.85 + Math.random() * 0.35)); flashT = 0.07;   // v1.66.94: was 0.045 — too brief to read (and to survive a capture frame)
   if (flashTexs.length) flash.material.map = flashTexs[(Math.random() * flashTexs.length) | 0];
   sfx(state.equipped);
   var dir = new THREE.Vector3(); camera.getWorldDirection(dir);
@@ -20323,7 +20323,7 @@ function updatePlayer(dt) {
   var brX = Math.sin(T * 1.1 + 0.7) * 0.006 * swayAmt;
   var dYaw = yaw - vmSwayYaw; if (dYaw > Math.PI) dYaw -= 2 * Math.PI; else if (dYaw < -Math.PI) dYaw += 2 * Math.PI;
   var dPit = pitch - vmSwayPit; vmSwayYaw = yaw; vmSwayPit = pitch;
-  var swK = Math.min(1, dt * 10);
+  var swK = 1 - Math.exp(-dt * 10);   // v1.66.94: framerate-independent smoothing — the old min(1,dt*10) saturated to 1 (zero lag) at low fps, killing the look-sway
   vmSwayX += (-dYaw * 0.9 - vmSwayX) * swK;      // ease toward the turn-lag target
   vmSwayY += (dPit * 0.9 - vmSwayY) * swK;
   vm.position.x = brX + vmSwayX * 0.06;
@@ -21033,6 +21033,10 @@ window.__wc = {
   getAnchor: function (w) { return ANCHOR_OFF[w]; },
   setGrip: function (w, arr) { GRIP_TGT[w] = arr; },   // debug: tune per-weapon support-hand IK grip target
   getGrip: function (w) { return GRIP_TGT[w]; },
+  setRGrip: function (w, arr) { RIGHT_GRIP[w] = arr; },   // debug: tune per-weapon trigger-hand IK grip target
+  getRGrip: function (w) { return RIGHT_GRIP[w]; },
+  setSupPose: function (w, arr) { SUPPORT_POSE[w] = arr; },   // debug: tune support-arm seed eulers (bones 24-27)
+  getSupPose: function (w) { return SUPPORT_POSE[w]; },
   getBoneQ: function (i) { return psxArms ? psxArms.bones[i].quaternion.toArray().map(function (v) { return Math.round(v * 1000) / 1000; }) : null; },
   poseArmsNow: function () { if (psxArms && GUNHOLD_GROUPS[state.equipped]) { armsPose(psxArms, gunHold.clip, gunHold.t, true); solveSupportIK(state.equipped); gripFingers(); } },
   dbgBone: function (i, ov) { if (psxArms) { if (ov) { var e = new THREE.Euler(ov[0], ov[1], ov[2]); psxArms.bones[i].quaternion.setFromEuler(e); } psxArms.mesh.updateMatrixWorld(true); } },   // debug: set one bone's local euler

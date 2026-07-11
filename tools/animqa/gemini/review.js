@@ -30,8 +30,12 @@ ${spec ? 'MEASURED SPEC (screen-percent landmarks, x right / y down):\n' + spec 
 };
 const rubric = RUBRICS[SCEN] || RUBRICS.weapon;
 
-const prompt = rubric + `
-Watch the whole clip (video AND audio). Then reply with PURE JSON only (no markdown fences):
+const noAudio = path.extname(CLIP).toLowerCase() === '.avi';
+const prompt = rubric + (noAudio ? `
+NOTE: this clip is VIDEO-ONLY by design (the capture rig cannot record audio in
+this headless environment). Do NOT report missing/silent audio as an issue and
+ignore all AUDIO criteria; judge the VISUALS only.` : '') + `
+Watch the whole clip${noAudio ? '' : ' (video AND audio)'}. Then reply with PURE JSON only (no markdown fences):
 {
  "verdict": "PASS" | "FAIL",
  "score": 0-10,
@@ -40,9 +44,11 @@ Watch the whole clip (video AND audio). Then reply with PURE JSON only (no markd
 }
 Order issues by severity. Be specific about WHERE on screen and WHEN. If audio is silent or missing, report that as an issue.`;
 
+const MIME = { '.avi': 'video/avi', '.webm': 'video/webm', '.mp4': 'video/mp4', '.mov': 'video/quicktime' };
+const clipMime = MIME[path.extname(CLIP).toLowerCase()] || 'video/webm';
 const body = JSON.stringify({
   contents: [{ parts: [
-    { inline_data: { mime_type: 'video/webm', data: fs.readFileSync(CLIP).toString('base64') } },
+    { inline_data: { mime_type: clipMime, data: fs.readFileSync(CLIP).toString('base64') } },
     { text: prompt }
   ] }],
   generationConfig: { temperature: 0.2, maxOutputTokens: 4096 }
