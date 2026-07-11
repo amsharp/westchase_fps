@@ -5557,7 +5557,16 @@ var _legFixQ = null, _legFixAx = null;
 // arcs UP — knees-up floating feet, fyMx 0.57 vs roster norm ~0.16-0.26.
 // Retuned with foot-height + crossing penalties: feet plant at 0.27, no
 // crossing (lat 0.57 is a touch wide but reads fine — planted beats floating).
-var MESHY_LEG_FIX = { HECTOR: 1.2, NIA: { y: 0.1, z: 0.05, px: -0.6 }, GARY: { y: 0.2, z: 0.25 } };
+// HECTOR (live report mrfzble5) needed NO transform family this can express:
+// his Hips GLOBAL bind is 136° off the shared clip's source rig while his leg
+// joints are ~3° off, so the runtime local-only post retarget scrambled any
+// large excursion (walk fyMx 0.689 / run 1.068 — knees-up floating feet).
+// Fixed by baking him PER-CHARACTER walk/run clips via a proper world-delta
+// retarget (A·L·B with global bind quats; scratchpad live3_hector_bake.js)
+// directly into meshychars.js — his entry now carries own q data like YUKI+,
+// so he no longer goes through the shared-clip post path for locomotion and
+// needs no legFix (walk fyMx 0.195, lat 0.394, crossed 0 — RYAN-class).
+var MESHY_LEG_FIX = { NIA: { y: 0.1, z: 0.05, px: -0.6 }, GARY: { y: 0.2, z: 0.25 } };
 // Stand-in idle for rigs that ship NO idle clip (kids): frame 0 of the walk is
 // a mid-stride passing pose — hips high on the Y track, both feet off the
 // ground — so a frame-0 "idle" visibly hovers (bug mreghm0l). Find the walk
@@ -8305,6 +8314,10 @@ var densityStats = { trees: 0, props: 0, decals: 0, signs: 0, clutter: 0, fence:
 // (name,x,z). Baked props merge into shared geometry with no per-instance
 // record, so QA scans (prop-on-asphalt sweeps etc.) need this to audit them.
 var densityPlaced = [];
+// every stake/pole+placard sign assembly registers here at build time so
+// map-wide audits can assert stake-top vs placard-bottom overlap + lateral
+// seating (detached-sign cluster mrfto9qj/mrfzidc6/mrfzjsdl/mrfzk1rq)
+var signAudit = [];
 // ---- v1.65.5 shared prop-placement guards (density + env layers) ----
 // Chunky ground props register here so later layers can enforce a de-cluster
 // rule: no more than 2 items inside a 3u radius (bug: gumball/vending/trash/etc.
