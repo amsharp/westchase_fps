@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.95';   // merge: live2-ai marathon branch + main
+var GAME_VERSION = 'v1.66.96';   // merge: live2-ai marathon branch + main
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -1396,6 +1396,10 @@ function oak(x, z, scale) {
   // within a canopy margin of an authored venue rect. Perimeter/forest/house-
   // yard trees sit far from these rects, so they're unaffected.
   if (typeof WC_REMAP !== 'undefined' && WC_REMAP && typeof remapInClear === 'function' && remapInClear(x, z, 3.5)) return;
+  // never inside an editor parking/pavement slab: a random tree in a lot both
+  // clipped parked cars AND (pre-v1.66.96) made the seeded parked layout
+  // diverge across MP peers via its trunk collider
+  if (typeof WC_REMAP !== 'undefined' && WC_REMAP && onRemapLotStatic(x, z, 0.8)) return;
   oakCount++;
   scale = scale || (0.85 + Math.random() * 0.5);
   var pp = getPackProp(['oak1', 'oak2', 'oak3'][(Math.random() * 3) | 0]);
@@ -1511,6 +1515,7 @@ var PALM_VARIANTS = [
   { c: 3, hMin: 5.4, hMax: 7.4, lean: 0.13 }
 ];
 function palm(x, z) {
+  if (typeof WC_REMAP !== 'undefined' && WC_REMAP && onRemapLotStatic(x, z, 0.8)) return;   // lots: same rule as oak()
   // v1.65.5 prop-placement fix: same building-clearance guard as oak().
   if (typeof WC_REMAP !== 'undefined' && WC_REMAP && typeof remapInClear === 'function' && remapInClear(x, z, 3.5)) return;
   var pv = PALM_VARIANTS[(Math.random() * PALM_VARIANTS.length) | 0];
@@ -3360,7 +3365,7 @@ function remapCoreSpot() {
 for (var oi = 0; oi < 40; oi++) {
   var ox = -CORE + 40 + treeRnd() * (CORE * 2 - 80), oz = -CORE + 40 + treeRnd() * (CORE * 2 - 80);
   // keep oaks off the roads/core (and off the expansion roads/ponds)
-  if (Math.abs(oz) > MAIN_HW + 6 && Math.abs(ox) > CROSS_HW + 6 && (Math.abs(ox) > 180 || Math.abs(oz) > 170) && expClear(ox, oz, 4) && !houseBlocksSpot(ox, oz) && !inLake(ox, oz)) oak(ox, oz);
+  if (Math.abs(oz) > MAIN_HW + 6 && Math.abs(ox) > CROSS_HW + 6 && (Math.abs(ox) > 180 || Math.abs(oz) > 170) && expClear(ox, oz, 4) && !houseBlocksSpot(ox, oz) && !inLake(ox, oz) && !onRemapLotStatic(ox, oz, 1.5)) oak(ox, oz);   // lots excluded: a random oak in a parking lot made the SEEDED parked layout diverge across MP peers
 }
 
 // ---------------- surveyed neighborhoods: AI house clusters (houses.js) ----------------
@@ -3787,6 +3792,27 @@ function houseTemplate(ci) {
 // oak/scatter guard: keeps runtime-random trees out of house footprints
 // (called from forestPatch, which runs BEFORE this section places anything —
 // hoisting + the houses.js data make that safe)
+// static rotated-rect test over the editor parking/pavement surfaces — used
+// by load-time passes that must stay DETERMINISTIC (parked-car layout) or
+// keep props out of lots (tree scatter). Data-only: never touches live state.
+function onRemapLotStatic(x, z, pad) {
+  if (typeof REMAP_SURFACES === 'undefined') return false;
+  pad = pad || 0;
+  for (var i = 0; i < REMAP_SURFACES.length; i++) {
+    var sf = REMAP_SURFACES[i];
+    if (sf.kind !== 'parking' && sf.kind !== 'pavement') continue;
+    var ra = (sf.rot || 0) * Math.PI / 180, c = Math.cos(ra), sn = Math.sin(ra);
+    var dx = x - sf.x, dz = z - sf.z, u = dx * c - dz * sn, v = dx * sn + dz * c;
+    if (Math.abs(u) < sf.w / 2 + pad && Math.abs(v) < sf.d / 2 + pad) return true;
+  }
+  // survey-house parking aprons (houses.js) — the HOUSE_PARKED_ROWS live here
+  if (typeof HOUSE_LOTS !== 'undefined') for (i = 0; i < HOUSE_LOTS.length; i++) {
+    var L = HOUSE_LOTS[i], la = L[4] * Math.PI / 180, lc = Math.cos(la), ls = Math.sin(la);
+    var ldx = x - L[0], ldz = z - L[1], lu = ldx * lc - ldz * ls, lv = ldx * ls + ldz * lc;
+    if (Math.abs(lu) < L[2] / 2 + pad && Math.abs(lv) < L[3] / 2 + pad) return true;
+  }
+  return false;
+}
 var houseFootprints = null;
 function houseBlocksSpot(x, z) {
   if (!STAMP_SURVEY_HOUSES || typeof HOUSE_INSTANCES === 'undefined') return false;
@@ -11322,36 +11348,55 @@ function parkedHalfExt(ry) {
 }
 function parkedSlotFree(x, z, ry) {
   var h = parkedHalfExt(ry), hx = h.hx, hz = h.hz, i;
+  var QA = typeof window !== 'undefined' && window.__parkedQA;
   if (WC_REMAP) {
-    if (!remapRectClear(x - hx, x + hx, z - hz, z + hz, 1)) return false;   // never on a true road
+    if (!remapRectClear(x - hx, x + hx, z - hz, z + hz, 1)) { if (QA) QA.push(['road', +x.toFixed(1), +z.toFixed(1)]); return false; }   // never on a true road
+    // slots must sit ON a paved lot surface (editor parking/pavement or a
+    // survey-house apron): the 11-slot authored rows overhang their lots, and
+    // overhang slots parked cars on LAWNS (and under yard trees). Pure map
+    // data — deterministic across peers.
+    if (!onRemapLotStatic(x, z, 0.6)) { if (QA) QA.push(['offlot', +x.toFixed(1), +z.toFixed(1)]); return false; }
   } else {
     if (Math.abs(z) - hz < MAIN_HW + 2) return false;          // never on the main road
     if (Math.abs(x) - hx < CROSS_HW + 2) return false;         // never on the cross road
   }
-  for (i = 0; i < colliders.length; i++) {                     // buildings/solid props/lake/fountain
+  // DETERMINISM (MP netcode smoke finding): world snapshots map cars[] BY
+  // INDEX, so every peer must build the exact same parked layout. Randomly
+  // placed props/trees register colliders+breakables, and one landing near a
+  // slot on one peer only shifted every later seeded pick (observed: host
+  // 25 parked / client 24 -> shootCar/jackCD/park indices hit the WRONG car
+  // cross-peer). Consult ONLY source-tagged colliders (buildings/houses/
+  // venues/roadblocks — all static); random-prop clipping is prevented from
+  // the other side (tree scatter avoids lots via onRemapLotStatic).
+  for (i = 0; i < colliders.length; i++) {
     var b = colliders[i];
-    if (x + hx > b.x0 - 0.2 && x - hx < b.x1 + 0.2 && z + hz > b.z0 - 0.2 && z - hz < b.z1 + 0.2) return false;
+    // STATIC-TAG ALLOWLIST: only colliders whose placement is a pure function
+    // of the map data may reject a slot — every peer must compute the same
+    // parked layout (snapshots map cars[] by index). Caught live, one page
+    // each: a 'prop:tree', an 'env:bollard', and a 'forest:tile' (the
+    // barrier-scrub blanket-tiling class) all rejected slots the other page
+    // accepted. prop:/env:/forest: and untagged colliders are skipped; their
+    // placement passes avoid lots instead (onRemapLotStatic guards).
+    if (!b.tag || !/^(bldg|house|venue|gas|signal|roadblock|fence|fountain|perimeter)/.test(b.tag)) continue;
+    if (x + hx > b.x0 - 0.2 && x - hx < b.x1 + 0.2 && z + hz > b.z0 - 0.2 && z - hz < b.z1 + 0.2) { if (QA) QA.push(['col:' + b.tag, +x.toFixed(1), +z.toFixed(1)]); return false; }
   }
   for (i = 0; i < mapDrives.length; i++) {                     // keep the access lanes open
     var d = mapDrives[i];
-    if (x + hx > d.x - d.w / 2 && x - hx < d.x + d.w / 2 && z + hz > d.z - d.d / 2 && z - hz < d.z + d.d / 2) return false;
+    if (x + hx > d.x - d.w / 2 && x - hx < d.x + d.w / 2 && z + hz > d.z - d.d / 2 && z - hz < d.z + d.d / 2) { if (QA) QA.push(['drive', +x.toFixed(1), +z.toFixed(1)]); return false; }
   }
-  for (i = 0; i < breakables.length; i++) {                    // trees/lights/signs/carts/…
-    var br = breakables[i];
-    var qx = Math.max(x - hx, Math.min(br.x, x + hx)), qz = Math.max(z - hz, Math.min(br.z, z + hz));
-    var ddx = br.x - qx, ddz = br.z - qz;
-    if (ddx * ddx + ddz * ddz < (br.r + 0.4) * (br.r + 0.4)) return false;
-  }
+  // breakables (trees/lights/signs) intentionally NOT consulted — see the
+  // determinism note above; their placement passes avoid lots instead.
   for (i = 0; i < PARKED_CLEAR.length; i++) {
     var pc = PARKED_CLEAR[i], cx = pc[0] - x, cz = pc[1] - z;
-    if (cx * cx + cz * cz < 30) return false;
+    if (cx * cx + cz * cz < 30) { if (QA) QA.push(['clear', +x.toFixed(1), +z.toFixed(1)]); return false; }
   }
   for (i = 0; i < cars.length; i++) {                          // other parked cars
     if (!cars[i].parked) continue;
     var oh = parkedHalfExt(cars[i].slot.ry);
     var om = cars[i].car.group.position;
-    if (Math.abs(om.x - x) < hx + oh.hx + 0.3 && Math.abs(om.z - z) < hz + oh.hz + 0.3) return false;
+    if (Math.abs(om.x - x) < hx + oh.hx + 0.3 && Math.abs(om.z - z) < hz + oh.hz + 0.3) { if (QA) QA.push(['car', +x.toFixed(1), +z.toFixed(1)]); return false; }
   }
+  if (QA) QA.push(['ok', +x.toFixed(1), +z.toFixed(1)]);
   return true;
 }
 (function spawnParkedCars() {
