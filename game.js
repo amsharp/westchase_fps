@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.73';
+var GAME_VERSION = 'v1.66.75';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -6231,15 +6231,18 @@ function listAccessories() {
 // group-local placement for push (front) / side (beside) modes. The owner group
 // is upright (yaw only), local +z is forward; authored front is -x so a yaw of
 // +PI/2 turns the prop's front to face the owner's forward. Exceptions (from
-// probing the geometry, bug batch mreguavi/mregcwvd): the WALKER's hand rails
-// run along authored z at x +-0.24 (ry 0 keeps them fore-aft, ends toward the
-// user — +PI/2 turned the handles sideways so it read backwards/dragged); the
-// SUITCASE's telescoping handle is on the authored -z face (ry PI points it at
-// the owner's right hand; it also moves to the RIGHT side, x -0.36 — hands are
-// on -x in these rigs).
+// probing the geometry, bug batch mreguavi/mregcwvd + live report mrfzf22j):
+// the WALKER's handgrip rails actually run along authored X at z +-0.2 (the
+// old note here had the axes swapped — its ry:0 left the handles ACROSS the
+// walk direction, owner: "holding the walker wrong, rotate 90 degrees"); its
+// open side is authored -x (5 mid-height verts vs 31 on the braced +x face),
+// so ry -PI/2 turns the opening to the user and the rails fore-aft at owner
+// x +-0.2; the SUITCASE's telescoping handle is on the authored -z face (ry PI
+// points it at the owner's right hand; it also moves to the RIGHT side,
+// x -0.36 — hands are on -x in these rigs).
 var ACC_PLACE = {
   stroller:  { mode: 'push', x: 0,     z: 0.62,  ry: Math.PI / 2 },
-  walker:    { mode: 'push', x: 0,     z: 0.5,   ry: 0 },
+  walker:    { mode: 'push', x: 0,     z: 0.5,   ry: -Math.PI / 2 },
   bicycle:   { mode: 'side', x: 0.5,   z: 0.05,  ry: Math.PI / 2 },
   suitcase:  { mode: 'side', x: -0.36, z: -0.34, ry: Math.PI },
   wagon:     { mode: 'side', x: 0.0,   z: 0.72,  ry: Math.PI / 2 }
@@ -6377,10 +6380,11 @@ function updateAccessories(dt) {
     if (a.mode === 'leash') updateLeashDog(a, n, dt);
     else if (a.mode === 'hand') { if (a.name === 'boombox') poseCarryArm(n); updateHandAcc(a, n, dt); }
     else if (a.name === 'walker') poseWalkerGrip(n);
+    else if (a.name === 'stroller') poseStrollerGrip(n);   // hands on the bar (mrfzbvxk)
     else if (a.name === 'suitcase') poseCaseDrag(n);
-    // stroller & other side items ride their parent group transform (no
-    // per-frame work) — the natural arm swing reads fine behind a stroller.
-    // Grip-class items (walker/boombox/suitcase) pose the owner's arms above.
+    // other side items ride their parent group transform (no per-frame work).
+    // Grip-class items (walker/stroller/boombox/suitcase) pose the owner's
+    // arms above.
     if (n.mesh && n.mesh.userData) n.mesh.userData.reposed = false;   // consumed (see gripPoseOK)
   }
 }
@@ -6429,8 +6433,10 @@ function pitchLimbWorld(bone, yaw, ang) {
   _aimPQ2.copy(_aimPQ).invert().multiply(_aimQ).multiply(_aimPQ);
   bone.quaternion.premultiply(_aimPQ2);
 }
-// walker user: forward hunch + both hands onto the rail ends (rails sit at
-// owner-local x +-0.24, y ~0.82, rear ends ~z 0.3 — see ACC_PLACE)
+// walker user: forward hunch + both hands onto the rail rear ends. After the
+// mrfzf22j reorientation (ry -PI/2, see ACC_PLACE) the two grip rails run
+// fore-aft at owner-local x +-0.2, tube tops y 0.74-0.85, spanning owner z
+// 0.26..0.75 — grab them near their rear (user) ends.
 function poseWalkerGrip(n) {
   if (!gripPoseOK(n)) return;
   gripTmps();
@@ -6439,9 +6445,27 @@ function poseWalkerGrip(n) {
   var sp = m.userData.spine;
   if (sp) { pitchLimbWorld(sp, m.rotation.y, 0.32); m.updateMatrixWorld(true); }   // hunch, then refresh shoulders
   var hL = m.userData.handL || L.armL, hR = m.userData.handR || L.armR;
-  _gripV.set(0.24, 0.82, 0.32); m.localToWorld(_gripV);    // left hand (+x side)
+  _gripV.set(0.2, 0.82, 0.34); m.localToWorld(_gripV);    // left hand (+x side)
   aimLimbAt(L.armL, hL, _gripV.x, _gripV.y, _gripV.z);
-  _gripV.set(-0.24, 0.82, 0.32); m.localToWorld(_gripV);
+  _gripV.set(-0.2, 0.82, 0.34); m.localToWorld(_gripV);
+  aimLimbAt(L.armR, hR, _gripV.x, _gripV.y, _gripV.z);
+}
+// stroller pusher (live report mrfzbvxk "pushing a stroller with no hands"):
+// both hands onto the handle bar + a light forward lean. The bar sits at
+// authored x 0.34-0.42 / y 0.94-0.99 spanning z +-0.2, which after the ry
+// +PI/2 placement (front toward travel) lands at owner-local z ~0.24,
+// y ~0.96, running across x +-0.2.
+function poseStrollerGrip(n) {
+  if (!gripPoseOK(n)) return;
+  gripTmps();
+  var m = n.mesh, L = m.userData.limbs;
+  m.updateMatrixWorld(true);
+  var sp = m.userData.spine;
+  if (sp) { pitchLimbWorld(sp, m.rotation.y, 0.14); m.updateMatrixWorld(true); }   // lighter lean than the walker hunch
+  var hL = m.userData.handL || L.armL, hR = m.userData.handR || L.armR;
+  _gripV.set(0.17, 0.96, 0.24); m.localToWorld(_gripV);    // left hand (+x side)
+  aimLimbAt(L.armL, hL, _gripV.x, _gripV.y, _gripV.z);
+  _gripV.set(-0.17, 0.96, 0.24); m.localToWorld(_gripV);
   aimLimbAt(L.armR, hR, _gripV.x, _gripV.y, _gripV.z);
 }
 // rolling suitcase: right arm reaches down-back to the telescoping handle top
@@ -8568,7 +8592,7 @@ if (WC_REMAP) (function densityLayer() {
     scene.add(g);
     registerBreakable(g, x, z, Math.max(0.6, a.dims[0] / 2 + 0.15), 'light', null, 0.14);
     densityStats.signs++; densityPlaced.push({ n: name, x: x, z: z, y: mountY });
-    signAudit.push({ n: name, kind: 'poleSign', x: x, z: z, stakeTop: poleH, stakeR: poleR, plBot: mountY - a.dims[1] / 2, plTop: mountY + a.dims[1] / 2, plW: a.dims[0], latOff: plOff });
+    signAudit.push({ n: name, kind: 'poleSign', ry: ry, x: x, z: z, stakeTop: poleH, stakeR: poleR, plBot: mountY - a.dims[1] / 2, plTop: mountY + a.dims[1] / 2, plW: a.dims[0], latOff: plOff });
   }
 
   // ---- surface geometry references ----
@@ -8750,7 +8774,7 @@ if (WC_REMAP) (function densityLayer() {
       var gpOff = 0.14 + 0.02;
       pole(px, pz, 3.2, 0.14); dSign('gas_price_sign', px + f2.fx * gpOff, 4.2, pz + f2.fz * gpOff, f2.yaw);
       var gpa = dAsset['gas_price_sign'];
-      if (gpa) signAudit.push({ n: 'gas_price_sign', kind: 'pylon', x: px, z: pz, stakeTop: 3.2, stakeR: 0.14, plBot: 4.2 - gpa.dims[1] / 2, plTop: 4.2 + gpa.dims[1] / 2, plW: gpa.dims[0], latOff: gpOff });
+      if (gpa) signAudit.push({ n: 'gas_price_sign', kind: 'pylon', ry: f2.yaw, x: px, z: pz, stakeTop: 3.2, stakeR: 0.14, plBot: 4.2 - gpa.dims[1] / 2, plTop: 4.2 + gpa.dims[1] / 2, plW: gpa.dims[0], latOff: gpOff });
     }
     // freestanding entrance clutter markers
   }
@@ -8763,7 +8787,7 @@ if (WC_REMAP) (function densityLayer() {
     var bbOff = 0.2 + 0.02, bnx = Math.sin(byaw), bnz = Math.cos(byaw);
     dSign('billboard_ad', bx + bnx * bbOff, 6.6, bz + bnz * bbOff, byaw);
     var bba = dAsset['billboard_ad'];
-    if (bba) signAudit.push({ n: 'billboard_ad', kind: 'billboard', x: bx, z: bz, stakeTop: 6, stakeR: 0.2, plBot: 6.6 - bba.dims[1] / 2, plTop: 6.6 + bba.dims[1] / 2, plW: bba.dims[0], latOff: bbOff });
+    if (bba) signAudit.push({ n: 'billboard_ad', kind: 'billboard', ry: byaw, x: bx, z: bz, stakeTop: 6, stakeR: 0.2, plBot: 6.6 - bba.dims[1] / 2, plTop: 6.6 + bba.dims[1] / 2, plW: bba.dims[0], latOff: bbOff });
   }
   // roadside sign poles along arterials/collectors: stop at junction approaches,
   // speed/parking/bus elsewhere
@@ -8781,7 +8805,7 @@ if (WC_REMAP) (function densityLayer() {
         for (var of = rc.hw + swS + 1.1; of <= rc.hw + swS + 2.7; of += 0.4) {
           sx = ps.x - ps.uz * of * sd; sz = ps.z + ps.ux * of * sd;
           if (onSidewalk(sx, sz)) continue;
-          if (!spotClear(sx, sz) || remapInClear(sx, sz, 0) || inLake(sx, sz)) continue;
+          if (!spotClear(sx, sz) || remapInClear(sx, sz, 0) || inLake(sx, sz) || houseBlocksSpot(sx, sz)) continue;
           sOK = true; break;
         }
         sd = -sd;
@@ -8798,10 +8822,12 @@ if (WC_REMAP) (function densityLayer() {
       var ry3 = RM.roads[yr]; if (ry3.cls < 2 || ry3.dirt) continue;
       var lenY = ry3.cum[ry3.cum.length - 1], yd = 1;
       for (var yv = 30; yv < lenY - 20; yv += 46) {
-        var py = rmAt(ry3.pts, ry3.cum, yv), oy = ry3.hw + rnd(3, 6);
+        // sample past the walk ribbon's outer band (hw+3.4 walk +1.0 buffer on
+        // residential roads) so the onSidewalk lawn guard below rarely culls
+        var py = rmAt(ry3.pts, ry3.cum, yv), oy = ry3.hw + rnd(4.6, 7.4);
         var yx = py.x - py.uz * oy * yd, yz = py.z + py.ux * oy * yd; yd = -yd;
         if (!spotClear(yx, yz) || inLake(yx, yz) || remapInClear(yx, yz, 0)) continue;
-        if (!remapPointClear(yx, yz, 0.5) || dOnPavedRect(yx, yz)) continue;   // lawns only — no yard signs planted in asphalt/driveway slabs
+        if (!remapPointClear(yx, yz, 0.5) || dOnPavedRect(yx, yz) || onSidewalk(yx, yz)) continue;   // lawns only — never in asphalt/driveway slabs or the concrete walk ribbon
         // mregdctj: the stake used to be as tall as the placard CENTER (both
         // 0.9), so the post ran across the whole lower half of the sign face
         // (visible whenever the stake side faced you) — and the placard read
@@ -8819,7 +8845,7 @@ if (WC_REMAP) (function densityLayer() {
             var ystkR = 0.05, ystkH = ymount - yh / 2 + 0.08, yoff = ystkR + 0.02;
             pole(yx, yz, ystkH, ystkR);
             dSign(yk, yx + Math.sin(yry) * yoff, ymount, yz + Math.cos(yry) * yoff, yry, ysc);   // placard in front of its stake, not speared
-            signAudit.push({ n: yk, kind: 'yard', x: yx, z: yz, stakeTop: ystkH, stakeR: ystkR, plBot: ymount - yh / 2, plTop: ymount + yh / 2, plW: ya.dims[0] * ysc, latOff: yoff });
+            signAudit.push({ n: yk, kind: 'yard', ry: yry, x: yx, z: yz, stakeTop: ystkH, stakeR: ystkR, plBot: ymount - yh / 2, plTop: ymount + yh / 2, plW: ya.dims[0] * ysc, latOff: yoff });
           }
         }
       }
