@@ -627,3 +627,19 @@ Rig: local relay (server.js, no bot) + host page + client page, RAF stubbed, sim
   scene.updateMatrixWorld(true) before aiming; mpsmoke.js hardened accordingly.
 - NOTE for barrier-scrub: one forest:tile blanket collider still intrudes the lot at (20,-85)
   (invisible, a parked car sits "in" it) — your orphan class, no action on my side.
+
+## Marathon cycle 4 (opus): merge main v1.66.100 + NETCODE FUZZ HARDENING (v1.66.101-102)
+- MERGED origin/main (v1.66.100: Gemini content — RaceTrac price pylon, textured foliage, AC
+  condensers; fp-arms AK grip/recoil; HUD compaction; fence audit; sound overhaul 61MB voice
+  banks). AC condenser conflict: kept MY dGroundAC industrial geometry + adopted THEIR RaceTrac
+  forecourt exclusion (mrfzl9on). Both updateFireflies + updateRtPylon wired. v1.66.101.
+  Regressions held on merged build: parked layout 10/10 deterministic, 0 tight pacers @445 NPCs.
+- NETCODE FUZZ (new tool netfuzz.js): fired 32 malformed messages (OOB/neg/string/NaN indices,
+  neg damage, 1e9 coords, __proto__ keys, missing fields, null) into a live host handler.
+  31/32 already handled cleanly — the client->host action layer is well-hardened (clamps +
+  ownership checks; verified no world corruption / NaN / boss-heal). FOUND + FIXED@v1.66.102:
+  the 's' player-state handler threw on {t:'s', id:null} — ensureRemote did hashStr(id)/
+  id.slice() and null.length aborted the onmessage callback (a peer can inject bad id via the
+  relay's opaque passthrough). ensureRemote now rejects non-string/empty ids; 's' bails early.
+  Re-fuzz: 32/32, 0 throws, world intact. Normal MP path unregressed (remote avatar still built,
+  445/445 NPC mirror, PvP kill chain verified separately).
