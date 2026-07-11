@@ -392,3 +392,13 @@ those alignments where they exist, with real Westchase street names from the OSM
 - mrg4b26g (-151,46) shot NPCs can be knocked INTO buildings (ragdoll clips through walls) — OPEN (ragdoll velocity ignores colliders; clamp ragdoll XZ vs colliders like player pushOut)
 - mrg4bexs (-149,63) no bullet holes when shooting the GROUND — FIXED@v1.66.90 (ground plane isn't in solidMeshes so ground shots produced no hit at all; hitscan now intersects the ray with the ground analytically on miss — flat hole + dust at the impact, interior floor handled)
 - mrg4brvw (-129,79) quest overlay covers the stars + new compass — OPEN (HUD layout collision: quest tracker vs top-center stars vs the other agent's v1.66.78 compass strip — needs a top-bar layout pass; coordinate with main agent who owns the compass)
+
+## HUD RECONCILIATION ROUND — IN-AGENT (hud-fix, fable). Colliding HUD features (fable: chevrons/quest tracker/stars; main agent: compass/killfeed/settings toggles v1.66.77-87)
+- mrg4dns9 (-63,4) shot direction chevrons 180 DEG OFF — verify chevron rel math vs camera yaw convention (did level-look/compass work flip it, or original sign bug?)
+- mrg4gnea (-177,39) overhead NPC health bars BROKEN on .88 — NOT the ram-kill merge (diffed: only ram fix in .88); suspect the new HUD settings toggles gate tag/bar drawing (settings.markers default?)
+- mrg4brvw (-129,79) quest overlay covers stars + compass — top-bar layout pass
+- mrg4egvx (-58,3) ESC should close the menu (currently only exposes mouse)
+Other new (logged, next rounds):
+- mrg4gw3o (-187,31) STILL way too much smoke — 2nd report of the lakeside ambient emitter (mrfzucre); find and shrink THAT emitter specifically
+- mrg4hbzx (-141,-9) kid glitched in the wall — kid steering/pushOut vs OBB
+- mrg4iels (-153,22) quest NPCs should FACE the player when near (design ask, small)
