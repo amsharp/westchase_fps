@@ -33,30 +33,33 @@ fs.mkdirSync(OUT, { recursive: true });
     await page.waitForTimeout(500);   // let a few rAF frames pose the arms for this weapon
     const info = await page.evaluate((w) => {
       var T = window.THREE;
-      var cam = __wc.camera; cam.updateMatrixWorld(true);
+      var cam = __wc.camera;
+      var sheet = document.createElement('canvas'); sheet.width = 900; sheet.height = 900;
+      var sx = sheet.getContext('2d'); sx.fillStyle = '#20242b'; sx.fillRect(0, 0, 900, 900);
+      var gl = __wc.renderer.domElement;
+      function put(i) { var col = i % 2, row = (i / 2) | 0; try { sx.drawImage(gl, 0, 0, 900, 900, col * 450, row * 450, 450, 450); } catch (e) {} }
+      function label(i, txt) { var col = i % 2, row = (i / 2) | 0; sx.fillStyle = '#0af'; sx.font = 'bold 20px monospace'; sx.fillText(txt, col * 450 + 8, row * 450 + 24); }
+
+      // cell 0: FP at pitch 0.0 (the TRUE level playing angle — main tuning target)
+      __wc.setPitch(0.0); __wc.poseArmsNow(); cam.updateMatrixWorld(true);
+      __wc.renderer.render(__wc.scene, cam); put(0); label(0, 'FP pitch 0.0 (level)');
+      // cell 1: FP at pitch 0.2 (slight up-look — original tuning angle)
+      __wc.setPitch(0.2); __wc.poseArmsNow(); cam.updateMatrixWorld(true);
+      __wc.renderer.render(__wc.scene, cam); put(1); label(1, 'FP pitch 0.2');
+
+      // external grip-inspection views computed at pitch 0.0 (level)
+      __wc.setPitch(0.0); __wc.poseArmsNow(); cam.updateMatrixWorld(true);
       var hp = __wc.handPos();
       var ctr = hp ? new T.Vector3((hp.L[0] + hp.R[0]) / 2, (hp.L[1] + hp.R[1]) / 2, (hp.L[2] + hp.R[2]) / 2)
                    : cam.position.clone();
       var fwd = new T.Vector3(); cam.getWorldDirection(fwd); fwd.normalize();
       var up = new T.Vector3(0, 1, 0);
       var right = new T.Vector3().crossVectors(fwd, up).normalize();
-      var camPos = cam.position.clone();
-
-      // build a tight inspection camera
       var tcam = new T.PerspectiveCamera(22, 1, 0.01, 200);
-      var sheet = document.createElement('canvas'); sheet.width = 900; sheet.height = 900;
-      var sx = sheet.getContext('2d'); sx.fillStyle = '#20242b'; sx.fillRect(0, 0, 900, 900);
-      var gl = __wc.renderer.domElement;
-      function put(i) { var col = i % 2, row = (i / 2) | 0; try { sx.drawImage(gl, 0, 0, 900, 900, col * 450, row * 450, 450, 450); } catch (e) {} }
-
-      // cell 0: FP view (what the player sees) — full frame
-      __wc.renderer.render(__wc.scene, cam); put(0);
-      // external views: orbit tcam around the hand centroid
       var D = 0.85;
       function view(pos, i) { tcam.position.copy(pos); tcam.lookAt(ctr); tcam.updateMatrixWorld(true); __wc.renderer.render(__wc.scene, tcam); put(i); }
-      view(new T.Vector3().copy(ctr).addScaledVector(right, D).addScaledVector(fwd, 0.15), 1);   // side (grip profile)
-      view(new T.Vector3().copy(ctr).addScaledVector(up, D).addScaledVector(fwd, 0.1), 2);        // top-down
-      view(new T.Vector3().copy(ctr).addScaledVector(fwd, D).addScaledVector(up, 0.15), 3);       // front (muzzle side)
+      view(new T.Vector3().copy(ctr).addScaledVector(right, D).addScaledVector(fwd, 0.15), 2); label(2, 'side');   // grip profile
+      view(new T.Vector3().copy(ctr).addScaledVector(fwd, D).addScaledVector(up, 0.15), 3); label(3, 'front');     // muzzle side
 
       return { url: sheet.toDataURL('image/png'), hp: hp, ctr: [ctr.x, ctr.y, ctr.z].map(function (v) { return Math.round(v * 100) / 100; }),
                grip: __wc.gripDbg && __wc.gripDbg() };

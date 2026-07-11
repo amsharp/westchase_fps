@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.75';
+var GAME_VERSION = 'v1.66.76';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -14972,9 +14972,9 @@ var _flexAxis = new THREE.Vector3(1, 0, 0), _flexQ = new THREE.Quaternion();
 function buildGripFingers(restQ) {
   var g = {};
   function set(idx, ang) { var q = restQ[idx].clone(); _flexQ.setFromAxisAngle(_flexAxis, ang); q.multiply(_flexQ); g[idx] = q; }
-  function wrap(ids) { set(ids[0], 0.52); set(ids[1], 1.15); set(ids[2], 0.62); }   // full curl: MCP/PIP/DIP
+  function wrap(ids) { set(ids[0], 0.68); set(ids[1], 1.38); set(ids[2], 0.74); }   // full curl: MCP/PIP/DIP — tight clench onto the grip
   function trig(ids) { set(ids[0], 0.16); set(ids[1], 0.30); set(ids[2], 0.20); }   // index resting on the trigger
-  function thumb(ids) { set(ids[0], 0.22); set(ids[1], 0.52); set(ids[2], 0.42); }  // thumb wrapped over the top
+  function thumb(ids) { set(ids[0], 0.30); set(ids[1], 0.64); set(ids[2], 0.50); }  // thumb wrapped over the top
   // RIGHT (trigger) hand: index on the trigger, everything else wraps the grip
   trig(GF_R.index); wrap(GF_R.middle); wrap(GF_R.ring); wrap(GF_R.pinky); thumb(GF_R.thumb);
   // LEFT (support) hand: all four fingers wrap the foregrip / support the pistol
@@ -15388,7 +15388,7 @@ Object.keys(vmMap).forEach(function (k) { vm.add(vmMap[k]); vmMap[k].visible = f
 // bottom of the frame (grip cut off at a level look). The equipped group's
 // position is rebased to this per-weapon lift each frame (see the draw block),
 // which moves gun AND arms together so the grip relationship is preserved.
-var VM_LIFT = { pistol: 0.24, smg: 0.10, rifle: 0.09, auto: 0.09, rocket: 0.09, silenced: 0.24 };
+var VM_LIFT = { pistol: 0.24, smg: 0.12, rifle: 0.11, auto: 0.11, rocket: 0.11, silenced: 0.24 };
 vmFists.visible = true;
 var zoomed = false;
 function setZoom(on) {
