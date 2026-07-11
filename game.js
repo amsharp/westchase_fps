@@ -3295,10 +3295,17 @@ function remapStreetlightRows() {
     }
   }
 }
-// NPC standing on true-road asphalt? return the nearest curb-side escape
-// point (sidewalk band beside the closest road), else null. Scans mapRoads —
+// NPC standing on true-road asphalt? return a curb-side escape point
+// (sidewalk band beside the closest road), else null. Scans mapRoads —
 // with WC_REMAP on those ARE the decimated true-road segments.
-function remapRoadEscape(x, z) {
+// (gx,gz) optional: the NPC's current goal. Pacing fix (live batch 2): the
+// old "nearest curb" always ejected to the side the NPC came FROM, so a
+// pedestrian legitimately CROSSING a 22-28u road (14s+ at walk speed, vs the
+// 2s loiter timer) was yanked straight back every time — the road-edge
+// back-and-forth shuffle behind most of the pacing reports. With a goal
+// given, the escape exits on the GOAL side, so a crossing NPC commits and
+// finishes the crossing instead of ping-ponging on the near curb.
+function remapRoadEscape(x, z, gx, gz) {
   var best = null, bestD = 1e9;
   for (var i = 0; i < mapRoads.length; i++) {
     var r = mapRoads[i];
@@ -3313,6 +3320,7 @@ function remapRoadEscape(x, z) {
       var nx, nz;
       if (d > 0.3) { nx = px / d; nz = pz / d; }
       else { var L = Math.sqrt(L2); nx = -dz / L; nz = dx / L; }   // dead-center: pick a side
+      if (gx !== undefined && ((gx - cx) * nx + (gz - cz) * nz) < 0) { nx = -nx; nz = -nz; }   // exit on the goal's side
       var off = r.hw + 2 + Math.random() * 2;
       best = [cx + nx * off, cz + nz * off];
     }
@@ -5519,6 +5527,19 @@ function meshyPose(sk, clipKey, cycles, oneshot) {
           _legFixQ.setFromAxisAngle(_legFixAx, -sk.legFix.z);
           _rb.quaternion.premultiply(_legFixQ);
         }
+        // px = bone-LOCAL X post-multiply, same sign both legs (NIA, live
+        // report mrftcjh1). Her UpLeg bones are twisted about their own axis
+        // vs the clip's source rig, so the parallel-Y family alone rotates the
+        // stride plane but lifts the feet into a knees-up "floating" gait
+        // (fyMx 0.57 at the old plain 1.2 — the reported look). A local-X
+        // untwist drops the arcs back to the ground; swept in-engine with
+        // foot-height + crossing penalties (scratchpad live2_niasweep*.js).
+        if (sk.legFix.px) {
+          _legFixAx.set(1, 0, 0);
+          _legFixQ.setFromAxisAngle(_legFixAx, sk.legFix.px);
+          _lb.quaternion.multiply(_legFixQ);
+          _rb.quaternion.multiply(_legFixQ);
+        }
       }
     }
   }
@@ -5529,9 +5550,14 @@ function meshyPose(sk, clipKey, cycles, oneshot) {
 // an entry; everyone else stays at 0 (untouched). Measured lateral foot spread
 // for HECTOR drops 0.854u -> 0.31u (roster norm ~0.28u) at 1.2 rad.
 var _legFixQ = null, _legFixAx = null;
-// Number = parallel Y yaw; {y,z} = Y yaw + mirrored Z adduction (see meshyPose).
-// GARY: lat 0.681u -> 0.327u (roster norm ~0.28-0.32u), feet stay planted.
-var MESHY_LEG_FIX = { HECTOR: 1.2, NIA: 1.2, GARY: { y: 0.2, z: 0.25 } };
+// Number = parallel Y yaw; {y,z,px} = Y yaw + mirrored Z adduction + local-X
+// untwist (see meshyPose). GARY: lat 0.681u -> 0.327u (roster norm
+// ~0.28-0.32u), feet stay planted. NIA (report mrftcjh1 "horrible animations
+// on her"): the old plain 1.2 yaw fixed her splay but redirected the stride
+// arcs UP — knees-up floating feet, fyMx 0.57 vs roster norm ~0.16-0.26.
+// Retuned with foot-height + crossing penalties: feet plant at 0.27, no
+// crossing (lat 0.57 is a touch wide but reads fine — planted beats floating).
+var MESHY_LEG_FIX = { HECTOR: 1.2, NIA: { y: 0.1, z: 0.05, px: -0.6 }, GARY: { y: 0.2, z: 0.25 } };
 // Stand-in idle for rigs that ship NO idle clip (kids): frame 0 of the walk is
 // a mid-stride passing pose — hips high on the Y track, both feet off the
 // ground — so a frame-0 "idle" visibly hovers (bug mreghm0l). Find the walk
@@ -5960,11 +5986,82 @@ function npcTargetFor(n) {
   }
   return [n.homeX, n.homeZ];
 }
+// ---- anti-pacing toolkit (live batch 2: 7 "stuck pacing / back-and-forth"
+// reports — mrft9al8 mrftbul8 mrftesnl mrftf1th mrftf7lk mrfttu3a mrftc5d4).
+// Root causes measured in-engine: (a) blind repicks after a stuck/wall-slide
+// bail kept choosing targets THROUGH the same wall (or back into the same
+// pocket), so the NPC turned, walked 2u, hit it again, turned... visible
+// ping-pong; (b) whisker-avoid steering moves at full speed, so an NPC could
+// orbit a concave corner forever without ever tripping the zero-progress
+// watchdogs; (c) nothing enforced a minimum wander-leg length.
+// corridorFree probes the first ~7.5u of the straight line with the same
+// pointFree test the whisker uses — cheap coarse "can I even set off that way".
+function corridorFree(x, z, tx, tz) {
+  var dx = tx - x, dz = tz - z, d = Math.sqrt(dx * dx + dz * dz);
+  if (d < 0.5) return true;
+  var ux = dx / d, uz = dz / d, span = Math.min(d - 0.3, 7.5);
+  for (var s = 1.6; s <= span; s += 1.9) {
+    if (!pointFree(x + ux * s, z + uz * s, 0.45)) return false;
+  }
+  return true;
+}
+// replacement wander target after a stuck/wall-slide bail: remembers the
+// heading that just failed (n.badDX/badDZ for ~8s) and prefers candidates
+// that are >=12u away, outside a ~60° cone of any remembered bad heading,
+// and whose first corridor is walkable. Falls back to backtracking the way
+// the NPC came (that ground is known walkable).
+function npcBailTarget(n, fvx, fvz) {
+  if (fvx !== undefined && (fvx || fvz)) { n.badDX = fvx; n.badDZ = fvz; n.badT = T + 8; }
+  // trapped backstop: 5+ bails inside ~25s means the NPC is boxed in a pocket
+  // no wander target leads out of. Duck through the nearest doorway (the
+  // standard hidden-dwell flow killed NPCs already use) and re-emerge fresh,
+  // instead of pacing the pocket forever. Returns null — caller skips the
+  // target assignment.
+  if (T > (n.bailWin || 0)) { n.bailWin = T + 40; n.bailCt = 0; }
+  n.bailCt = (n.bailCt || 0) + 1;
+  if (n.bailCt >= 4 && n.state === 'walk' && npcDoors.length && n.mesh) {
+    var nearI = [], farI = 0, farD = 1e9;
+    for (var di = 0; di < npcDoors.length; di++) {
+      var dd = (npcDoors[di].sx - n.x) * (npcDoors[di].sx - n.x) + (npcDoors[di].sz - n.z) * (npcDoors[di].sz - n.z);
+      if (dd < 130 * 130) nearI.push(di);
+      if (dd < farD) { farD = dd; farI = di; }
+    }
+    breakNpcChat(n); stopNpcVoice(n.vname);
+    n.doorI = nearI.length ? nearI[(Math.random() * nearI.length) | 0] : farI;
+    n.state = 'hidden'; n.dwellT = 4 + Math.random() * 6; n.bailCt = 0;
+    n.wayX = undefined; n.wayZ = undefined; n.doorSeek = undefined;
+    n.mesh.visible = false; if (n.mesh.userData.shadow) n.mesh.userData.shadow.visible = false;
+    return null;
+  }
+  var remember = n.badT !== undefined && T < n.badT;
+  for (var tr = 0; tr < 6; tr++) {
+    var c = npcTargetFor(n);
+    var dx = c[0] - n.x, dz = c[1] - n.z, d = Math.sqrt(dx * dx + dz * dz);
+    if (d < 12) continue;
+    if (remember && (dx / d) * n.badDX + (dz / d) * n.badDZ > 0.5) continue;   // points back at the wall/pocket
+    if (!corridorFree(n.x, n.z, c[0], c[1])) continue;
+    return c;
+  }
+  if (remember) {   // nothing passed: walk back the way we came
+    var bl = 10 + Math.random() * 4;
+    return [n.x - n.badDX * bl, n.z - n.badDZ * bl];
+  }
+  return npcTargetFor(n);
+}
 // pick a fresh wander target for an NPC; if the straight line to it crosses a
 // road, usually route through the intersection crosswalk pads first (single
 // waypoint in n.wayX/n.wayZ — no pathfinding)
 function setNpcTarget(n) {
-  var t = npcTargetFor(n); n.tx = t[0]; n.tz = t[1];
+  var t = npcTargetFor(n);
+  // anti-pacing: reject wander legs under 12u (short hop-and-turn legs read
+  // as aimless shuffling) and legs whose first corridor is blocked; a few
+  // rerolls, then accept whatever came up (turf pickers can be small).
+  for (var tg = 0; tg < 4; tg++) {
+    var mdx = t[0] - n.x, mdz = t[1] - n.z;
+    if (mdx * mdx + mdz * mdz >= 144 && corridorFree(n.x, n.z, t[0], t[1])) break;
+    t = npcTargetFor(n);
+  }
+  n.tx = t[0]; n.tz = t[1];
   n.wayX = undefined; n.wayZ = undefined;
   // core crosswalk routing only — neighborhood walkers jaywalk their streets
   if (!WC_REMAP && !n.turf && Math.random() < 0.7) {
@@ -6159,7 +6256,10 @@ var ACC_HAND = {
 };
 // pick an accessory name for a spawning NPC by rolling a category first, so dogs
 // don't dominate; returns null when the rolled pool is empty.
-var ACC_POOL_WALK = ['dog', 'bicycle', 'suitcase', 'wagon'];
+// wagon is KIDS-ONLY (report mrftsrmg: "only kids should use the wagon" — an
+// adult pedestrian towing the red toy wagon read wrong). Adults never roll it;
+// spawnKids hands a few kids one instead.
+var ACC_POOL_WALK = ['dog', 'bicycle', 'suitcase'];
 var ACC_POOL_HOLD = ['umbrella', 'shopping_bags', 'coffee_cup', 'cane', 'skateboard', 'boombox', 'balloon'];
 var ACC_POOL_PUSH = ['stroller', 'walker'];
 function rollAccessoryName() {
@@ -8254,14 +8354,21 @@ if (WC_REMAP) (function densityLayer() {
   // handful of decals/clutter/fences read best keyed too (luminance < thr -> clear)
   var KEY = {};
   ['billboard_ad', 'storefront_sign', 'grand_opening_banner', 'flyer_sheet', 'for_sale_sign', 'menu_board', 'bus_route_sign', 'graffiti_panel', 'wall_mural', 'roadwork_sign', 'stop_sign', 'gas_price_sign', 'yard_sign', 'lost_pet_flyer', 'neon_bar_sign', 'parking_sign', 'speed_limit_sign', 'garage_sale_sign'].forEach(function (n) { KEY[n] = 40; });
-  ['grass_tuft', 'leaves_scatter', 'litter_scatter', 'crosswalk', 'center_line', 'road_arrow', 'skid_marks', 'chainlink_fence', 'potted_plant'].forEach(function (n) { KEY[n] = 46; });
+  ['grass_tuft', 'crosswalk', 'center_line', 'road_arrow', 'skid_marks', 'chainlink_fence', 'potted_plant'].forEach(function (n) { KEY[n] = 46; });
   // Ground stain/crack/fixture decals are authored on a full asphalt/concrete
   // tile: rendered as an opaque quad they show a hard rectangular "box/shadow
   // patch" (bug reports mree7hy2/mree84pq/mree8hw2). BLEND-key them: the tile's
   // dominant border (surface) colour fades to transparent so only the mark
   // shows, plus a soft edge vignette so the quad boundary never reads as a box.
   var GKEY = {};
-  ['oil_stain', 'asphalt_cracks', 'asphalt_patch', 'cracked_slab', 'sidewalk_gum', 'manhole', 'storm_drain', 'utility_plate', 'mud_patch', 'puddle'].forEach(function (n) { GKEY[n] = 1; });
+  // litter_scatter / leaves_scatter moved here from the luminance KEY list
+  // (report mrftxqdt "wtf is this" — a litter sheet on a white plaza sidewalk):
+  // they're authored on a MID-GRAY asphalt tile, so keying only lum<46 left the
+  // whole gray tile opaque — on pale sidewalk slabs or grass the quad read as a
+  // solid sheet hovering over the ground (geometry verified flat at y=0.14;
+  // map-wide scan found zero elevated/tilted decal quads). Blend-keying fades
+  // the tile's own background to transparent so only the litter/leaves show.
+  ['oil_stain', 'asphalt_cracks', 'asphalt_patch', 'cracked_slab', 'sidewalk_gum', 'manhole', 'storm_drain', 'utility_plate', 'mud_patch', 'puddle', 'litter_scatter', 'leaves_scatter'].forEach(function (n) { GKEY[n] = 1; });
   var dTexCache = {};
   function dTex(name) {
     if (dTexCache[name] !== undefined) return dTexCache[name];
@@ -8378,9 +8485,18 @@ if (WC_REMAP) (function densityLayer() {
     var a = dAsset[name]; if (!a) return;
     var H = a.dims[0], dx = bx - ax, dz = bz - az, L = Math.sqrt(dx * dx + dz * dz);
     if (L < 0.6) return;
-    var rep = Math.max(1, Math.round(L / (H * 1.4)));
+    var rep = Math.max(1, Math.round(L / (H * 1.4))), repV = 0;
+    // chainlink retile (report mrfttd8s "thick chainlink texture", self-storage
+    // lot): this densityprops fence path stretched ONE texture tile over the
+    // full 2u height x 2.8u length, so the diamonds rendered ~4x oversized and
+    // the wire read rope-thick. Tile at the same ~0.7u period the FENCE_RUNS
+    // breakable chainlink panels use (v1.66.12 fix) so both systems match.
+    if (name === 'chainlink_fence') {
+      rep = Math.max(1, Math.round(L / 0.7));
+      repV = Math.max(1, Math.round(H / 0.7));
+    }
     var g = new THREE.PlaneGeometry(L, H), uv = g.attributes.uv;
-    for (var i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * rep);
+    for (var i = 0; i < uv.count; i++) { uv.setX(i, uv.getX(i) * rep); if (repV) uv.setY(i, uv.getY(i) * repV); }
     var ry = Math.atan2(-dz, dx);
     bake('d_' + name, { texName: name, double: true }, g, mtx((ax + bx) / 2, H / 2 + 0.02, (az + bz) / 2, ry, 1, 1, 1));
     if (solid) addColliderOBB((ax + bx) / 2, (az + bz) / 2, L / 2, 0.25, ry, 'fence');
@@ -13260,9 +13376,11 @@ function updateNPCs(dt) {
       n.stuckT = (n.stuckT || 0) + dt;
       if (n.stuckT > 1) {
         n.stuckT = 0;
-        var back = npcTargetFor(n);
+        var back = npcBailTarget(n, vx, vz);   // remembers the failed heading; picks a reachable-ish target elsewhere
+        if (!back) continue;   // trapped backstop tripped: NPC ducked into a doorway (hidden dwell)
         n.tx = back[0]; n.tz = back[1];
         n.wayX = undefined; n.wayZ = undefined; n.doorSeek = undefined;   // give up on an unreachable doorway too
+        if (n.state === 'walk') n.pause = 0.35 + Math.random() * 0.6;   // beat of idle so the turn reads deliberate, not ping-pong
         n.fleeDX = -vx; n.fleeDZ = -vz;   // fleeing NPCs bounce back the way they came
       }
     } else n.stuckT = 0;
@@ -13272,27 +13390,40 @@ function updateNPCs(dt) {
     // chainlink, bug mree1rcg). While rubbing a collider (pushOut ate part of the
     // step) and still far from target, watch net gain toward the goal; if ~2.2s
     // pass with under 2.5u of real progress, abandon that target for a fresh one.
-    if (n.state === 'walk' && spd > 0.2 && stepGot < spd * dt * 0.85) {
+    // whisker-avoid frames count as "rubbing" too (live batch 2 pacing fix):
+    // avoid steering moves at FULL speed, so an NPC orbiting a concave corner
+    // never used to trip this watchdog — it just circled forever. And clean
+    // frames only clear the watchdog after a short grace, because orbiting
+    // alternates rub/free frames and used to reset the baseline every time.
+    if (n.state === 'walk' && spd > 0.2 && (stepGot < spd * dt * 0.85 || n.avoidT > 0)) {
       var dtg = Math.sqrt((n.tx - n.x) * (n.tx - n.x) + (n.tz - n.z) * (n.tz - n.z));
       if (dtg > 2.5) {
         if (n.wallBaseD === undefined) { n.wallBaseD = dtg; n.wallProgT = 0; }
+        n.wallFreeT = 0;
         n.wallProgT += dt;
         if (n.wallProgT > 2.2) {
           if (dtg > n.wallBaseD - 2.5) {
-            var bk = npcTargetFor(n);
+            var bk = npcBailTarget(n, vx, vz);
+            n.wallBaseD = undefined;
+            if (!bk) continue;   // trapped backstop: NPC ducked into a doorway
             n.tx = bk[0]; n.tz = bk[1]; n.wayX = undefined; n.wayZ = undefined; n.doorSeek = undefined;
+            n.pause = 0.35 + Math.random() * 0.6;
           }
           n.wallBaseD = undefined;
         }
       } else n.wallBaseD = undefined;
-    } else n.wallBaseD = undefined;
+    } else if (n.wallBaseD !== undefined) {
+      n.wallFreeT = (n.wallFreeT || 0) + dt;
+      if (n.wallFreeT > 0.7) n.wallBaseD = undefined;
+    }
     // sidewalk discipline: loitering on road asphalt (off the intersection /
     // crosswalk area) for 2s steers the target to the nearest sidewalk band
     if (n.state === 'walk' && WC_REMAP && n.doorSeek === undefined) {
       // remap version: loitering on any true-road ribbon steers to the
       // nearest curb (perpendicular escape off the polyline). skipped while
       // door-seeking (an errand may legitimately cross a driveway apron)
-      var esc = remapRoadEscape(n.x, n.z);
+      var esc = remapRoadEscape(n.x, n.z,
+        n.wayX !== undefined ? n.wayX : n.tx, n.wayX !== undefined ? n.wayZ : n.tz);   // goal-side exit: crossers commit instead of ping-ponging (pacing cluster)
       if (esc) {
         n.roadT = (n.roadT || 0) + dt;
         if (n.roadT > 2) { n.roadT = 0; n.wayX = undefined; n.wayZ = undefined; n.tx = esc[0]; n.tz = esc[1]; }
@@ -13523,7 +13654,10 @@ function spawnKids() {
   var ci = 0, made = 0;
   while (made < target && ci < cand.length) {
     var parent = cand[ci++], prace = adultRace(parent.vname);
-    spawnKid(pickKidLookForRace(prace), parent); made++;
+    var kk = spawnKid(pickKidLookForRace(prace), parent); made++;
+    // the toy wagon belongs to kids (mrftsrmg): ~1 in 6 kids tows one. Side-mode
+    // accessory rides the kid's mesh group; kid states never hit the detach paths.
+    if (kk && kidRng() < 0.17) attachAccessory(kk, 'wagon');
     if (made < target && (parent.kidCount || 0) < 2 && kidRng() < 0.28) { spawnKid(pickKidLookForRace(prace), parent); made++; }   // sibling
   }
 }
