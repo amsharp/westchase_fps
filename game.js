@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.65';   // .64 taken by live2-vfx on the parallel branch
+var GAME_VERSION = 'v1.66.66';   // .64 taken by live2-vfx on the parallel branch
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -19730,6 +19730,7 @@ window.__wc = {
 // collision probes for headless QA scans (separate lines so parallel agent
 // edits to the export block above don't conflict)
 window.__wc.pointFree = pointFree; window.__wc.pushOut = pushOut; window.__wc.spotClear = spotClear; window.__wc.solidMeshes = solidMeshes;
+window.__wc.laneGraph = function () { return RM; };
 
 // ---------------- boot screen handoff + menu cover art ----------------
 // apply saved user settings before the first frame (after CRT_FX default is
