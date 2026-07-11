@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.67.9';
+var GAME_VERSION = 'v1.67.10';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -12360,17 +12360,29 @@ function lakeCarPhysics(c, dt) {
     g.rotation.z = c.sinkRoll || 0;
   }
 }
+// per-vehicle-body driving feel (mrg45yad). Step vans / wagons are heavier:
+// slower to build speed and a lower top end than the nimble sedans/taxis.
+function carHandling(vname) {
+  if (vname === 'GG_STEPVAN') return { acc: 0.62, top: 0.80 };
+  if (vname === 'GG_WAGON') return { acc: 0.85, top: 0.92 };
+  if (vname === 'GG_WRECK') return { acc: 0.75, top: 0.86 };
+  return { acc: 1, top: 1 };
+}
 function updateDriving(dt) {
   var c = driving, g = c.car.group;
   var h = g.rotation.y;
   var accel = 0;
-  if (keys['KeyW']) accel = 15;
-  else if (keys['KeyS']) accel = -18;
+  // per-body handling (mrg45yad: base accel was arcadey-fast + every car
+  // identical). Heavier bodies pull away slower and top out lower.
+  if (c.handling === undefined) c.handling = carHandling(c.car && c.car.vname);
+  var hd = c.handling;
+  if (keys['KeyW']) accel = 12 * hd.acc;
+  else if (keys['KeyS']) accel = -15 * hd.acc;
   if (c.flooding || c.sunk) accel = 0;   // swamped: no throttle authority (lakeCarPhysics decays pspeed)
   c.pspeed = c.pspeed || 0;
   c.pspeed += accel * dt;
   if (!accel) c.pspeed *= Math.max(0, 1 - 1.4 * dt);
-  c.pspeed = Math.max(-9, Math.min(26, c.pspeed));
+  c.pspeed = Math.max(-9 * hd.top, Math.min(26 * hd.top, c.pspeed));
   // brake-light input: S/Space against forward motion, or a hard one-frame
   // speed drop (wall/car impact) — consumed by updateCarLights via updateWorldFx
   c.brakeIn = ((keys['KeyS'] || keys['Space']) && c.pspeed > 0.5) || (c._lps !== undefined && c._lps - c.pspeed > 5);

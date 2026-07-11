@@ -416,7 +416,7 @@ those alignments where they exist, with real Westchase street names from the OSM
   nine_eagles deep-set homes >40u (51,-414 etc) keep no driveway.
 
 ## Live session batch 5 (Alex on v1.66.87) — logged through 280
-- mrg45yad (-36,46) car acceleration too fast + should vary by type (vans/trucks slower) — OPEN (driving feel tune, per-CARCOLS/type accel)
+- mrg45yad (-36,46) car acceleration too fast + vary by type — FIXED@v1.67.10 (base accel 15->12; new carHandling(vname) per-body: GG_STEPVAN acc0.62/top0.80, GG_WAGON 0.85/0.92, GG_WRECK 0.75/0.86, sedan/taxi/police 1.0. Verified: sedan cap 26 vs stepvan/wagon markedly slower, accel matches multipliers) (driving feel tune, per-CARCOLS/type accel)
 - mrg46sb9 (295,-277) manager floating — OPEN (staff/vendor idle grounding — the adult gy bake covered Meshy civs; check staff builds)
 - mrg488m4 (-45,8) WEIRD CLIPPING ROAD TEXTURE — OPEN (z-fight or overlapping road strips near junction)
 - mrg48urv (-46,17) KEISHA arms look awful, owner: REGENERATE WITH MESHY — FIXED@v1.67.2 (owner-authorized Meshy regen; fused-bag arm gone, Gemini arm review PASS 10/10. See VERIFICATION PASS round below)
