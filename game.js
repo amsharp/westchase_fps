@@ -15753,10 +15753,10 @@ var SUPPORT_POSE = {
   // GRIP_TGT entry so solveSupportIK keeps this seed (no IK pull onto the gun).
   // The silenced pistol keeps the old two-hand hold.
   pistol: [[-2.2, 0.0, 0.2], [0.0, 0.0, 0.5], [0.6, 0.0, 0.0], [0.0, 0.0, 0.0]],
-  smg:    [[-1.59, -0.01, -1.16], [1.2, 0.4, -2.9], [2.1, -0.82, 0.3], [1.55, 0.3, -0.4]],
-  rifle:  [[-1.59, -0.01, -1.16], [0.98, 0.4, -2.6], [1.7, -0.82, 0.3], [1.55, 0.3, -0.4]],
-  auto:   [[-1.59, -0.01, -1.16], [0.98, 0.4, -2.7], [1.85, -0.82, 0.3], [1.55, 0.3, -0.4]],
-  rocket: [[-1.59, -0.01, -1.16], [1.1, 0.4, -2.6], [1.7, -0.82, 0.3], [1.55, 0.3, -0.4]],
+  smg:    [[-1.59, -0.01, -1.16], [1.2, 0.4, -2.9], [2.1, -0.82, 0.3], [1.9, 0.6, -0.6]],
+  rifle:  [[-1.59, -0.01, -1.16], [0.98, 0.4, -2.6], [1.7, -0.82, 0.3], [1.9, 0.6, -0.6]],
+  auto:   [[-1.59, -0.01, -1.16], [0.98, 0.4, -2.7], [1.85, -0.82, 0.3], [1.9, 0.6, -0.6]],
+  rocket: [[-1.59, -0.01, -1.16], [1.1, 0.4, -2.6], [1.7, -0.82, 0.3], [1.9, 0.6, -0.6]],
   silenced: [[-1.59, 0.5, -1.5], [1.2, 0.4, -3.2], [2.5, -0.82, 0.3], [0.2, 0.3, -0.4]]
 };
 // per-weapon forward anchor offset in the gun-group (camera) frame:
@@ -15820,7 +15820,7 @@ var GRIP_TGT = {
   // (no pistol entry — one-handed, see SUPPORT_POSE)
   smg:    [0.19, 0.04, -0.62],   // v1.67.5: raised onto the shroud so the fingers drape over the top (was under → floating hand)
   rifle:  [0.13, 0.05, -0.64],   // v1.67.6: raised onto the forestock so the fingers drape over the wood (was under → floating hand)
-  auto:   [0.18, 0.05, -0.66],    // v1.67.3: raised onto the handguard so the curled fingers DRAPE OVER the top of the wood (reads as a foregrip); verified FP+side+front that the palm contacts, not penetrates, the guard
+  auto:   [0.15, -0.02, -0.72],   // v1.67.10: palm laid on the handguard with a light drape curl + palm-down wrist (bone27=[1.9,0.6,-0.6]) so the fingers fold over the front of the wood instead of a clenched fist hovering beside it
   rocket: [0.16, -0.05, -0.64],   // v1.67.7: support hand raised onto the tube grip (forward on the launcher) so it reads as holding the tube, not floating beside it
   silenced: [0.21, -0.40, -0.52]
 };
@@ -15885,16 +15885,18 @@ var GF_R = { index: [6, 7, 8], middle: [13, 14, 15], ring: [17, 18, 19], pinky: 
 var GF_L = { index: [29, 30, 31], middle: [36, 37, 38], ring: [40, 41, 42], pinky: [44, 45, 46], thumb: [32, 33, 34] };
 var GRIP_FINGERS = null;                 // {boneIdx: Quaternion}
 var _flexAxis = new THREE.Vector3(1, 0, 0), _flexQ = new THREE.Quaternion();
+var LGRIP_CURL = [0.5, 1.0, 0.6];   // v1.67.10: support hand DRAPES over the foregrip (was a tight clench 0.68/1.38/0.74 that balled up beside the gun instead of wrapping it)
 function buildGripFingers(restQ) {
   var g = {};
   function set(idx, ang) { var q = restQ[idx].clone(); _flexQ.setFromAxisAngle(_flexAxis, ang); q.multiply(_flexQ); g[idx] = q; }
   function wrap(ids) { set(ids[0], 0.68); set(ids[1], 1.38); set(ids[2], 0.74); }   // full curl: MCP/PIP/DIP — tight clench onto the grip
+  function wrapL(ids) { set(ids[0], LGRIP_CURL[0]); set(ids[1], LGRIP_CURL[1]); set(ids[2], LGRIP_CURL[2]); }   // support hand: tunable drape
   function trig(ids) { set(ids[0], 0.16); set(ids[1], 0.30); set(ids[2], 0.20); }   // index resting on the trigger
   function thumb(ids) { set(ids[0], 0.30); set(ids[1], 0.64); set(ids[2], 0.50); }  // thumb wrapped over the top
   // RIGHT (trigger) hand: index on the trigger, everything else wraps the grip
   trig(GF_R.index); wrap(GF_R.middle); wrap(GF_R.ring); wrap(GF_R.pinky); thumb(GF_R.thumb);
   // LEFT (support) hand: all four fingers wrap the foregrip / support the pistol
-  wrap(GF_L.index); wrap(GF_L.middle); wrap(GF_L.ring); wrap(GF_L.pinky); thumb(GF_L.thumb);
+  wrapL(GF_L.index); wrapL(GF_L.middle); wrapL(GF_L.ring); wrapL(GF_L.pinky); thumb(GF_L.thumb);
   return g;
 }
 function gripFingers() {
@@ -21656,6 +21658,7 @@ window.__wc = {
   getGrip: function (w) { return GRIP_TGT[w]; },
   setRGrip: function (w, arr) { RIGHT_GRIP[w] = arr; },   // debug: tune per-weapon trigger-hand IK grip target
   getRGrip: function (w) { return RIGHT_GRIP[w]; },
+  setLCurl: function (a, b, c) { LGRIP_CURL = [a, b, c]; if (psxArms) GRIP_FINGERS = buildGripFingers(psxArms.restQ); },   // debug: tune support-hand finger drape
   setSupPose: function (w, arr) { SUPPORT_POSE[w] = arr; },   // debug: tune support-arm seed eulers (bones 24-27)
   getSupPose: function (w) { return SUPPORT_POSE[w]; },
   getBoneQ: function (i) { return psxArms ? psxArms.bones[i].quaternion.toArray().map(function (v) { return Math.round(v * 1000) / 1000; }) : null; },
