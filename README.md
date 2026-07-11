@@ -813,6 +813,21 @@ rooftops and gone. Wave if you see them.
   painted walls. The whole layout — roads, buildings, and parking/pavement —
   is authored in a built-in map editor (`editor.html`) and imported into
   the game by `tools/mapimport.js` (source of truth: `tools/westchase_map.json`).
+- The outer residential pockets now have their own street networks,
+  ground-truthed against the real Westchase layout (OpenStreetMap around
+  Race Track Rd @ Countryway Blvd): east of Race Track Rd, the Fawn
+  Ridge-style quarter gets **Mountbatten Dr** (a collector riding the old
+  survey alignment), **Northumberland Dr** (through-route down to Citrus
+  Park Dr), and the **Evanshire / Tudor Chase / Gothic Ln** local grid;
+  west of Race Track, **Halbrook Dr** loops from the arterial through the
+  estate cluster down to **Stilton St** (the long far-west lane) with
+  **Stanwyck Cir** and **Bassbrook Ln** branching off; **Minaret Dr** ties
+  the SE pocket street back to Race Track; and **Chase Grove /
+  Pond Cypress** side lanes serve the homes west of Nine Eagles. AI
+  traffic drives the new collectors, streetlights and power poles line
+  them, and nearly every outer house now gets a paved **driveway** stub
+  from its front wall to the nearest local street (long straight drives
+  for the deep Florida lots).
 - The map is finite — a wall rings the city.
 - Watch for traffic; cars hurt.
 - Getting knocked out costs you 25% of your cash.
