@@ -251,3 +251,4 @@ All three FIXED@v1.66.63. mregjcuz + mreg8mld details are inline in Batch 8 / Ba
 - mrftfuy6 (17,13) invisible barrier + bus stop in the MIDDLE OF THE ROAD near the junction — OPEN (gameplay blocker, queue next)
 - mrftgg0z (587,-599) + mrfthui7 (556,-139) + mrftk7q1 (575,194) invisible barriers across the far-east zone — OPEN (3-report cluster: probe east-map colliders vs meshes, x 530-590 span both N and S)
 - mrfthmf4 (575,-160) houses in the middle of grass look weird — refile of mredxzx6 no-road-homes class (DEFER round5-structure road-network pass; now user-confirmed twice)
+- mrftn1qd (351,201) no sidewalk here / mrftnnxa (245,329) grass sliver between road+sidewalk — OPEN (east-zone sidewalk-ribbon quality, same territory as round5-roads)
