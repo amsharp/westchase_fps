@@ -8547,16 +8547,18 @@ if (WC_REMAP) (function densityLayer() {
     // seat the placard clear of the pole SURFACE — a 0.06 offset was inside the
     // 0.11 pole radius, so the post speared through the sign face (mref48hy)
     var plGeo = new THREE.PlaneGeometry(a.dims[0], a.dims[1]);
+    var plOff = poleR + 0.1;
     var pl = new THREE.Mesh(plGeo, poleSignMat(name));
-    pl.position.set(0, mountY, poleR + 0.1);
+    pl.position.set(0, mountY, plOff);
     g.add(pl);
     var plB = new THREE.Mesh(plGeo, poleSignMat(name));
-    plB.position.set(0, mountY, poleR + 0.1); plB.rotation.y = Math.PI;
+    plB.position.set(0, mountY, plOff); plB.rotation.y = Math.PI;
     g.add(plB);
     g.position.set(x, 0, z); g.rotation.y = ry;
     scene.add(g);
     registerBreakable(g, x, z, Math.max(0.6, a.dims[0] / 2 + 0.15), 'light', null, 0.14);
     densityStats.signs++; densityPlaced.push({ n: name, x: x, z: z, y: mountY });
+    signAudit.push({ n: name, kind: 'poleSign', x: x, z: z, stakeTop: poleH, stakeR: poleR, plBot: mountY - a.dims[1] / 2, plTop: mountY + a.dims[1] / 2, plW: a.dims[0], latOff: plOff });
   }
 
   // ---- surface geometry references ----
@@ -8731,7 +8733,12 @@ if (WC_REMAP) (function densityLayer() {
       dSign(nm, wallx + f2.rx * lateral, mount, wallz + f2.rz * lateral, f2.yaw, nm === 'grand_opening_banner' ? 1 : 1);
     }
     // gas pylon out at the RaceTrac frontage
-    if (vv2.type === 'racetrac') { var px = vv2.x + f2.fx * (vv2.d / 2 + 7), pz = vv2.z + f2.fz * (vv2.d / 2 + 7); pole(px, pz, 3.2, 0.14); dSign('gas_price_sign', px, 4.2, pz, f2.yaw); }
+    if (vv2.type === 'racetrac') {
+      var px = vv2.x + f2.fx * (vv2.d / 2 + 7), pz = vv2.z + f2.fz * (vv2.d / 2 + 7);
+      pole(px, pz, 3.2, 0.14); dSign('gas_price_sign', px, 4.2, pz, f2.yaw);
+      var gpa = dAsset['gas_price_sign'];
+      if (gpa) signAudit.push({ n: 'gas_price_sign', kind: 'pylon', x: px, z: pz, stakeTop: 3.2, stakeR: 0.14, plBot: 4.2 - gpa.dims[1] / 2, plTop: 4.2 + gpa.dims[1] / 2, plW: gpa.dims[0], latOff: 0 });
+    }
     // freestanding entrance clutter markers
   }
   // billboards on 2-post frames at two road exits (facing inward)
@@ -8739,6 +8746,8 @@ if (WC_REMAP) (function densityLayer() {
     var ex = EXITS[xi], bx = ex.x + ex.dx * 24, bz = ex.z + ex.dz * 24, byaw = Math.atan2(ex.dx, ex.dz) + Math.PI;
     pole(bx - ex.dz * 5, bz + ex.dx * 5, 6, 0.2); pole(bx + ex.dz * 5, bz - ex.dx * 5, 6, 0.2);
     dSign('billboard_ad', bx, 6.6, bz, byaw);
+    var bba = dAsset['billboard_ad'];
+    if (bba) signAudit.push({ n: 'billboard_ad', kind: 'billboard', x: bx, z: bz, stakeTop: 6, stakeR: 0.2, plBot: 6.6 - bba.dims[1] / 2, plTop: 6.6 + bba.dims[1] / 2, plW: bba.dims[0], latOff: 0 });
   }
   // roadside sign poles along arterials/collectors: stop at junction approaches,
   // speed/parking/bus elsewhere
@@ -8776,8 +8785,10 @@ if (WC_REMAP) (function densityLayer() {
           var ya = dAsset[yk];
           if (ya) {
             var ysc = 1.4, ymount = 1.02, yh = ya.dims[1] * ysc, yry = rnd(0, 6.28);
-            pole(yx, yz, ymount - yh / 2 + 0.08, 0.05);
-            dSign(yk, yx + Math.sin(yry) * 0.14, ymount, yz + Math.cos(yry) * 0.14, yry, ysc);   // placard in front of its stake, not speared
+            var ystkR = 0.05, ystkH = ymount - yh / 2 + 0.08, yoff = 0.14;
+            pole(yx, yz, ystkH, ystkR);
+            dSign(yk, yx + Math.sin(yry) * yoff, ymount, yz + Math.cos(yry) * yoff, yry, ysc);   // placard in front of its stake, not speared
+            signAudit.push({ n: yk, kind: 'yard', x: yx, z: yz, stakeTop: ystkH, stakeR: ystkR, plBot: ymount - yh / 2, plTop: ymount + yh / 2, plW: ya.dims[0] * ysc, latOff: yoff });
           }
         }
       }
@@ -20212,7 +20223,7 @@ window.__wc = {
   spawnDumpsterRat: spawnDumpsterRat, spawnDumpsterBum: spawnDumpsterBum,
   bushSpots: function () { return bushSpots; }, bushRummage: bushRummage, checkMail: checkMail,
   envProps: envProps, envPropInteractables: envPropInteractables, envStats: envStats, getEnvProp: getEnvProp, envPropInteract: envPropInteract, envPropPrompt: envPropPrompt, envToys: envToys,
-  envPlaced: envPlaced, densityPlaced: densityPlaced, onSidewalkAt: function (x, z) { return onSidewalk(x, z); }, rmRef: function () { return RM; },
+  envPlaced: envPlaced, densityPlaced: densityPlaced, signAudit: signAudit, onSidewalkAt: function (x, z) { return onSidewalk(x, z); }, rmRef: function () { return RM; },
   solidMeshes: solidMeshes, nightEmis: nightEmis, signGlows: signGlows, colliders: colliders,
   houses: houseStats, houseBlocksSpot: houseBlocksSpot, houseMeshesRef: houseMeshesRef,
   isUnderwater: function () { return underwater; },
