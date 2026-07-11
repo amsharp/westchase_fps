@@ -250,3 +250,4 @@ All three FIXED@v1.66.63. mregjcuz + mreg8mld details are inline in Batch 8 / Ba
 - mrftaqio (-34,-172) Xander clipped inside building — OPEN
 - mrftfuy6 (17,13) invisible barrier + bus stop in the MIDDLE OF THE ROAD near the junction — OPEN (gameplay blocker, queue next)
 - mrftgg0z (587,-599) invisible barrier far SE corner — OPEN
+- mrfthmf4 (575,-160) houses in the middle of grass look weird — refile of mredxzx6 no-road-homes class (DEFER round5-structure road-network pass; now user-confirmed twice)
