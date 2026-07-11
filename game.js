@@ -334,7 +334,10 @@ var oakBarkT = tex(64, function (g, s) {
 
 var PASTELS = ['#f2e3c6', '#f7d9b0', '#eec4b4', '#f5eed8', '#e6d7ae', '#f0cfa0', '#dfe4d0'];
 
-function stucco(g, s, base) { g.fillStyle = base; g.fillRect(0, 0, s, s); noise(g, s, 700, 0.05, 0.06); }
+// (mrf7rsy0 smear class) grain count scales with canvas area so higher-res
+// wall canvases gain per-texel structure instead of magnifying a fixed
+// 700-speck sprinkle (700 was tuned for 128px)
+function stucco(g, s, base) { g.fillStyle = base; g.fillRect(0, 0, s, s); noise(g, s, Math.max(700, Math.round(s * s * 0.043)), 0.05, 0.06); }
 // deterministic string -> 32-bit seed (FNV-1a). Used to seed the per-facade
 // lit-window pattern so the "which windows are lit at night" choice is STABLE
 // across page loads (was Math.random() at texture-build time — non-deterministic).
@@ -347,9 +350,16 @@ function facadeTex(base, w, h, withDoor) {
   if (facadeCache[key]) return facadeCache[key];
   // seeded per-facade stream (keyed by the cache key) — stable lit-window pattern
   var rng = seededRng(strHash(key));
-  var c = document.createElement('canvas'); c.width = c.height = 256;
+  // (mrf7rsy0) 256→512 canvas: ONE facade tile spans a whole multi-story wall
+  // (townhouse units, legacy bldg facades), so close up the old 256px smeared.
+  // Grain is painted at full res; the window/door layout below stays authored
+  // in 256-space via the context scale (the emissive canvas stays 256 — its
+  // soft night glows don't need the resolution).
+  var FS = 512;
+  var c = document.createElement('canvas'); c.width = c.height = FS;
   var g = c.getContext('2d');
-  stucco(g, 256, base);
+  stucco(g, FS, base);
+  g.scale(FS / 256, FS / 256);
   // companion NIGHT-emissive canvas: black walls, only windows/doorway emit —
   // used as emissiveMap so at night this reads as lit windows, not a glowing wall
   var ce = document.createElement('canvas'); ce.width = ce.height = 256;
@@ -498,10 +508,32 @@ function brickTex(base, mortar) {
   }, 3, 3);
 }
 function stuccoTex(base) {
-  return tex(128, function (g, s) {
-    g.fillStyle = base; g.fillRect(0, 0, s, s); noise(g, s, 900, 0.05, 0.05);
+  // (mrf7rsy0 / mree84pq class) 128→512: venue walls (school, strips, Publix,
+  // Dunkin…) stretch ONE 2x2-repeated tile across 30-80m spans, so up close the
+  // old 128px canvas magnified into a streaky smear. Same palette/style, just
+  // real grain density plus faint trowel sweeps + hairline cracks so
+  // magnification has structure to show.
+  return tex(512, function (g, s) {
+    g.fillStyle = base; g.fillRect(0, 0, s, s); noise(g, s, Math.round(s * s * 0.055), 0.05, 0.05);
     g.strokeStyle = 'rgba(0,0,0,0.035)'; g.lineWidth = 1;
-    for (var i = 0; i < 34; i++) { var y = Math.random() * s; g.beginPath(); g.moveTo(0, y); g.lineTo(s, y + (Math.random() - 0.5) * 7); g.stroke(); }
+    for (var i = 0; i < s; i += 4) { var y = Math.random() * s; g.beginPath(); g.moveTo(0, y); g.lineTo(s, y + (Math.random() - 0.5) * s * 0.055); g.stroke(); }
+    // faint trowel sweep arcs (very low alpha — texture, not pattern)
+    for (var tr = 0; tr < 30; tr++) {
+      g.strokeStyle = 'rgba(' + (Math.random() < 0.5 ? '0,0,0' : '255,255,255') + ',' + (0.02 + Math.random() * 0.025).toFixed(3) + ')';
+      g.lineWidth = 2 + Math.random() * 3;
+      var cx = Math.random() * s, cy = Math.random() * s, rr = s * (0.04 + Math.random() * 0.09), a0 = Math.random() * 6.28;
+      g.beginPath(); g.arc(cx, cy, rr, a0, a0 + 1.1 + Math.random() * 1.6); g.stroke();
+    }
+    // sparse hairline cracks wandering downward
+    g.lineWidth = 1;
+    for (var cr = 0; cr < 7; cr++) {
+      g.strokeStyle = 'rgba(0,0,0,' + (0.05 + Math.random() * 0.05).toFixed(3) + ')';
+      var kx = Math.random() * s, ky = Math.random() * s;
+      g.beginPath(); g.moveTo(kx, ky);
+      var segs = 4 + (Math.random() * 4 | 0);
+      for (var sg = 0; sg < segs; sg++) { kx += (Math.random() - 0.5) * s * 0.05; ky += s * (0.02 + Math.random() * 0.045); g.lineTo(kx, ky); }
+      g.stroke();
+    }
   }, 2, 2);
 }
 function seamMetalTex(base) {
@@ -1151,7 +1183,8 @@ var thDoorM = lamb({ color: 0x5a3a22 });
 var thStuccoCache = {};
 function thStuccoMat(col) {
   if (thStuccoCache[col]) return thStuccoCache[col];
-  return thStuccoCache[col] = nightLit(lamb({ map: tex(64, function (g, s) { stucco(g, s, col); }) }));
+  // (mrf7rsy0) 64→256: this tile covers a whole 8m townhouse ground floor
+  return thStuccoCache[col] = nightLit(lamb({ map: tex(256, function (g, s) { stucco(g, s, col); }) }));
 }
 function townhouseRow(x, z, units, ry) {
   ry = ry || 0;
@@ -4450,6 +4483,10 @@ if (WC_REMAP) (function r3Medians() {
 
 // ---------------- street lights ----------------
 var streetLights = [];
+// (mregjcuz) ornate park lamps (env-prop 'park_lamp', merged batch) read dead
+// after dark — glow sprites + ground pools added post-flush live here and
+// toggle with the street lights in setLamps.
+var parkLampGlows = [];
 // lit lens shows an actual BULB: white-hot core falling off to warm amber at
 // the fixture rim (was a flat solid-color box) — the halo sprite now visually
 // originates from the bulb instead of floating under a uniform slab
@@ -4750,6 +4787,7 @@ function setLamps(on) {
     L.glow.visible = on && !L.broken;
     L.pool.visible = on && !L.broken;
   }
+  for (var pg = 0; pg < parkLampGlows.length; pg++) parkLampGlows[pg].visible = on;
 }
 
 // ---------------- day/night + rain ----------------
@@ -8229,15 +8267,35 @@ if (WC_REMAP) (function densityLayer() {
     fenceRun(p0[0], p0[1], p1[0], p1[1], name, solid); fenceRun(p1[0], p1[1], p2[0], p2[1], name, solid);
     fenceRun(p2[0], p2[1], p3[0], p3[1], name, solid); fenceRun(p3[0], p3[1], p0[0], p0[1], name, solid);
   }
-  // a sign mounted on a fresh pole/stake
+  // a sign mounted on a fresh pole/stake.
+  // (mreg8mld) these used to bake into the static '_pole' + 'd_<sign>' batches:
+  // solid to cars but never breakable, unlike every other street-furniture post
+  // (stop signs, meters, street lights). Each roadside sign is now its OWN
+  // pole+placard group registered with the standard 'light' topple/respawn
+  // contract — collR collider deactivates while down, same as the lamp pattern.
+  var poleSignPoleM = lamb({ color: 0x8a8f94 });
+  var poleSignMats = {};
+  function poleSignMat(name) {
+    if (poleSignMats[name]) return poleSignMats[name];
+    var t = dTex(name), mo = { side: THREE.DoubleSide };
+    if (t) { mo.map = t.tex; if (t.keyed) { mo.transparent = true; mo.alphaTest = 0.5; } }
+    return (poleSignMats[name] = lamb(mo));
+  }
   function poleSign(name, x, z, ry, mountY, poleH, poleR) {
     poleR = poleR || 0.11;
-    pole(x, z, poleH, poleR);
-    var a = dAsset[name]; if (!a) return;
+    var a = dAsset[name];
+    if (!a) { pole(x, z, poleH, poleR); return; }
+    var g = new THREE.Group();
+    g.add(cyl(poleR, poleR, poleH, 8, poleSignPoleM, 0, poleH / 2, 0));
     // seat the placard clear of the pole SURFACE — a 0.06 offset was inside the
     // 0.11 pole radius, so the post speared through the sign face (mref48hy)
-    var off = poleR + 0.1;
-    dSign(name, x + Math.sin(ry) * off, mountY, z + Math.cos(ry) * off, ry);
+    var pl = new THREE.Mesh(new THREE.PlaneGeometry(a.dims[0], a.dims[1]), poleSignMat(name));
+    pl.position.set(0, mountY, poleR + 0.1);
+    g.add(pl);
+    g.position.set(x, 0, z); g.rotation.y = ry;
+    scene.add(g);
+    registerBreakable(g, x, z, Math.max(0.6, a.dims[0] / 2 + 0.15), 'light', null, 0.14);
+    densityStats.signs++; densityPlaced.push({ n: name, x: x, z: z, y: mountY });
   }
 
   // ---- surface geometry references ----
@@ -9614,6 +9672,7 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
 
   // high-count pure-static assets merge into one buffer/draw-call per asset
   var MERGE = { handrail: 1, retaining_wall: 1, pond_fence: 1, screen_wall: 1, bollard: 1, chain_post: 1, concrete_planter: 1, tiered_planter: 1, raised_bed: 1, bird_bath: 1, mailbox_cluster: 1, park_lamp: 1, garden_gnome: 1, flamingo: 1 };
+  var parkLampPts = [];   // (mregjcuz) every placed park lamp gets a night glow after the flush
   // props big enough that rain should shadow them (also drawn on minimap)
   var BIGMAP = { food_truck: 1, icecream_truck: 1, playground_climber: 1, skate_ramp: 1 };
   var EM = {};   // merged batches: name -> {pos,uv,norm}
@@ -9713,6 +9772,7 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
     }
     envStats.placed++; envStats.byCat[e.cat] = (envStats.byCat[e.cat] || 0) + 1;
     envPlaced.push({ n: name, x: x, z: z });
+    if (name === 'park_lamp') parkLampPts.push({ x: x, y: y, z: z });   // (mregjcuz) collect for night glows
     return name;
   }
   // tileable run A->B repeating a ~segLen unit; ry keeps the authored front facing +normal
@@ -9945,11 +10005,31 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
     g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(b.norm), 3));
     g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(b.uv), 2));
     var bmat = lamb({ map: envTex(ENV_BY_NAME[nm]), flatShading: true });
-    if (nm === 'park_lamp') nightLit(bmat);   // lamps glow with the rest of the streetlights after dark
+    // (mregjcuz) lamps glow with the rest of the streetlights after dark. The
+    // default whole-texture emisBase (0.22) was an invisible wash — the white
+    // globe texels need to burn, so this batch gets a hot base (the near-black
+    // post texels stay dark through the emissiveMap).
+    if (nm === 'park_lamp') { nightLit(bmat); bmat.userData.emisBase = 0.9; }
     var bm = new THREE.Mesh(g, bmat);
     scene.add(bm);
     if (ENV_BY_NAME[nm].solid) solidMeshes.push(bm);   // bullets/cop LOS stop on merged solids too
     envStats.batches++;
+  }
+  // (mregjcuz) park-lamp night fixtures: a warm glow sprite at the globe + a
+  // small light pool on the ground per lamp, toggled by setLamps like the
+  // cobra-head street lights (parkLampGlows / lampGlowT / poolGeo live above).
+  var plE = ENV_BY_NAME.park_lamp;
+  if (plE && parkLampPts.length) {
+    var plGlowM = new THREE.SpriteMaterial({ map: lampGlowT, transparent: true, depthWrite: false });
+    for (var pli = 0; pli < parkLampPts.length; pli++) {
+      var plp = parkLampPts[pli];
+      var pgl = new THREE.Sprite(plGlowM);
+      pgl.scale.set(2.4, 2.4, 1); pgl.position.set(plp.x, plp.y + plE.dims[1] * 0.86, plp.z); pgl.visible = false;
+      scene.add(pgl); parkLampGlows.push(pgl);
+      var ppool = new THREE.Mesh(poolGeo, poolM);
+      ppool.scale.set(0.5, 1, 0.5); ppool.position.set(plp.x, plp.y + 0.18, plp.z); ppool.visible = false;
+      scene.add(ppool); parkLampGlows.push(ppool);
+    }
   }
 })();
 
