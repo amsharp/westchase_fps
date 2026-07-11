@@ -473,3 +473,28 @@ tree mrfzz4s0), character seed art. Same rule as always: bake data-URL JS files 
 ## SOUND OVERHAUL ROUND — IN-AGENT (sfx-gemini, fable). OWNER DIRECTIVE: replace all synthesized SFX
 (guns, cars, crashes, explosions, UI etc.) with Lyria-3-generated audio; TTS voices STAY untouched.
 Method validated: lyria-3-clip-preview returns ~27s audio/mpeg clips; discrete transients slice cleanly.
+
+## SOUND OVERHAUL ROUND — SHIPPED @v1.67.0 (owner directive; sfx-gemini agent + fable finalize)
+Lyria-3 generated the whole synthesized-SFX layer; TTS voices untouched. soundfx.js pack = 29 keys,
+2.82MB, ALL decode clean in a real AudioContext (verified, 0 failures) with sane durations:
+- Weapons: pistol/smg/rifle x6, auto x5 (0.09-0.63s transients); rocketfire x2; boom x4 (1.7-1.8s)
+- Impacts/world: crash x6, glass x5, punch x6, ricochet x3, cardoor x3, cash x3, eat x3, horn x4
+- Footsteps: concrete/grass/water/wood (per-surface)
+- ENGINES: 4 classes a/b/c/d (idle+high 2.4s loops), interior loopStart/loopEnd so decode-resample never clicks;
+  crossfaded by RPM in engineTick, per-car personality via playbackRate(chr.pitch); SYNTH FALLBACK kept when pack absent
+- FLEE SCREAMS (owner ask, 'TTS struggles with yells'): scream_m x4 / scream_f x4 / scream_kid x3, wired into
+  startFlee(n) + kid flee (fleeScream), sex-matched, per-NPC cooldown + global limiter
+Gates: sfx pack decode 29/29, engine sample path + synth fallback both present, meshcheck 0 breakage,
+barrierscan 0 orphans, boots 0 page errors. Ear check is the owner's once live. Pipeline durable in tools/sfxgen/.
+
+## CHARACTER-QUALITY ROUND — PARTIAL SHIP @v1.67.0 (agent interrupted by credit exhaustion; fable finalized)
+- mrfzod76 RAVEN run — FIXED@v1.67.0 (HECTOR-style world-delta clip bake, +7KB own clips; Gemini clip review
+  verdict PASS score 6/10, only minor foot-slide/blend notes). meshcheck clean.
+- mrg48urv KEISHA arms — REGEN APPLIED @v1.67.0 (owner-authorized Meshy regen; entry +50KB new mesh/tex;
+  meshcheck clean, no breakage). NOTE: independent close-up arm review was NOT completed before the agent died —
+  flagged for a quick visual confirm next cycle; data is structurally valid + non-breaking.
+- mrg4sbrk DON float/legs-back — DATA APPLIED @v1.67.0 (+61KB; agent said '~10 more min' when killed;
+  meshcheck clean = no explode/detach/sink, so not broken, but NO Gemini review ran). PENDING final visual review;
+  resume the char agent to confirm or redo cleanly.
+- mrg4rouw/mree59kf transparent hair — STILL OPEN (investigation only: scanned DOUG/ALEX/SUMMER/AISHA/SKYLER/
+  DYLAN/GARY/PHUONG for the gap head; no fix applied. Needs the offending head's scalp-cap patch or regen next round.)

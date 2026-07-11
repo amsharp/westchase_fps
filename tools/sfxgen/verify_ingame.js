@@ -27,6 +27,7 @@ var pw = require('playwright');
     window.__sfxLog = [];
     w.renderer.setSize(64, 48);
     w.start();
+    w.initAudio();   // headless: no user gesture ever fires startGame()
     for (var i = 0; i < 10; i++) w.tick(1 / 30);
     // wait for pack decode (initAudio ran in start; decode is async)
     for (var tr = 0; tr < 100; tr++) {

@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.99';
+var GAME_VERSION = 'v1.67.0';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -21428,7 +21428,7 @@ window.__wc = {
   voiceDbg: function () { return { local: dbgVoiceLocal, net: dbgVoiceNet, bcast: dbgVoiceBcast }; },
   playNetVoice: playNetVoice, panicNear: panicNear, npcChatLine: npcChatLine,
   engineRPM: engineRPM, ensureEngineRich: ensureEngineRich,
-  sfx: sfx, footStep: footStep, fleeScream: fleeScream,
+  sfx: sfx, footStep: footStep, fleeScream: fleeScream, initAudio: initAudio,
   sfxPackInfo: function () { var o = {}; Object.keys(sfxPackBufs).forEach(function (k) { var n = 0; for (var i = 0; i < sfxPackBufs[k].length; i++) if (sfxPackBufs[k][i]) n++; o[k] = n; }); return o; },
   armsInfo: function () { return psxArms ? { clips: Object.keys(psxArms.clips), np: psxArms.np, anchor: psxArms.root.position.toArray().map(function (v) { return Math.round(v * 100) / 100; }) } : null; },
   isInside: function () { return inside; },
