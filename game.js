@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.75';
+var GAME_VERSION = 'v1.66.79';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -14932,7 +14932,7 @@ var SUPPORT_POSE = {
   // out of the camera frustum instead of wrapping the grip, and pistol has no
   // GRIP_TGT entry so solveSupportIK keeps this seed (no IK pull onto the gun).
   // The silenced pistol keeps the old two-hand hold.
-  pistol: [[-1.59, -0.3, 1.2], [-0.6, 0.0, 1.4], [0.1, 0.0, 0.0], [0.0, 0.0, 0.0]],
+  pistol: [[-2.2, 0.0, 0.2], [0.0, 0.0, 0.5], [0.6, 0.0, 0.0], [0.0, 0.0, 0.0]],
   smg:    [[-1.59, -0.01, -1.16], [1.2, 0.4, -2.9], [2.1, -0.82, 0.3], [0.15, 0.3, -0.4]],
   rifle:  [[-1.59, -0.01, -1.16], [0.98, 0.4, -2.6], [1.7, -0.82, 0.3], [0.1, 0.3, -0.4]],
   auto:   [[-1.59, -0.01, -1.16], [0.98, 0.4, -2.7], [1.85, -0.82, 0.3], [0.1, 0.3, -0.4]],
@@ -14970,6 +14970,23 @@ function applySupportPose(w) {
     psxArms.bones[_supIdx[i]].quaternion.setFromEuler(_supEuler);
   }
 }
+// v1.66.74: seed the RIGHT (trigger) arm by mirroring the LEFT support pose, so
+// the trigger hand starts in a proper grip-WRAP orientation before the 2-bone IK
+// pulls the wrist onto the grip. The rig's L/R bones are mirror-symmetric, so a
+// left local quat (x,y,z,w) maps to the right by negating y,z. Bones 1,2,3,4 =
+// shoulder/upper/fore/hand.R. The 2-bone IK then rotates only 2,3 (keeps this
+// hand orientation).
+var _rmE = new THREE.Euler(), _rmQ = new THREE.Quaternion(), _rIdx = [1, 2, 3, 4];
+function seedRightArm(w) {
+  var p = SUPPORT_POSE[w];
+  if (!p) return;
+  for (var i = 0; i < 4; i++) {
+    if (!p[i]) continue;
+    _rmE.set(p[i][0], p[i][1], p[i][2]);
+    _rmQ.setFromEuler(_rmE);
+    psxArms.bones[_rIdx[i]].quaternion.set(_rmQ.x, -_rmQ.y, -_rmQ.z, _rmQ.w);
+  }
+}
 // v1.44: support-arm 2-bone IK. The blind-euler SUPPORT_POSE left the left hand
 // floating off the gun; instead we now seed from it (elbow pole hint + hand
 // wrap) then run a few CCD passes on upper_arm.L(25) + forearm.L(26) so hand.L
@@ -14986,6 +15003,17 @@ var GRIP_TGT = {
   auto:   [0.19, -0.42, -0.76],
   rocket: [0.22, -0.44, -0.68],
   silenced: [0.21, -0.40, -0.52]
+};
+// v1.66.74: RIGHT (trigger) hand grip target per weapon, in the gun-group local
+// frame — the small of the stock / pistol grip. The right arm used to just take
+// the relax clip pose, so the trigger hand floated below the stock. We now IK
+// the right wrist (bone 4, via upper_arm.R/forearm.R) onto these points, matching
+// the old capsule-arm grip anchors. Pistol/silenced stay one-handed (relax hold).
+var RIGHT_GRIP = {
+  smg:    [0.29, -0.47, -0.24],
+  rifle:  [0.27, -0.47, -0.34],
+  auto:   [0.29, -0.47, -0.30],
+  rocket: [0.32, -0.48, -0.32]
 };
 var _ikEnd = new THREE.Vector3(), _ikJ = new THREE.Vector3(), _ikTV = new THREE.Vector3(),
     _ikA = new THREE.Vector3(), _ikB = new THREE.Vector3(),
@@ -15004,14 +15032,54 @@ function ccdJoint(j, end, tgtW) {
 }
 function solveSupportIK(w) {
   if (!psxArms) return;
-  applySupportPose(w);                       // seed the arm (pole hint) + hand wrap
-  var tgt = GRIP_TGT[w];
-  if (!tgt || dbgArmOv) return;              // fists/no target, or manual euler override → keep seed
+  applySupportPose(w);                       // seed the LEFT arm (pole hint) + hand wrap
+  if (dbgArmOv) return;                       // manual euler override → keep seed
   var g = vmMap[w]; if (!g) return;
-  var upper = psxArms.bones[25], fore = psxArms.bones[26], hand = psxArms.bones[27];
   psxArms.root.updateMatrixWorld(true);
-  _ikTV.set(tgt[0], tgt[1], tgt[2]); g.localToWorld(_ikTV);
-  for (var it = 0; it < 6; it++) { ccdJoint(fore, hand, _ikTV); ccdJoint(upper, hand, _ikTV); }
+  var tgt = GRIP_TGT[w];
+  if (tgt) {                                  // support (left) hand → foregrip / handguard
+    var upper = psxArms.bones[25], fore = psxArms.bones[26], hand = psxArms.bones[27];
+    _ikTV.set(tgt[0], tgt[1], tgt[2]); g.localToWorld(_ikTV);
+    for (var it = 0; it < 6; it++) { ccdJoint(fore, hand, _ikTV); ccdJoint(upper, hand, _ikTV); }
+  }
+  var rg = RIGHT_GRIP[w];
+  if (rg) {                                   // trigger (right) hand → small of the stock / grip.
+    seedRightArm(w);                          // mirrored LEFT grip = wrap orientation seed
+    var rup = psxArms.bones[2], rfo = psxArms.bones[3], rha = psxArms.bones[4];
+    _ikTV.set(rg[0], rg[1], rg[2]); g.localToWorld(_ikTV);
+    for (var it2 = 0; it2 < 6; it2++) { ccdJoint(rfo, rha, _ikTV); ccdJoint(rup, rha, _ikTV); }
+  }
+}
+// ---- FP grip finger pose (v1.66.73) ----------------------------------------
+// The shared relax/grab clip leaves the fingers nearly straight (splayed open),
+// so the hands never actually wrapped the weapon. We author a real grip: every
+// phalanx points down its local +Y and flexes about local +X (FK-verified to
+// curl toward the palm for ALL fingers of BOTH hands — including the ring
+// finger whose MCP carries a 180° roll in the bind pose). Each grip quat =
+// restQuat * flexX(angle); parents (hand/palm) keep the clip pose, so the grip
+// shape rides along with wherever the arm IK/anchor puts the hand.
+// Right (trigger) hand keeps the index nearly straight on the trigger; every
+// other finger + both thumbs wrap. Precomputed once, copied onto the bones
+// each frame after the clip pose — no per-frame allocation.
+var GF_R = { index: [6, 7, 8], middle: [13, 14, 15], ring: [17, 18, 19], pinky: [21, 22, 23], thumb: [9, 10, 11] };
+var GF_L = { index: [29, 30, 31], middle: [36, 37, 38], ring: [40, 41, 42], pinky: [44, 45, 46], thumb: [32, 33, 34] };
+var GRIP_FINGERS = null;                 // {boneIdx: Quaternion}
+var _flexAxis = new THREE.Vector3(1, 0, 0), _flexQ = new THREE.Quaternion();
+function buildGripFingers(restQ) {
+  var g = {};
+  function set(idx, ang) { var q = restQ[idx].clone(); _flexQ.setFromAxisAngle(_flexAxis, ang); q.multiply(_flexQ); g[idx] = q; }
+  function wrap(ids) { set(ids[0], 0.68); set(ids[1], 1.38); set(ids[2], 0.74); }   // full curl: MCP/PIP/DIP — tight clench onto the grip
+  function trig(ids) { set(ids[0], 0.16); set(ids[1], 0.30); set(ids[2], 0.20); }   // index resting on the trigger
+  function thumb(ids) { set(ids[0], 0.30); set(ids[1], 0.64); set(ids[2], 0.50); }  // thumb wrapped over the top
+  // RIGHT (trigger) hand: index on the trigger, everything else wraps the grip
+  trig(GF_R.index); wrap(GF_R.middle); wrap(GF_R.ring); wrap(GF_R.pinky); thumb(GF_R.thumb);
+  // LEFT (support) hand: all four fingers wrap the foregrip / support the pistol
+  wrap(GF_L.index); wrap(GF_L.middle); wrap(GF_L.ring); wrap(GF_L.pinky); thumb(GF_L.thumb);
+  return g;
+}
+function gripFingers() {
+  if (!psxArms || !GRIP_FINGERS) return;
+  for (var idx in GRIP_FINGERS) psxArms.bones[idx].quaternion.copy(GRIP_FINGERS[idx]);
 }
 function armsTintTex(skinHex) {
   var cv = document.createElement('canvas');
@@ -15100,8 +15168,12 @@ function buildPSXArms(skinHex) {
     clips[k] = { d: c.d, f: c.f, q: i16(c.q), t: i16(c.t), ts: c.ts || 1024 };
   }
   var ci = names.indexOf('camera');
+  // bind-pose (rest) quats — captured before any clip pose overwrites them;
+  // the FP finger grip is authored relative to these (rest * flexX(angle)).
+  var restQ = [];
+  for (i = 0; i < np; i++) restQ.push(bones[i].quaternion.clone());
   return {
-    root: root, bones: bones, mesh: mesh, clips: clips, np: np,
+    root: root, bones: bones, mesh: mesh, clips: clips, np: np, restQ: restQ,
     camBone: ci >= 0 ? bones[ci] : null, rootBone: bones[0]
   };
 }
@@ -15144,6 +15216,7 @@ function initPSXArms() {
   try {
     psxArms = buildPSXArms(CSKIN[playerChar ? playerChar.skin : 1]);
     if (psxArms) {
+      GRIP_FINGERS = buildGripFingers(psxArms.restQ);
       armLf.visible = false; punchArm.visible = false;
       vmFists.add(psxArms.root);
       armsPose(psxArms, 'idle', 0);
@@ -15151,7 +15224,7 @@ function initPSXArms() {
       [vmPistol, vmSmg, vmRifle, vmAuto, vmRocket].forEach(function (g) {
         g.children.forEach(function (c) { if (c.userData.gunArm) c.visible = false; });
       });
-      if (GUNHOLD_GROUPS[state.equipped]) { vmMap[state.equipped].add(psxArms.root); armsPose(psxArms, gunHold.clip, gunHold.t, true); solveSupportIK(state.equipped); }
+      if (GUNHOLD_GROUPS[state.equipped]) { vmMap[state.equipped].add(psxArms.root); armsPose(psxArms, gunHold.clip, gunHold.t, true); solveSupportIK(state.equipped); gripFingers(); }
     }
   } catch (e) { psxArms = null; }
 }
@@ -15407,6 +15480,11 @@ var vmSilenced = vmPistol.clone(true);
 (function () { var supp = cyl(0.032, 0.032, 0.30, 10, darkMetalM, 0.26, -0.265, -1.02); supp.rotation.x = Math.PI / 2; vmSilenced.add(supp); })();
 vmMap.silenced = vmSilenced;
 Object.keys(vmMap).forEach(function (k) { vm.add(vmMap[k]); vmMap[k].visible = false; });
+// v1.66.73: FP framing lift. The gun + skinned hands used to ride at the very
+// bottom of the frame (grip cut off at a level look). The equipped group's
+// position is rebased to this per-weapon lift each frame (see the draw block),
+// which moves gun AND arms together so the grip relationship is preserved.
+var VM_LIFT = { pistol: 0.24, smg: 0.12, rifle: 0.11, auto: 0.11, rocket: 0.11, silenced: 0.24 };
 vmFists.visible = true;
 var zoomed = false;
 function setZoom(on) {
@@ -15428,7 +15506,7 @@ function setEquipped(w) {
   // draw/reload animations move the hands with the gun
   if (psxArms) {
     if (w === 'fists') { vmFists.add(psxArms.root); vmFists.rotation.set(0, 0, 0); armsPose(psxArms, 'idle', T); }
-    else if (GUNHOLD_GROUPS[w]) { vmMap[w].add(psxArms.root); armsPose(psxArms, gunHold.clip, gunHold.t, true); solveSupportIK(w); }
+    else if (GUNHOLD_GROUPS[w]) { vmMap[w].add(psxArms.root); armsPose(psxArms, gunHold.clip, gunHold.t, true); solveSupportIK(w); gripFingers(); }
   }
   vm.visible = !zoomed && !driving;
   Object.keys(vmMap).forEach(function (k) { vmMap[k].visible = (k === w); });
@@ -18805,7 +18883,7 @@ function creditPvpKill() {
 // master+sfx+voice volume, draw-distance quality, CRT filter. Restored on
 // boot (applySettings() runs in the boot handoff, before the first frame).
 var SETTINGS_KEY = 'wc_settings';
-var SETTINGS_DEF = { sens: 1.0, invert: 0, fov: 72, volMaster: 1.0, volSfx: 1.0, volVoice: 1.0, quality: 2, crt: 1, crosshair: 1, minimap: 1, markers: 1 };
+var SETTINGS_DEF = { sens: 1.0, invert: 0, fov: 72, volMaster: 1.0, volSfx: 1.0, volVoice: 1.0, quality: 2, crt: 1, crosshair: 1, minimap: 1, markers: 1, fps: 0, compass: 1 };
 var QUALITY_NAMES = ['LOW', 'MEDIUM', 'HIGH'];
 var settings = null;
 function loadSettings() {
@@ -18820,6 +18898,8 @@ function loadSettings() {
   settings.crosshair = settings.crosshair ? 1 : 0;
   settings.minimap = settings.minimap ? 1 : 0;
   settings.markers = settings.markers ? 1 : 0;
+  settings.fps = settings.fps ? 1 : 0;
+  settings.compass = settings.compass ? 1 : 0;
   settings.sens = Math.max(0.2, Math.min(3, +settings.sens || 1));
   settings.volMaster = Math.max(0, Math.min(1, +settings.volMaster));
   settings.volSfx = Math.max(0, Math.min(1, +settings.volSfx));
@@ -18920,6 +19000,8 @@ function buildSettingsRows() {
   toggle('CROSSHAIR', 'show the aiming reticle', 'crosshair');
   toggle('MINIMAP', 'show the corner map', 'minimap');
   toggle('HIT MARKERS', 'hit ticks & kill feed', 'markers');
+  toggle('COMPASS', 'heading strip up top', 'compass');
+  toggle('FPS COUNTER', 'live frame rate & draw stats', 'fps');
 }
 function openSettings() {
   buildSettingsRows();
@@ -19639,11 +19721,12 @@ function updatePlayer(dt) {
   // weapon draw + rocket reload animations (procedural, PS1-cheap)
   var wg = vmMap[state.equipped];
   if (wg && state.equipped !== 'fists' && state.equipped !== 'snack' && state.equipped !== 'soda') {
-    wg.position.set(0, 0, 0); wg.rotation.set(0, 0, 0);
+    var vlift = VM_LIFT[state.equipped] || 0;
+    wg.position.set(0, vlift, 0); wg.rotation.set(0, 0, 0);
     var det = T - equipT;
     if (det >= 0 && det < 0.45) {   // draw: rise from below with a rolling rack
       var ek = 1 - det / 0.45; ek *= ek;
-      wg.position.y = -0.32 * ek;
+      wg.position.y = vlift - 0.32 * ek;
       wg.rotation.z = -0.6 * ek;
       wg.rotation.x = 0.35 * ek;
     }
@@ -19700,7 +19783,7 @@ function updatePlayer(dt) {
       else { armsPose(psxArms, 'idle', T); vmFists.rotation.y = 0; vmFists.rotation.z = 0; }
     } else if (pt < 0.28) { var kk = Math.sin((pt / 0.28) * Math.PI); punchArm.position.z = punchArmBase.z - kk * 0.5; punchArm.position.x = punchArmBase.x - kk * 0.14; punchArm.rotation.x = -kk * 0.4; }
     else { punchArm.position.copy(punchArmBase); punchArm.rotation.x = 0; }
-  } else if (psxArms && GUNHOLD_GROUPS[state.equipped]) { armsPose(psxArms, gunHold.clip, gunHold.t, true); solveSupportIK(state.equipped); }
+  } else if (psxArms && GUNHOLD_GROUPS[state.equipped]) { armsPose(psxArms, gunHold.clip, gunHold.t, true); solveSupportIK(state.equipped); gripFingers(); }
   if (flashT > 0) {
     flashT -= dt;
     if (flashT <= 0) flash.visible = false;
@@ -19887,10 +19970,56 @@ function drawCrosshair(W, H) {
   bar(cx + gap, cy - th / 2, len, th);         // right
   if (showDot) dot(1.5);
 }
+// compass ribbon (QoL): reusable dir vector so the per-frame heading read
+// allocates nothing on the hot path.
+var _cmpDir = new THREE.Vector3();
+var CMP_CARD = { 0: 'N', 45: 'NE', 90: 'E', 135: 'SE', 180: 'S', 225: 'SW', 270: 'W', 315: 'NW' };
+function drawCompass(W, H) {
+  camera.getWorldDirection(_cmpDir);
+  var bearing = Math.atan2(_cmpDir.x, -_cmpDir.z) * 180 / Math.PI;
+  if (bearing < 0) bearing += 360;
+  var cw = Math.min(W * 0.62, 420), cx = W / 2, y0 = 4, ch = 20;
+  var span = 70, pxDeg = cw / (span * 2);   // show +/-70 degrees
+  var x0 = cx - cw / 2;
+  // plate
+  hudCx.fillStyle = 'rgba(8,12,20,0.62)'; hudCx.fillRect(x0 - 2, y0 - 2, cw + 4, ch + 4);
+  hudCx.strokeStyle = 'rgba(180,190,210,0.5)'; hudCx.lineWidth = 1; hudCx.strokeRect(x0 - 1.5, y0 - 1.5, cw + 3, ch + 3);
+  hudCx.save();
+  hudCx.beginPath(); hudCx.rect(x0, y0, cw, ch); hudCx.clip();
+  hudCx.textBaseline = 'middle';
+  for (var m = 0; m < 360; m += 15) {
+    var delta = ((m - bearing + 540) % 360) - 180;
+    if (delta < -span || delta > span) continue;
+    var tx = cx + delta * pxDeg;
+    var card = CMP_CARD[m];
+    if (m % 90 === 0) {          // cardinal: tall tick + letter
+      hudCx.strokeStyle = 'rgba(255,255,255,0.85)'; hudCx.lineWidth = 1.5;
+      hudCx.beginPath(); hudCx.moveTo(tx, y0 + 2); hudCx.lineTo(tx, y0 + ch - 8); hudCx.stroke();
+      hudCx.font = 'bold 11px "Courier New",monospace'; hudCx.textAlign = 'center';
+      hudCx.fillStyle = '#000'; hudCx.fillText(card, tx + 1, y0 + ch - 4 + 1);
+      hudCx.fillStyle = (m === 0) ? '#ff5a4a' : '#ffe08a'; hudCx.fillText(card, tx, y0 + ch - 4);
+    } else if (m % 45 === 0) {   // intercardinal: short tick + small label
+      hudCx.strokeStyle = 'rgba(210,220,235,0.7)'; hudCx.lineWidth = 1;
+      hudCx.beginPath(); hudCx.moveTo(tx, y0 + 3); hudCx.lineTo(tx, y0 + ch - 9); hudCx.stroke();
+      hudCx.font = 'bold 8px "Courier New",monospace'; hudCx.textAlign = 'center';
+      hudCx.fillStyle = '#aeb8c8'; hudCx.fillText(card, tx, y0 + ch - 4);
+    } else {                     // minor: short tick only
+      hudCx.strokeStyle = 'rgba(160,170,190,0.55)'; hudCx.lineWidth = 1;
+      hudCx.beginPath(); hudCx.moveTo(tx, y0 + 4); hudCx.lineTo(tx, y0 + 10); hudCx.stroke();
+    }
+  }
+  hudCx.restore();
+  // fixed center pointer + numeric heading
+  hudCx.fillStyle = '#ffd200'; hudCx.beginPath();
+  hudCx.moveTo(cx, y0 + ch + 3); hudCx.lineTo(cx - 4, y0 + ch - 3); hudCx.lineTo(cx + 4, y0 + ch - 3); hudCx.closePath(); hudCx.fill();
+  var hd = ('00' + Math.round(bearing % 360)).slice(-3) + '°';
+  hudText(hd, cx, y0 + ch + 15, 11, '#eaf0ff', 'center');
+}
 function drawHudCanvas() {
   var W = hudW, H = hudH, M = 14;
   hudCx.clearRect(0, 0, W, H);
   drawCrosshair(W, H);
+  if (settings && settings.compass && state.running) drawCompass(W, H);
   // ---- hitmarker: four short diagonal ticks that flick out from the reticle
   // and fade (white on a hit, red on a kill) ----
   var hmAge = T - hitMarkerT;
@@ -19950,8 +20079,9 @@ function drawHudCanvas() {
   }
   // ---- wanted stars: top-center (lit gold, unlit dark silhouettes) ----
   var sw = state.wanted | 0, spx = 2, sgap = 9 * spx + 6;
+  var starY = (settings && settings.compass) ? M + 30 : M;   // clear the compass ribbon
   for (var i = 0; i < 5; i++)
-    drawSprite(SPR_STAR, W / 2 + (i - 2.5) * sgap + 3, M, spx, i < sw ? '#ffd200' : '#242b38');
+    drawSprite(SPR_STAR, W / 2 + (i - 2.5) * sgap + 3, starY, spx, i < sw ? '#ffd200' : '#242b38');
   // ---- health: big retro numerals + heart, bottom-left ----
   var hp = Math.max(0, Math.min(100, Math.round(state.hp)));
   var hcol = hp > 60 ? '#46e05e' : (hp > 30 ? '#ffd200' : '#ff3b28');
@@ -20001,6 +20131,20 @@ function drawHudCanvas() {
     hudCx.strokeRect(px2 - pw / 2 - 12, py - 20, pw + 24, 30);
     hudText(pt, px2, py, 19, '#ffe9a0', 'center');
   }
+  // ---- FPS / perf readout (QoL, settings.fps): left edge, clear of the quest
+  // tracker (top) and health (bottom). renderer.info reflects last frame. ----
+  if (settings && settings.fps) {
+    var fv = Math.round(fpsVal);
+    var fcol = fv >= 50 ? '#8ee87f' : (fv >= 30 ? '#ffd200' : '#ff5a3a');
+    var fy = hudMmB + 6;
+    hudText('FPS ' + (fv || '--'), M, fy, 13, fcol, 'left');
+    var ri = (renderer && renderer.info && renderer.info.render) ? renderer.info.render : null;
+    if (ri) {
+      var tri = ri.triangles || 0;
+      var triTxt = tri >= 1000 ? (Math.round(tri / 100) / 10) + 'k' : String(tri);
+      hudText((ri.calls || 0) + ' dc  ' + triTxt + ' tri', M, fy + 15, 11, '#9fb0c8', 'left');
+    }
+  }
 }
 // low-HP vignette (#QoL): sustained red edge glow that fades in below 30% HP
 // and pulses; cleared when healthy / dead / not playing. Cache el + last opacity
@@ -20025,11 +20169,15 @@ function updateHUD() { document.getElementById('money').textContent = '$' + stat
 // ---------------- main loop ----------------
 var last = performance.now();
 var lastRafMs = performance.now();   // bot mode watches this to detect RAF starvation
+// FPS counter (QoL): smoothed over ~0.5s windows so the readout is legible.
+var fpsVal = 0, _fpsAcc = 0, _fpsFrames = 0;
 function loop(now) {
   if (WC_BOT) return;   // bot sims on its own real-time interval, never renders
   requestAnimationFrame(loop);
   lastRafMs = performance.now();
   var dt = Math.min(0.05, (now - last) / 1000); last = now;
+  _fpsFrames++; _fpsAcc += (dt > 0 ? dt : 0.0001);
+  if (_fpsAcc >= 0.5) { fpsVal = _fpsFrames / _fpsAcc; _fpsAcc = 0; _fpsFrames = 0; }
   if (!state.running) { renderer.render(scene, camera); renderCreatorFrame(dt); return; }
   T += dt;
   updateReflex(dt);                       // 8-Bit Reflexes: sets the slow-mo factor
@@ -20157,7 +20305,9 @@ window.__wc = {
   setGrip: function (w, arr) { GRIP_TGT[w] = arr; },   // debug: tune per-weapon support-hand IK grip target
   getGrip: function (w) { return GRIP_TGT[w]; },
   getBoneQ: function (i) { return psxArms ? psxArms.bones[i].quaternion.toArray().map(function (v) { return Math.round(v * 1000) / 1000; }) : null; },
-  poseArmsNow: function () { if (psxArms && GUNHOLD_GROUPS[state.equipped]) { armsPose(psxArms, gunHold.clip, gunHold.t, true); solveSupportIK(state.equipped); } },
+  poseArmsNow: function () { if (psxArms && GUNHOLD_GROUPS[state.equipped]) { armsPose(psxArms, gunHold.clip, gunHold.t, true); solveSupportIK(state.equipped); gripFingers(); } },
+  dbgBone: function (i, ov) { if (psxArms) { if (ov) { var e = new THREE.Euler(ov[0], ov[1], ov[2]); psxArms.bones[i].quaternion.setFromEuler(e); } psxArms.mesh.updateMatrixWorld(true); } },   // debug: set one bone's local euler
+  gripDbg: function () { if (!psxArms) return null; var g = vmMap[state.equipped]; if (!g) return null; g.updateMatrixWorld(true); psxArms.mesh.updateMatrixWorld(true); function loc(bi) { var v = new THREE.Vector3(); psxArms.bones[bi].getWorldPosition(v); g.worldToLocal(v); return v.toArray().map(function (n) { return Math.round(n * 1000) / 1000; }); } return { rHand: loc(4), lHand: loc(27), rPalm: loc(5), rShoul: loc(1), rElbow: loc(3) }; },   // debug: hand positions in gun-group local frame
   handPos: function () { if (!psxArms) return null; psxArms.mesh.updateMatrixWorld(true); var pl = new THREE.Vector3(), pr = new THREE.Vector3(); psxArms.bones[27].getWorldPosition(pl); psxArms.bones[4].getWorldPosition(pr); return { L: pl.toArray().map(function (v) { return Math.round(v * 100) / 100; }), R: pr.toArray().map(function (v) { return Math.round(v * 100) / 100; }) }; },
 
   spawnUfo: spawnUfo, damageUfo: damageUfo, damageAlien: damageAlien,
