@@ -246,4 +246,5 @@ All three FIXED@v1.66.63. mregjcuz + mreg8mld details are inline in Batch 8 / Ba
 - mrft9s65 (27,-92) flag waving animation whack (BoA flags stiff quads, odd pivot) — IN-AGENT (live2-anim, fable)
 - mrft9al8 (13,-87) NPCs walking back and forth on repeat — OPEN (wander ping-pong)
 - mrftbul8 (-102,-169) NPC aimlessly pacing — OPEN (same class)
+- mrftesnl (-133,77) aimless pacing / mrftf1th (-125,49) stuck pacing / mrftf7lk (-111,45) stuck pacing — OPEN (same class; 5 reports this session = top priority for live2-ai round)
 - mrftaqio (-34,-172) Xander clipped inside building — OPEN
