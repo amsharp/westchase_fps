@@ -637,7 +637,9 @@ Dunkin', Starbucks and the sushi bar; there's a full **playground** by
 Farnell school (climber, slide, swinging swings, a hoop) and a skate ramp in
 a cul-de-sac; a **lakeside picnic** spot with a stone fountain, a BBQ and a
 crackling fire pit; food trucks and an ice-cream van in the lots; a
-wacky-waving **tube man** and a hot-dog cart out at the RaceTrac; flamingos,
+wacky-waving **tube man** and a hot-dog cart out at the RaceTrac; a tall
+branded **RaceTrac price pylon** at the curb whose fuel prices glow in real
+7-segment LED digits after dark (and occasionally flicker); flamingos,
 gnomes, bird baths and a spinning windmill in the yards; and neon that spins
 (barber pole, pizza sign), flags that wave, and arcade/soda screens that glow.
 
