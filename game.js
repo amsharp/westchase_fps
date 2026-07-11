@@ -6,7 +6,9 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.68';   // .64 taken by live2-vfx on the parallel branch
+var GAME_VERSION = 'v1.66.93';   // merge: live2-ai marathon branch + main
+// QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
+var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -682,16 +684,21 @@ var landColliders = null;   // colliders minus the lake block — the player may
 // returns the pushed collider object so callers (breakable props) can toggle
 // `.active` off/on when the prop topples/respawns — pushOut skips inactive
 // entries in place, so the reference stays valid inside landColliders too.
-function addCollider(cx, cz, w, d) { var o = { x0: cx - w / 2, x1: cx + w / 2, z0: cz - d / 2, z1: cz + d / 2 }; colliders.push(o); return o; }
+// `tag` (optional): short creator string ('forest', 'house', 'prop:bench'…)
+// stored on the collider — surfaced by the F9 overlay, the F8 bug-report
+// meta (3 nearest colliders) and tools/_barrierscan.js, so an "invisible
+// barrier" report names its own culprit. Near-zero cost.
+function addCollider(cx, cz, w, d, tag) { var o = { x0: cx - w / 2, x1: cx + w / 2, z0: cz - d / 2, z1: cz + d / 2 }; if (tag) o.tag = tag; colliders.push(o); return o; }
 // oriented-bounding-box collider (remap roadside furniture, rotated venue
 // footprints in R3/R4). Carries its world-space AABB bounds too, so every
 // legacy reader that iterates colliders (berserk cars, parked-slot rejection,
 // spawn checks) keeps working — conservatively — without changes; only
 // pushOut resolves the exact OBB. yaw follows THREE rotation.y convention.
-function addColliderOBB(cx, cz, hw, hd, yaw) {
+function addColliderOBB(cx, cz, hw, hd, yaw, tag) {
   var c = Math.cos(yaw), s = Math.sin(yaw);
   var bx = hw * Math.abs(c) + hd * Math.abs(s), bz = hw * Math.abs(s) + hd * Math.abs(c);
   var o = { obb: 1, x: cx, z: cz, hx: hw, hz: hd, c: c, s: s, x0: cx - bx, x1: cx + bx, z0: cz - bz, z1: cz + bz };
+  if (tag) o.tag = tag;
   colliders.push(o);
   return o;
 }
@@ -920,7 +927,7 @@ function bldg(x, z, w, d, h, color, o) {
   var topM = o.hip ? fac : flatRoofM;
   var b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [fac, fac, topM, topM, fac, fac]);
   b.position.set(x, h / 2 + 0.1, z);
-  scene.add(b); solidMeshes.push(b); addCollider(x, z, w, d);
+  scene.add(b); solidMeshes.push(b); addCollider(x, z, w, d, 'bldg');
   if (o.hip) {
     var rt = roofTileT.clone(); rt.repeat.set(Math.max(2, w / 8), 2); rt.needsUpdate = true;
     var roof = new THREE.Mesh(hipGeo, lamb2(rt));
@@ -943,7 +950,7 @@ function shop(x, z, w, d, h, color, lines, bg, fg, o) {
   var wallM = o.wallMat || stuccoMat(color);
   var b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [wallM, wallM, flatRoofM, flatRoofM, wallM, wallM]);
   b.position.set(x, h / 2 + 0.1, z);
-  scene.add(b); solidMeshes.push(b); addCollider(x, z, w, d);
+  scene.add(b); solidMeshes.push(b); addCollider(x, z, w, d, 'bldg');
   if (o.roofType === 'hip') {
     var rh = o.roofH || 2.6, rf = new THREE.Mesh(hipGeo, o.roofMat || grayHipM);
     rf.scale.set(w + 1.6, rh, d + 1.6); rf.position.set(x, h + 0.1 + rh / 2, z); scene.add(rf);
@@ -981,7 +988,7 @@ function awningTex(c1, c2) {
 function stripMall(x, z, w, names) {
   var d = 20, h = 5, dir = -1, fz = z + dir * d / 2;
   var b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [stuccoTanM, stuccoTanM, flatRoofM, flatRoofM, stuccoTanM, stuccoTanM]);
-  b.position.set(x, h / 2 + 0.1, z); scene.add(b); solidMeshes.push(b); addCollider(x, z, w, d);
+  b.position.set(x, h / 2 + 0.1, z); scene.add(b); solidMeshes.push(b); addCollider(x, z, w, d, 'bldg');
   mapBuildings.push({ x: x, z: z, w: w, d: d, h: h, c: '#c9c3b4', pad: true });
   vParapet(x, z, w, d, h + 0.1, venCapM);
   var n = names.length, seg = w / n;
@@ -1070,7 +1077,7 @@ function gasStation(x, z) {
     dispenser(ix, z - 1.4, 0); dispenser(ix, z + 1.4, Math.PI);
     scene.add(cyl(0.12, 0.14, 0.85, 8, boltM, ix, 0.42, z - 2.5)); // end bollards
     scene.add(cyl(0.12, 0.14, 0.85, 8, boltM, ix, 0.42, z + 2.5));
-    addCollider(ix, z, 1.8, 5.0);                                 // solid pump island
+    addCollider(ix, z, 1.8, 5.0, 'gas:pump');                     // solid pump island
   });
   // monument price sign at the road corner (pole + red brand cabinet + prices)
   var sx = cx - cw / 2 - 3, sz = z + cd / 2 + 1;
@@ -1081,7 +1088,7 @@ function gasStation(x, z) {
   scene.add(box(3.4, 2.5, 0.5, lamb({ color: 0x14243a }), sx, 4.2, sz));  // price panel body
   signPlane(sx, 4.2, sz + 0.28, 0, 3.0, 2.2, ['REG 3.29', 'PLUS 3.59', 'PREM 3.89'], '#14243a', '#ffd94a');
   signPlane(sx, 4.2, sz - 0.28, Math.PI, 3.0, 2.2, ['REG 3.29', 'PLUS 3.59', 'PREM 3.89'], '#14243a', '#ffd94a');
-  addCollider(sx, sz, 1.2, 1.2);
+  addCollider(sx, sz, 1.2, 1.2, 'gas:sign');
   // forecourt amenities against the store front: air/water, ice box, trash, propane
   var afx = x + 6, afz = z - 7.2;                                 // store front line
   var airM = lamb({ color: 0xe23b2e }), iceM = lamb({ color: 0xf2f2f2 }), binM = lamb({ color: 0x2e6b3a });
@@ -1089,7 +1096,7 @@ function gasStation(x, z) {
   var iceB = box(1.6, 1.3, 1.0, iceM, afx - 3.6, 0.65, afz); scene.add(iceB); signPlane(afx - 3.6, 0.75, afz - 0.51, Math.PI, 1.3, 0.6, ['ICE'], '#2f6fb0', '#ffffff'); // ice merchandiser
   scene.add(box(0.7, 0.9, 0.7, binM, afx + 3.6, 0.5, afz));       // trash can
   scene.add(cyl(0.5, 0.5, 1.3, 8, lamb({ color: 0xd8b23a }), afx + 5.4, 0.75, afz)); // propane exchange cage
-  addCollider(afx - 6, afz, 1.0, 1.0); addCollider(afx - 3.6, afz, 1.8, 1.2);
+  addCollider(afx - 6, afz, 1.0, 1.0, 'gas:air'); addCollider(afx - 3.6, afz, 1.8, 1.2, 'gas:air');
 }
 
 // self-storage: rows of roll-up doors under low gray standing-seam metal gable
@@ -1098,7 +1105,7 @@ function storage(x, z) {
   for (var r = 0; r < 3; r++) {
     var rz = z - 14 + r * 14;
     var b = box(46, 4, 8, storageDoorM, x, 2.1, rz);
-    scene.add(b); solidMeshes.push(b); addCollider(x, rz, 46, 8);
+    scene.add(b); solidMeshes.push(b); addCollider(x, rz, 46, 8, 'bldg');
     var peak = 1.0, sl = Math.sqrt(16 + peak * peak), ang = Math.atan2(peak, 4);
     var p1 = box(47, 0.2, sl, grayHipM, x, 4.2 + peak / 2, rz - 2); p1.rotation.x = ang; scene.add(p1);
     var p2 = box(47, 0.2, sl, grayHipM, x, 4.2 + peak / 2, rz + 2); p2.rotation.x = -ang; scene.add(p2);
@@ -1117,7 +1124,7 @@ function storage(x, z) {
 function supermarket(x, z) {
   var w = 74, d = 44, h = 9, fz = z + d / 2;
   var b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [stuccoBeigeM, stuccoBeigeM, flatRoofM, flatRoofM, stuccoBeigeM, stuccoBeigeM]);
-  b.position.set(x, h / 2 + 0.1, z); scene.add(b); solidMeshes.push(b); addCollider(x, z, w, d);
+  b.position.set(x, h / 2 + 0.1, z); scene.add(b); solidMeshes.push(b); addCollider(x, z, w, d, 'bldg');
   mapBuildings.push({ x: x, z: z, w: w, d: d, h: h, c: '#3f8a4a', pad: true });
   vParapet(x, z, w, d, h + 0.1, venCapM);
   // green metal awning band across the storefront (the ALDI/Publix green line)
@@ -1148,7 +1155,7 @@ function school(x, z) {
   var w = 82, d = 32, h = 8, fz = z + d / 2;
   var wallM = stuccoMat('#e4d8c0'), pierM = stuccoMat('#d8c9a8');
   var b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [wallM, wallM, flatRoofM, flatRoofM, wallM, wallM]);
-  b.position.set(x, h / 2 + 0.1, z); scene.add(b); solidMeshes.push(b); addCollider(x, z, w, d);
+  b.position.set(x, h / 2 + 0.1, z); scene.add(b); solidMeshes.push(b); addCollider(x, z, w, d, 'bldg');
   mapBuildings.push({ x: x, z: z, w: w, d: d, h: h, c: '#c8a24a', pad: true });
   vParapet(x, z, w, d, h + 0.1, venCapM);
   var bays = 10, seg = w / bays;
@@ -1177,7 +1184,7 @@ function school(x, z) {
 function bankBldg(x, z, name) {
   var w = 26, d = 20, h = 7, fz = z + d / 2, boa = name.indexOf('AMERICA') >= 0;
   var b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [brickBankM, brickBankM, flatRoofM, flatRoofM, brickBankM, brickBankM]);
-  b.position.set(x, h / 2 + 0.1, z); scene.add(b); solidMeshes.push(b); addCollider(x, z, w, d);
+  b.position.set(x, h / 2 + 0.1, z); scene.add(b); solidMeshes.push(b); addCollider(x, z, w, d, 'bldg');
   mapBuildings.push({ x: x, z: z, w: w, d: d, h: h, c: '#3f6f9c', pad: true });
   if (boa) {
     var roof = new THREE.Mesh(hipGeo, grayHipM); roof.scale.set(w + 1.8, 3.0, d + 1.8); roof.position.set(x, h + 0.1 + 1.5, z); scene.add(roof);
@@ -1230,7 +1237,7 @@ function townhouseRow(x, z, units, ry) {
   scene.add(g);
   // collider (approx, axis-aligned)
   var W = uw * units, D = 10;
-  if (ry === 0) addCollider(x, z, W, D); else addCollider(x, z, D, W);
+  if (ry === 0) addCollider(x, z, W, D, 'bldg'); else addCollider(x, z, D, W, 'bldg');
   solidMeshes.push(g);
   mapBuildings.push({ x: x, z: z, w: ry === 0 ? W : D, d: ry === 0 ? D : W, h: 9, c: '#c7b48a', pad: false });
 }
@@ -1344,7 +1351,7 @@ function getPackPropPink(name) {   // blossom recolor of a pack prop (crepe myrt
 // (breakProp) and reactivated on respawn (updateWorldFx), so a felled tree
 // doesn't leave a floating wall.
 function registerBreakable(g, x, z, r, type, light, collR) {
-  var col = collR ? addCollider(x, z, collR * 2, collR * 2) : null;
+  var col = collR ? addCollider(x, z, collR * 2, collR * 2, 'prop:' + type) : null;
   breakables.push({
     g: g, x: x, z: z, r: r, type: type, light: light || null,
     broken: false, fallT: 0, respawnT: 0, fx: 1, fz: 0, thudded: false,
@@ -1525,18 +1532,56 @@ function palm(x, z) {
 // lost its collider). Tile the leaf's road-CLEAR interior with small colliders
 // so those fill trees block, without ever walling off the pavement. The pad-5
 // clearance keeps each 2.5u half-extent cell well clear of the road edge.
+// v1.66.64 barrier scrub: the old version blanket-tiled every road-CLEAR cell
+// with a 5x5 collider whether or not a tree stood there — sparse fill left
+// whole grids of invisible walls on open-looking grass (855 of the 882 scan
+// orphans). The tiling now DEFERS until expForestFill has planted its
+// instanced trees (fill runs textually below this, so leaf rects are queued
+// here and processed by processForestTiles() right after the fill), and a
+// cell only gets a collider when at least one visible fill tree actually
+// stands inside it.
+var pendingForestTiles = [];
 function forestPatchClearTiles(x0, x1, z0, z1) {
   if (inLake((x0 + x1) / 2, (z0 + z1) / 2) && (x1 - x0) < 90 && (z1 - z0) < 90) return;
-  var cell = 5;
-  for (var cx = x0 + cell / 2; cx < x1 + cell / 2; cx += cell) {
-    var ccx = Math.min(cx, x1 - cell / 2);
-    for (var cz = z0 + cell / 2; cz < z1 + cell / 2; cz += cell) {
-      var ccz = Math.min(cz, z1 - cell / 2);
-      if (WC_REMAP && !remapPointClear(ccx, ccz, 5)) continue;
-      if (inLake(ccx, ccz)) continue;
-      addCollider(ccx, ccz, cell, cell);
+  pendingForestTiles.push([x0, x1, z0, z1]);
+}
+function processForestTiles(fillPts) {
+  var cell = 5, made = 0;
+  // coarse hash of fill-tree positions so each cell test is O(few)
+  var grid = {}, i;
+  for (i = 0; i < fillPts.length; i++) {
+    var fp = fillPts[i], key = ((fp[0] / cell) | 0) + '|' + ((fp[1] / cell) | 0);
+    (grid[key] || (grid[key] = [])).push(fp);
+  }
+  function treeIn(ax0, ax1, az0, az1) {
+    var gx0 = ((ax0 / cell) | 0) - 1, gx1 = ((ax1 / cell) | 0) + 1;
+    var gz0 = ((az0 / cell) | 0) - 1, gz1 = ((az1 / cell) | 0) + 1;
+    for (var gx = gx0; gx <= gx1; gx++) for (var gz = gz0; gz <= gz1; gz++) {
+      var lst = grid[gx + '|' + gz];
+      if (!lst) continue;
+      for (var j = 0; j < lst.length; j++) {
+        var p = lst[j];
+        if (p[0] >= ax0 && p[0] <= ax1 && p[1] >= az0 && p[1] <= az1) return true;
+      }
+    }
+    return false;
+  }
+  for (i = 0; i < pendingForestTiles.length; i++) {
+    var r = pendingForestTiles[i], x0 = r[0], x1 = r[1], z0 = r[2], z1 = r[3];
+    for (var cx = x0 + cell / 2; cx < x1 + cell / 2; cx += cell) {
+      var ccx = Math.min(cx, x1 - cell / 2);
+      for (var cz = z0 + cell / 2; cz < z1 + cell / 2; cz += cell) {
+        var ccz = Math.min(cz, z1 - cell / 2);
+        if (WC_REMAP && !remapPointClear(ccx, ccz, 5)) continue;
+        if (inLake(ccx, ccz)) continue;
+        if (!treeIn(ccx - cell / 2, ccx + cell / 2, ccz - cell / 2, ccz + cell / 2)) continue;   // no visible tree -> no wall
+        addCollider(ccx, ccz, cell, cell, 'forest:tile');
+        made++;
+      }
     }
   }
+  pendingForestTiles.length = 0;
+  return made;
 }
 function forestPatch(x0, x1, z0, z1, count) {
   // remap: forest rects were authored/pre-clipped against the AXIS roads —
@@ -1563,7 +1608,7 @@ function forestPatch(x0, x1, z0, z1, count) {
   // invisible plane out in the grass — and survey rects that graze a road or
   // sidewalk corridor no longer block the pavement itself.
   var inset = Math.min(2.5, (x1 - x0) / 4, (z1 - z0) / 4);
-  addCollider((x0 + x1) / 2, (z0 + z1) / 2, x1 - x0 - inset * 2, z1 - z0 - inset * 2);
+  addCollider((x0 + x1) / 2, (z0 + z1) / 2, x1 - x0 - inset * 2, z1 - z0 - inset * 2, 'forest');
   var area = (x1 - x0) * (z1 - z0);
   if (count === undefined) count = Math.min(60, Math.round(area / 260));
   for (var i = 0; i < count; i++) {
@@ -1587,7 +1632,7 @@ function forestWall(cx, cz, w, d) {
   if (horizontal && cz > 0) mesh.rotation.y = Math.PI;
   if (!horizontal && cx > 0) mesh.rotation.y = -Math.PI / 2;
   scene.add(mesh);
-  addCollider(cx, cz, w, d);
+  addCollider(cx, cz, w, d, 'perimeter:wall');
   // decorative oaks just inside
   var into = cz > 0 ? -1 : (cz < 0 ? 1 : 0), intox = cx > 0 ? -1 : (cx < 0 ? 1 : 0);
   var n = Math.round(Math.max(w, d) / 26);
@@ -1627,7 +1672,7 @@ function roadblock(x, z, w, d) {
     var b = box(horizontal ? 2.6 : 1, 1.1, horizontal ? 1 : 2.6, i % 2 ? stripe : bm, bx, 0.55, bz);
     scene.add(b);
   }
-  addCollider(x, z, w, d);
+  addCollider(x, z, w, d, 'roadblock');
   signPlane(x, 2.2, z + (horizontal ? (z < 0 ? 1.5 : -1.5) : 0), horizontal ? 0 : Math.PI / 2, 6, 1.6, ['ROAD', 'CLOSED'], '#b03018', '#ffffff', true);
 }
 (function roadblocks() {
@@ -2127,7 +2172,7 @@ var fountainDrops = [];
   scene.add(cyl(2.4, 2.8, 1.1, 14, stoneM, LAKE.x, -0.4, LAKE.z));
   scene.add(cyl(0.45, 0.6, 2.6, 10, stoneM, LAKE.x, 1.0, LAKE.z));
   scene.add(cyl(1.3, 1.05, 0.35, 14, stoneM, LAKE.x, 2.3, LAKE.z));
-  addCollider(LAKE.x, LAKE.z, 5.6, 5.6);   // can't swim through the fountain
+  addCollider(LAKE.x, LAKE.z, 5.6, 5.6, 'fountain');   // can't swim through the fountain
   var dropGeo = new THREE.SphereGeometry(0.14, 6, 5);
   var dropM = new THREE.MeshBasicMaterial({ color: 0xcfeaff, transparent: true, opacity: 0.85 });
   for (var di = 0; di < 42; di++) {
@@ -2225,7 +2270,7 @@ function placeVenueData(v) {
   realAdd(vg); vg.updateMatrixWorld(true);
   var cy = Math.cos(yaw), sy = Math.sin(yaw), k, w;
   function toW(lx, lz) { var ax = lx * sx, az = lz * sz; return [ax * cy + az * sy + v.x, -ax * sy + az * cy + v.z]; }
-  for (k = 0; k < cols.length; k++) { var c = cols[k]; w = toW(c[0], c[1]); addColliderOBB(w[0], w[1], c[2] * sx, c[3] * sz, yaw + c[4]); }
+  for (k = 0; k < cols.length; k++) { var c = cols[k]; w = toW(c[0], c[1]); addColliderOBB(w[0], w[1], c[2] * sx, c[3] * sz, yaw + c[4], 'venue'); }
   for (k = 0; k < mbs.length; k++) {
     var e = mbs[k]; w = toW(e.x, e.z); var ew = e.w * sx, ed = e.d * sz;
     mapBuildings.push({ x: w[0], z: w[1], w: Math.abs(ew * cy) + Math.abs(ed * sy), d: Math.abs(ew * sy) + Math.abs(ed * cy), h: e.h, c: e.c, pad: e.pad });
@@ -2596,6 +2641,12 @@ var expFillPts = [];   // [x,z] of every fill tree (debug/audit)
     scene.add(sm);
   }
 })();
+// deferred road-adjacent forest-leaf tiling (see forestPatchClearTiles):
+// now that every instanced fill tree exists, collide only the 5x5 cells a
+// visible tree actually stands in. If the prop pack was absent (no fill),
+// the queue drops harmlessly — sparse oak() trees carry their own trunk
+// colliders via registerBreakable.
+processForestTiles(expFillPts);
 
 // ---- merged forest-floor cover ----
 // One dark leaf-litter quad under every forest patch, all merged into a single
@@ -3182,6 +3233,53 @@ function remapPerimeter() {
   }
   // rotated ROAD CLOSED barriers ~14u inside each exit, square to the road
   for (i = 0; i < REMAP_EXITS.length; i++) remapBarrier(REMAP_EXITS[i]);
+  // v1.66.64 barrier scrub: the hard world clamp (±HALF-1.2) was REACHABLE
+  // through every exit gap — the ROAD CLOSED barrier sits 14u inside and is
+  // narrower than the wall gap, and since the horizonSkirt shipped the edge
+  // looks like open hazy distance, so players walked past the barrier and hit
+  // an invisible stop at the map edge (reports @599,599 / 599,593 / 587,-599).
+  // Close each gap with a VISIBLE highway guardrail right at the bound (the
+  // clamp itself is unchanged) plus flanking oaks, so the stop reads as a
+  // closed road end, not a bug.
+  for (i = 0; i < REMAP_EXITS.length; i++) {
+    var ex2 = REMAP_EXITS[i];
+    var hz2 = ex2.edge === 'N' || ex2.edge === 'S';
+    var ci2 = Math.abs(hz2 ? ex2.dz : ex2.dx);
+    var gg = ex2.hw / Math.max(0.35, ci2) + 8;
+    var at2 = hz2 ? ex2.x : ex2.z;
+    var lo = Math.max(-HALF + 1, at2 - gg - 2), hi = Math.min(HALF - 1, at2 + gg + 2);
+    var edgeC = (ex2.edge === 'N' || ex2.edge === 'W') ? -HALF : HALF;
+    perimeterRail(hz2, edgeC + (edgeC > 0 ? -2.4 : 2.4), lo, hi, edgeC > 0 ? -1 : 1);
+  }
+}
+// galvanized W-beam guardrail spanning [lo,hi] along the map edge at line c
+// (horiz: rail runs in x at z=c; else in z at x=c). inw = inward sign along
+// the edge normal. Registers a matching collider — visible mesh + collider
+// always as a pair.
+var perimRailBeamM = null, perimRailPostM = null;
+function perimeterRail(horiz, c, lo, hi, inw) {
+  if (hi - lo < 4) return;
+  if (!perimRailBeamM) { perimRailBeamM = lamb({ color: 0xb9bfc5 }); perimRailPostM = lamb({ color: 0x6e6a60 }); }
+  var span = hi - lo, mid = (lo + hi) / 2, i;
+  // twin beams (top + mid) — chunky enough to read at 480p from 30u out
+  for (var by = 0; by < 2; by++) {
+    var beam = box(horiz ? span : 0.12, 0.3, horiz ? 0.12 : span, perimRailBeamM,
+      horiz ? mid : c, by ? 0.78 : 0.42, horiz ? c : mid);
+    scene.add(beam);
+  }
+  var n = Math.max(2, Math.round(span / 3.5));
+  for (i = 0; i < n; i++) {
+    var o = lo + (i + 0.5) / n * span;
+    scene.add(box(0.16, 0.82, 0.16, perimRailPostM, horiz ? o : c, 0.41, horiz ? c : o));
+  }
+  addCollider(horiz ? mid : c, horiz ? c : mid, horiz ? span : 1.0, horiz ? 1.0 : span, 'perimeter:rail');
+  // flanking oaks just inside, where the ground is clear of the exit road —
+  // they thicken the treeline so the closed end doesn't read as open horizon
+  for (var s = lo + 3; s < hi - 2; s += 7) {
+    var tx = horiz ? s + (Math.random() - 0.5) * 2 : c + inw * (3 + Math.random() * 6);
+    var tz = horiz ? c + inw * (3 + Math.random() * 6) : s + (Math.random() - 0.5) * 2;
+    if (remapPointClear(tx, tz, 2.5)) oak(tx, tz);
+  }
 }
 function remapBarrier(e) {
   var bx = e.x + e.dx * 14, bz = e.z + e.dz * 14;
@@ -3196,7 +3294,7 @@ function remapBarrier(e) {
     b.rotation.y = yaw;
     scene.add(b);
   }
-  addColliderOBB(bx, bz, half, 0.8, yaw);
+  addColliderOBB(bx, bz, half, 0.8, yaw, 'roadblock');
   signPlane(bx + e.dx * 1.2, 2.2, bz + e.dz * 1.2, Math.atan2(e.dx, e.dz), 6, 1.6, ['ROAD', 'CLOSED'], '#b03018', '#ffffff', true);
 }
 
@@ -3217,10 +3315,17 @@ function remapStreetlightRows() {
     }
   }
 }
-// NPC standing on true-road asphalt? return the nearest curb-side escape
-// point (sidewalk band beside the closest road), else null. Scans mapRoads —
+// NPC standing on true-road asphalt? return a curb-side escape point
+// (sidewalk band beside the closest road), else null. Scans mapRoads —
 // with WC_REMAP on those ARE the decimated true-road segments.
-function remapRoadEscape(x, z) {
+// (gx,gz) optional: the NPC's current goal. Pacing fix (live batch 2): the
+// old "nearest curb" always ejected to the side the NPC came FROM, so a
+// pedestrian legitimately CROSSING a 22-28u road (14s+ at walk speed, vs the
+// 2s loiter timer) was yanked straight back every time — the road-edge
+// back-and-forth shuffle behind most of the pacing reports. With a goal
+// given, the escape exits on the GOAL side, so a crossing NPC commits and
+// finishes the crossing instead of ping-ponging on the near curb.
+function remapRoadEscape(x, z, gx, gz) {
   var best = null, bestD = 1e9;
   for (var i = 0; i < mapRoads.length; i++) {
     var r = mapRoads[i];
@@ -3235,6 +3340,7 @@ function remapRoadEscape(x, z) {
       var nx, nz;
       if (d > 0.3) { nx = px / d; nz = pz / d; }
       else { var L = Math.sqrt(L2); nx = -dz / L; nz = dx / L; }   // dead-center: pick a side
+      if (gx !== undefined && ((gx - cx) * nx + (gz - cz) * nz) < 0) { nx = -nx; nz = -nz; }   // exit on the goal's side
       var off = r.hw + 2 + Math.random() * 2;
       best = [cx + nx * off, cz + nz * off];
     }
@@ -3802,6 +3908,14 @@ var houseFronts = [];      // final (post-nudge) house-front frames for the land
       if (nud) { x += nud[0]; z += nud[1]; }
     }
     var tpl = houseTemplate(ci);
+    // mesh and collider must always come as a PAIR: a template variant that
+    // yields no triangles would render nothing while still registering a
+    // house-sized collider (invisible barrier). Skip the whole instance.
+    if (!tpl || !tpl.pos || !tpl.pos.length) {
+      console.warn('[houses] empty template for cluster ' + ci + ' — skipping instance @' + x + ',' + z + ' (no mesh => no collider)');
+      houseStats.skipped++;
+      continue;
+    }
     var key = ci + '|' + vi;
     var ch = chunks[key];
     if (!ch) ch = chunks[key] = { pos: [], norm: [], uv: [] };
@@ -3826,7 +3940,7 @@ var houseFronts = [];      // final (post-nudge) house-front frames for the land
       registerDoor(dxl * ca + (d / 2) * sa + x, -dxl * sa + (d / 2) * ca + z, sa, ca, 2.2);
       // front-face frame for foundation plantings: centre on the front wall, with
       // outward normal (sa,ca) and along-wall right (ca,-sa). x,z are post-nudge.
-      houseFronts.push({ fcx: x + (d / 2) * sa, fcz: z + (d / 2) * ca, nx: sa, nz: ca, rgx: ca, rgz: -sa, w: w, doorX: dxl });
+      houseFronts.push({ fcx: x + (d / 2) * sa, fcz: z + (d / 2) * ca, nx: sa, nz: ca, rgx: ca, rgz: -sa, w: w, doorX: dxl, hx: x, hz: z });
     }
     if (cl.spec.canopy) {
       // hollow: collide the columns only (walk/drive under the slab)
@@ -3834,26 +3948,24 @@ var houseFronts = [];      // final (post-nudge) house-front frames for the land
       for (var cb = 0; cb < ft.length; cb++) {
         if (ft[cb][0] !== 'door') continue;
         var clx = ft[cb][1] * sc, clz = ft[cb][3] * sc;
-        addCollider(clx * ca + clz * sa + x, -clx * sa + clz * ca + z, 1.1, 1.1);
+        addCollider(clx * ca + clz * sa + x, -clx * sa + clz * ca + z, 1.1, 1.1, 'house:column');
         houseStats.colliders++;
       }
     } else if (Math.min(co, so) > 0.05) {
       // rotated house: ORIENTED collider hugging the true footprint. The old
       // axis-aligned AABB swallowed the driveway/side-yard corners on diagonal
       // streets — players hit "invisible walls" in front of their own garage
-      // (bug reports mree5z0n, mreealh2).
-      // `a`, NOT `rot`: addColliderOBB expects THREE rotation.y RADIANS, and
-      // rot is authored in degrees — cos(-67 rad) gave each diagonal house an
-      // effectively random collider yaw, so its walls were walk-through on
-      // some faces and invisible-wall on others (mrftaqio "Xander clipped
-      // inside building" + part of the invis-barrier cluster)
-      addColliderOBB(x, z, w / 2 + 0.2, d / 2 + 0.2, a);
+      // (bug reports mree5z0n, mreealh2)
+      // v1.66.64: pass yaw in RADIANS (`a`), not degrees — `rot` fed straight
+      // into cos/sin misoriented every diagonal house's collider (an invisible
+      // wall jutting into the yard while a house corner stayed walk-through)
+      addColliderOBB(x, z, w / 2 + 0.2, d / 2 + 0.2, a, 'house');
       houseStats.colliders++;
     } else {
-      // near-axis house: hx/hz are the ROTATED extents (a rot≈90 house spans
-      // d along x, w along z) — raw (w,d) left the two long faces uncovered
-      // and stuck the collider 2u+ into the side yards (same reports)
-      addCollider(x, z, hx * 2 + 0.4, hz * 2 + 0.4);
+      // near-axis house (merge, live2-ai): hx/hz are the ROTATED extents (a
+      // rot~90 house spans d along x, w along z) — raw (w,d) left the two
+      // long faces walk-through and stuck the collider 2u+ into the side yards
+      addCollider(x, z, hx * 2 + 0.4, hz * 2 + 0.4, 'house');
       houseStats.colliders++;
     }
     // invisible raycast proxy (bullets, cop line-of-sight)
@@ -3915,6 +4027,103 @@ var houseFronts = [];      // final (post-nudge) house-front frames for the land
     houseStats.meshes++;
   }
 })();
+// ---------------- residential driveways (road-network round) ----------------
+// Reports mrg01xfw / mrfzrxfl / mrfzfyyf / mrfthmf4: survey houses floated in
+// grass with no access. After the new REMAP_ROADS residential streets, every
+// house whose front faces a nearby local road (cls 1-3, never the arterials)
+// gets a straight asphalt driveway stub from its front wall to the curb.
+// Deterministic (no RNG -> identical on every MP peer), ONE merged mesh, and
+// each stub registers in mapDrives so the minimap draws it and later scatter/
+// pole passes dodge it. Runs AFTER buildSurveyHouses so houseFronts carries
+// the POST-nudge frames, and after buildRemapRoads (RM.roads has chainage).
+(function buildDriveways() {
+  if (!WC_REMAP || !houseFronts.length || typeof RM === 'undefined' || !RM || !RM.roads) return;
+  var DRV_MAX = 40;      // longest stub (deep FL lots get long straight drives)
+  var DRV_W = 3.0;       // slab width
+  var DRV_Y = 0.129;     // above sidewalk ribbons (<=0.1281), below road ribbons (0.134+)
+  var pos = [], nrm = [], uvs = [], made = 0;
+  var i, j, f;
+  // lazily-built house footprints (also used by the tree guard) for crossing tests
+  houseBlocksSpot(0, 0);
+  function pathBlocked(x0, z0, x1, z1, ownX, ownZ) {
+    var L = Math.hypot(x1 - x0, z1 - z0), n = Math.max(2, Math.ceil(L / 2));
+    for (var k = 1; k <= n; k++) {
+      var sx = x0 + (x1 - x0) * k / n, sz = z0 + (z1 - z0) * k / n;
+      if (inLake(sx, sz) || remapInClear(sx, sz, 0.5)) return true;
+      for (var fi = 0; fi < mapForest.length; fi++) {
+        var fr = mapForest[fi];
+        if (sx > fr.x0 && sx < fr.x1 && sz > fr.z0 && sz < fr.z1) return true;
+      }
+      if (houseFootprints) for (var hi = 0; hi < houseFootprints.length; hi++) {
+        var hf = houseFootprints[hi];
+        if (Math.abs(hf.x - ownX) < 6 && Math.abs(hf.z - ownZ) < 6) continue;   // own footprint
+        var dx = sx - hf.x, dz = sz - hf.z;
+        if (dx * dx + dz * dz > hf.r * hf.r) continue;
+        var u = dx * hf.c - dz * hf.s, v = dx * hf.s + dz * hf.c;
+        if (Math.abs(u) < hf.hw - 1.1 && Math.abs(v) < hf.hd - 1.1) return true;   // footprints carry +1.6 pad
+      }
+    }
+    return false;
+  }
+  for (i = 0; i < houseFronts.length; i++) {
+    f = houseFronts[i];
+    // garage-side start: offset along the front wall away from the door
+    var off = f.w >= 9 ? (f.doorX <= 0 ? 1 : -1) * Math.min(f.w * 0.24, f.w / 2 - 2.2) : 0;
+    var qx = f.fcx + f.rgx * off + f.nx * 0.6, qz = f.fcz + f.rgz * off + f.nz * 0.6;
+    // lot-served houses keep their authored parking apron as the "driveway"
+    var lotServed = false;
+    for (j = 0; j < mapParking.length; j++) {
+      var lp = mapParking[j];
+      if (Math.abs(qx - lp.x) < lp.w / 2 + 1 && Math.abs(qz - lp.z) < lp.d / 2 + 1) { lotServed = true; break; }
+    }
+    if (lotServed) continue;
+    // nearest local road the front actually faces
+    var best = null, bestD = 1e9;
+    for (j = 0; j < RM.roads.length; j++) {
+      var r = RM.roads[j];
+      if (r.cls < 1 || r.dirt) continue;   // no driveways onto the arterials
+      var pr = rmProject(r.pts, r.cum, qx, qz);
+      if (pr.d - r.hw > DRV_MAX || pr.d < r.hw + 1.5) continue;
+      var tp = rmAt(r.pts, r.cum, pr.s);
+      var ddx = tp.x - qx, ddz = tp.z - qz, dl = Math.hypot(ddx, ddz) || 1;
+      if ((ddx * f.nx + ddz * f.nz) / dl < 0.35) continue;   // not in front of the house
+      if (pr.d < bestD) { bestD = pr.d; best = { r: r, tp: tp, dl: dl, ux: ddx / dl, uz: ddz / dl }; }
+    }
+    if (!best) continue;
+    // end 1.6u past the curb so the slab tucks under the road ribbon
+    var ex = qx + best.ux * (best.dl - best.r.hw + 1.6), ez = qz + best.uz * (best.dl - best.r.hw + 1.6);
+    var sx2 = qx - f.nx * 1.2, sz2 = qz - f.nz * 1.2;   // tuck the other end under the wall
+    if (pathBlocked(qx, qz, ex, ez, f.hx, f.hz)) continue;
+    var px = -best.uz * (DRV_W / 2), pz = best.ux * (DRV_W / 2);
+    var len = Math.hypot(ex - sx2, ez - sz2);
+    var c4 = [[sx2 - px, sz2 - pz], [sx2 + px, sz2 + pz], [ex + px, ez + pz], [ex - px, ez - pz]];
+    var u4 = [[0, 0], [0, 0.3], [len / 10, 0.3], [len / 10, 0]];
+    var tri = [0, 1, 2, 0, 2, 3];
+    for (j = 0; j < 6; j++) {
+      var ci = tri[j];
+      pos.push(c4[ci][0], DRV_Y, c4[ci][1]);
+      nrm.push(0, 1, 0);
+      uvs.push(u4[ci][0], u4[ci][1]);
+    }
+    var bx0 = Math.min(sx2, ex) - DRV_W / 2, bx1 = Math.max(sx2, ex) + DRV_W / 2;
+    var bz0 = Math.min(sz2, ez) - DRV_W / 2, bz1 = Math.max(sz2, ez) + DRV_W / 2;
+    mapDrives.push({ x: (bx0 + bx1) / 2, z: (bz0 + bz1) / 2, w: bx1 - bx0, d: bz1 - bz0 });
+    made++;
+  }
+  if (!made) return;
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(nrm), 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uvs), 2));
+  var dm = lamb({ map: driveT.clone() });
+  dm.map.wrapS = dm.map.wrapT = THREE.RepeatWrapping;
+  dm.map.needsUpdate = true;
+  var mesh = new THREE.Mesh(geo, dm);
+  geo.computeBoundingSphere();
+  scene.add(mesh);
+  houseStats.driveways = made;
+})();
+
 // minimap: houses are pre-rendered once into an offscreen layer so drawMinimap
 // doesn't repaint ~600 rects every frame (entries carry .hs)
 var houseMMCanvas = null;
@@ -4062,7 +4271,7 @@ function mastArm(px, pz, ax, az, len, nHeads, fx, fz, sign, signRy) {
   var g = new THREE.Group(); g.position.set(px, 0, pz);
   var poleH = 7.8, armY = poleH - 0.5;
   g.add(cyl(0.28, 0.34, poleH, 10, poleMetal, 0, poleH / 2, 0));
-  addCollider(px, pz, 0.68, 0.68);   // signal pole base — static, not breakable
+  addCollider(px, pz, 0.68, 0.68, 'signal');   // signal pole base — static, not breakable
   g.add(box(Math.abs(ax) * len + 0.25, 0.22, Math.abs(az) * len + 0.25, poleMetal, ax * len / 2, armY, az * len / 2));
   for (var i = 0; i < nHeads; i++) {
     var t = (i + 1) / (nHeads + 1) * len;
@@ -4401,7 +4610,7 @@ if (WC_REMAP) (function r3Junction() {
     g.rotation.y = perpYaw;                     // local +x -> across the road (toward centerline)
     var poleH = 7.8, armY = poleH - 0.5, len = hw * 1.5;
     g.add(cyl(0.28, 0.34, poleH, 10, poleMetal, 0, poleH / 2, 0));
-    addCollider(pp[0], pp[1], 0.68, 0.68);      // signal pole base
+    addCollider(pp[0], pp[1], 0.68, 0.68, 'signal');      // signal pole base
     g.add(box(len, 0.22, 0.25, poleMetal, -len / 2, armY, 0));
     var nHeads = hw >= 13 ? 3 : 2;
     for (var hi = 0; hi < nHeads; hi++) {
@@ -5439,6 +5648,19 @@ function meshyPose(sk, clipKey, cycles, oneshot) {
           _legFixQ.setFromAxisAngle(_legFixAx, -sk.legFix.z);
           _rb.quaternion.premultiply(_legFixQ);
         }
+        // px = bone-LOCAL X post-multiply, same sign both legs (NIA, live
+        // report mrftcjh1). Her UpLeg bones are twisted about their own axis
+        // vs the clip's source rig, so the parallel-Y family alone rotates the
+        // stride plane but lifts the feet into a knees-up "floating" gait
+        // (fyMx 0.57 at the old plain 1.2 — the reported look). A local-X
+        // untwist drops the arcs back to the ground; swept in-engine with
+        // foot-height + crossing penalties (scratchpad live2_niasweep*.js).
+        if (sk.legFix.px) {
+          _legFixAx.set(1, 0, 0);
+          _legFixQ.setFromAxisAngle(_legFixAx, sk.legFix.px);
+          _lb.quaternion.multiply(_legFixQ);
+          _rb.quaternion.multiply(_legFixQ);
+        }
       }
     }
   }
@@ -5449,9 +5671,23 @@ function meshyPose(sk, clipKey, cycles, oneshot) {
 // an entry; everyone else stays at 0 (untouched). Measured lateral foot spread
 // for HECTOR drops 0.854u -> 0.31u (roster norm ~0.28u) at 1.2 rad.
 var _legFixQ = null, _legFixAx = null;
-// Number = parallel Y yaw; {y,z} = Y yaw + mirrored Z adduction (see meshyPose).
-// GARY: lat 0.681u -> 0.327u (roster norm ~0.28-0.32u), feet stay planted.
-var MESHY_LEG_FIX = { HECTOR: 1.2, NIA: 1.2, GARY: { y: 0.2, z: 0.25 } };
+// Number = parallel Y yaw; {y,z,px} = Y yaw + mirrored Z adduction + local-X
+// untwist (see meshyPose). GARY: lat 0.681u -> 0.327u (roster norm
+// ~0.28-0.32u), feet stay planted. NIA (report mrftcjh1 "horrible animations
+// on her"): the old plain 1.2 yaw fixed her splay but redirected the stride
+// arcs UP — knees-up floating feet, fyMx 0.57 vs roster norm ~0.16-0.26.
+// Retuned with foot-height + crossing penalties: feet plant at 0.27, no
+// crossing (lat 0.57 is a touch wide but reads fine — planted beats floating).
+// HECTOR (live report mrfzble5) needed NO transform family this can express:
+// his Hips GLOBAL bind is 136° off the shared clip's source rig while his leg
+// joints are ~3° off, so the runtime local-only post retarget scrambled any
+// large excursion (walk fyMx 0.689 / run 1.068 — knees-up floating feet).
+// Fixed by baking him PER-CHARACTER walk/run clips via a proper world-delta
+// retarget (A·L·B with global bind quats; scratchpad live3_hector_bake.js)
+// directly into meshychars.js — his entry now carries own q data like YUKI+,
+// so he no longer goes through the shared-clip post path for locomotion and
+// needs no legFix (walk fyMx 0.195, lat 0.394, crossed 0 — RYAN-class).
+var MESHY_LEG_FIX = { NIA: { y: 0.1, z: 0.05, px: -0.6 }, GARY: { y: 0.2, z: 0.25 } };
 // Stand-in idle for rigs that ship NO idle clip (kids): frame 0 of the walk is
 // a mid-stride passing pose — hips high on the Y track, both feet off the
 // ground — so a frame-0 "idle" visibly hovers (bug mreghm0l). Find the walk
@@ -5505,7 +5741,12 @@ function buildMeshySkinned(cfg, mi) {
   mesh.add(root);
   mesh.updateMatrixWorld(true);
   mesh.bind(new THREE.Skeleton(bones));
-  mesh.frustumCulled = false;
+  // Off-screen characters must not render (lets us carry a much larger crowd).
+  // Re-enable native frustum culling with a padded bind-pose sphere so swinging
+  // limbs / run lean never pop the character out at the screen edge.
+  mesh.geometry.computeBoundingSphere();
+  if (mesh.geometry.boundingSphere) mesh.geometry.boundingSphere.radius = Math.max(mesh.geometry.boundingSphere.radius + 0.5, 1.9);
+  mesh.frustumCulled = true;
   g.add(mesh);
   var names = MESHY_LIST[mi].skel.names, bi = {};
   for (i = 0; i < nj; i++) bi[names[i]] = i;
@@ -5747,7 +5988,7 @@ function buildPerson(shirtC, pantsC, skinC, opts) {
 }
 
 var npcs = [];
-var NPC_COUNT = 220;  // +60% density pass (was 138; report mrefogw8 asked 5x — hold at 220 until instancing/LOD, see TRIAGE)
+var NPC_COUNT = 440;  // doubled crowd — affordable now that off-screen skinned characters frustum-cull (see buildMeshySkinned) + distance anim-LOD (was 220)
 // home-zone weights: core intersection / residential neighborhoods / collectors+Lynmar
 var NPC_W_CORE = 0.60, NPC_W_RES = 0.32;   // remainder (~0.08) = collectors
 var WALK = WC_REMAP ? { x0: -240, x1: 120, z0: -180, z1: 170 }   // recentred on the true venue span
@@ -5887,11 +6128,82 @@ function npcTargetFor(n) {
   }
   return [n.homeX, n.homeZ];
 }
+// ---- anti-pacing toolkit (live batch 2: 7 "stuck pacing / back-and-forth"
+// reports — mrft9al8 mrftbul8 mrftesnl mrftf1th mrftf7lk mrfttu3a mrftc5d4).
+// Root causes measured in-engine: (a) blind repicks after a stuck/wall-slide
+// bail kept choosing targets THROUGH the same wall (or back into the same
+// pocket), so the NPC turned, walked 2u, hit it again, turned... visible
+// ping-pong; (b) whisker-avoid steering moves at full speed, so an NPC could
+// orbit a concave corner forever without ever tripping the zero-progress
+// watchdogs; (c) nothing enforced a minimum wander-leg length.
+// corridorFree probes the first ~7.5u of the straight line with the same
+// pointFree test the whisker uses — cheap coarse "can I even set off that way".
+function corridorFree(x, z, tx, tz) {
+  var dx = tx - x, dz = tz - z, d = Math.sqrt(dx * dx + dz * dz);
+  if (d < 0.5) return true;
+  var ux = dx / d, uz = dz / d, span = Math.min(d - 0.3, 7.5);
+  for (var s = 1.6; s <= span; s += 1.9) {
+    if (!pointFree(x + ux * s, z + uz * s, 0.45)) return false;
+  }
+  return true;
+}
+// replacement wander target after a stuck/wall-slide bail: remembers the
+// heading that just failed (n.badDX/badDZ for ~8s) and prefers candidates
+// that are >=12u away, outside a ~60° cone of any remembered bad heading,
+// and whose first corridor is walkable. Falls back to backtracking the way
+// the NPC came (that ground is known walkable).
+function npcBailTarget(n, fvx, fvz) {
+  if (fvx !== undefined && (fvx || fvz)) { n.badDX = fvx; n.badDZ = fvz; n.badT = T + 8; }
+  // trapped backstop: 4+ bails inside ~40s means the NPC is boxed in a pocket
+  // no wander target leads out of. Duck through the nearest doorway (the
+  // standard hidden-dwell flow killed NPCs already use) and re-emerge fresh,
+  // instead of pacing the pocket forever. Returns null — caller skips the
+  // target assignment.
+  if (T > (n.bailWin || 0)) { n.bailWin = T + 40; n.bailCt = 0; }
+  n.bailCt = (n.bailCt || 0) + 1;
+  if (n.bailCt >= 4 && n.state === 'walk' && npcDoors.length && n.mesh) {
+    var nearI = [], farI = 0, farD = 1e9;
+    for (var di = 0; di < npcDoors.length; di++) {
+      var dd = (npcDoors[di].sx - n.x) * (npcDoors[di].sx - n.x) + (npcDoors[di].sz - n.z) * (npcDoors[di].sz - n.z);
+      if (dd < 130 * 130) nearI.push(di);
+      if (dd < farD) { farD = dd; farI = di; }
+    }
+    breakNpcChat(n); stopNpcVoice(n.vname);
+    n.doorI = nearI.length ? nearI[(Math.random() * nearI.length) | 0] : farI;
+    n.state = 'hidden'; n.dwellT = 4 + Math.random() * 6; n.bailCt = 0;
+    n.wayX = undefined; n.wayZ = undefined; n.doorSeek = undefined;
+    n.mesh.visible = false; if (n.mesh.userData.shadow) n.mesh.userData.shadow.visible = false;
+    return null;
+  }
+  var remember = n.badT !== undefined && T < n.badT;
+  for (var tr = 0; tr < 6; tr++) {
+    var c = npcTargetFor(n);
+    var dx = c[0] - n.x, dz = c[1] - n.z, d = Math.sqrt(dx * dx + dz * dz);
+    if (d < 12) continue;
+    if (remember && (dx / d) * n.badDX + (dz / d) * n.badDZ > 0.5) continue;   // points back at the wall/pocket
+    if (!corridorFree(n.x, n.z, c[0], c[1])) continue;
+    return c;
+  }
+  if (remember) {   // nothing passed: walk back the way we came
+    var bl = 10 + Math.random() * 4;
+    return [n.x - n.badDX * bl, n.z - n.badDZ * bl];
+  }
+  return npcTargetFor(n);
+}
 // pick a fresh wander target for an NPC; if the straight line to it crosses a
 // road, usually route through the intersection crosswalk pads first (single
 // waypoint in n.wayX/n.wayZ — no pathfinding)
 function setNpcTarget(n) {
-  var t = npcTargetFor(n); n.tx = t[0]; n.tz = t[1];
+  var t = npcTargetFor(n);
+  // anti-pacing: reject wander legs under 12u (short hop-and-turn legs read
+  // as aimless shuffling) and legs whose first corridor is blocked; a few
+  // rerolls, then accept whatever came up (turf pickers can be small).
+  for (var tg = 0; tg < 4; tg++) {
+    var mdx = t[0] - n.x, mdz = t[1] - n.z;
+    if (mdx * mdx + mdz * mdz >= 144 && corridorFree(n.x, n.z, t[0], t[1])) break;
+    t = npcTargetFor(n);
+  }
+  n.tx = t[0]; n.tz = t[1];
   n.wayX = undefined; n.wayZ = undefined;
   // core crosswalk routing only — neighborhood walkers jaywalk their streets
   if (!WC_REMAP && !n.turf && Math.random() < 0.7) {
@@ -5938,55 +6250,6 @@ function setNpcTarget(n) {
       }
       n.wayX = undefined; n.wayZ = undefined; n.doorSeek = undefined;
     }
-  }
-}
-// ---- pacing-cluster give-up path (live2-ai; reports mrft9al8, mrftbul8,
-// mrftesnl, mrftf1th, mrftf7lk, mrftc5d4, mrfttu3a) ----
-// is any human (local player or remote peer) close enough to see this NPC?
-function anyPlayerNear(x, z, r) {
-  var r2 = r * r;
-  if (!state.dead) { var dx = player.x - x, dz = player.z - z; if (dx * dx + dz * dz < r2) return true; }
-  if (net && net.remotes) for (var id in net.remotes) { var rp = net.remotes[id]; if (rp && !rp.dead) { var rx = rp.x - x, rz = rp.z - z; if (rx * rx + rz * rz < r2) return true; } }
-  return false;
-}
-// is the first maxD units of the straight line (x,z)->(tx,tz) collider-free?
-function npcLineClear(x, z, tx, tz, maxD) {
-  var dx = tx - x, dz = tz - z, d = Math.sqrt(dx * dx + dz * dz);
-  if (d < 0.001) return true;
-  var lim = Math.min(d, maxD);
-  for (var s = 1.4; s <= lim; s += 1.4) if (!pointFree(x + dx / d * s, z + dz / d * s, 0.45)) return false;
-  return true;
-}
-// a movement watchdog tripped: abandon the current goal. Counts consecutive
-// give-ups (reset on any real arrival) and re-rolls with a reachability bias
-// — prefer a target whose first ~11u of straight line is walkable, so the
-// NPC doesn't ping-pong between two picks it can't start toward. After 3
-// straight failures the NPC is written off as trapped (concave pockets,
-// orphan colliders) and — only when no player is near enough to see the
-// swap — re-enters the world through a nearby door, the same walk-out
-// contract death respawns use (never pops in; MP wires it as 'hidden').
-function npcGiveUp(n) {
-  n.progKey = undefined; n.stuckT = 0; n.wallBaseD = undefined;
-  n.wayX = undefined; n.wayZ = undefined; n.doorSeek = undefined;
-  n.giveUps = (n.giveUps || 0) + 1;
-  if (n.giveUps >= 3 && !n.grp && n.state === 'walk' && npcDoors.length && !anyPlayerNear(n.x, n.z, 45)) {
-    n.giveUps = 0;
-    breakNpcChat(n); stopNpcVoice(n.vname);
-    var nearI = [], farI = null, farD = 1e9;
-    for (var di = 0; di < npcDoors.length; di++) {
-      var dd = (npcDoors[di].sx - n.x) * (npcDoors[di].sx - n.x) + (npcDoors[di].sz - n.z) * (npcDoors[di].sz - n.z);
-      if (dd < 130 * 130) nearI.push(di);
-      if (dd < farD) { farD = dd; farI = di; }
-    }
-    n.doorI = nearI.length ? nearI[(Math.random() * nearI.length) | 0] : farI;
-    n.state = 'hidden'; n.dwellT = 0.8 + Math.random() * 2;
-    n.mesh.visible = false; if (n.mesh.userData.shadow) n.mesh.userData.shadow.visible = false;
-    return;
-  }
-  for (var tr = 0; tr < 6; tr++) {
-    var c = npcTargetFor(n);
-    n.tx = c[0]; n.tz = c[1];
-    if (npcLineClear(n.x, n.z, c[0], c[1], 11)) break;
   }
 }
 // scan traffic for a car bearing down on this NPC; returns the unit
@@ -6106,15 +6369,18 @@ function listAccessories() {
 // group-local placement for push (front) / side (beside) modes. The owner group
 // is upright (yaw only), local +z is forward; authored front is -x so a yaw of
 // +PI/2 turns the prop's front to face the owner's forward. Exceptions (from
-// probing the geometry, bug batch mreguavi/mregcwvd): the WALKER's hand rails
-// run along authored z at x +-0.24 (ry 0 keeps them fore-aft, ends toward the
-// user — +PI/2 turned the handles sideways so it read backwards/dragged); the
-// SUITCASE's telescoping handle is on the authored -z face (ry PI points it at
-// the owner's right hand; it also moves to the RIGHT side, x -0.36 — hands are
-// on -x in these rigs).
+// probing the geometry, bug batch mreguavi/mregcwvd + live report mrfzf22j):
+// the WALKER's handgrip rails actually run along authored X at z +-0.2 (the
+// old note here had the axes swapped — its ry:0 left the handles ACROSS the
+// walk direction, owner: "holding the walker wrong, rotate 90 degrees"); its
+// open side is authored -x (5 mid-height verts vs 31 on the braced +x face),
+// so ry -PI/2 turns the opening to the user and the rails fore-aft at owner
+// x +-0.2; the SUITCASE's telescoping handle is on the authored -z face (ry PI
+// points it at the owner's right hand; it also moves to the RIGHT side,
+// x -0.36 — hands are on -x in these rigs).
 var ACC_PLACE = {
   stroller:  { mode: 'push', x: 0,     z: 0.62,  ry: Math.PI / 2 },
-  walker:    { mode: 'push', x: 0,     z: 0.5,   ry: 0 },
+  walker:    { mode: 'push', x: 0,     z: 0.5,   ry: -Math.PI / 2 },
   bicycle:   { mode: 'side', x: 0.5,   z: 0.05,  ry: Math.PI / 2 },
   suitcase:  { mode: 'side', x: -0.36, z: -0.34, ry: Math.PI },
   wagon:     { mode: 'side', x: 0.0,   z: 0.72,  ry: Math.PI / 2 }
@@ -6140,9 +6406,9 @@ var ACC_HAND = {
 };
 // pick an accessory name for a spawning NPC by rolling a category first, so dogs
 // don't dominate; returns null when the rolled pool is empty.
-// wagon pulled from the adult roll (mrftsrmg: a grown pedestrian dragging the
-// red toy wagon read as a bug) — the asset stays loaded for the __wc debug
-// hook; re-homing it onto parents walking their kids is a future nicety.
+// wagon is KIDS-ONLY (report mrftsrmg: "only kids should use the wagon" — an
+// adult pedestrian towing the red toy wagon read wrong). Adults never roll it;
+// spawnKids hands a few kids one instead.
 var ACC_POOL_WALK = ['dog', 'bicycle', 'suitcase'];
 var ACC_POOL_HOLD = ['umbrella', 'shopping_bags', 'coffee_cup', 'cane', 'skateboard', 'boombox', 'balloon'];
 var ACC_POOL_PUSH = ['stroller', 'walker'];
@@ -6252,10 +6518,11 @@ function updateAccessories(dt) {
     if (a.mode === 'leash') updateLeashDog(a, n, dt);
     else if (a.mode === 'hand') { if (a.name === 'boombox') poseCarryArm(n); updateHandAcc(a, n, dt); }
     else if (a.name === 'walker') poseWalkerGrip(n);
+    else if (a.name === 'stroller') poseStrollerGrip(n);   // hands on the bar (mrfzbvxk)
     else if (a.name === 'suitcase') poseCaseDrag(n);
-    // stroller & other side items ride their parent group transform (no
-    // per-frame work) — the natural arm swing reads fine behind a stroller.
-    // Grip-class items (walker/boombox/suitcase) pose the owner's arms above.
+    // other side items ride their parent group transform (no per-frame work).
+    // Grip-class items (walker/stroller/boombox/suitcase) pose the owner's
+    // arms above.
     if (n.mesh && n.mesh.userData) n.mesh.userData.reposed = false;   // consumed (see gripPoseOK)
   }
 }
@@ -6304,8 +6571,10 @@ function pitchLimbWorld(bone, yaw, ang) {
   _aimPQ2.copy(_aimPQ).invert().multiply(_aimQ).multiply(_aimPQ);
   bone.quaternion.premultiply(_aimPQ2);
 }
-// walker user: forward hunch + both hands onto the rail ends (rails sit at
-// owner-local x +-0.24, y ~0.82, rear ends ~z 0.3 — see ACC_PLACE)
+// walker user: forward hunch + both hands onto the rail rear ends. After the
+// mrfzf22j reorientation (ry -PI/2, see ACC_PLACE) the two grip rails run
+// fore-aft at owner-local x +-0.2, tube tops y 0.74-0.85, spanning owner z
+// 0.26..0.75 — grab them near their rear (user) ends.
 function poseWalkerGrip(n) {
   if (!gripPoseOK(n)) return;
   gripTmps();
@@ -6314,9 +6583,27 @@ function poseWalkerGrip(n) {
   var sp = m.userData.spine;
   if (sp) { pitchLimbWorld(sp, m.rotation.y, 0.32); m.updateMatrixWorld(true); }   // hunch, then refresh shoulders
   var hL = m.userData.handL || L.armL, hR = m.userData.handR || L.armR;
-  _gripV.set(0.24, 0.82, 0.32); m.localToWorld(_gripV);    // left hand (+x side)
+  _gripV.set(0.2, 0.82, 0.34); m.localToWorld(_gripV);    // left hand (+x side)
   aimLimbAt(L.armL, hL, _gripV.x, _gripV.y, _gripV.z);
-  _gripV.set(-0.24, 0.82, 0.32); m.localToWorld(_gripV);
+  _gripV.set(-0.2, 0.82, 0.34); m.localToWorld(_gripV);
+  aimLimbAt(L.armR, hR, _gripV.x, _gripV.y, _gripV.z);
+}
+// stroller pusher (live report mrfzbvxk "pushing a stroller with no hands"):
+// both hands onto the handle bar + a light forward lean. The bar sits at
+// authored x 0.34-0.42 / y 0.94-0.99 spanning z +-0.2, which after the ry
+// +PI/2 placement (front toward travel) lands at owner-local z ~0.24,
+// y ~0.96, running across x +-0.2.
+function poseStrollerGrip(n) {
+  if (!gripPoseOK(n)) return;
+  gripTmps();
+  var m = n.mesh, L = m.userData.limbs;
+  m.updateMatrixWorld(true);
+  var sp = m.userData.spine;
+  if (sp) { pitchLimbWorld(sp, m.rotation.y, 0.14); m.updateMatrixWorld(true); }   // lighter lean than the walker hunch
+  var hL = m.userData.handL || L.armL, hR = m.userData.handR || L.armR;
+  _gripV.set(0.17, 0.96, 0.24); m.localToWorld(_gripV);    // left hand (+x side)
+  aimLimbAt(L.armL, hL, _gripV.x, _gripV.y, _gripV.z);
+  _gripV.set(-0.17, 0.96, 0.24); m.localToWorld(_gripV);
   aimLimbAt(L.armR, hR, _gripV.x, _gripV.y, _gripV.z);
 }
 // rolling suitcase: right arm reaches down-back to the telescoping handle top
@@ -8153,7 +8440,7 @@ function spOverlapsBuilding(x, z, hx, hz) {
     g.rotation.y = ry;
     scene.add(g);
     if (SP_SOLID[name]) {
-      addCollider(x, z, hx * 2, hz * 2);
+      addCollider(x, z, hx * 2, hz * 2, 'prop:' + name);
       solidMeshes.push(g);   // bullets stop on the big stuff
     }
     if (SP_SNAP[name]) {
@@ -8189,6 +8476,10 @@ var densityStats = { trees: 0, props: 0, decals: 0, signs: 0, clutter: 0, fence:
 // (name,x,z). Baked props merge into shared geometry with no per-instance
 // record, so QA scans (prop-on-asphalt sweeps etc.) need this to audit them.
 var densityPlaced = [];
+// every stake/pole+placard sign assembly registers here at build time so
+// map-wide audits can assert stake-top vs placard-bottom overlap + lateral
+// seating (detached-sign cluster mrfto9qj/mrfzidc6/mrfzjsdl/mrfzk1rq)
+var signAudit = [];
 // ---- v1.65.5 shared prop-placement guards (density + env layers) ----
 // Chunky ground props register here so later layers can enforce a de-cluster
 // rule: no more than 2 items inside a 3u radius (bug: gumball/vending/trash/etc.
@@ -8238,14 +8529,21 @@ if (WC_REMAP) (function densityLayer() {
   // handful of decals/clutter/fences read best keyed too (luminance < thr -> clear)
   var KEY = {};
   ['billboard_ad', 'storefront_sign', 'grand_opening_banner', 'flyer_sheet', 'for_sale_sign', 'menu_board', 'bus_route_sign', 'graffiti_panel', 'wall_mural', 'roadwork_sign', 'stop_sign', 'gas_price_sign', 'yard_sign', 'lost_pet_flyer', 'neon_bar_sign', 'parking_sign', 'speed_limit_sign', 'garage_sale_sign'].forEach(function (n) { KEY[n] = 40; });
-  ['grass_tuft', 'leaves_scatter', 'litter_scatter', 'crosswalk', 'center_line', 'road_arrow', 'skid_marks', 'chainlink_fence', 'potted_plant'].forEach(function (n) { KEY[n] = 46; });
+  ['grass_tuft', 'crosswalk', 'center_line', 'road_arrow', 'skid_marks', 'chainlink_fence', 'potted_plant'].forEach(function (n) { KEY[n] = 46; });
   // Ground stain/crack/fixture decals are authored on a full asphalt/concrete
   // tile: rendered as an opaque quad they show a hard rectangular "box/shadow
   // patch" (bug reports mree7hy2/mree84pq/mree8hw2). BLEND-key them: the tile's
   // dominant border (surface) colour fades to transparent so only the mark
   // shows, plus a soft edge vignette so the quad boundary never reads as a box.
   var GKEY = {};
-  ['oil_stain', 'asphalt_cracks', 'asphalt_patch', 'cracked_slab', 'sidewalk_gum', 'manhole', 'storm_drain', 'utility_plate', 'mud_patch', 'puddle'].forEach(function (n) { GKEY[n] = 1; });
+  // litter_scatter / leaves_scatter moved here from the luminance KEY list
+  // (report mrftxqdt "wtf is this" — a litter sheet on a white plaza sidewalk):
+  // they're authored on a MID-GRAY asphalt tile, so keying only lum<46 left the
+  // whole gray tile opaque — on pale sidewalk slabs or grass the quad read as a
+  // solid sheet hovering over the ground (geometry verified flat at y=0.14;
+  // map-wide scan found zero elevated/tilted decal quads). Blend-keying fades
+  // the tile's own background to transparent so only the litter/leaves show.
+  ['oil_stain', 'asphalt_cracks', 'asphalt_patch', 'cracked_slab', 'sidewalk_gum', 'manhole', 'storm_drain', 'utility_plate', 'mud_patch', 'puddle', 'litter_scatter', 'leaves_scatter'].forEach(function (n) { GKEY[n] = 1; });
   var dTexCache = {};
   function dTex(name) {
     if (dTexCache[name] !== undefined) return dTexCache[name];
@@ -8315,16 +8613,30 @@ if (WC_REMAP) (function densityLayer() {
       if (o.mapTex) mo.map = o.mapTex;   // pre-built canvas texture (e.g. tree wells)
       if (o.color !== undefined) mo.color = o.color;
       if (o.double) mo.side = THREE.DoubleSide;
+      // sign placards bake TWO front-facing planes back-to-back (dSign) —
+      // DoubleSide here would z-fight the pair AND is what mirrored the text
+      if (o.twoPlane) mo.side = THREE.FrontSide;
       var mat = lamb(mo);
       if (o.decal) { mat.polygonOffset = true; mat.polygonOffsetFactor = -2; mat.polygonOffsetUnits = -2; }
       var mesh = new THREE.Mesh(g, mat); if (o.decal) mesh.frustumCulled = false;
+      mesh.name = key;   // batch key on the mesh so world scans can attribute geometry
       scene.add(mesh); n++;
     }
     densityStats.batches = n;
   }
   // helpers to place one asset instance into the right batch
   function dDecal(name, x, z, y, ry, scale) { if (!dAsset[name]) return; var a = dAsset[name]; var w = a.dims[0] * (scale || 1), d = a.dims[1] * (scale || 1); bake('d_' + name, { texName: name, decal: true }, UDECAL, mtx(x, y, z, ry || 0, w, 1, d)); densityStats.decals++; }
-  function dSign(name, x, y, z, ry, scale) { if (!dAsset[name]) return; var a = dAsset[name]; bake('d_' + name, { texName: name, double: true }, USIGN, mtx(x, y, z, ry, a.dims[0] * (scale || 1), a.dims[1] * (scale || 1), 1)); densityStats.signs++; densityPlaced.push({ n: name, x: x, z: z, y: y }); }
+  // placards were a single DoubleSide plane → text read MIRRORED from behind
+  // (seen live on a FOR SALE yard sign, mrft7zm5 shot). Same fix as greenSign:
+  // bake the plane twice, front-to-front (ry and ry+PI), FrontSide material —
+  // exactly coplanar, but backface culling draws only one per view direction.
+  function dSign(name, x, y, z, ry, scale) {
+    if (!dAsset[name]) return; var a = dAsset[name];
+    var sw = a.dims[0] * (scale || 1), sh = a.dims[1] * (scale || 1);
+    bake('d_' + name, { texName: name, twoPlane: true }, USIGN, mtx(x, y, z, ry, sw, sh, 1));
+    bake('d_' + name, { texName: name, twoPlane: true }, USIGN, mtx(x, y, z, ry + Math.PI, sw, sh, 1));
+    densityStats.signs++; densityPlaced.push({ n: name, x: x, z: z, y: y });
+  }
   function dBoxAsset(name, x, y, z, ry, sc) { if (!dAsset[name]) return; sc = sc || 1; var a = dAsset[name]; bake('d_' + name, { texName: name }, UBOX, mtx(x, y, z, ry || 0, a.dims[0] * sc, a.dims[1] * sc, a.dims[2] * sc)); densityStats.clutter++; densityPlaced.push({ n: name, x: x, z: z }); }
   // a flat textured box read as "2D trash" (report mredr84j); pile 3-4 lumpy,
   // squashed blobs instead so it reads as bulging plastic bags. Reuses the
@@ -8342,24 +8654,27 @@ if (WC_REMAP) (function densityLayer() {
   function dCylAsset(name, x, y, z) { if (!dAsset[name]) return; var a = dAsset[name]; bake('d_' + name, { texName: name }, UCYL, mtx(x, y, z, 0, a.dims[0], a.dims[1], a.dims[0])); densityStats.clutter++; densityPlaced.push({ n: name, x: x, z: z }); }
   // waist-high+ poles (roadside sign posts, billboard legs) block the player;
   // short yard-sign stakes (h < 1.5) stay pass-through
-  function pole(x, z, h, r) { r = r || 0.11; bake('_pole', { color: 0x8a8f94 }, UCYL, mtx(x, h / 2, z, 0, r * 2, h, r * 2)); if (h >= 1.5) addCollider(x, z, Math.max(0.26, r * 2), Math.max(0.26, r * 2)); }
+  function pole(x, z, h, r) { r = r || 0.11; bake('_pole', { color: 0x8a8f94 }, UCYL, mtx(x, h / 2, z, 0, r * 2, h, r * 2)); if (h >= 1.5) addCollider(x, z, Math.max(0.26, r * 2), Math.max(0.26, r * 2), 'pole'); }
   // tileable fence/wall run A->B, height H, texture repeating along its length
   function fenceRun(ax, az, bx, bz, name, solid) {
     var a = dAsset[name]; if (!a) return;
     var H = a.dims[0], dx = bx - ax, dz = bz - az, L = Math.sqrt(dx * dx + dz * dz);
     if (L < 0.6) return;
-    // chainlink: fixed ~0.7u square tile period — same retile the panel fences
-    // got in v1.66.12. One tile stretched over the full height rendered the
-    // asset's coarse native diamonds as a giant thick lattice on the storage/
-    // school perimeter runs (mrfttd8s refile at the self-storage lot)
-    var mesh = name === 'chainlink_fence';
-    var rep = mesh ? Math.max(1, L / 0.7) : Math.max(1, Math.round(L / (H * 1.4)));
-    var repV = mesh ? Math.max(1, H / 0.7) : 0;
+    var rep = Math.max(1, Math.round(L / (H * 1.4))), repV = 0;
+    // chainlink retile (report mrfttd8s "thick chainlink texture", self-storage
+    // lot): this densityprops fence path stretched ONE texture tile over the
+    // full 2u height x 2.8u length, so the diamonds rendered ~4x oversized and
+    // the wire read rope-thick. Tile at the same ~0.7u period the FENCE_RUNS
+    // breakable chainlink panels use (v1.66.12 fix) so both systems match.
+    if (name === 'chainlink_fence') {
+      rep = Math.max(1, Math.round(L / 0.7));
+      repV = Math.max(1, Math.round(H / 0.7));
+    }
     var g = new THREE.PlaneGeometry(L, H), uv = g.attributes.uv;
     for (var i = 0; i < uv.count; i++) { uv.setX(i, uv.getX(i) * rep); if (repV) uv.setY(i, uv.getY(i) * repV); }
     var ry = Math.atan2(-dz, dx);
     bake('d_' + name, { texName: name, double: true }, g, mtx((ax + bx) / 2, H / 2 + 0.02, (az + bz) / 2, ry, 1, 1, 1));
-    if (solid) addColliderOBB((ax + bx) / 2, (az + bz) / 2, L / 2, 0.25, ry);
+    if (solid) addColliderOBB((ax + bx) / 2, (az + bz) / 2, L / 2, 0.25, ry, 'fence');
     densityStats.fence++;
   }
   function fenceRect(cx, cz, w, d, rot, name, solid) {
@@ -8379,26 +8694,43 @@ if (WC_REMAP) (function densityLayer() {
   var poleSignMats = {};
   function poleSignMat(name) {
     if (poleSignMats[name]) return poleSignMats[name];
-    var t = dTex(name), mo = { side: THREE.DoubleSide };
+    // FrontSide + a second back-to-back plane in poleSign: DoubleSide showed
+    // mirrored text from behind (same class as the yard-sign dSign fix)
+    var t = dTex(name), mo = {};
     if (t) { mo.map = t.tex; if (t.keyed) { mo.transparent = true; mo.alphaTest = 0.5; } }
     return (poleSignMats[name] = lamb(mo));
   }
   function poleSign(name, x, z, ry, mountY, poleH, poleR) {
-    poleR = poleR || 0.065;   // was 0.11 — a 22cm post read as comically thick (mrfto9qj); real sign posts are ~6-7cm
+    // sane sign-post radius: 0.11 read rope-thick next to the 0.4-0.6u
+    // placards (mrfto9qj "too thick")
+    poleR = poleR || 0.065;
     var a = dAsset[name];
     if (!a) { pole(x, z, poleH, poleR); return; }
+    // detached-sign cluster (mrfto9qj + friends): derive the post from the
+    // ACTUAL placard extents instead of trusting the caller's constants —
+    // the post top always ends just behind/below the placard's top edge
+    // (never below its bottom = floating, never poking past the top),
+    // whatever this asset's dims are.
+    var plBot = mountY - a.dims[1] / 2, plTop = mountY + a.dims[1] / 2;
+    poleH = Math.max(plBot + 0.08, Math.min(poleH || plTop, plTop - 0.04));
     var g = new THREE.Group();
     g.add(cyl(poleR, poleR, poleH, 8, poleSignPoleM, 0, poleH / 2, 0));
-    // seat the placard clear of the pole SURFACE — an offset INSIDE poleR
-    // speared the post through the sign face (mref48hy); +0.04 keeps it clear
-    // without the visible detached-from-the-pole air gap +0.1 left (mrfto9qj)
-    var pl = new THREE.Mesh(new THREE.PlaneGeometry(a.dims[0], a.dims[1]), poleSignMat(name));
-    pl.position.set(0, mountY, poleR + 0.04);
+    // seat the placard ON the post: just clear of the pole surface (0.02) —
+    // inside the radius the post spears the face (mref48hy), while the old
+    // poleR+0.1 left a visible air gap = "sign floating off pole" (mrfto9qj)
+    var plGeo = new THREE.PlaneGeometry(a.dims[0], a.dims[1]);
+    var plOff = poleR + 0.02;
+    var pl = new THREE.Mesh(plGeo, poleSignMat(name));
+    pl.position.set(0, mountY, plOff);
     g.add(pl);
+    var plB = new THREE.Mesh(plGeo, poleSignMat(name));
+    plB.position.set(0, mountY, plOff); plB.rotation.y = Math.PI;
+    g.add(plB);
     g.position.set(x, 0, z); g.rotation.y = ry;
     scene.add(g);
     registerBreakable(g, x, z, Math.max(0.6, a.dims[0] / 2 + 0.15), 'light', null, 0.14);
     densityStats.signs++; densityPlaced.push({ n: name, x: x, z: z, y: mountY });
+    signAudit.push({ n: name, kind: 'poleSign', ry: ry, x: x, z: z, stakeTop: poleH, stakeR: poleR, plBot: mountY - a.dims[1] / 2, plTop: mountY + a.dims[1] / 2, plW: a.dims[0], latOff: plOff });
   }
 
   // ---- surface geometry references ----
@@ -8573,14 +8905,27 @@ if (WC_REMAP) (function densityLayer() {
       dSign(nm, wallx + f2.rx * lateral, mount, wallz + f2.rz * lateral, f2.yaw, nm === 'grand_opening_banner' ? 1 : 1);
     }
     // gas pylon out at the RaceTrac frontage
-    if (vv2.type === 'racetrac') { var px = vv2.x + f2.fx * (vv2.d / 2 + 7), pz = vv2.z + f2.fz * (vv2.d / 2 + 7); pole(px, pz, 3.2, 0.14); dSign('gas_price_sign', px, 4.2, pz, f2.yaw); }
+    if (vv2.type === 'racetrac') {
+      var px = vv2.x + f2.fx * (vv2.d / 2 + 7), pz = vv2.z + f2.fz * (vv2.d / 2 + 7);
+      // panel plane 0.02 clear of the pole surface — ON the axis the pole
+      // speared the lower 0.3 of the price panel face (sign-assembly audit)
+      var gpOff = 0.14 + 0.02;
+      pole(px, pz, 3.2, 0.14); dSign('gas_price_sign', px + f2.fx * gpOff, 4.2, pz + f2.fz * gpOff, f2.yaw);
+      var gpa = dAsset['gas_price_sign'];
+      if (gpa) signAudit.push({ n: 'gas_price_sign', kind: 'pylon', ry: f2.yaw, x: px, z: pz, stakeTop: 3.2, stakeR: 0.14, plBot: 4.2 - gpa.dims[1] / 2, plTop: 4.2 + gpa.dims[1] / 2, plW: gpa.dims[0], latOff: gpOff });
+    }
     // freestanding entrance clutter markers
   }
   // billboards on 2-post frames at two road exits (facing inward)
   for (var xi = 0; xi < EXITS.length && xi < 2; xi++) {
     var ex = EXITS[xi], bx = ex.x + ex.dx * 24, bz = ex.z + ex.dz * 24, byaw = Math.atan2(ex.dx, ex.dz) + Math.PI;
     pole(bx - ex.dz * 5, bz + ex.dx * 5, 6, 0.2); pole(bx + ex.dz * 5, bz - ex.dx * 5, 6, 0.2);
-    dSign('billboard_ad', bx, 6.6, bz, byaw);
+    // board plane 0.02 clear of the posts' front surface (posts hold it from
+    // BEHIND) — on the post axis the two legs speared the board face
+    var bbOff = 0.2 + 0.02, bnx = Math.sin(byaw), bnz = Math.cos(byaw);
+    dSign('billboard_ad', bx + bnx * bbOff, 6.6, bz + bnz * bbOff, byaw);
+    var bba = dAsset['billboard_ad'];
+    if (bba) signAudit.push({ n: 'billboard_ad', kind: 'billboard', ry: byaw, x: bx, z: bz, stakeTop: 6, stakeR: 0.2, plBot: 6.6 - bba.dims[1] / 2, plTop: 6.6 + bba.dims[1] / 2, plW: bba.dims[0], latOff: bbOff });
   }
   // roadside sign poles along arterials/collectors: stop at junction approaches,
   // speed/parking/bus elsewhere
@@ -8589,11 +8934,20 @@ if (WC_REMAP) (function densityLayer() {
       var rc = RM.roads[rs]; if (rc.cls > 1 || rc.dirt) continue;
       var lenS = rc.cum[rc.cum.length - 1], sd = 1;
       for (var sv = 40; sv < lenS - 30; sv += 78) {
-        // just BEHIND the walk band (hw+0.6 .. hw+0.6+sw), not hw+2.4 which
-        // planted every roadside post dead-center of the sidewalk (mrfto9qj)
-        var ps = rmAt(rc.pts, rc.cum, sv), of = rc.hw + (rc.cls === 0 ? 5 : 3.4) + 1.2;
-        var sx = ps.x - ps.uz * of * sd, sz = ps.z + ps.ux * of * sd; sd = -sd;
-        if (!spotClear(sx, sz) || remapInClear(sx, sz, 0)) continue;
+        // mrfto9qj "pole mid-sidewalk": hw+2.4 planted the post dead-centre of
+        // the flanking walk ribbon. Start just past the curb and nudge outward
+        // until the spot leaves the onSidewalk band (walk edge / verge), same
+        // clearance idea as the walkRibbonAt decal fix; skip if nothing clears.
+        var ps = rmAt(rc.pts, rc.cum, sv), swS = rc.cls === 0 ? 5 : 3.4;
+        var sx = 0, sz = 0, sOK = false;
+        for (var of = rc.hw + swS + 1.1; of <= rc.hw + swS + 2.7; of += 0.4) {
+          sx = ps.x - ps.uz * of * sd; sz = ps.z + ps.ux * of * sd;
+          if (onSidewalk(sx, sz)) continue;
+          if (!spotClear(sx, sz) || remapInClear(sx, sz, 0) || inLake(sx, sz) || houseBlocksSpot(sx, sz)) continue;
+          sOK = true; break;
+        }
+        sd = -sd;
+        if (!sOK) continue;
         var facing = Math.atan2(-ps.ux, -ps.uz);   // face oncoming traffic
         var kind = pick(['speed_limit_sign', 'parking_sign', 'bus_route_sign', 'roadwork_sign']);
         poleSign(kind, sx, sz, facing, kind === 'bus_route_sign' ? 2.2 : 1.7, kind === 'bus_route_sign' ? 2.6 : 2.1);
@@ -8606,10 +8960,12 @@ if (WC_REMAP) (function densityLayer() {
       var ry3 = RM.roads[yr]; if (ry3.cls < 2 || ry3.dirt) continue;
       var lenY = ry3.cum[ry3.cum.length - 1], yd = 1;
       for (var yv = 30; yv < lenY - 20; yv += 46) {
-        var py = rmAt(ry3.pts, ry3.cum, yv), oy = ry3.hw + rnd(3, 6);
+        // sample past the walk ribbon's outer band (hw+3.4 walk +1.0 buffer on
+        // residential roads) so the onSidewalk lawn guard below rarely culls
+        var py = rmAt(ry3.pts, ry3.cum, yv), oy = ry3.hw + rnd(4.6, 7.4);
         var yx = py.x - py.uz * oy * yd, yz = py.z + py.ux * oy * yd; yd = -yd;
         if (!spotClear(yx, yz) || inLake(yx, yz) || remapInClear(yx, yz, 0)) continue;
-        if (!remapPointClear(yx, yz, 0.5) || dOnPavedRect(yx, yz)) continue;   // lawns only — no yard signs planted in asphalt/driveway slabs
+        if (!remapPointClear(yx, yz, 0.5) || dOnPavedRect(yx, yz) || onSidewalk(yx, yz)) continue;   // lawns only — never in asphalt/driveway slabs or the concrete walk ribbon
         // mregdctj: the stake used to be as tall as the placard CENTER (both
         // 0.9), so the post ran across the whole lower half of the sign face
         // (visible whenever the stake side faced you) — and the placard read
@@ -8620,8 +8976,14 @@ if (WC_REMAP) (function densityLayer() {
           var ya = dAsset[yk];
           if (ya) {
             var ysc = 1.4, ymount = 1.02, yh = ya.dims[1] * ysc, yry = rnd(0, 6.28);
-            pole(yx, yz, ymount - yh / 2 + 0.08, 0.05);
-            dSign(yk, yx + Math.sin(yry) * 0.14, ymount, yz + Math.cos(yry) * 0.14, yry, ysc);   // placard in front of its stake, not speared
+            // placard bottom + stake top derived from THIS asset's dims: the
+            // stake enters the placard 0.08 and the placard plane sits just
+            // 0.02 clear of the stake surface (the old 0.14 shove left a
+            // visible air gap = "detached sign", mrfzidc6/mrfzjsdl/mrfzk1rq)
+            var ystkR = 0.05, ystkH = ymount - yh / 2 + 0.08, yoff = ystkR + 0.02;
+            pole(yx, yz, ystkH, ystkR);
+            dSign(yk, yx + Math.sin(yry) * yoff, ymount, yz + Math.cos(yry) * yoff, yry, ysc);   // placard in front of its stake, not speared
+            signAudit.push({ n: yk, kind: 'yard', ry: yry, x: yx, z: yz, stakeTop: ystkH, stakeR: ystkR, plBot: ymount - yh / 2, plTop: ymount + yh / 2, plW: ya.dims[0] * ysc, latOff: yoff });
           }
         }
       }
@@ -8766,7 +9128,7 @@ if (WC_REMAP) (function densityLayer() {
     var hx = (dims[0] * c + dims[2] * s) / 2, hz = (dims[0] * s + dims[2] * c) / 2;
     if (spOverlapsBuilding(x, z, hx, hz)) return;
     g.position.set(x, y === undefined ? 0.13 : y, z); g.rotation.y = ry; scene.add(g);
-    if (SP_SOLID[name]) { addCollider(x, z, hx * 2, hz * 2); solidMeshes.push(g); }
+    if (SP_SOLID[name]) { addCollider(x, z, hx * 2, hz * 2, 'prop:' + name); solidMeshes.push(g); }
     if (SP_SNAP[name]) { registerBreakable(g, x, z, Math.max(hx, hz) + 0.15, SP_SNAP[name], null, SP_BLOCKR[name] || 0); var bb = breakables[breakables.length - 1]; if (name === 'parkingmeter') bb.kind = 'meter'; if (name === 'hydrant') bb.kind = 'hydrant'; if (name === 'trashcan' || name === 'wheeliebin') bb.kind = 'trash'; }
     if (SP_INTERACT[name]) { var it = { kind: SP_INTERACT[name], x: x, z: z, fx: -Math.cos(ry), fz: Math.sin(ry), g: g, cd: -99, robbed: false }; if (it.kind === 'atm') { g.userData.atm = it; if (!SP_SOLID[name]) solidMeshes.push(g); } if (it.kind === 'kick' && SP_SNAP[name]) it.bb = breakables[breakables.length - 1]; streetPropInteractables.push(it); }
     densityStats.props++;
@@ -8806,12 +9168,25 @@ if (WC_REMAP) (function densityLayer() {
         }
         // one bus shelter per long arterial
         if (hr.cls === 0 && lenH > 120) {
-          var pbs = rmAt(hr.pts, hr.cum, lenH * 0.5), ofb = hr.hw + 3.4;
-          var bsx = pbs.x - pbs.uz * ofb, bsz = pbs.z + pbs.ux * ofb;
-          // shelter sits on the LEFT sidewalk (offset by (-uz,+ux)); its opening
-          // (front = (-cos,sin)) must face BACK toward the road, so add PI —
-          // Math.atan2(ux,uz) alone points the opening away from the street.
-          if (spotClear(bsx, bsz)) spFull('busshelter', bsx, bsz, Math.atan2(pbs.ux, pbs.uz) + Math.PI);
+          // v1.66.64 (report mrftfuy6 @17,13): the mid-polyline spot can land in
+          // the JUNCTION THROAT — clear of this road's own centerline offset but
+          // sitting on ANOTHER road's asphalt ("random bus stop in the middle of
+          // the road"). Demand clearance from the WHOLE network (own-road offset
+          // is 3.4u past the curb, so pad 2 never rejects the home road) and
+          // slide along the polyline until a clear shoulder is found.
+          for (var bo = 0; bo < 7; bo++) {
+            var bs2 = lenH * 0.5 + (bo % 2 ? -1 : 1) * Math.ceil(bo / 2) * 18;
+            if (bs2 < 30 || bs2 > lenH - 30) continue;
+            var pbs = rmAt(hr.pts, hr.cum, bs2), ofb = hr.hw + 3.4;
+            var bsx = pbs.x - pbs.uz * ofb, bsz = pbs.z + pbs.ux * ofb;
+            // shelter sits on the LEFT sidewalk (offset by (-uz,+ux)); its opening
+            // (front = (-cos,sin)) must face BACK toward the road, so add PI —
+            // Math.atan2(ux,uz) alone points the opening away from the street.
+            if (spotClear(bsx, bsz) && remapPointClear(bsx, bsz, 2) && !remapInClear(bsx, bsz, 0)) {
+              spFull('busshelter', bsx, bsz, Math.atan2(pbs.ux, pbs.uz) + Math.PI);
+              break;
+            }
+          }
         }
       }
     }
@@ -9386,6 +9761,7 @@ if (WC_REMAP) (function fenceSystem() {
       if (o.alpha) { mo.transparent = true; mo.alphaTest = o.alpha; mo.side = THREE.DoubleSide; }
       if (o.color !== undefined) mo.color = o.color;
       var mesh = new THREE.Mesh(g, lamb(mo));
+      mesh.name = key;   // batch key on the mesh so world scans can attribute geometry
       scene.add(mesh);
     }
   }
@@ -9432,7 +9808,7 @@ if (WC_REMAP) (function fenceSystem() {
     g.add(body); g.position.set(pcx, 0, pcz); g.rotation.y = ry; scene.add(g);
     registerBreakable(g, pcx, pcz, Math.max(1.3, pl / 2), 'fence', null, 0);
     var bk = breakables[breakables.length - 1];
-    bk.col = addColliderOBB(pcx, pcz, pl / 2, 0.14, ry);   // thin wall the player leans on; car-snap frees it
+    bk.col = addColliderOBB(pcx, pcz, pl / 2, 0.14, ry, 'fence');   // thin wall the player leans on; car-snap frees it
     bk.fenceType = type;
   }
 
@@ -9817,6 +10193,27 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
     mesh.geometry = buildSub(kP, kU, kN, mesh.material).geometry;
     return buildSub(mP, mU, mN, mesh.material);
   }
+  // 1:4 midpoint triangle subdivision for flag cloth (bug mrft9s65) — the
+  // authored flags are a couple of stiff quads, too coarse to bend. Non-indexed
+  // input; shared edges get bitwise-identical midpoints, so no cracks open up.
+  function subdivideTris(geo) {
+    var p = geo.attributes.position, u = geo.attributes.uv, n = geo.attributes.normal;
+    var P = [], U = [], N = [];
+    function vert(i) { return [p.getX(i), p.getY(i), p.getZ(i), u.getX(i), u.getY(i), n.getX(i), n.getY(i), n.getZ(i)]; }
+    function mid(a, b) { var m = [], q; for (q = 0; q < 8; q++) m.push((a[q] + b[q]) / 2); return m; }
+    function push(v) { P.push(v[0], v[1], v[2]); U.push(v[3], v[4]); N.push(v[5], v[6], v[7]); }
+    function tri(a, b, c) { push(a); push(b); push(c); }
+    for (var t = 0; t < p.count; t += 3) {
+      var A = vert(t), B = vert(t + 1), C = vert(t + 2);
+      var AB = mid(A, B), BC = mid(B, C), CA = mid(C, A);
+      tri(A, AB, CA); tri(AB, B, BC); tri(CA, BC, C); tri(AB, BC, CA);
+    }
+    var g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(P), 3));
+    g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(U), 2));
+    g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(N), 3));
+    return g;
+  }
   function envAnimInit(rec, e) {
     var mesh = rec.g.children[0], d = e.dims, a = e.anim;
     rec.phase = Math.random() * 6.28;
@@ -9833,9 +10230,29 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
       if (rec.name === 'barber_pole') { rec.spinMesh = mesh; rec.spinSpd = 2.4; }
       else if (rec.name === 'pizza_sign') { var top = splitMesh(mesh, function (x, y, z) { return y > d[1] * 0.74; }, 0); top.geometry.computeBoundingBox(); var pcy = (top.geometry.boundingBox.min.y + top.geometry.boundingBox.max.y) / 2; top.geometry.translate(0, -pcy, 0); var ppv = new THREE.Group(); ppv.position.y = pcy; ppv.add(top); rec.g.add(ppv); rec.spinChild = ppv; rec.spinAxis = 'z'; rec.spinSpd = 1.6; }   // round disc faces +z: spin in-plane (about its face-normal) like a wheel, not edge-on around Y
       else { var hy = d[1] * 0.6; var bl = splitMesh(mesh, function (x, y, z) { return y > hy; }, hy); var piv = new THREE.Group(); piv.position.y = hy; piv.add(bl); rec.g.add(piv); rec.spinChild = piv; rec.spinAxis = 'x'; rec.spinSpd = 1.9; }   // windmill blades
-    } else if (a === 'wave') {   // flagpole cloth
+    } else if (a === 'wave') {   // flagpole cloth — per-vertex ripple (bug mrft9s65)
       var fl = splitMesh(mesh, function (x, y, z) { return y > d[1] * 0.62 && (Math.abs(x) > 0.25 || Math.abs(z) > 0.25); }, 0);
       rec.g.add(fl); rec.waveChild = fl;
+      // tessellate the cloth so a traveling sine can bend it, then precompute
+      // per-vertex hoist distance (u: 0 at the pole = pinned, 1 at the fly end)
+      // and the horizontal tangent each vertex ripples along. Displacement is
+      // horizontal-only, so stacked flags on one pole can never intersect.
+      var wg = fl.geometry, wguard = 0;
+      while (wg.attributes.position.count < 150 && wguard++ < 3) wg = subdivideTris(wg);
+      fl.geometry = wg;
+      var wp = wg.attributes.position, wn = wp.count;
+      var wbase = new Float32Array(wp.array.length); wbase.set(wp.array);
+      var wu = new Float32Array(wn), wdx = new Float32Array(wn), wdz = new Float32Array(wn);
+      var rMin = 1e9, rMax = 0, wi, wr;
+      for (wi = 0; wi < wn; wi++) { wr = Math.sqrt(wp.getX(wi) * wp.getX(wi) + wp.getZ(wi) * wp.getZ(wi)); if (wr < rMin) rMin = wr; if (wr > rMax) rMax = wr; }
+      var rSpan = Math.max(0.001, rMax - rMin);
+      for (wi = 0; wi < wn; wi++) {
+        var wx = wp.getX(wi), wz = wp.getZ(wi); wr = Math.sqrt(wx * wx + wz * wz) || 1;
+        wu[wi] = (wr - rMin) / rSpan;
+        wdx[wi] = -wz / wr; wdz[wi] = wx / wr;
+      }
+      rec.waveBase = wbase; rec.waveU = wu; rec.waveDX = wdx; rec.waveDZ = wdz;
+      rec.waveAmp = rSpan * 0.16;
     } else if (a === 'flail') {  // tube-man: 3 stacked sine-chain bands
       rec.bands = [];
       var cuts = [[d[1] * 0.16, d[1] * 0.45], [d[1] * 0.45, d[1] * 0.72], [d[1] * 0.72, d[1] * 1.05]];
@@ -9847,7 +10264,22 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
       }
     } else if (a === 'sway') {
       if (rec.name === 'patio_umbrella') { var cy2 = d[1] * 0.62; var can = splitMesh(mesh, function (x, y, z) { return y > cy2; }, cy2); var up = new THREE.Group(); up.position.y = cy2; up.add(can); rec.g.add(up); rec.swayChild = up; rec.swayAxis = 'z'; rec.swayAmp = 0.05; rec.swaySpd = 1.1; }
-      else { var by = d[1] * 0.86; var seat = splitMesh(mesh, function (x, y, z) { return y < by * 0.82 && y > by * 0.14; }, by); var sw = new THREE.Group(); sw.position.y = by; sw.add(seat); rec.g.add(sw); rec.swayChild = sw; rec.swayAxis = 'x'; rec.swayAmp = 0.22; rec.swaySpd = 1.7; }   // swing_set seats
+      else {
+        // swing_set: only seats+chains swing. The old pure y-slab also caught the
+        // A-frame legs' mid-sections (whole frame appeared to swing - mrfzvti9);
+        // constrain to the inner span along the long (bar) axis via the real bbox.
+        var by = d[1] * 0.86;
+        if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+        var sbb = mesh.geometry.boundingBox;
+        var sxc = (sbb.min.x + sbb.max.x) / 2, szc = (sbb.min.z + sbb.max.z) / 2;
+        var sxh = Math.max(0.01, (sbb.max.x - sbb.min.x) / 2), szh = Math.max(0.01, (sbb.max.z - sbb.min.z) / 2);
+        var longX = sxh >= szh;
+        var seat = splitMesh(mesh, function (x, y, z) {
+          var lc = longX ? (x - sxc) / sxh : (z - szc) / szh;
+          return y < by * 0.82 && y > by * 0.14 && Math.abs(lc) < 0.62;
+        }, by);
+        var sw = new THREE.Group(); sw.position.y = by; sw.add(seat); rec.g.add(sw); rec.swayChild = sw; rec.swayAxis = 'x'; rec.swayAmp = 0.22; rec.swaySpd = 1.7;
+      }   // swing_set seats
     } else if (a === 'glow') {
       var GC = { soda_machine: 0xff3b3b, arcade_cabinet: 0x3aa0ff, jukebox: 0xffb020, claw_machine: 0xff5bd0 };
       mesh.material = mesh.material.clone(); mesh.material.emissive = new THREE.Color(GC[rec.name] || 0x66ccff); mesh.material.emissiveIntensity = 0.05; rec.glowMat = mesh.material;
@@ -9875,7 +10307,7 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
       if (e.anim) envAnimInit(rec, e);   // STEP 2: rig up spin/wave/flail/sway/glow/flow
       if (e.solid && !opts.noCol) solidMeshes.push(g);   // bullets stop on solid instances
     }
-    if (e.solid && !opts.noCol) { addColliderOBB(x, z, dims[0] / 2, dims[2] / 2, ry); envStats.colliders++; }
+    if (e.solid && !opts.noCol) { addColliderOBB(x, z, dims[0] / 2, dims[2] / 2, ry, 'env:' + name); envStats.colliders++; }
     if (opts.mapB || BIGMAP[name]) {
       var c = Math.abs(Math.cos(ry)), s = Math.abs(Math.sin(ry));
       mapBuildings.push({ x: x, z: z, w: dims[0] * c + dims[2] * s, d: dims[0] * s + dims[2] * c, c: 0x8a8f94, pad: 0, h: dims[1] });
@@ -9971,7 +10403,7 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
     // a bike rack (street prop — no env equivalent) near the wall edge
     if (typeof getStreetProp === 'function') {
       var br = getStreetProp('bikerack'), w = P(7.5, 3.0);
-      if (br) { br.position.set(w[0], 0, w[1]); br.rotation.y = faceOut; scene.add(br); addCollider(w[0], w[1], 1.8, 0.6); if (typeof propClutterReg === 'function') propClutterReg(w[0], w[1]); }
+      if (br) { br.position.set(w[0], 0, w[1]); br.rotation.y = faceOut; scene.add(br); addCollider(w[0], w[1], 1.8, 0.6, 'env:barrier'); if (typeof propClutterReg === 'function') propClutterReg(w[0], w[1]); }
     }
   })();
 
@@ -10162,7 +10594,22 @@ function updateEnvProps(dt) {
       if (r.spinChild) r.spinChild.rotation[r.spinAxis] += dt * r.spinSpd;
       else if (r.spinMesh) r.spinMesh.rotation.y += dt * r.spinSpd;
     } else if (a === 'wave') {
-      if (r.waveChild) { r.waveChild.rotation.y = Math.sin(t * 2.3 + r.phase) * 0.3 + Math.sin(t * 5.3) * 0.07; r.waveChild.rotation.x = Math.sin(t * 3.1) * 0.05; }
+      if (r.waveBase) {
+        // cloth ripple: two traveling sines run hoist->fly along each flag,
+        // amplitude 0 at the pole (pinned) growing toward the free edge, all
+        // horizontal so the two flags sharing the pole never touch. A slow
+        // "gust" envelope keeps it from reading as a metronome.
+        var wpos = r.waveChild.geometry.attributes.position, warr = wpos.array, wb = r.waveBase;
+        var gust = 0.72 + 0.28 * Math.sin(t * 0.7 + r.phase);
+        for (var wv = 0; wv < wpos.count; wv++) {
+          var wuv = r.waveU[wv];
+          var woff = (Math.sin(wuv * 5.2 - t * 5.6 + r.phase) * 0.75 + Math.sin(wuv * 9.7 - t * 8.9 + r.phase * 2.1) * 0.25) * r.waveAmp * wuv * gust;
+          warr[wv * 3] = wb[wv * 3] + r.waveDX[wv] * woff;
+          warr[wv * 3 + 2] = wb[wv * 3 + 2] + r.waveDZ[wv] * woff;
+        }
+        wpos.needsUpdate = true;
+        r.waveChild.rotation.y = Math.sin(t * 0.9 + r.phase) * 0.05;   // gentle wind-shift sway about the pole
+      } else if (r.waveChild) { r.waveChild.rotation.y = Math.sin(t * 2.3 + r.phase) * 0.3 + Math.sin(t * 5.3) * 0.07; r.waveChild.rotation.x = Math.sin(t * 3.1) * 0.05; }
     } else if (a === 'flail') {
       for (var b = 0; b < r.bands.length; b++) { var bd = r.bands[b]; bd.pv.rotation.z = Math.sin(t * bd.spd + bd.ph + r.phase) * bd.amp; bd.pv.rotation.x = Math.cos(t * bd.spd * 0.7 + bd.ph) * bd.amp * 0.6; }
     } else if (a === 'sway') {
@@ -10370,16 +10817,21 @@ function addStar(n) { setWanted(state.wanted + (n || 1)); }
 // 6 more = 3rd, doubling likewise. Counters reset when the heat fully dies.
 var CIV_STAR_KILLS = [5, 15, 35, 75, 155];
 var COP_STAR_KILLS = [3, 9, 21, 45];   // stars 2-5 (star 1 comes from just hurting one)
-function creditCivKill() {
+function creditCivKill(kind) {
   state.civKills++;
   lastCrimeT = T;
   if (CIV_STAR_KILLS.indexOf(state.civKills) >= 0) { addStar(1); popup2('WANTED LEVEL UP'); }
+  hitMark(true);
+  if (kind === 'car') pushKillFeed('Vehicle wrecked', '#ffd24a');
+  else pushKillFeed('Pedestrian down', '#ff6a4a');
 }
 function creditCopKill() {
   state.copKills++;
   lastCrimeT = T;
   if (state.wanted < 1) setWanted(1);   // you can't kill one without damaging one
   if (COP_STAR_KILLS.indexOf(state.copKills) >= 0) { addStar(1); popup2('WANTED LEVEL UP'); }
+  hitMark(true);
+  pushKillFeed('Officer down', '#66b0ff');
 }
 
 function buildCop() {
@@ -10523,6 +10975,41 @@ function copAimArm(c, m, tgt) {
     gun.updateMatrixWorld(true);
   }
 }
+// gun drawn but nobody in range (or a client-side mirror cop): carry at LOW
+// READY — fist pinned down-forward of the shoulder, barrel continuing that
+// line toward the ground ahead — instead of letting the walk clip swing the
+// pistol around flat on the open palm like a brick (bug mrft8cw7). Same
+// post-animPerson world-space delta trick as copAimArm, so it's rig-agnostic
+// and self-correcting; runs every frame the gun is out and no target is aimed.
+function copLowReady(m) {
+  var L = m.userData.limbs, hand = m.userData.handR, gun = m.userData.heldGun;
+  if (!L || !L.armR || !hand || !gun) return;
+  if (!copAimQ) {
+    copAimQ = new THREE.Quaternion(); copAimDQ = new THREE.Quaternion(); copAimPQ = new THREE.Quaternion();
+    copAimV1 = new THREE.Vector3(); copAimV2 = new THREE.Vector3(); copAimV3 = new THREE.Vector3(); copAimM = new THREE.Matrix4();
+  }
+  m.updateMatrixWorld(true);   // animPerson just re-posed the bones
+  var yw = m.rotation.y, fx = Math.sin(yw), fz = Math.cos(yw);          // facing
+  var rx = -Math.cos(yw), rz = Math.sin(yw);                            // owner right axis (hands live on -x)
+  L.armR.getWorldPosition(copAimV1);                                    // shoulder
+  hand.getWorldPosition(copAimV2);                                      // fist
+  // fist target: ~50 deg below level, slightly forward and off to the gun side
+  copAimV3.set(copAimV1.x + fx * 0.34 + rx * 0.1, copAimV1.y - 0.5, copAimV1.z + fz * 0.34 + rz * 0.1);
+  copAimV2.sub(copAimV1).normalize();
+  copAimV3.sub(copAimV1).normalize();
+  copAimDQ.setFromUnitVectors(copAimV2, copAimV3);
+  L.armR.parent.getWorldQuaternion(copAimPQ);
+  copAimQ.copy(copAimPQ).invert().multiply(copAimDQ).multiply(copAimPQ);
+  L.armR.quaternion.premultiply(copAimQ);
+  // wrap the gun to the fist: barrel (-Z) continues the arm's down-forward line
+  L.armR.updateMatrixWorld(true);
+  gun.getWorldPosition(copAimV1);
+  copAimV3.set(copAimV1.x + fx * 0.68, copAimV1.y - 1, copAimV1.z + fz * 0.68);
+  copAimM.lookAt(copAimV1, copAimV3, Y_UP);
+  copAimDQ.setFromRotationMatrix(copAimM);
+  hand.getWorldQuaternion(copAimPQ);
+  gun.quaternion.copy(copAimPQ.invert()).multiply(copAimDQ);
+}
 // world-space muzzle tip of the cop's held gun (null while holstered)
 // front-of-barrel z for each held (dropMesh) gun = -halfDepth of its main body
 // box, so the world/cop muzzle flash sits ON the tip (not floating past it)
@@ -10655,7 +11142,7 @@ function updateCops(dt) {
       m.rotation.y = Math.atan2(dx, dz);
       if (d < wpn.range) aimTgt = tgt;   // aim + fire below, after animPerson poses the bones
     } else {
-      if (c.interior) { animPerson(m, 0, dt); m.position.set(c.x, baseY, c.z); continue; }
+      if (c.interior) { m.position.set(c.x, baseY, c.z); animPerson(m, 0, dt); if (m.userData.heldGun) copLowReady(m); continue; }
       var tdx = c.tx - c.x, tdz = c.tz - c.z, td = Math.sqrt(tdx * tdx + tdz * tdz);
       if (td < 1) { var t = randTarget(); c.tx = t[0]; c.tz = t[1]; }
       else { vx = tdx / td; vz = tdz / td; spd = 1.6; moving = true; m.rotation.y = Math.atan2(vx, vz); }
@@ -10685,6 +11172,7 @@ function updateCops(dt) {
     m.position.set(c.x, baseY + (c.hurtFlash > 0 ? 0.06 : 0), c.z);
     animPerson(m, moving ? spd : 0, dt, c.phase);
     if (aimTgt) { copAimArm(c, m, aimTgt); copShoot(c, wpn, dt, aimTgt); }
+    else if (m.userData.heldGun) copLowReady(m);   // drawn but not aiming: low-ready, not brick-on-palm
   }
   // lose the heat: 18s with no crimes and no cops within 50 units
   if (state.wanted > 0 && T - lastCrimeT > 18) {
@@ -11328,10 +11816,17 @@ function updateDriving(dt) {
       var lon = dx * fx + dz * fz, lat = -dx * fz + dz * fx;
       if (Math.abs(lon) < 2.8 && Math.abs(lat) < 1.5) {
         sfx('crash');
-        if (isClient()) netToHost({ t: 'ragNpc', i: i, kx: fx * sgn, kz: fz * sgn, pw: 8 + Math.abs(c.pspeed) * 0.55 });
-        else killNpcRagdoll(n, fx * sgn + (Math.random() - 0.5) * 0.5, fz * sgn + (Math.random() - 0.5) * 0.5, 8 + Math.abs(c.pspeed) * 0.55);
+        if (isClient()) {
+          // world snapshots can revert the local ragdoll flag before the host
+          // processes the kill, re-firing this hit test — one ped credited 4x
+          // (mrg3yaf0). ragNpc has no host 'kill' reply, so credit locally but
+          // exactly once per ped via the cooldown.
+          if (!n.ramCD || T - n.ramCD > 1.5) { n.ramCD = T; netToHost({ t: 'ragNpc', i: i, kx: fx * sgn, kz: fz * sgn, pw: 8 + Math.abs(c.pspeed) * 0.55 }); creditCivKill(); }
+        } else {
+          killNpcRagdoll(n, fx * sgn + (Math.random() - 0.5) * 0.5, fz * sgn + (Math.random() - 0.5) * 0.5, 8 + Math.abs(c.pspeed) * 0.55);
+          creditCivKill();
+        }
         n.state = 'ragdoll';   // avoid double-triggering while the host confirms
-        creditCivKill();
       }
     }
     // run over cops (local sim or host-mirrored)
@@ -11374,7 +11869,7 @@ function updateDriving(dt) {
           else {
             shoveCar(oc, rkx, rkz, rsp);
             oc.dmgT += imp;
-            if (oc.dmgT >= 1.5 && goBerserk(oc)) { popup('WRECKED!'); creditCivKill(); }
+            if (oc.dmgT >= 1.5 && goBerserk(oc)) { popup('WRECKED!'); creditCivKill('car'); }
           }
         }
         c.pspeed *= 0.5;
@@ -11431,7 +11926,7 @@ function updateCash(dt) {
       if (dx * dx + dz * dz < CASH_PICK_R2 && !c.pend) { c.pend = true; c.pendT = T; netToHost({ t: 'takeCash', x: c.mesh.position.x, z: c.mesh.position.z }); }
       continue;
     }
-    if (dx * dx + dz * dz < CASH_PICK_R2 || c.life <= 0) { if (c.life > 0) { state.money += c.val; popup('+$' + c.val); sfx('cash'); } scene.remove(c.mesh); cashes.splice(i, 1); }
+    if (dx * dx + dz * dz < CASH_PICK_R2 || c.life <= 0) { if (c.life > 0) { state.money += c.val; spawnMoneyFloat(c.mesh.position.x, 0.9, c.mesh.position.z, c.val); sfx('cash'); } scene.remove(c.mesh); cashes.splice(i, 1); }
   }
 }
 var puffs = [];
@@ -11468,7 +11963,31 @@ function sliceVfxSheet(dataurl, pixelated) {
 if (typeof VFX_SMOKE !== 'undefined') smokeFrames = sliceVfxSheet(VFX_SMOKE, false);
 if (typeof VFX_FIRE !== 'undefined') fireFrames = sliceVfxSheet(VFX_FIRE, true);
 function vfxIsFire(col) { if (col === undefined) return false; var r = (col >> 16) & 255, b = col & 255; return r > 140 && r > b + 60; }
-function puff(p, col) {
+// kind (optional): explicit routing that bypasses the hue heuristic.
+//  'blood'  — bullet/melee hits on PEOPLE: small dark-red droplets, gravity,
+//             quick fade (mrft7ja9: the warm-red hit tint was routing to the
+//             FIRE sheet — shot NPCs looked like they caught fire).
+//  'impact' — bullet hits on walls/props: tiny brief dust puff (mrft7zm5:
+//             wall hits spawned the full-size explosion smoke billboard).
+// No kind → legacy hue routing (explosions/burning cars keep big fire/smoke).
+function puff(p, col, kind) {
+  if (kind === 'blood') {
+    for (var bi = 0; bi < 3; bi++) {
+      var bm = new THREE.Mesh(puffGeo, new THREE.MeshBasicMaterial({ color: bi === 0 ? 0x8f1512 : 0x66100d, transparent: true, opacity: 0.92, depthWrite: false }));
+      bm.position.set(p.x + (Math.random() - 0.5) * 0.24, p.y + (Math.random() - 0.5) * 0.24, p.z + (Math.random() - 0.5) * 0.24);
+      bm.scale.setScalar(0.5 + Math.random() * 0.45);
+      scene.add(bm);
+      puffs.push({ mesh: bm, life: 0.3 + Math.random() * 0.12, max: 0.36, blood: true, bvx: (Math.random() - 0.5) * 1.6, bvy: 0.4 + Math.random() * 0.9, bvz: (Math.random() - 0.5) * 1.6 });
+    }
+    return;
+  }
+  if (kind === 'impact' && smokeFrames) {
+    var im = new THREE.Mesh(puffGeo, new THREE.MeshBasicMaterial({ map: smokeFrames[0], transparent: true, depthWrite: false, opacity: 0.7 }));
+    im.material.color.setHex(col || 0xbfb9ae);
+    im.position.copy(p); im.scale.setScalar(0.85 + Math.random() * 0.4); scene.add(im);
+    puffs.push({ mesh: im, life: 0.34, max: 0.34, fire: false, frames: smokeFrames, grow: 1.3, omax: 0.7 });
+    return;
+  }
   var fire = vfxIsFire(col);
   if (fire && fireFrames) {
     // depthTest:false (like the muzzle flash) so flames read as engulfing the
@@ -11493,10 +12012,15 @@ function updatePuffs(dt) {
   for (var i = puffs.length - 1; i >= 0; i--) {
     var p = puffs[i]; p.life -= dt; var t = 1 - p.life / p.max;
     p.mesh.lookAt(camera.position);
-    if (p.frames) {
+    if (p.blood) {
+      // droplet ballistics: slight toss, gravity pulls the spray down
+      p.bvy -= 7.5 * dt;
+      p.mesh.position.x += p.bvx * dt; p.mesh.position.y += p.bvy * dt; p.mesh.position.z += p.bvz * dt;
+      p.mesh.material.opacity = Math.max(0, 0.92 * (p.life / p.max));
+    } else if (p.frames) {
       var fr;
       if (p.fire) { fr = (p.start + Math.floor(t * 10)) % VFX_NF; p.mesh.scale.multiplyScalar(1 + dt * 1.6); p.mesh.material.opacity = Math.max(0, 1 - t); }
-      else { fr = Math.min(11, Math.floor(t * 12)); p.mesh.scale.multiplyScalar(1 + dt * 3.2); p.mesh.material.opacity = Math.max(0, 0.9 * (1 - t * t)); }
+      else { fr = Math.min(11, Math.floor(t * 12)); p.mesh.scale.multiplyScalar(1 + dt * (p.grow || 3.2)); p.mesh.material.opacity = Math.max(0, (p.omax || 0.9) * (1 - t * t)); }
       if (p.mesh.material.map !== p.frames[fr]) p.mesh.material.map = p.frames[fr];
     } else {
       p.mesh.scale.multiplyScalar(1 + dt * 6); p.mesh.material.opacity = Math.max(0, p.life / p.max);
@@ -11738,7 +12262,52 @@ function scorch(x, z) {
   m.scale.setScalar(3.5); m.position.set(x, 0.168, z);
   scene.add(m); decals.push({ mesh: m, life: 40 });
 }
+// ---- bullet holes (mrft7zm5): small dark pocks stamped on static surfaces
+// at the hitscan intersection, oriented to the surface normal. Own capped
+// pool (60, oldest recycled) so a firefight can't evict blood/scorch decals.
+// Canvas texture (near-black core, ragged edge, subtle chipped rim); shared
+// material, depthWrite:false + polygonOffset + tiny normal lift = no z-fight.
+var bHoles = [], bHoleMat = null, bHoleGeo = null, bHoleM3 = null;
+function bulletHoleTex() {
+  var cv = document.createElement('canvas'); cv.width = cv.height = 32;
+  var g = cv.getContext('2d');
+  g.clearRect(0, 0, 32, 32);
+  // ragged dark blob
+  g.fillStyle = 'rgba(32,27,22,0.85)';
+  for (var i = 0; i < 9; i++) {
+    var a = i / 9 * 6.28;
+    g.beginPath(); g.arc(16 + Math.cos(a) * 3.4, 16 + Math.sin(a) * 3.4, 3.2 + Math.random() * 2.2, 0, 6.28); g.fill();
+  }
+  // subtle pale rim — chipped paint/stucco catch-light
+  g.strokeStyle = 'rgba(214,204,188,0.4)'; g.lineWidth = 1.4;
+  for (i = 0; i < 6; i++) { var a2 = Math.random() * 6.28; g.beginPath(); g.arc(16, 16, 8.6 + Math.random() * 2, a2, a2 + 0.9); g.stroke(); }
+  // near-black core
+  var rg = g.createRadialGradient(16, 16, 0, 16, 16, 7);
+  rg.addColorStop(0, 'rgba(0,0,0,0.96)'); rg.addColorStop(0.6, 'rgba(8,7,6,0.8)'); rg.addColorStop(1, 'rgba(10,8,6,0)');
+  g.fillStyle = rg; g.beginPath(); g.arc(16, 16, 7, 0, 6.28); g.fill();
+  return new THREE.CanvasTexture(cv);
+}
+function bulletHole(h) {
+  if (!h || !h.face || !h.object) return;
+  if (!bHoleMat) {
+    bHoleGeo = new THREE.PlaneGeometry(0.16, 0.16);
+    bHoleMat = new THREE.MeshBasicMaterial({ map: bulletHoleTex(), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
+    bHoleM3 = new THREE.Matrix3();
+  }
+  var nrm = h.face.normal.clone().applyMatrix3(bHoleM3.getNormalMatrix(h.object.matrixWorld)).normalize();
+  var m = new THREE.Mesh(bHoleGeo, bHoleMat);
+  m.position.copy(h.point).addScaledVector(nrm, 0.02);
+  m.lookAt(h.point.x + nrm.x, h.point.y + nrm.y, h.point.z + nrm.z);
+  m.rotateZ(Math.random() * 6.28);   // random roll so repeat hits don't tile
+  scene.add(m);
+  bHoles.push({ mesh: m, life: 60 });
+  if (bHoles.length > 60) { var o = bHoles.shift(); scene.remove(o.mesh); }
+}
 function updateDecals(dt) {
+  for (var bh = bHoles.length - 1; bh >= 0; bh--) {
+    bHoles[bh].life -= dt;
+    if (bHoles[bh].life <= 0) { scene.remove(bHoles[bh].mesh); bHoles.splice(bh, 1); }
+  }
   for (var i = decals.length - 1; i >= 0; i--) {
     var d = decals[i]; d.life -= dt;
     if (d.life < 5) d.mesh.material.opacity = Math.max(0, d.life / 5 * 0.75);
@@ -11762,7 +12331,7 @@ function killNpcRagdoll(n, dx, dz, power) {
   n.spinX = (Math.random() - 0.5) * 14;
   n.spinZ = (Math.random() - 0.5) * 14;
   sfx('grunt', { x: n.x, z: n.z, range: 60, fem: n.fem });
-  for (var i = 0; i < 5; i++) puff(new THREE.Vector3(n.x + (Math.random() - 0.5), 0.8 + Math.random() * 1.2, n.z + (Math.random() - 0.5)), 0xa01212);
+  for (var i = 0; i < 5; i++) puff(new THREE.Vector3(n.x + (Math.random() - 0.5), 0.8 + Math.random() * 1.2, n.z + (Math.random() - 0.5)), 0xa01212, 'blood');
   bloodDecal(n.x, n.z);
   spawnCash(n.x, n.z, 5 + ((Math.random() * 18) | 0));
   maybeNpcItemDrop(n.x, n.z);
@@ -12907,7 +13476,7 @@ function updateNPCs(dt) {
           m.rotation.y = hd.yaw;
         } else { assignNpcHome(n); setNpcTarget(n); }
         n.wayX = undefined; n.wayZ = undefined; n.doorSeek = undefined;
-        n.state = 'walk'; n.hp = 100; n.stuckT = 0; n.roadT = 0; n.giveUps = 0; n.progKey = undefined;
+        n.state = 'walk'; n.hp = 100; n.stuckT = 0; n.roadT = 0;
         m.rotation.x = 0; m.visible = true;
         if (m.userData.shadow) m.userData.shadow.visible = true;
         m.position.set(n.x, 0, n.z);
@@ -13073,7 +13642,12 @@ function updateNPCs(dt) {
     if (spd > 0.2 && stepGot < spd * dt * 0.3) {
       n.stuckT = (n.stuckT || 0) + dt;
       if (n.stuckT > 1) {
-        npcGiveUp(n);
+        n.stuckT = 0;
+        var back = npcBailTarget(n, vx, vz);   // remembers the failed heading; picks a reachable-ish target elsewhere
+        if (!back) continue;   // trapped backstop tripped: NPC ducked into a doorway (hidden dwell)
+        n.tx = back[0]; n.tz = back[1];
+        n.wayX = undefined; n.wayZ = undefined; n.doorSeek = undefined;   // give up on an unreachable doorway too
+        if (n.state === 'walk') n.pause = 0.35 + Math.random() * 0.6;   // beat of idle so the turn reads deliberate, not ping-pong
         n.fleeDX = -vx; n.fleeDZ = -vz;   // fleeing NPCs bounce back the way they came
       }
     } else n.stuckT = 0;
@@ -13083,42 +13657,43 @@ function updateNPCs(dt) {
     // chainlink, bug mree1rcg). While rubbing a collider (pushOut ate part of the
     // step) and still far from target, watch net gain toward the goal; if ~2.2s
     // pass with under 2.5u of real progress, abandon that target for a fresh one.
-    if (n.state === 'walk' && spd > 0.2 && stepGot < spd * dt * 0.85) {
+    // whisker-avoid frames count as "rubbing" too (live batch 2 pacing fix):
+    // avoid steering moves at FULL speed, so an NPC orbiting a concave corner
+    // never used to trip this watchdog — it just circled forever. And clean
+    // frames only clear the watchdog after a short grace, because orbiting
+    // alternates rub/free frames and used to reset the baseline every time.
+    if (n.state === 'walk' && spd > 0.2 && (stepGot < spd * dt * 0.85 || n.avoidT > 0)) {
       var dtg = Math.sqrt((n.tx - n.x) * (n.tx - n.x) + (n.tz - n.z) * (n.tz - n.z));
-      if (dtg > 2.5) {
+      // >1.0, not 2.5 (merge, live2-ai dead-zone finding): arrival is d<1, so
+      // a blocked target can hold an NPC in a free orbit at ~1.05-2.5u where
+      // NEITHER watchdog used to fire — verified as the last tight pacer class
+      if (dtg > 1.0) {
         if (n.wallBaseD === undefined) { n.wallBaseD = dtg; n.wallProgT = 0; }
+        n.wallFreeT = 0;
         n.wallProgT += dt;
         if (n.wallProgT > 2.2) {
-          if (dtg > n.wallBaseD - 2.5) npcGiveUp(n);
+          if (dtg > n.wallBaseD - 2.5) {
+            var bk = npcBailTarget(n, vx, vz);
+            n.wallBaseD = undefined;
+            if (!bk) continue;   // trapped backstop: NPC ducked into a doorway
+            n.tx = bk[0]; n.tz = bk[1]; n.wayX = undefined; n.wayZ = undefined; n.doorSeek = undefined;
+            n.pause = 0.35 + Math.random() * 0.6;
+          }
           n.wallBaseD = undefined;
         }
       } else n.wallBaseD = undefined;
-    } else n.wallBaseD = undefined;
-    // no-net-progress watchdog (pacing cluster, live2-ai): the whisker can
-    // dance an NPC around a concave collider pocket FOREVER without touching
-    // a wall — stepGot stays high (the face-plant timer never fires) and
-    // pushOut never eats the step (the wall-slide watchdog never fires), so
-    // it paced in place until a player filed a bug (7 live reports). Track
-    // the best distance-to-goal reached for the CURRENT goal; 4s with no
-    // improvement = give up on that target.
-    if (n.state === 'walk' && spd > 0.2) {
-      var pgx = n.wayX !== undefined ? n.wayX : n.tx, pgz = n.wayX !== undefined ? n.wayZ : n.tz;
-      var pKey = ((pgx * 8) | 0) * 65536 + ((pgz * 8) | 0);   // goal identity — reset tracking when it changes
-      var pd2 = Math.sqrt((pgx - n.x) * (pgx - n.x) + (pgz - n.z) * (pgz - n.z));
-      if (n.progKey !== pKey) { n.progKey = pKey; n.progBest = pd2; n.progT = 0; }
-      else if (pd2 < n.progBest - 0.6) { n.progBest = pd2; n.progT = 0; }
-      else if (pd2 > 1.0) {   // >1.0, not higher: arrival is d<1 — a blocked point can hold an NPC at ~1.05 forever (dead zone found in testing)
-        n.progT += dt;
-        if (n.progT > 4) npcGiveUp(n);
-      }
-    } else n.progKey = undefined;
+    } else if (n.wallBaseD !== undefined) {
+      n.wallFreeT = (n.wallFreeT || 0) + dt;
+      if (n.wallFreeT > 0.7) n.wallBaseD = undefined;
+    }
     // sidewalk discipline: loitering on road asphalt (off the intersection /
     // crosswalk area) for 2s steers the target to the nearest sidewalk band
     if (n.state === 'walk' && WC_REMAP && n.doorSeek === undefined) {
       // remap version: loitering on any true-road ribbon steers to the
       // nearest curb (perpendicular escape off the polyline). skipped while
       // door-seeking (an errand may legitimately cross a driveway apron)
-      var esc = remapRoadEscape(n.x, n.z);
+      var esc = remapRoadEscape(n.x, n.z,
+        n.wayX !== undefined ? n.wayX : n.tx, n.wayX !== undefined ? n.wayZ : n.tz);   // goal-side exit: crossers commit instead of ping-ponging (pacing cluster)
       if (esc) {
         n.roadT = (n.roadT || 0) + dt;
         if (n.roadT > 2) { n.roadT = 0; n.wayX = undefined; n.wayZ = undefined; n.tx = esc[0]; n.tz = esc[1]; }
@@ -13349,7 +13924,10 @@ function spawnKids() {
   var ci = 0, made = 0;
   while (made < target && ci < cand.length) {
     var parent = cand[ci++], prace = adultRace(parent.vname);
-    spawnKid(pickKidLookForRace(prace), parent); made++;
+    var kk = spawnKid(pickKidLookForRace(prace), parent); made++;
+    // the toy wagon belongs to kids (mrftsrmg): ~1 in 6 kids tows one. Side-mode
+    // accessory rides the kid's mesh group; kid states never hit the detach paths.
+    if (kk && kidRng() < 0.17) attachAccessory(kk, 'wagon');
     if (made < target && (parent.kidCount || 0) < 2 && kidRng() < 0.28) { spawnKid(pickKidLookForRace(prace), parent); made++; }   // sibling
   }
 }
@@ -13794,8 +14372,13 @@ function mirrorKids(dt) {
     var ox = k.x, oz = k.z;
     k.x += (e[0] / 10 - k.x) * k2; k.z += (e[1] / 10 - k.z) * k2;
     m.position.set(k.x, 0, k.z); m.rotation.y = e[2] / 100;
-    var mv = Math.hypot(k.x - ox, k.z - oz), sp = (dt > 0 && mv / dt > 0.4) ? mv / dt : 0; k.phase += mv * 3.4;
-    if (sp > 0.05) animPerson(m, sp, dt, k.phase); else meshyPlantPose(m);
+    // smoothed speed + locally-integrated phase, matching the NPC/cop mirrors
+    // (raw per-frame deltas surge at snapshot boundaries — bug mrft8ygx)
+    var mv = Math.hypot(k.x - ox, k.z - oz), rsp = dt > 0 ? mv / dt : 0;
+    if (rsp > 40) { rsp = 0; k.sspd = 0; }
+    k.sspd = (k.sspd || 0) + (rsp - (k.sspd || 0)) * Math.min(1, dt * 7);
+    k.phase += k.sspd * dt * 3.4;
+    if (k.sspd > 0.4) animPerson(m, k.sspd, dt, k.phase); else meshyPlantPose(m);
   }
 }
 spawnKids();
@@ -14523,11 +15106,11 @@ var SUPPORT_POSE = {
   // out of the camera frustum instead of wrapping the grip, and pistol has no
   // GRIP_TGT entry so solveSupportIK keeps this seed (no IK pull onto the gun).
   // The silenced pistol keeps the old two-hand hold.
-  pistol: [[-1.59, -0.3, 1.2], [-0.6, 0.0, 1.4], [0.1, 0.0, 0.0], [0.0, 0.0, 0.0]],
-  smg:    [[-1.59, -0.01, -1.16], [1.2, 0.4, -2.9], [2.1, -0.82, 0.3], [0.15, 0.3, -0.4]],
-  rifle:  [[-1.59, -0.01, -1.16], [0.98, 0.4, -2.6], [1.7, -0.82, 0.3], [0.1, 0.3, -0.4]],
-  auto:   [[-1.59, -0.01, -1.16], [0.98, 0.4, -2.7], [1.85, -0.82, 0.3], [0.1, 0.3, -0.4]],
-  rocket: [[-1.59, -0.01, -1.16], [1.1, 0.4, -2.6], [1.7, -0.82, 0.3], [0.1, 0.3, -0.4]],
+  pistol: [[-2.2, 0.0, 0.2], [0.0, 0.0, 0.5], [0.6, 0.0, 0.0], [0.0, 0.0, 0.0]],
+  smg:    [[-1.59, -0.01, -1.16], [1.2, 0.4, -2.9], [2.1, -0.82, 0.3], [1.55, 0.3, -0.4]],
+  rifle:  [[-1.59, -0.01, -1.16], [0.98, 0.4, -2.6], [1.7, -0.82, 0.3], [1.55, 0.3, -0.4]],
+  auto:   [[-1.59, -0.01, -1.16], [0.98, 0.4, -2.7], [1.85, -0.82, 0.3], [1.55, 0.3, -0.4]],
+  rocket: [[-1.59, -0.01, -1.16], [1.1, 0.4, -2.6], [1.7, -0.82, 0.3], [1.55, 0.3, -0.4]],
   silenced: [[-1.59, 0.5, -1.5], [1.2, 0.4, -3.2], [2.5, -0.82, 0.3], [0.2, 0.3, -0.4]]
 };
 // per-weapon forward anchor offset in the gun-group (camera) frame:
@@ -14544,7 +15127,7 @@ var ANCHOR_OFF = {
   pistol: [0.06, -0.06, -0.32],
   smg:    [0.09, -0.05, -0.36],
   rifle:  [0.10, -0.05, -0.39],
-  auto:   [0.11, -0.05, -0.39],
+  auto:   [0.13, -0.13, -0.39],   // v1.66.87: lowered so the support forearm enters from the bottom, not across the frame
   rocket: [0.10, -0.05, -0.36],
   silenced: [0.06, -0.06, -0.32]
 };
@@ -14561,6 +15144,23 @@ function applySupportPose(w) {
     psxArms.bones[_supIdx[i]].quaternion.setFromEuler(_supEuler);
   }
 }
+// v1.66.74: seed the RIGHT (trigger) arm by mirroring the LEFT support pose, so
+// the trigger hand starts in a proper grip-WRAP orientation before the 2-bone IK
+// pulls the wrist onto the grip. The rig's L/R bones are mirror-symmetric, so a
+// left local quat (x,y,z,w) maps to the right by negating y,z. Bones 1,2,3,4 =
+// shoulder/upper/fore/hand.R. The 2-bone IK then rotates only 2,3 (keeps this
+// hand orientation).
+var _rmE = new THREE.Euler(), _rmQ = new THREE.Quaternion(), _rIdx = [1, 2, 3, 4];
+function seedRightArm(w) {
+  var p = SUPPORT_POSE[w];
+  if (!p) return;
+  for (var i = 0; i < 4; i++) {
+    if (!p[i]) continue;
+    _rmE.set(p[i][0], p[i][1], p[i][2]);
+    _rmQ.setFromEuler(_rmE);
+    psxArms.bones[_rIdx[i]].quaternion.set(_rmQ.x, -_rmQ.y, -_rmQ.z, _rmQ.w);
+  }
+}
 // v1.44: support-arm 2-bone IK. The blind-euler SUPPORT_POSE left the left hand
 // floating off the gun; instead we now seed from it (elbow pole hint + hand
 // wrap) then run a few CCD passes on upper_arm.L(25) + forearm.L(26) so hand.L
@@ -14572,11 +15172,22 @@ function applySupportPose(w) {
 // quaternion into bone-local space, premultiply.
 var GRIP_TGT = {
   // (no pistol entry — one-handed, see SUPPORT_POSE)
-  smg:    [0.28, -0.30, -0.56],
-  rifle:  [0.18, -0.42, -0.84],
-  auto:   [0.19, -0.42, -0.76],
-  rocket: [0.22, -0.44, -0.68],
+  smg:    [0.248, -0.15, -0.696],   // v1.66.87: diagonal composition
+  rifle:  [0.079, -0.173, -0.741],  // v1.66.87: diagonal composition
+  auto:   [0.08, -0.114, -0.718],   // v1.66.87: handguard, re-derived for the diagonal AK pose
+  rocket: [0.159, -0.231, -0.598],  // v1.66.87: diagonal composition
   silenced: [0.21, -0.40, -0.52]
+};
+// v1.66.74: RIGHT (trigger) hand grip target per weapon, in the gun-group local
+// frame — the small of the stock / pistol grip. The right arm used to just take
+// the relax clip pose, so the trigger hand floated below the stock. We now IK
+// the right wrist (bone 4, via upper_arm.R/forearm.R) onto these points, matching
+// the old capsule-arm grip anchors. Pistol/silenced stay one-handed (relax hold).
+var RIGHT_GRIP = {
+  smg:    [0.33, -0.48, -0.3],   // v1.66.87: diagonal composition
+  rifle:  [0.34, -0.5, -0.29],   // v1.66.87: diagonal composition
+  auto:   [0.34, -0.5, -0.29],   // v1.66.87: pistol grip, re-derived for the diagonal AK pose
+  rocket: [0.34, -0.46, -0.3]   // v1.66.87: diagonal composition
 };
 var _ikEnd = new THREE.Vector3(), _ikJ = new THREE.Vector3(), _ikTV = new THREE.Vector3(),
     _ikA = new THREE.Vector3(), _ikB = new THREE.Vector3(),
@@ -14595,14 +15206,54 @@ function ccdJoint(j, end, tgtW) {
 }
 function solveSupportIK(w) {
   if (!psxArms) return;
-  applySupportPose(w);                       // seed the arm (pole hint) + hand wrap
-  var tgt = GRIP_TGT[w];
-  if (!tgt || dbgArmOv) return;              // fists/no target, or manual euler override → keep seed
+  applySupportPose(w);                       // seed the LEFT arm (pole hint) + hand wrap
+  if (dbgArmOv) return;                       // manual euler override → keep seed
   var g = vmMap[w]; if (!g) return;
-  var upper = psxArms.bones[25], fore = psxArms.bones[26], hand = psxArms.bones[27];
   psxArms.root.updateMatrixWorld(true);
-  _ikTV.set(tgt[0], tgt[1], tgt[2]); g.localToWorld(_ikTV);
-  for (var it = 0; it < 6; it++) { ccdJoint(fore, hand, _ikTV); ccdJoint(upper, hand, _ikTV); }
+  var tgt = GRIP_TGT[w];
+  if (tgt) {                                  // support (left) hand → foregrip / handguard
+    var upper = psxArms.bones[25], fore = psxArms.bones[26], hand = psxArms.bones[27];
+    _ikTV.set(tgt[0], tgt[1], tgt[2]); g.localToWorld(_ikTV);
+    for (var it = 0; it < 6; it++) { ccdJoint(fore, hand, _ikTV); ccdJoint(upper, hand, _ikTV); }
+  }
+  var rg = RIGHT_GRIP[w];
+  if (rg) {                                   // trigger (right) hand → small of the stock / grip.
+    seedRightArm(w);                          // mirrored LEFT grip = wrap orientation seed
+    var rup = psxArms.bones[2], rfo = psxArms.bones[3], rha = psxArms.bones[4];
+    _ikTV.set(rg[0], rg[1], rg[2]); g.localToWorld(_ikTV);
+    for (var it2 = 0; it2 < 6; it2++) { ccdJoint(rfo, rha, _ikTV); ccdJoint(rup, rha, _ikTV); }
+  }
+}
+// ---- FP grip finger pose (v1.66.73) ----------------------------------------
+// The shared relax/grab clip leaves the fingers nearly straight (splayed open),
+// so the hands never actually wrapped the weapon. We author a real grip: every
+// phalanx points down its local +Y and flexes about local +X (FK-verified to
+// curl toward the palm for ALL fingers of BOTH hands — including the ring
+// finger whose MCP carries a 180° roll in the bind pose). Each grip quat =
+// restQuat * flexX(angle); parents (hand/palm) keep the clip pose, so the grip
+// shape rides along with wherever the arm IK/anchor puts the hand.
+// Right (trigger) hand keeps the index nearly straight on the trigger; every
+// other finger + both thumbs wrap. Precomputed once, copied onto the bones
+// each frame after the clip pose — no per-frame allocation.
+var GF_R = { index: [6, 7, 8], middle: [13, 14, 15], ring: [17, 18, 19], pinky: [21, 22, 23], thumb: [9, 10, 11] };
+var GF_L = { index: [29, 30, 31], middle: [36, 37, 38], ring: [40, 41, 42], pinky: [44, 45, 46], thumb: [32, 33, 34] };
+var GRIP_FINGERS = null;                 // {boneIdx: Quaternion}
+var _flexAxis = new THREE.Vector3(1, 0, 0), _flexQ = new THREE.Quaternion();
+function buildGripFingers(restQ) {
+  var g = {};
+  function set(idx, ang) { var q = restQ[idx].clone(); _flexQ.setFromAxisAngle(_flexAxis, ang); q.multiply(_flexQ); g[idx] = q; }
+  function wrap(ids) { set(ids[0], 0.68); set(ids[1], 1.38); set(ids[2], 0.74); }   // full curl: MCP/PIP/DIP — tight clench onto the grip
+  function trig(ids) { set(ids[0], 0.16); set(ids[1], 0.30); set(ids[2], 0.20); }   // index resting on the trigger
+  function thumb(ids) { set(ids[0], 0.30); set(ids[1], 0.64); set(ids[2], 0.50); }  // thumb wrapped over the top
+  // RIGHT (trigger) hand: index on the trigger, everything else wraps the grip
+  trig(GF_R.index); wrap(GF_R.middle); wrap(GF_R.ring); wrap(GF_R.pinky); thumb(GF_R.thumb);
+  // LEFT (support) hand: all four fingers wrap the foregrip / support the pistol
+  wrap(GF_L.index); wrap(GF_L.middle); wrap(GF_L.ring); wrap(GF_L.pinky); thumb(GF_L.thumb);
+  return g;
+}
+function gripFingers() {
+  if (!psxArms || !GRIP_FINGERS) return;
+  for (var idx in GRIP_FINGERS) psxArms.bones[idx].quaternion.copy(GRIP_FINGERS[idx]);
 }
 function armsTintTex(skinHex) {
   var cv = document.createElement('canvas');
@@ -14691,8 +15342,12 @@ function buildPSXArms(skinHex) {
     clips[k] = { d: c.d, f: c.f, q: i16(c.q), t: i16(c.t), ts: c.ts || 1024 };
   }
   var ci = names.indexOf('camera');
+  // bind-pose (rest) quats — captured before any clip pose overwrites them;
+  // the FP finger grip is authored relative to these (rest * flexX(angle)).
+  var restQ = [];
+  for (i = 0; i < np; i++) restQ.push(bones[i].quaternion.clone());
   return {
-    root: root, bones: bones, mesh: mesh, clips: clips, np: np,
+    root: root, bones: bones, mesh: mesh, clips: clips, np: np, restQ: restQ,
     camBone: ci >= 0 ? bones[ci] : null, rootBone: bones[0]
   };
 }
@@ -14735,6 +15390,7 @@ function initPSXArms() {
   try {
     psxArms = buildPSXArms(CSKIN[playerChar ? playerChar.skin : 1]);
     if (psxArms) {
+      GRIP_FINGERS = buildGripFingers(psxArms.restQ);
       armLf.visible = false; punchArm.visible = false;
       vmFists.add(psxArms.root);
       armsPose(psxArms, 'idle', 0);
@@ -14742,7 +15398,7 @@ function initPSXArms() {
       [vmPistol, vmSmg, vmRifle, vmAuto, vmRocket].forEach(function (g) {
         g.children.forEach(function (c) { if (c.userData.gunArm) c.visible = false; });
       });
-      if (GUNHOLD_GROUPS[state.equipped]) { vmMap[state.equipped].add(psxArms.root); armsPose(psxArms, gunHold.clip, gunHold.t, true); solveSupportIK(state.equipped); }
+      if (GUNHOLD_GROUPS[state.equipped]) { vmMap[state.equipped].add(psxArms.root); armsPose(psxArms, gunHold.clip, gunHold.t, true); solveSupportIK(state.equipped); gripFingers(); }
     }
   } catch (e) { psxArms = null; }
 }
@@ -14776,13 +15432,14 @@ var vmPistol = new THREE.Group();
 var vmSmg = new THREE.Group();
 (function () {
   if (hasMeshyGun('tec9')) {
-    var mg = getGunMesh('tec9', 0.5);
-    mg.position.set(0.27, -0.29, -0.41);   // v1.43: retracted 0.14 toward camera
+    // v1.66.87: real-FPS diagonal composition (see AK), compact for the SMG.
+    var mg = getGunMesh('tec9', 0.72);
+    mg.position.set(0.324, -0.18, -0.495);
     mg.rotation.order = 'YXZ';
-    mg.rotation.y = -Math.PI / 2 + 0.22;
-    mg.rotation.x = 0.05;
+    mg.rotation.set(-0.266, -0.871, -0.316);
     vmSmg.add(mg);
-    var sAr = vmArm(0.29, -0.47, -0.24, 0.18); sAr.userData.gunArm = 1; vmSmg.add(sAr);
+    var sAr = vmArm(0.33, -0.48, -0.3, 0.18); sAr.userData.gunArm = 1; vmSmg.add(sAr);
+    var sAr2 = vmArm(0.25, -0.42, -0.7, -0.3); sAr2.userData.gunArm = 1; vmSmg.add(sAr2);
     WEAPONS.smg.flashAt = meshyMuzzleAt(mg);
     WEAPONS.smg.flashScale = 0.65;
     return;
@@ -14820,14 +15477,15 @@ var vmSmg = new THREE.Group();
 var vmRifle = new THREE.Group();
 (function () {
   if (hasMeshyGun('kar98k')) {
-    var mg = getGunMesh('kar98k', 0.95);
-    mg.position.set(0.25, -0.29, -0.56);   // v1.43: retracted 0.16 toward camera
+    // v1.66.87: real-FPS diagonal composition (see AK) — stock off bottom-right,
+    // barrel diagonal up-left toward the crosshair, flat side 3/4 to camera.
+    var mg = getGunMesh('kar98k', 1.15);
+    mg.position.set(0.301, -0.233, -0.505);
     mg.rotation.order = 'YXZ';
-    mg.rotation.y = -Math.PI / 2 + 0.22;
-    mg.rotation.x = 0.05;
+    mg.rotation.set(-0.258, -0.822, -0.32);
     vmRifle.add(mg);
-    var rAr1 = vmArm(0.27, -0.47, -0.34, 0.18); rAr1.userData.gunArm = 1; vmRifle.add(rAr1);
-    var rAr2 = vmArm(0.11, -0.44, -0.82, -0.32); rAr2.userData.gunArm = 1; vmRifle.add(rAr2);
+    var rAr1 = vmArm(0.34, -0.5, -0.29, 0.18); rAr1.userData.gunArm = 1; vmRifle.add(rAr1);
+    var rAr2 = vmArm(0.08, -0.4, -0.78, -0.32); rAr2.userData.gunArm = 1; vmRifle.add(rAr2);
     WEAPONS.rifle.flashAt = meshyMuzzleAt(mg);
     WEAPONS.rifle.flashScale = 0.8;
     return;
@@ -14846,16 +15504,20 @@ var vmRifle = new THREE.Group();
 var vmAuto = new THREE.Group();
 (function () {
   if (hasMeshyGun('ak47')) {
-    var mg = getGunMesh('ak47', 0.8);
-    mg.position.set(0.26, -0.30, -0.46);   // v1.43: retracted 0.16 toward camera
+    // v1.66.87: real-FPS composition — the rifle enters from the bottom-right
+    // (stock off-screen at the shoulder), receiver filling the lower-right, the
+    // barrel running DIAGONALLY up-and-left toward the crosshair. mg.quaternion
+    // maps the model -x (muzzle) axis onto that diagonal; position anchors the
+    // pistol grip at the bottom-right. GRIP_TGT/RIGHT_GRIP re-derived below.
+    var mg = getGunMesh('ak47', 1.12);
+    mg.position.set(0.313, -0.218, -0.458);
     mg.rotation.order = 'YXZ';
-    mg.rotation.y = -Math.PI / 2 + 0.22;
-    mg.rotation.x = 0.05;
+    mg.rotation.set(-0.258, -0.822, -0.32);   // YXZ euler: barrel diagonal up-left, flat receiver 3/4 to camera
     vmAuto.add(mg);
-    var aAr1 = vmArm(0.29, -0.47, -0.3, 0.18); aAr1.userData.gunArm = 1; vmAuto.add(aAr1);
-    var aAr2 = vmArm(0.13, -0.44, -0.72, -0.3); aAr2.userData.gunArm = 1; vmAuto.add(aAr2);
+    var aAr1 = vmArm(0.31, -0.47, -0.33, 0.18); aAr1.userData.gunArm = 1; vmAuto.add(aAr1);
+    var aAr2 = vmArm(0.15, -0.42, -0.78, -0.3); aAr2.userData.gunArm = 1; vmAuto.add(aAr2);
     WEAPONS.auto.flashAt = meshyMuzzleAt(mg);
-    WEAPONS.auto.flashScale = 0.75;
+    WEAPONS.auto.flashScale = 0.9;
     return;
   }
   vmAuto.add(box(0.07, 0.09, 0.34, metalM, 0.26, -0.265, -0.5));            // receiver
@@ -14881,18 +15543,21 @@ var rpgWarhead = null;   // the Meshy launcher's own warhead mesh (hidden while 
 (function () {
   var headCant = 0;
   if (hasMeshyGun('rpg7')) {
-    var mg = getGunMesh('rpg7', 0.95);
+    // v1.66.87: real-FPS diagonal composition (see AK) — tube over the shoulder,
+    // warhead up-left. rocketFwd/seat derive from the actual muzzle so the reload
+    // slide still tracks the tube after the re-cant.
+    var mg = getGunMesh('rpg7', 1.05);
     mg.traverse(function (o) { if (o.userData && o.userData.warhead) rpgWarhead = o; });
-    mg.position.set(0.3, -0.26, -0.46);   // v1.43: retracted 0.14 toward camera
+    mg.position.set(0.342, -0.197, -0.42);
     mg.rotation.order = 'YXZ';
-    mg.rotation.y = -Math.PI / 2 + 0.22;
+    mg.rotation.set(-0.217, -0.956, -0.228);
     vmRocket.add(mg);
-    var kAr1 = vmArm(0.32, -0.48, -0.32, 0.18); kAr1.userData.gunArm = 1; vmRocket.add(kAr1);
-    var kAr2 = vmArm(0.16, -0.46, -0.6, -0.3); kAr2.userData.gunArm = 1; vmRocket.add(kAr2);
-    var fa = gunFlashAt(0.3, -0.26, -0.46, 0.95, 0.02);   // muzzle literal tracks the retracted mesh
+    var kAr1 = vmArm(0.34, -0.46, -0.3, 0.18); kAr1.userData.gunArm = 1; vmRocket.add(kAr1);
+    var kAr2 = vmArm(0.15, -0.44, -0.62, -0.3); kAr2.userData.gunArm = 1; vmRocket.add(kAr2);
+    var fa = meshyMuzzleAt(mg);   // exact barrel tip of the re-canted tube
     WEAPONS.rocket.flashAt = fa;
-    headCant = 0.22;
-    rocketFwd.set(-Math.cos(-Math.PI / 2 + 0.22), 0, Math.sin(-Math.PI / 2 + 0.22));
+    // tube-forward = model -x mapped through the mesh quaternion
+    rocketFwd.set(-1, 0, 0).applyQuaternion(mg.quaternion).normalize();
     rocketSeat.set(fa[0], fa[1], fa[2]).addScaledVector(rocketFwd, -0.05);
   } else {
     var oliveM = lamb({ color: 0x4a5a3a });
@@ -14998,6 +15663,11 @@ var vmSilenced = vmPistol.clone(true);
 (function () { var supp = cyl(0.032, 0.032, 0.30, 10, darkMetalM, 0.26, -0.265, -1.02); supp.rotation.x = Math.PI / 2; vmSilenced.add(supp); })();
 vmMap.silenced = vmSilenced;
 Object.keys(vmMap).forEach(function (k) { vm.add(vmMap[k]); vmMap[k].visible = false; });
+// v1.66.73: FP framing lift. The gun + skinned hands used to ride at the very
+// bottom of the frame (grip cut off at a level look). The equipped group's
+// position is rebased to this per-weapon lift each frame (see the draw block),
+// which moves gun AND arms together so the grip relationship is preserved.
+var VM_LIFT = { pistol: 0.24, smg: 0.12, rifle: 0.11, auto: 0.02, rocket: 0.11, silenced: 0.24 };
 vmFists.visible = true;
 var zoomed = false;
 function setZoom(on) {
@@ -15019,7 +15689,7 @@ function setEquipped(w) {
   // draw/reload animations move the hands with the gun
   if (psxArms) {
     if (w === 'fists') { vmFists.add(psxArms.root); vmFists.rotation.set(0, 0, 0); armsPose(psxArms, 'idle', T); }
-    else if (GUNHOLD_GROUPS[w]) { vmMap[w].add(psxArms.root); armsPose(psxArms, gunHold.clip, gunHold.t, true); solveSupportIK(w); }
+    else if (GUNHOLD_GROUPS[w]) { vmMap[w].add(psxArms.root); armsPose(psxArms, gunHold.clip, gunHold.t, true); solveSupportIK(w); gripFingers(); }
   }
   vm.visible = !zoomed && !driving;
   Object.keys(vmMap).forEach(function (k) { vmMap[k].visible = (k === w); });
@@ -15075,23 +15745,23 @@ function tryAttack() {
       if (rd < w.range && (rdx * fx + rdz * fz) / (rd || 1) > 0.55 && rd < bestD) { bestRemote = rm; best = null; bestCop = null; bestCopM = -1; bestD = rd; }
     }
     if (best) {
-      puff(new THREE.Vector3(best.x, 1.3, best.z), 0xd96a4f);
+      puff(new THREE.Vector3(best.x, 1.3, best.z), 0xd96a4f, 'blood');
       if (isClient()) netToHost({ t: 'dmgNpc', i: npcs.indexOf(best), dmg: w.dmg, kx: fx, kz: fz });
       else damageNPC(best, w.dmg, fx, fz);
     }
-    else if (bestCop) { damageCop(bestCop, w.dmg, fx, fz); puff(new THREE.Vector3(bestCop.x, 1.3, bestCop.z), 0xd96a4f); }
+    else if (bestCop) { damageCop(bestCop, w.dmg, fx, fz); puff(new THREE.Vector3(bestCop.x, 1.3, bestCop.z), 0xd96a4f, 'blood'); }
     else if (bestCopM >= 0) {
-      puff(new THREE.Vector3(copsM[bestCopM].x, 1.3, copsM[bestCopM].z), 0xd96a4f);
+      puff(new THREE.Vector3(copsM[bestCopM].x, 1.3, copsM[bestCopM].z), 0xd96a4f, 'blood');
       netToHost({ t: 'dmgCop', id: copsM[bestCopM].nid, dmg: w.dmg, kx: fx, kz: fz });
       if (!copsM[bestCopM].down) {
         if (state.wanted < 1) setWanted(1);   // hurting a cop is star #1 — fists included
         lastCrimeT = T;
       }
     }
-    else if (bestRemote) { netSendHit(bestRemote.id, w.dmg, true); puff(new THREE.Vector3(bestRemote.x, 1.3, bestRemote.z), 0xd96a4f); }
+    else if (bestRemote) { netSendHit(bestRemote.id, w.dmg, true); puff(new THREE.Vector3(bestRemote.x, 1.3, bestRemote.z), 0xd96a4f, 'blood'); }
     // connecting sounds different from swinging — and a slap CRACKS
     var meleeAt = best ? best : (bestCop ? bestCop : (bestCopM >= 0 ? copsM[bestCopM] : bestRemote));
-    if (meleeAt) sfx(punchSlap ? 'slap' : 'punchhit', { x: meleeAt.x, z: meleeAt.z, range: 45 });
+    if (meleeAt) { sfx(punchSlap ? 'slap' : 'punchhit', { x: meleeAt.x, z: meleeAt.z, range: 45 }); hitMark(false); }
     return;
   }
   if (T - (lastShotBy[state.equipped] || -99) < w.rate) return;
@@ -15135,6 +15805,17 @@ function tryAttack() {
     var mo = camera.position.clone().add(dir.clone().multiplyScalar(1.3)).add(rgt.multiplyScalar(0.24));
     spawnBeam(mo.x, mo.y - 0.3, mo.z, bp.x, bp.y, bp.z, 0x66ff88);
   }
+  // no mesh in the way: shooting the GROUND leaves a hole too (mrg4bexs) —
+  // the ground plane isn't in solidMeshes, so intersect the ray analytically.
+  if (!hits.length && dir.y < -0.02) {
+    var gY = (typeof inside !== 'undefined' && inside) ? INT.y + 0.06 : 0.18;
+    var gT = (gY - camera.position.y) / dir.y;
+    if (gT > 0 && gT < 300) {
+      var gPt = camera.position.clone().add(dir.clone().multiplyScalar(gT));
+      puff(gPt, 0xbbbbbb, 'impact');
+      bulletHole({ point: gPt, face: { normal: new THREE.Vector3(0, 1, 0) }, object: scene });
+    }
+  }
   if (hits.length) {
     var h = hits[0], o = h.object, npcHit = null, copHit = null, carHit = null, remoteHit = null, copMHit = -1, ufoHit = false, alienHit = false, atmHit = null;
     while (o) {
@@ -15158,21 +15839,21 @@ function tryAttack() {
       else damageAlien(w.dmg, dir.x, dir.z);
     }
     else if (npcHit) {
-      puff(h.point, 0xd93a2a);
+      puff(h.point, 0xd93a2a, 'blood');
       meleeHit = state.equipped === 'fists';
       if (isClient()) netToHost({ t: 'dmgNpc', i: npcs.indexOf(npcHit), dmg: w.dmg, kx: dir.x, kz: dir.z });
       else damageNPC(npcHit, w.dmg, dir.x, dir.z, ghostActive());   // #78 Ghost: silenced kills stay silent (no star)
     }
-    else if (remoteHit) { netSendHit(remoteHit, w.dmg, true); puff(h.point, 0xd93a2a); }
+    else if (remoteHit) { netSendHit(remoteHit, w.dmg, true); puff(h.point, 0xd93a2a, 'blood'); }
     else if (copMHit >= 0) {
-      puff(h.point, 0xd93a2a);
+      puff(h.point, 0xd93a2a, 'blood');
       netToHost({ t: 'dmgCop', id: copsM[copMHit] ? copsM[copMHit].nid : undefined, dmg: w.dmg, kx: dir.x, kz: dir.z });
       if (copsM[copMHit] && !copsM[copMHit].down) {
         if (state.wanted < 1) setWanted(1);   // hurting a cop is star #1, even a host-simmed one
         lastCrimeT = T;
       }
     }
-    else if (copHit) { damageCop(copHit, w.dmg, dir.x, dir.z); puff(h.point, 0xd93a2a); }
+    else if (copHit) { damageCop(copHit, w.dmg, dir.x, dir.z); puff(h.point, 0xd93a2a, 'blood'); }
     else if (carHit) {
       puff(h.point, 0xd8c860);
       if (carHit.playerDriven && carHit !== driving) {
@@ -15189,16 +15870,83 @@ function tryAttack() {
         netToHost({ t: 'shootCar', i: cars.indexOf(carHit), rate: w.rate });
       } else {
         carHit.dmgT += w.rate;
-        if (carHit.dmgT >= 1.5 && goBerserk(carHit)) { popup('WRECKED!'); creditCivKill(); }   // trashing a ride weighs like a body (credit once, on the wreck)
+        if (carHit.dmgT >= 1.5 && goBerserk(carHit)) { popup('WRECKED!'); creditCivKill('car'); }   // trashing a ride weighs like a body (credit once, on the wreck)
       }
     }
     else if (atmHit) shootAtm(atmHit, h.point);   // streetprops: burst the ATM open
-    else puff(h.point, 0xbbbbbb);
+    else { puff(h.point, 0xbbbbbb, 'impact'); bulletHole(h); }   // static surface: small dust + a hole
+    // hitmarker on any damageable connect (a kill mark from damageNPC/Cop above
+    // out-ranks this via hitMark's downgrade guard)
+    if (npcHit || copHit || remoteHit || copMHit >= 0 || carHit || alienHit || ufoHit) hitMark(false);
   }
   recoilPitch += 0.012 + Math.random() * 0.008;
 }
 
 var dmgDirs = [];   // recent damage sources: {a: world angle to source, t}
+// ---- combat feedback: hitmarker (X on the reticle when a shot/punch lands,
+// red on a kill) + kill feed (recent takedowns list, top-right). Both are
+// LOCAL-only cosmetic reactions; kills route through creditCiv/CopKill so they
+// fire in SP, on the host, AND on a client (via the host's `kill` message). ----
+var hitMarkerT = -99, hitMarkerKill = false;
+function hitMark(kill) {
+  // a fresh kill mark (red) must not be downgraded to a plain hit mark when the
+  // same trigger-pull both connects and kills in one frame (one-shot kills)
+  if (!kill && hitMarkerKill && T - hitMarkerT < 0.09) return;
+  hitMarkerT = T; hitMarkerKill = !!kill;
+  sfx(kill ? 'killtick' : 'tick');
+}
+var killFeed = [];   // {txt, col, t} newest first, drawn+expired in drawHudCanvas
+// ---- QoL: world-anchored money floats ("+$N" rising from the pickup spot,
+// projected to screen each frame in drawHudCanvas). Reuses one Vector3 for the
+// projection so hot-path cash grabs allocate nothing. ----
+var moneyFloats = [];   // {x, y, z, val, t0}
+var _mfProj = new THREE.Vector3();
+function spawnMoneyFloat(x, y, z, val) {
+  if (moneyFloats.length > 20) moneyFloats.shift();
+  moneyFloats.push({ x: x, y: y, z: z, val: val, t0: T });
+}
+// ---- QoL: weapon quick-bar — slim bottom-center row of owned-weapon slots with
+// their number key, equipped slot lit. Mirrors selectWeaponSlot's ordered list
+// (fists + owned guns in GUN_LIST order + snack/soda). _qbList is reused so the
+// per-frame HUD draw allocates nothing. ----
+var _qbList = [];
+var QB_ABBR = { fists: 'FST', pistol: 'PST', smg: 'SMG', rifle: 'RIF', auto: 'AK', rocket: 'RPG', raygun: 'RAY', neon_blaster: 'NEO', silenced: 'SIL', snack: 'SNK', soda: 'SOD' };
+function drawQuickBar(W, H) {
+  var list = _qbList; list.length = 0;
+  list.push('fists');
+  for (var g = 0; g < GUN_LIST.length; g++) if (state.owned[GUN_LIST[g]]) list.push(GUN_LIST[g]);
+  if (state.snacks > 0) list.push('snack');
+  if (state.sodas > 0) list.push('soda');
+  var n = list.length;
+  if (n < 2) return;                          // just fists — nothing worth a bar
+  var gap = 5, sw = 40, maxW = W - 16;
+  var tot = n * sw + (n - 1) * gap;
+  if (tot > maxW) { sw = Math.max(22, Math.floor((maxW - (n - 1) * gap) / n)); tot = n * sw + (n - 1) * gap; }
+  var apx = sw >= 34 ? 2 : 1;
+  var x0 = Math.round(W / 2 - tot / 2), y0 = H - 37, bh = 30;
+  for (var i = 0; i < n; i++) {
+    var w = list[i], eq = (w === state.equipped), bx = x0 + i * (sw + gap);
+    hudCx.fillStyle = '#000'; hudCx.fillRect(bx - 1, y0 - 1, sw + 2, bh + 2);
+    hudCx.fillStyle = eq ? 'rgba(255,180,40,0.92)' : 'rgba(10,13,20,0.74)'; hudCx.fillRect(bx, y0, sw, bh);
+    if (eq) { hudCx.strokeStyle = '#ffe9a0'; hudCx.lineWidth = 2; hudCx.strokeRect(bx + 1, y0 + 1, sw - 2, bh - 2); }
+    hudText('' + ((i + 1) % 10), bx + sw / 2, y0 + 11, 10, eq ? '#3a2a06' : '#8fa0b8', 'center');
+    drawPix(QB_ABBR[w] || w.substr(0, 3), bx + sw / 2 + 1, y0 + 15, apx, eq ? '#20160a' : '#dfe6f0', 'center');
+  }
+}
+function pushKillFeed(txt, col) {
+  killFeed.unshift({ txt: txt, col: col || '#ff5a3a', t: T });
+  if (killFeed.length > 4) killFeed.pop();
+}
+// death/respawn (QoL): the WASTED overlay shows a live countdown + progress
+// bar, and a click gets you up early once a short grace has passed.
+var RESPAWN_MS = 2600, deadAt = 0, deadUntil = 0, deadTimer = null;
+function doRespawn() {
+  if (!state.dead) return;
+  if (deadTimer) { clearTimeout(deadTimer); deadTimer = null; }
+  player.x = spawnX; player.z = spawnZ; player.y = EYE; yaw = 0; pitch = 0; recoilPitch = 0;
+  state.hp = 100; state.dead = false;
+  document.getElementById('deadScreen').classList.add('hidden');
+}
 function hurtPlayer(d, sx, sz) {
   if (state.dead) return;
   state.hp -= d; state.lastHurt = T;
@@ -15222,6 +15970,7 @@ function hurtPlayer(d, sx, sz) {
     var lost = Math.floor(state.money * 0.25); state.money -= lost;
     document.getElementById('deadInfo').textContent = lost > 0 ? 'You dropped $' + lost + ' on the pavement.' : 'At least you were already broke.';
     document.getElementById('deadScreen').classList.remove('hidden');
+    deadAt = performance.now(); deadUntil = deadAt + RESPAWN_MS;   // drives the countdown UI
     state.wanted = 0; state.civKills = 0; state.copKills = 0; updateStarsHUD();
     // drop everything you were carrying
     var dropped = 0;
@@ -15235,9 +15984,27 @@ function hurtPlayer(d, sx, sz) {
       dropped++;
     });
     setEquipped('fists');
-    setTimeout(function () { player.x = spawnX; player.z = spawnZ; player.y = EYE; yaw = 0; pitch = 0; recoilPitch = 0; state.hp = 100; state.dead = false; document.getElementById('deadScreen').classList.add('hidden'); }, 2600);
+    if (deadTimer) clearTimeout(deadTimer);
+    deadTimer = setTimeout(doRespawn, RESPAWN_MS);
   }
 }
+// live WASTED-screen countdown + progress bar; click after a short grace to
+// respawn early. Cache last strings so we only touch the DOM on change.
+var _deadTxtLast = '', _deadBarLast = '';
+function updateDeadScreen() {
+  if (!state.dead) return;
+  var now = performance.now();
+  var rem = Math.max(0, deadUntil - now);
+  var frac = Math.max(0, Math.min(1, (now - deadAt) / RESPAWN_MS));
+  var txt = 'RESPAWNING IN ' + (Math.ceil(rem / 100) / 10).toFixed(1) + 's';
+  if (txt !== _deadTxtLast) { _deadTxtLast = txt; var dt2 = document.getElementById('deadTimer'); if (dt2) dt2.textContent = txt; }
+  var bw = Math.round(frac * 100) + '%';
+  if (bw !== _deadBarLast) { _deadBarLast = bw; var db = document.getElementById('deadBar'); if (db) db.style.width = bw; }
+}
+(function () {
+  var ds = document.getElementById('deadScreen');
+  if (ds) ds.addEventListener('click', function () { if (state.dead && performance.now() - deadAt > 600) doRespawn(); });
+})();
 
 // ---------------- audio ----------------
 // ---------------- character creator (main menu) ----------------
@@ -16000,6 +16767,8 @@ function sfx(kind, at) {
     case 'crash': nb(0.3, 900, 0.8); bp(85, 0.18, 0.35, 'square', 45); break;
     case 'glass': nb(0.07, 3400, 0.5); bp(190, 0.09, 0.14, 'square', 70); setTimeout(function () { nb(0.1, 2700, 0.38); }, 70); setTimeout(function () { nb(0.14, 2100, 0.28); }, 160); break;
     case 'boom': nb(0.8, 320, 1.3); bp(60, 0.6, 0.6, 'sine', 24); setTimeout(function () { nb(0.4, 700, 0.4); }, 120); break;
+    case 'tick': bp(1500, 0.03, 0.11, 'square', 0); break;   // crisp hitmarker blip
+    case 'killtick': bp(1650, 0.035, 0.14, 'square', -260); setTimeout(function () { bp(1050, 0.05, 0.12, 'square', -180); }, 45); break;   // two-note kill confirm
   }
 }
 // ---- surface footsteps (#47): cheap per-surface noise blips synced to the
@@ -16172,6 +16941,83 @@ function setMinimapZoom(i) {
 }
 function cycleMinimapZoom(dir) { return setMinimapZoom(mmZoom + (dir > 0 ? 1 : -1)); }
 
+// ===== custom waypoint / map pin (QoL) =====
+// Drop a personal marker with M (casts your view onto the ground) or by
+// clicking the minimap while a menu is open. Shows a world beacon, an on-HUD
+// diamond/edge-arrow with live distance, and a cyan blip on the minimap.
+// Auto-clears on arrival (within 6u); M/click again toggles it off.
+var userWP = null;                 // {x, z} world coords, or null
+var wpBeacon = null;               // lazily-built 3D beacon group
+var wpPhase = 0;
+var _wpDir = new THREE.Vector3();
+var _wpProj = new THREE.Vector3();
+var mmXf = null;                   // last minimap draw transform (for click->world)
+function buildWPBeacon() {
+  var g = new THREE.Group();
+  var mat = new THREE.MeshBasicMaterial({ color: 0x36d6ff, transparent: true, opacity: 0.3, depthWrite: false, side: THREE.DoubleSide });
+  var beam = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 1.4, 60, 10, 1, true), mat);
+  beam.position.y = 30; g.add(beam);
+  var ringMat = new THREE.MeshBasicMaterial({ color: 0x9fefff, transparent: true, opacity: 0.6, depthWrite: false, side: THREE.DoubleSide });
+  var ring = new THREE.Mesh(new THREE.RingGeometry(2.2, 3.0, 24), ringMat);
+  ring.rotation.x = -Math.PI / 2; ring.position.y = 0.16; g.add(ring);
+  g.userData.beamMat = mat; g.userData.ring = ring; g.renderOrder = 3;
+  return g;
+}
+function setWaypoint(x, z) {
+  x = Math.max(-HALF + 2, Math.min(HALF - 2, x));
+  z = Math.max(-HALF + 2, Math.min(HALF - 2, z));
+  userWP = { x: x, z: z };
+  if (!wpBeacon) { wpBeacon = buildWPBeacon(); scene.add(wpBeacon); }
+  wpBeacon.position.set(x, 0, z); wpBeacon.visible = !inside;
+  if (typeof sfx === 'function') sfx('buy');
+  if (typeof toast === 'function') toast('◈ Waypoint set', 1400);
+  return userWP;
+}
+function clearWaypoint(silent) {
+  if (!userWP) return;
+  userWP = null;
+  if (wpBeacon) wpBeacon.visible = false;
+  if (!silent) { if (typeof sfx === 'function') sfx('deny'); if (typeof toast === 'function') toast('Waypoint cleared', 1100); }
+}
+function toggleWaypointAtLook() {
+  if (userWP) { clearWaypoint(false); return; }
+  // cast the camera-forward ray onto the ground (y=0); if aiming at/above the
+  // horizon, just drop it a fixed distance ahead.
+  camera.getWorldDirection(_wpDir);
+  var t = (_wpDir.y < -0.02) ? Math.min(240, camera.position.y / -_wpDir.y) : 60;
+  setWaypoint(camera.position.x + _wpDir.x * t, camera.position.z + _wpDir.z * t);
+}
+function updateWaypoint(dt) {
+  if (!userWP) return;
+  if (wpBeacon) {
+    wpBeacon.visible = !inside;
+    wpPhase += dt;
+    wpBeacon.userData.beamMat.opacity = 0.2 + 0.14 * (Math.sin(wpPhase * 3) * 0.5 + 0.5);
+    var ring = wpBeacon.userData.ring;
+    ring.rotation.z += dt * 1.4;
+    var s = 1 + 0.12 * Math.sin(wpPhase * 3); ring.scale.set(s, s, s);
+  }
+  var dx = userWP.x - player.x, dz = userWP.z - player.z;
+  if (dx * dx + dz * dz < 36) {          // arrived
+    clearWaypoint(true);
+    if (typeof toast === 'function') toast('◈ Arrived at waypoint', 1400);
+    if (typeof sfx === 'function') sfx('cash');
+  }
+}
+// minimap click -> world waypoint (works when the cursor is free: a menu open,
+// or before the pointer locks). Toggles off if you click near the existing pin.
+mm.addEventListener('click', function (e) {
+  if (!state.running || !mmXf || (settings && !settings.minimap)) return;
+  var rect = mm.getBoundingClientRect();
+  if (!rect.width) return;
+  var px = (e.clientX - rect.left) / rect.width * mm.width;
+  var py = (e.clientY - rect.top) / rect.height * mm.height;
+  var wx = (px - mmXf.txp) / (mmXf.Z * MMS) - HALF;
+  var wz = (py - mmXf.typ) / (mmXf.Z * MMS) - HALF;
+  if (userWP) { var ax = wx - userWP.x, az = wz - userWP.z; if (ax * ax + az * az < 400) { clearWaypoint(false); return; } }
+  setWaypoint(wx, wz);
+});
+
 // ---- venue/landmark blips (#46): REMAP_VENUES is parsed ONCE into a compact
 // blip list (colour + short glyph per named venue) so drawMinimap never walks
 // the raw venue table per frame. Blips render at constant PIXEL size in screen
@@ -16213,6 +17059,7 @@ function buildMMVenues() {
 }
 
 function drawMinimap() {
+  if (settings && !settings.minimap) return;   // hidden via settings (canvas also display:none)
   if (!mmVenues) buildMMVenues();
   var cw = mm.width, ch = mm.height;
   var Z = MM_ZOOMS[mmZoom];
@@ -16222,6 +17069,7 @@ function drawMinimap() {
   var bx = Math.max(halfW, Math.min(cw - halfW, w2m(player.x)));
   var by = Math.max(halfH, Math.min(ch - halfH, w2m(player.z)));
   var txp = cw / 2 - bx * Z, typ = ch / 2 - by * Z;
+  mmXf = { Z: Z, txp: txp, typ: typ };          // cached for click->world inversion
   function sx(x) { return w2m(x) * Z + txp; }   // world x -> minimap px (pan+zoom)
   function sz(z) { return w2m(z) * Z + typ; }
 
@@ -16323,6 +17171,19 @@ function drawMinimap() {
       var cx = cw / 2, cy = ch / 2, ang = Math.atan2(my - cy, mx - cx);
       var ex = Math.max(7, Math.min(cw - 7, mx)), ey = Math.max(7, Math.min(ch - 7, my));
       mg.save(); mg.translate(ex, ey); mg.rotate(ang); mg.beginPath(); mg.moveTo(6, 0); mg.lineTo(-4, 4); mg.lineTo(-4, -4); mg.closePath(); mg.fill(); mg.stroke(); mg.restore();
+    }
+  }
+  // custom waypoint blip (QoL): cyan diamond, off-map clamps to a border arrow
+  if (userWP) {
+    var wmx = sx(userWP.x), wmy = sz(userWP.z), winb = wmx >= 5 && wmx <= cw - 5 && wmy >= 5 && wmy <= ch - 5;
+    var wbl = (Math.sin(T * 5) * 0.5 + 0.5);
+    mg.fillStyle = 'rgba(60,214,255,' + (0.6 + 0.4 * wbl).toFixed(2) + ')'; mg.strokeStyle = '#04212e'; mg.lineWidth = 1;
+    if (winb) {
+      mg.save(); mg.translate(wmx, wmy); mg.rotate(Math.PI / 4); var wd = 3.4; mg.fillRect(-wd, -wd, wd * 2, wd * 2); mg.strokeRect(-wd, -wd, wd * 2, wd * 2); mg.restore();
+    } else {
+      var wcx = cw / 2, wcy = ch / 2, wang = Math.atan2(wmy - wcy, wmx - wcx);
+      var wex = Math.max(7, Math.min(cw - 7, wmx)), wey = Math.max(7, Math.min(ch - 7, wmy));
+      mg.save(); mg.translate(wex, wey); mg.rotate(wang); mg.beginPath(); mg.moveTo(6, 0); mg.lineTo(-4, 4); mg.lineTo(-4, -4); mg.closePath(); mg.fill(); mg.stroke(); mg.restore();
     }
   }
   // north indicator: this minimap is fixed-north (top edge = -z = north), so an
@@ -17223,6 +18084,7 @@ function questHatchUnlocked(id) {
 loadQuests();
 questRegisterItems();
 placeQuestSurfaceProps();   // #78: quest set-dressing props at the POI entrances
+loadLocalProgress();        // restore offline/guest money+guns+consumables (cloud login overrides later)
 
 // ================= #78 QUEST REWARD CAPABILITIES =================
 // The five stubbed rewards, made real. Each gated on its state.unlocks flag;
@@ -17878,11 +18740,11 @@ function handleNet(m, conn) {
       if (!ufoTriggered) { ufoTriggered = true; spawnUfo(); }
     }
   } else if (m.t === 'cash') {
-    state.money += m.val; popup('+$' + m.val); sfx('cash');
+    state.money += m.val; spawnMoneyFloat(player.x, 1.2, player.z, m.val); sfx('cash');
   } else if (m.t === 'kill') {
     if (m.kind === 'npc') { creditCivKill(); popup('KO!'); }
     else if (m.kind === 'cop') { creditCopKill(); popup('COP DOWN!'); }
-    else if (m.kind === 'car') { creditCivKill(); popup('WRECKED!'); }
+    else if (m.kind === 'car') { creditCivKill('car'); popup('WRECKED!'); }
   }
 }
 function onConn(c) {
@@ -18174,7 +19036,14 @@ function updateNet(dt) {
       r.yaw += dy * k;
     }
     var moved = Math.sqrt((r.x - r.lx) * (r.x - r.lx) + (r.z - r.lz) * (r.z - r.lz));
-    r.phase += moved * 3.4;
+    // walk-cycle phase advances from a SMOOTHED local velocity every frame —
+    // raw per-frame deltas freeze/spike whenever the snapshot buffer runs dry
+    // for a beat (late/dropped packet), which snapped the clip between idle
+    // and a sprint pose at the wire rate ("laggy walking", bug mrft8ygx)
+    var rawSp = dt > 0 ? moved / dt : 0;
+    if (rawSp > 40) { rawSp = 0; r.sspd = 0; }   // teleport/respawn: resync, don't sprint the clip
+    r.sspd = (r.sspd || 0) + (rawSp - (r.sspd || 0)) * Math.min(1, dt * 7);
+    r.phase += r.sspd * dt * 3.4;
     // smoothed world velocity of this remote — the host's only handle on a
     // remote-driven car's speed/heading (npcCarThreat reads it so pedestrians
     // dodge cars piloted by other players, not just host-simmed traffic)
@@ -18189,10 +19058,9 @@ function updateNet(dt) {
       r.mesh.position.set(r.x, Math.max(-59.9, r.y - EYE), r.z);
       r.mesh.rotation.y = r.yaw + Math.PI;
       r.mesh.rotation.x = r.dead ? -1.5 : 0;
-      var rspd = moved / Math.max(dt, 0.001);   // real speed so sprinters pick the run clip
       // dead players lie flat (rotation.x=-1.5) — DON'T drive the idle clip or
       // their limbs "swim" horizontally; just freeze the current pose
-      if (!r.dead) animPerson(r.mesh, rspd <= 0.5 ? 0 : rspd, dt, r.phase);
+      if (!r.dead) animPerson(r.mesh, r.sspd <= 0.5 ? 0 : r.sspd, dt, r.phase);
       r.tag.position.set(r.x, r.y - EYE + 2.5, r.z);
     }
     // fade the (through-wall, co-op friendly) player tag out at distance so far
@@ -18270,7 +19138,7 @@ function applyWorldSnap(dt) {
     // hidden (st 4) = inside a building: mesh invisible, and position SNAPS on
     // the way in/out — teleports through doors must not glide across the map
     var isHid = st === 4;
-    if (isHid !== !!n.hiddenM) { n.x = b[0] / 10; n.z = b[1] / 10; nox = n.x; noz = n.z; }
+    if (isHid !== !!n.hiddenM) { n.x = b[0] / 10; n.z = b[1] / 10; nox = n.x; noz = n.z; n.sspd = 0; }
     else { n.x = ilerp(sp && sp.npcs, i, 0, b[0]) / 10; n.z = ilerp(sp && sp.npcs, i, 1, b[1]) / 10; }
     n.hiddenM = isHid;
     nm.visible = !isHid;
@@ -18288,8 +19156,16 @@ function applyWorldSnap(dt) {
     }
     if (nm.userData.shadow) nm.userData.shadow.visible = st < 2;   // hidden st=4 also hides (>= 2)
     // animate from the mirrored movement so idle/standing NPCs don't "march in
-    // place" — speed derived from the position delta, stride-matched phase
-    if (st === 0) { var nmv = Math.hypot(n.x - nox, n.z - noz); n.phase += nmv * 3.4; animPerson(nm, (dt > 0 && nmv / dt > 0.5) ? nmv / dt : 0, dt, n.phase); }
+    // place". Speed is a smoothed estimate and phase integrates from it every
+    // frame (same formula the host sim uses) — advancing phase from raw
+    // per-frame position deltas stuttered at snapshot boundaries (bug mrft8ygx)
+    if (st === 0) {
+      var nmv = Math.hypot(n.x - nox, n.z - noz), nsp = dt > 0 ? nmv / dt : 0;
+      if (nsp > 40) { nsp = 0; n.sspd = 0; }   // door teleport/snap: don't sprint the clip
+      n.sspd = (n.sspd || 0) + (nsp - (n.sspd || 0)) * Math.min(1, dt * 7);
+      n.phase += n.sspd * dt * 3.4;
+      animPerson(nm, n.sspd > 0.5 ? n.sspd : 0, dt, n.phase);
+    } else n.sspd = 0;
   }
   // snapshot cop entries are just [x,z,ry,down] — no engage state — so mirror
   // cops approximate "gun out" with the LOCAL player's wanted level instead
@@ -18309,10 +19185,19 @@ function applyWorldSnap(dt) {
     cp.mesh.rotation.x = cs[3] === 2 ? -1.5 : 0;
     cp.mesh.userData.copM = i;
     // speed-driven anim: a cop standing/shooting on the host stays put here
-    // (idle) instead of marching in place; walks only when actually moving
-    var cmv = Math.hypot(cp.x - cox, cp.z - coz); cp.phase += cmv * 3.4;
+    // (idle) instead of marching in place; walks only when actually moving.
+    // Speed is SMOOTHED and phase advances from it locally each frame — raw
+    // frame deltas stall/spike at snapshot boundaries and made the walk cycle
+    // stutter at the 8Hz wire rate (bug mrft8ygx)
+    var cmv = Math.hypot(cp.x - cox, cp.z - coz), csp = dt > 0 ? cmv / dt : 0;
+    if (csp > 40) { csp = 0; cp.sspd = 0; }   // slot reuse/teleport: snap, don't sprint
+    cp.sspd = (cp.sspd || 0) + (csp - (cp.sspd || 0)) * Math.min(1, dt * 7);
+    cp.phase += cp.sspd * dt * 3.4;
     // a downed cop (cs[3]===2) lies flat — freeze rather than play idle (swim)
-    if (cs[3] !== 2) animPerson(cp.mesh, (dt > 0 && cmv / dt > 0.5) ? cmv / dt : 0, dt, cp.phase);
+    if (cs[3] !== 2) {
+      animPerson(cp.mesh, cp.sspd > 0.5 ? cp.sspd : 0, dt, cp.phase);
+      if (cp.mesh.userData.heldGun) copLowReady(cp.mesh);   // mirrors never aim locally: low-ready (bug mrft8cw7)
+    }
   }
   // cop gunfire FX: the host runs copShoot and buffers each shot; render the
   // muzzle flash + gunshot (+ blood at whoever got hit) so bystanders and the
@@ -18326,7 +19211,7 @@ function applyWorldSnap(dt) {
       var mzv = new THREE.Vector3(fe[0] / 10, fe[1] / 10, fe[2] / 10);
       puff(mzv, 0xffe08a);
       sfx((fe[3] & 1) ? 'copsmg' : 'copshot', { x: mzv.x, z: mzv.z, y: mzv.y, range: 150 });
-      if ((fe[3] & 2) && fe.length >= 7) puff(new THREE.Vector3(fe[4] / 10, fe[5] / 10, fe[6] / 10), 0xd93a2a);
+      if ((fe[3] & 2) && fe.length >= 7) puff(new THREE.Vector3(fe[4] / 10, fe[5] / 10, fe[6] / 10), 0xd93a2a, 'blood');
     }
   }
   // cash mirror
@@ -18436,7 +19321,7 @@ function creditPvpKill() {
 // master+sfx+voice volume, draw-distance quality, CRT filter. Restored on
 // boot (applySettings() runs in the boot handoff, before the first frame).
 var SETTINGS_KEY = 'wc_settings';
-var SETTINGS_DEF = { sens: 1.0, invert: 0, fov: 72, volMaster: 1.0, volSfx: 1.0, volVoice: 1.0, quality: 2, crt: 1 };
+var SETTINGS_DEF = { sens: 1.0, invert: 0, fov: 72, volMaster: 1.0, volSfx: 1.0, volVoice: 1.0, quality: 2, crt: 1, crosshair: 1, minimap: 1, markers: 1, fps: 0, compass: 1, quickbar: 1 };
 var QUALITY_NAMES = ['LOW', 'MEDIUM', 'HIGH'];
 var settings = null;
 function loadSettings() {
@@ -18448,6 +19333,12 @@ function loadSettings() {
   settings.quality = Math.max(0, Math.min(2, settings.quality | 0));
   settings.invert = settings.invert ? 1 : 0;
   settings.crt = settings.crt ? 1 : 0;
+  settings.crosshair = settings.crosshair ? 1 : 0;
+  settings.minimap = settings.minimap ? 1 : 0;
+  settings.markers = settings.markers ? 1 : 0;
+  settings.fps = settings.fps ? 1 : 0;
+  settings.compass = settings.compass ? 1 : 0;
+  settings.quickbar = settings.quickbar ? 1 : 0;
   settings.sens = Math.max(0.2, Math.min(3, +settings.sens || 1));
   settings.volMaster = Math.max(0, Math.min(1, +settings.volMaster));
   settings.volSfx = Math.max(0, Math.min(1, +settings.volSfx));
@@ -18482,6 +19373,8 @@ function applySettings() {
   applyAudioSettings();
   applyQuality();
   applyCRT();
+  var mmEl = document.getElementById('mm');
+  if (mmEl) mmEl.style.display = settings.minimap ? '' : 'none';
 }
 function setSetting(k, v) {
   if (!settings) loadSettings();
@@ -18543,6 +19436,12 @@ function buildSettingsRows() {
   slider('VOICE VOLUME', 'character dialogue', 'volVoice', 0, 1, 0.05, pct);
   cycle('DRAW DISTANCE', 'fog range & render detail', 'quality', QUALITY_NAMES);
   toggle('CRT FILTER', 'scanlines & vignette', 'crt');
+  toggle('CROSSHAIR', 'show the aiming reticle', 'crosshair');
+  toggle('MINIMAP', 'show the corner map', 'minimap');
+  toggle('HIT MARKERS', 'hit ticks & kill feed', 'markers');
+  toggle('COMPASS', 'heading strip up top', 'compass');
+  toggle('WEAPON BAR', 'owned-weapon slots along the bottom', 'quickbar');
+  toggle('FPS COUNTER', 'live frame rate & draw stats', 'fps');
 }
 function openSettings() {
   buildSettingsRows();
@@ -18559,10 +19458,32 @@ function closeSettings() {
   var fromPause = settingsFromPause; settingsFromPause = false;
   if (fromPause && state.running) lockPointer();   // re-lock = resume the game
 }
-// Escape closes the settings panel (capture-phase so the game's own Esc handler
-// doesn't clear state.menu while the panel is still up)
+// ---- in-game controls/help overlay (QoL): reachable mid-play with H or from
+// the pause screen. Read-only reference panel; gates look/attack via
+// state.menu='help' while up, mirrors the settings open/close dance. ----
+var helpOpen = false, helpFromPause = false;
+function openHelp() {
+  var p = document.getElementById('helpPanel'); if (!p) return;
+  var ps = document.getElementById('pauseScreen');
+  helpFromPause = !!(ps && !ps.classList.contains('hidden'));
+  p.classList.remove('hidden');
+  helpOpen = true;
+  if (state.running) state.menu = 'help';   // freeze look/attack while reading
+  if (ps) ps.classList.add('hidden');
+}
+function closeHelp() {
+  var p = document.getElementById('helpPanel'); if (p) p.classList.add('hidden');
+  helpOpen = false;
+  if (state.running && state.menu === 'help') state.menu = null;
+  var fromPause = helpFromPause; helpFromPause = false;
+  if (fromPause && state.running) { var ps = document.getElementById('pauseScreen'); if (ps) ps.classList.remove('hidden'); }
+  else if (state.running) lockPointer();   // opened mid-play -> resume
+}
+// Escape closes the settings/help panel (capture-phase so the game's own Esc
+// handler doesn't clear state.menu while a panel is still up)
 document.addEventListener('keydown', function (e) {
-  if (settingsOpen && e.code === 'Escape') { e.preventDefault(); e.stopPropagation(); closeSettings(); }
+  if (settingsOpen && e.code === 'Escape') { e.preventDefault(); e.stopPropagation(); closeSettings(); return; }
+  if (helpOpen && e.code === 'Escape') { e.preventDefault(); e.stopPropagation(); closeHelp(); }
 }, true);
 (function () {
   var b;
@@ -18570,6 +19491,8 @@ document.addEventListener('keydown', function (e) {
   if ((b = document.getElementById('btnPauseSettings'))) b.addEventListener('click', function (e) { e.stopPropagation(); openSettings(); });
   if ((b = document.getElementById('btnSettingsDone'))) b.addEventListener('click', closeSettings);
   if ((b = document.getElementById('btnSettingsReset'))) b.addEventListener('click', resetSettings);
+  if ((b = document.getElementById('btnPauseHelp'))) b.addEventListener('click', function (e) { e.stopPropagation(); openHelp(); });
+  if ((b = document.getElementById('btnHelpDone'))) b.addEventListener('click', closeHelp);
 })();
 loadSettings();   // populate `settings` at load; applySettings() runs in the boot handoff
 
@@ -18613,7 +19536,7 @@ if (location.hash.indexOf('#join=') === 0) {
   document.getElementById('joinCode').value = location.hash.split('#join=').pop();
 }
 pauseScreen.addEventListener('click', function () { pauseScreen.classList.add('hidden'); lockPointer(); });
-document.addEventListener('pointerlockchange', function () { var locked = document.pointerLockElement === canvas; if (!locked && state.running && !state.menu && !chatOpen && !bugOpen) pauseScreen.classList.remove('hidden'); else if (locked) pauseScreen.classList.add('hidden'); });
+document.addEventListener('pointerlockchange', function () { var locked = document.pointerLockElement === canvas; if (!locked && photoMode) exitPhotoMode(); if (!locked && state.running && !state.menu && !chatOpen && !bugOpen) pauseScreen.classList.remove('hidden'); else if (locked) pauseScreen.classList.add('hidden'); });
 document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 document.addEventListener('mousemove', function (e) { if (document.pointerLockElement !== canvas || state.menu) return; var sens = 0.0022 * (zoomed ? 0.35 : 1) * lookSens; yaw -= e.movementX * sens; pitch -= (lookInvert ? -1 : 1) * e.movementY * sens; pitch = Math.max(-1.45, Math.min(1.45, pitch)); });
 document.addEventListener('mousedown', function (e) {
@@ -18639,6 +19562,18 @@ function cycleEquip(dir) {
   var idx = list.indexOf(state.equipped);
   if (idx < 0) idx = 0;
   setEquipped(list[(idx + dir + list.length) % list.length]);
+}
+// QoL: number-key direct weapon select. Slot n (1-based) = position in the same
+// owned list cycleEquip walks (1=fists, then owned guns, then snack/soda). Keys
+// for slots you don't own are ignored.
+function selectWeaponSlot(n) {
+  if (!state.running || state.menu || state.dead || driving) return;
+  var list = ['fists'];
+  for (var i = 0; i < GUN_LIST.length; i++) if (state.owned[GUN_LIST[i]]) list.push(GUN_LIST[i]);
+  if (state.snacks > 0) list.push('snack');
+  if (state.sodas > 0) list.push('soda');
+  if (n < 1 || n > list.length) return;
+  if (list[n - 1] !== state.equipped) setEquipped(list[n - 1]);
 }
 document.addEventListener('wheel', function (e) {
   if (document.pointerLockElement !== canvas) return;
@@ -18813,6 +19748,36 @@ function acctApplySave(s) {
   }
   updateHUD();
 }
+// ---------------- offline/guest local save (localStorage 'wc_save') ----------------
+// The account system above only persists to the relay when signed in with a
+// PIN. For file:// / guest / offline play, money + owned guns + snacks/sodas +
+// bag would reset every reload — so we also mirror them to localStorage. Char,
+// settings and quests already persist under their own keys; this fills the gap.
+// Applied once at boot (a later cloud sign-in overrides via acctApplySave).
+// NOTE: the key is inlined as a literal, not a `var` — loadLocalProgress runs
+// at boot ABOVE this section, where a hoisted-but-unassigned var would be
+// undefined (the classic load-order gotcha in this file).
+function saveLocalProgress() {
+  try {
+    localStorage.setItem('wc_save', JSON.stringify({
+      money: state.money | 0, owned: state.owned,
+      snacks: state.snacks | 0, sodas: state.sodas | 0, bag: state.bag
+    }));
+  } catch (e) { }
+}
+function loadLocalProgress() {
+  var s = null;
+  try { s = JSON.parse(localStorage.getItem('wc_save') || 'null'); } catch (e) { s = null; }
+  if (!s) return;
+  if (typeof s.money === 'number') state.money = Math.max(0, s.money | 0);
+  if (s.owned) for (var k in state.owned) state.owned[k] = !!s.owned[k];
+  if (typeof s.snacks === 'number') state.snacks = Math.max(0, s.snacks | 0);
+  if (typeof s.sodas === 'number') state.sodas = Math.max(0, s.sodas | 0);
+  if (s.bag && s.bag.length === BAG_SLOTS) for (var i = 0; i < BAG_SLOTS; i++) {
+    var it = s.bag[i];
+    state.bag[i] = (it && it.id && itemDef(it.id) && (it.n | 0) > 0) ? { id: it.id, n: Math.min(99, it.n | 0) } : null;
+  }
+}
 function acctPost(payload, cb) {
   var base = bugServerUrl(); if (!base) { cb(new Error('no server')); return; }
   fetch(base + '/acct', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
@@ -18909,8 +19874,9 @@ function acctAutosave(force) {
     if (!err) acct.lastSaved = j;
   });
 }
-setInterval(function () { acctAutosave(false); }, 10000);
+setInterval(function () { acctAutosave(false); if (state.running) saveLocalProgress(); }, 10000);
 window.addEventListener('beforeunload', function () {
+  if (state.running) saveLocalProgress();   // guests + offline: keep a local mirror
   if (!acct.token) return;
   try {
     navigator.sendBeacon(bugServerUrl() + '/acct',
@@ -18948,6 +19914,27 @@ function submitBug() {
   document.getElementById('bugSend').disabled = true;
   st.className = ''; st.textContent = 'Sending…';
   var meta = { ver: GAME_VERSION, name: getPlayerName(), mode: net.mode, room: net.room || null, pos: [Math.round(player.x), Math.round(player.z)], inside: !!inside, driving: !!driving, wanted: state.wanted, ua: navigator.userAgent.slice(0, 140) };
+  // self-diagnosing barrier reports: attach the 3 nearest colliders (center
+  // distance) with their source tags, so an "invisible barrier" report names
+  // its own culprit without a repro session.
+  try {
+    var nc = [];
+    for (var nci = 0; nci < colliders.length; nci++) {
+      var nco = colliders[nci];
+      if (nco.active === false) continue;
+      var ncx = (nco.x0 + nco.x1) / 2, ncz = (nco.z0 + nco.z1) / 2;
+      var ndx = ncx - player.x, ndz = ncz - player.z;
+      nc.push([ndx * ndx + ndz * ndz, nco]);
+    }
+    nc.sort(function (a2, b2) { return a2[0] - b2[0]; });
+    meta.cols = nc.slice(0, 3).map(function (e2) {
+      var c2 = e2[1];
+      var o2 = { x: Math.round((c2.x0 + c2.x1) / 2 * 10) / 10, z: Math.round((c2.z0 + c2.z1) / 2 * 10) / 10, w: Math.round((c2.x1 - c2.x0) * 10) / 10, d: Math.round((c2.z1 - c2.z0) * 10) / 10, dist: Math.round(Math.sqrt(e2[0]) * 10) / 10, tag: c2.tag || '?' };
+      if (c2.obb) o2.obb = 1;
+      if (c2.lake) o2.lake = 1;
+      return o2;
+    });
+  } catch (e3) { }
   fetch(base + '/bug', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: text, img: shot, meta: meta }) })
     .then(function (r) { return r.json(); })
     .then(function (j) {
@@ -18966,9 +19953,22 @@ document.addEventListener('keydown', function (e) {
   if (bugOpen) { if (e.code === 'F8' || e.code === 'Escape') { e.preventDefault(); closeBug(); } return; }
   if (chatOpen) return;   // the chat input owns the keyboard while open
   if (e.code === 'F8' && state.running) { e.preventDefault(); openBug(); return; }
+  if (e.code === 'F9') { e.preventDefault(); showColliders(); return; }   // barrier debug overlay (see buildColliderView)
   if (e.code === 'KeyV' && !e.repeat && state.running && !state.menu && netActive()) { voiceStart(); return; }
+  // QoL: photo mode toggle (P). While active it owns ESC (exit) and swallows keys
+  // below so number/weapon binds don't fire during a shoot.
+  if (photoMode) {
+    if (e.code === 'KeyP' || e.code === 'Escape') { e.preventDefault(); exitPhotoMode(); return; }
+    keys[e.code] = true; return;
+  }
   keys[e.code] = true;
+  if (e.code === 'KeyP' && !e.repeat && state.running && !state.menu && !state.dead && !chatOpen && !bugOpen) { e.preventDefault(); enterPhotoMode(); return; }
   if (e.code === 'KeyH' && driving && state.running && !state.menu && !state.dead) { playerHorn(); return; }
+  // QoL: H (on foot) toggles the in-game controls/help overlay
+  if (e.code === 'KeyH' && !e.repeat && !driving && state.running && !state.dead) {
+    if (helpOpen) closeHelp(); else if (!state.menu) openHelp();
+    return;
+  }
   if ((e.code === 'Enter' || e.code === 'NumpadEnter') && state.running && !state.menu && netActive()) { e.preventDefault(); openChat(); return; }
   if (e.code === 'Tab') { e.preventDefault(); if (!state.running || state.dead) return; if (state.menu === 'inv') closeMenus(); else { closeMenus(false); openMenu('inv'); } }
   if (e.code === 'KeyJ' && !e.repeat) { e.preventDefault(); if (!state.running || state.dead) return; if (state.menu === 'quest') closeMenus(); else if (!state.menu) openMenu('quest'); return; }
@@ -18978,6 +19978,8 @@ document.addEventListener('keydown', function (e) {
     if (e.code === 'BracketRight') { e.preventDefault(); cycleMinimapZoom(1); return; }
     if (e.code === 'BracketLeft') { e.preventDefault(); cycleMinimapZoom(-1); return; }
   }
+  // QoL: M drops/clears a personal waypoint at whatever you're looking at
+  if (e.code === 'KeyM' && !e.repeat && state.running && !state.menu && !state.dead) { e.preventDefault(); toggleWaypointAtLook(); return; }
   // #78 quest-reward capability toggles (only while playing, no menu)
   if (!e.repeat && state.running && !state.menu && !state.dead) {
     if (e.code === 'KeyL' && hasUnlock('loupe')) { toggleLoupe(); return; }
@@ -18988,6 +19990,12 @@ document.addEventListener('keydown', function (e) {
       if (e.code === 'Digit2' || e.code === 'Numpad2') { chooseEnding('burn'); return; }
       if (e.code === 'Digit3' || e.code === 'Numpad3') { chooseEnding('inherit'); return; }
     }
+    // QoL: number-key direct weapon select (1..9, 0 = slot 10). Skipped above if
+    // a quest ending choice owns the digits this frame.
+    var wslot = -1;
+    if (e.code.length === 6 && e.code.indexOf('Digit') === 0) wslot = e.code.charCodeAt(5) - 48;
+    else if (e.code.length === 7 && e.code.indexOf('Numpad') === 0) { var nc = e.code.charCodeAt(6) - 48; if (nc >= 0 && nc <= 9) wslot = nc; }
+    if (wslot >= 0) { selectWeaponSlot(wslot === 0 ? 10 : wslot); return; }
   }
   if (e.code === 'KeyE') {
     // dead-guard matters: E during the 2.6s death window could enterStore
@@ -19162,11 +20170,12 @@ function updatePlayer(dt) {
   // weapon draw + rocket reload animations (procedural, PS1-cheap)
   var wg = vmMap[state.equipped];
   if (wg && state.equipped !== 'fists' && state.equipped !== 'snack' && state.equipped !== 'soda') {
-    wg.position.set(0, 0, 0); wg.rotation.set(0, 0, 0);
+    var vlift = VM_LIFT[state.equipped] || 0;
+    wg.position.set(0, vlift, 0); wg.rotation.set(0, 0, 0);
     var det = T - equipT;
     if (det >= 0 && det < 0.45) {   // draw: rise from below with a rolling rack
       var ek = 1 - det / 0.45; ek *= ek;
-      wg.position.y = -0.32 * ek;
+      wg.position.y = vlift - 0.32 * ek;
       wg.rotation.z = -0.6 * ek;
       wg.rotation.x = 0.35 * ek;
     }
@@ -19223,7 +20232,7 @@ function updatePlayer(dt) {
       else { armsPose(psxArms, 'idle', T); vmFists.rotation.y = 0; vmFists.rotation.z = 0; }
     } else if (pt < 0.28) { var kk = Math.sin((pt / 0.28) * Math.PI); punchArm.position.z = punchArmBase.z - kk * 0.5; punchArm.position.x = punchArmBase.x - kk * 0.14; punchArm.rotation.x = -kk * 0.4; }
     else { punchArm.position.copy(punchArmBase); punchArm.rotation.x = 0; }
-  } else if (psxArms && GUNHOLD_GROUPS[state.equipped]) { armsPose(psxArms, gunHold.clip, gunHold.t, true); solveSupportIK(state.equipped); }
+  } else if (psxArms && GUNHOLD_GROUPS[state.equipped]) { armsPose(psxArms, gunHold.clip, gunHold.t, true); solveSupportIK(state.equipped); gripFingers(); }
   if (flashT > 0) {
     flashT -= dt;
     if (flashT <= 0) flash.visible = false;
@@ -19370,6 +20379,7 @@ function drawSprite(rows, x, y, px, color) {
 // style.display is the visibility flag (setZoom/driving toggle it); we read it
 // so a scoped rifle / driving view hides the reticle exactly as before.
 function drawCrosshair(W, H) {
+  if (settings && !settings.crosshair) return;               // hidden via settings
   var crossEl = document.getElementById('crosshair');
   if (crossEl && crossEl.style.display === 'none') return;   // scoped / driving / hidden
   var cx = Math.round(W / 2), cy = Math.round(H / 2), w = state.equipped, col = '#eef4ff';
@@ -19409,10 +20419,79 @@ function drawCrosshair(W, H) {
   bar(cx + gap, cy - th / 2, len, th);         // right
   if (showDot) dot(1.5);
 }
+// compass ribbon (QoL): reusable dir vector so the per-frame heading read
+// allocates nothing on the hot path.
+var _cmpDir = new THREE.Vector3();
+var CMP_CARD = { 0: 'N', 45: 'NE', 90: 'E', 135: 'SE', 180: 'S', 225: 'SW', 270: 'W', 315: 'NW' };
+function drawCompass(W, H) {
+  camera.getWorldDirection(_cmpDir);
+  var bearing = Math.atan2(_cmpDir.x, -_cmpDir.z) * 180 / Math.PI;
+  if (bearing < 0) bearing += 360;
+  var cw = Math.min(W * 0.62, 420), cx = W / 2, y0 = 4, ch = 20;
+  var span = 70, pxDeg = cw / (span * 2);   // show +/-70 degrees
+  var x0 = cx - cw / 2;
+  // plate
+  hudCx.fillStyle = 'rgba(8,12,20,0.62)'; hudCx.fillRect(x0 - 2, y0 - 2, cw + 4, ch + 4);
+  hudCx.strokeStyle = 'rgba(180,190,210,0.5)'; hudCx.lineWidth = 1; hudCx.strokeRect(x0 - 1.5, y0 - 1.5, cw + 3, ch + 3);
+  hudCx.save();
+  hudCx.beginPath(); hudCx.rect(x0, y0, cw, ch); hudCx.clip();
+  hudCx.textBaseline = 'middle';
+  for (var m = 0; m < 360; m += 15) {
+    var delta = ((m - bearing + 540) % 360) - 180;
+    if (delta < -span || delta > span) continue;
+    var tx = cx + delta * pxDeg;
+    var card = CMP_CARD[m];
+    if (m % 90 === 0) {          // cardinal: tall tick + letter
+      hudCx.strokeStyle = 'rgba(255,255,255,0.85)'; hudCx.lineWidth = 1.5;
+      hudCx.beginPath(); hudCx.moveTo(tx, y0 + 2); hudCx.lineTo(tx, y0 + ch - 8); hudCx.stroke();
+      hudCx.font = 'bold 11px "Courier New",monospace'; hudCx.textAlign = 'center';
+      hudCx.fillStyle = '#000'; hudCx.fillText(card, tx + 1, y0 + ch - 4 + 1);
+      hudCx.fillStyle = (m === 0) ? '#ff5a4a' : '#ffe08a'; hudCx.fillText(card, tx, y0 + ch - 4);
+    } else if (m % 45 === 0) {   // intercardinal: short tick + small label
+      hudCx.strokeStyle = 'rgba(210,220,235,0.7)'; hudCx.lineWidth = 1;
+      hudCx.beginPath(); hudCx.moveTo(tx, y0 + 3); hudCx.lineTo(tx, y0 + ch - 9); hudCx.stroke();
+      hudCx.font = 'bold 8px "Courier New",monospace'; hudCx.textAlign = 'center';
+      hudCx.fillStyle = '#aeb8c8'; hudCx.fillText(card, tx, y0 + ch - 4);
+    } else {                     // minor: short tick only
+      hudCx.strokeStyle = 'rgba(160,170,190,0.55)'; hudCx.lineWidth = 1;
+      hudCx.beginPath(); hudCx.moveTo(tx, y0 + 4); hudCx.lineTo(tx, y0 + 10); hudCx.stroke();
+    }
+  }
+  hudCx.restore();
+  // fixed center pointer + numeric heading
+  hudCx.fillStyle = '#ffd200'; hudCx.beginPath();
+  hudCx.moveTo(cx, y0 + ch + 3); hudCx.lineTo(cx - 4, y0 + ch - 3); hudCx.lineTo(cx + 4, y0 + ch - 3); hudCx.closePath(); hudCx.fill();
+  var hd = ('00' + Math.round(bearing % 360)).slice(-3) + '°';
+  hudText(hd, cx, y0 + ch + 15, 11, '#eaf0ff', 'center');
+}
 function drawHudCanvas() {
   var W = hudW, H = hudH, M = 14;
   hudCx.clearRect(0, 0, W, H);
   drawCrosshair(W, H);
+  if (settings && settings.compass && state.running) drawCompass(W, H);
+  // ---- hitmarker: four short diagonal ticks that flick out from the reticle
+  // and fade (white on a hit, red on a kill) ----
+  var hmAge = T - hitMarkerT;
+  if (hmAge < 0.32 && (!settings || settings.markers)) {
+    var hmA = 1 - hmAge / 0.32, hcx = Math.round(W / 2), hcy = Math.round(H / 2);
+    var hin = 4 + hmAge * 26, hlen = 5;   // ticks push outward as they fade
+    hudCx.save();
+    hudCx.globalAlpha = hmA;
+    hudCx.lineWidth = 2.4; hudCx.lineCap = 'butt';
+    var hqs = [[-1, -1], [1, -1], [-1, 1], [1, 1]];
+    for (var hq = 0; hq < 4; hq++) {
+      var sxn = hqs[hq][0], syn = hqs[hq][1];
+      var ax = hcx + sxn * hin, ay = hcy + syn * hin;
+      hudCx.strokeStyle = '#000'; hudCx.beginPath(); hudCx.moveTo(ax, ay); hudCx.lineTo(ax + sxn * hlen, ay + syn * hlen); hudCx.stroke();
+    }
+    hudCx.strokeStyle = hitMarkerKill ? '#ff3b28' : '#f4f8ff';
+    for (hq = 0; hq < 4; hq++) {
+      var sx2 = hqs[hq][0], sy2 = hqs[hq][1];
+      var bx = hcx + sx2 * hin, by = hcy + sy2 * hin;
+      hudCx.beginPath(); hudCx.moveTo(bx, by); hudCx.lineTo(bx + sx2 * (hlen - 1), by + sy2 * (hlen - 1)); hudCx.stroke();
+    }
+    hudCx.restore(); hudCx.globalAlpha = 1;
+  }
   // ---- directional damage indicators: red chevrons around screen center
   // pointing at whoever hurt you, fading over 0.9s (report mregrr51) ----
   for (var di = dmgDirs.length - 1; di >= 0; di--) {
@@ -19435,10 +20514,36 @@ function drawHudCanvas() {
   // ---- money: GTA-style counter, top-right under the minimap ----
   var my = hudMmB + 8;
   drawPix('$' + Math.max(0, state.money | 0), W - M, my, 3, '#46e05e', 'right');
+  // ---- QoL: world-anchored money floats — each "+$N" rises ~1.4 world units
+  // from where the cash was grabbed over its 1.1s life, fading out. Skips floats
+  // behind the camera (project z > 1). Drawn after the counter so they read on top. ----
+  for (var mf = moneyFloats.length - 1; mf >= 0; mf--) {
+    var mfe = moneyFloats[mf], mfAge = T - mfe.t0;
+    if (mfAge > 1.1) { moneyFloats.splice(mf, 1); continue; }
+    _mfProj.set(mfe.x, mfe.y + mfAge * 1.4, mfe.z); _mfProj.project(camera);
+    if (_mfProj.z > 1) continue;
+    var mfx = (_mfProj.x * 0.5 + 0.5) * W, mfy = (1 - (_mfProj.y * 0.5 + 0.5)) * H;
+    hudCx.globalAlpha = mfAge < 0.12 ? mfAge / 0.12 : Math.max(0, (1.1 - mfAge) / 0.55);
+    drawPix('+$' + mfe.val, mfx, mfy, 2, '#8ee87f', 'center');
+    hudCx.globalAlpha = 1;
+  }
+  // ---- kill feed: recent takedowns, top-right under the money counter,
+  // newest on top, each fading out over its ~3.6s life ----
+  for (var kf = killFeed.length - 1; kf >= 0; kf--) {
+    var kfAge = T - killFeed[kf].t;
+    if (kfAge > 3.6) { killFeed.splice(kf, 1); continue; }
+  }
+  for (kf = 0; (!settings || settings.markers) && kf < killFeed.length; kf++) {
+    var kfe = killFeed[kf], kfy = my + 28 + kf * 17, kfLife = T - kfe.t;
+    hudCx.globalAlpha = kfLife > 3.0 ? Math.max(0, (3.6 - kfLife) / 0.6) : 1;
+    hudText('☠ ' + kfe.txt, W - M, kfy, 12, kfe.col, 'right');
+    hudCx.globalAlpha = 1;
+  }
   // ---- wanted stars: top-center (lit gold, unlit dark silhouettes) ----
   var sw = state.wanted | 0, spx = 2, sgap = 9 * spx + 6;
+  var starY = (settings && settings.compass) ? M + 30 : M;   // clear the compass ribbon
   for (var i = 0; i < 5; i++)
-    drawSprite(SPR_STAR, W / 2 + (i - 2.5) * sgap + 3, M, spx, i < sw ? '#ffd200' : '#242b38');
+    drawSprite(SPR_STAR, W / 2 + (i - 2.5) * sgap + 3, starY, spx, i < sw ? '#ffd200' : '#242b38');
   // ---- health: big retro numerals + heart, bottom-left ----
   var hp = Math.max(0, Math.min(100, Math.round(state.hp)));
   var hcol = hp > 60 ? '#46e05e' : (hp > 30 ? '#ffd200' : '#ff3b28');
@@ -19488,22 +20593,149 @@ function drawHudCanvas() {
     hudCx.strokeRect(px2 - pw / 2 - 12, py - 20, pw + 24, 30);
     hudText(pt, px2, py, 19, '#ffe9a0', 'center');
   }
+  // ---- custom waypoint HUD marker (QoL): a cyan diamond over the world beacon
+  // when it's on-screen, else a clamped edge arrow — both carry live distance ----
+  if (userWP && !inside) {
+    var wtX = userWP.x - camera.position.x, wtZ = userWP.z - camera.position.z;
+    var wdist = Math.sqrt((userWP.x - player.x) * (userWP.x - player.x) + (userWP.z - player.z) * (userWP.z - player.z));
+    var wdtxt = (wdist >= 1000 ? (Math.round(wdist / 100) / 10) + 'k' : Math.round(wdist)) + 'm';
+    camera.getWorldDirection(_wpDir);
+    var wInFront = (wtX * _wpDir.x + wtZ * _wpDir.z) > 0;
+    var wmx2, wmy2, wEdge = !wInFront;
+    if (wInFront) {
+      _wpProj.set(userWP.x, 1.6, userWP.z); _wpProj.project(camera);
+      wmx2 = (_wpProj.x * 0.5 + 0.5) * W; wmy2 = (1 - (_wpProj.y * 0.5 + 0.5)) * H;
+      if (wmx2 < 24 || wmx2 > W - 24 || wmy2 < 46 || wmy2 > H - 46) wEdge = true;
+    }
+    if (wEdge) {
+      var camB = Math.atan2(_wpDir.x, -_wpDir.z), wpB = Math.atan2(wtX, -wtZ);
+      var wrel = wpB - camB; while (wrel > Math.PI) wrel -= 2 * Math.PI; while (wrel < -Math.PI) wrel += 2 * Math.PI;
+      var wrr = Math.min(W, H) * 0.34;
+      wmx2 = W / 2 + Math.sin(wrel) * wrr; wmy2 = H / 2 - Math.cos(wrel) * wrr;
+      wmx2 = Math.max(24, Math.min(W - 24, wmx2)); wmy2 = Math.max(52, Math.min(H - 40, wmy2));
+    }
+    hudCx.save(); hudCx.translate(wmx2, wmy2);
+    hudCx.fillStyle = '#0a1420'; hudCx.strokeStyle = '#36d6ff'; hudCx.lineWidth = 2;
+    hudCx.beginPath(); hudCx.moveTo(0, -8); hudCx.lineTo(8, 0); hudCx.lineTo(0, 8); hudCx.lineTo(-8, 0); hudCx.closePath(); hudCx.fill(); hudCx.stroke();
+    hudCx.fillStyle = '#36d6ff'; hudCx.beginPath(); hudCx.arc(0, 0, 2.2, 0, 7); hudCx.fill();
+    hudCx.restore();
+    hudText(wdtxt, wmx2, wmy2 - 12, 12, '#bfefff', 'center');
+  }
+  // ---- QoL: speedometer while driving — MPH readout + speed bar, bottom-center.
+  // driving.pspeed is world u/s (capped ~26); SPEEDO_MPH scales it to a believable
+  // top speed near 70 mph. Reverse shows an 'R' tag and the bar still fills. ----
+  if (driving && !inside) {
+    var absS = Math.abs(driving.pspeed || 0);
+    var mph = Math.round(absS * SPEEDO_MPH);
+    var sfrac = Math.max(0, Math.min(1, absS / 26));
+    var sbw = 128, scxs = Math.round(W / 2), sby = H - M - 4;
+    hudCx.fillStyle = '#000'; hudCx.fillRect(scxs - sbw / 2 - 2, sby - 44, sbw + 4, 48);
+    hudCx.fillStyle = 'rgba(10,13,20,0.82)'; hudCx.fillRect(scxs - sbw / 2, sby - 42, sbw, 44);
+    var scol = mph < 35 ? '#8ee87f' : (mph < 60 ? '#ffd200' : '#ff5a3a');
+    drawPix('' + mph, scxs + 4, sby - 34, 4, scol, 'right');
+    hudText('MPH', scxs + 12, sby - 12, 12, '#b9b19a', 'left');
+    if ((driving.pspeed || 0) < -0.5) drawPix('R', scxs - sbw / 2 + 8, sby - 34, 3, '#ff5a3a', 'left');
+    hudBar(scxs - sbw / 2 + 10, sby - 10, sbw - 20, 5, sfrac, scol, 0);
+  } else if (state.running && !state.dead && (!settings || settings.quickbar)) {
+    // on foot: weapon quick-bar occupies the same bottom-center strip as the speedo
+    drawQuickBar(W, H);
+  }
+  // ---- FPS / perf readout (QoL, settings.fps): left edge, clear of the quest
+  // tracker (top) and health (bottom). renderer.info reflects last frame. ----
+  if (settings && settings.fps) {
+    var fv = Math.round(fpsVal);
+    var fcol = fv >= 50 ? '#8ee87f' : (fv >= 30 ? '#ffd200' : '#ff5a3a');
+    var fy = hudMmB + 6;
+    hudText('FPS ' + (fv || '--'), M, fy, 13, fcol, 'left');
+    var ri = (renderer && renderer.info && renderer.info.render) ? renderer.info.render : null;
+    if (ri) {
+      var tri = ri.triangles || 0;
+      var triTxt = tri >= 1e6 ? (Math.round(tri / 1e5) / 10) + 'M' : (tri >= 1000 ? Math.round(tri / 1000) + 'k' : String(tri));
+      hudText((ri.calls || 0) + ' dc  ' + triTxt + ' tri', M, fy + 15, 11, '#9fb0c8', 'left');
+    }
+  }
 }
-function updateHUD() { document.getElementById('money').textContent = '$' + state.money; document.getElementById('hpBar').style.width = Math.max(0, state.hp) + '%'; drawHudCanvas(); }
+// low-HP vignette (#QoL): sustained red edge glow that fades in below 30% HP
+// and pulses; cleared when healthy / dead / not playing. Cache el + last opacity
+// so we only touch the DOM when the string actually changes.
+var lowHpVigEl = document.getElementById('lowHpVig');
+var lowHpVigLast = '';
+function updateLowHpVig() {
+  if (!lowHpVigEl) return;
+  var op = '0';
+  if (state.running && !state.dead) {
+    var hpF = Math.max(0, Math.min(100, state.hp)) / 100;
+    if (hpF < 0.30) {
+      var inten = (0.30 - hpF) / 0.30;                 // 0 at 30% -> 1 at 0%
+      var pulse = 0.70 + 0.30 * Math.sin(T * 6.0);     // ~1.7 Hz heartbeat
+      op = ((0.20 + 0.45 * inten) * pulse).toFixed(3);
+    }
+  }
+  if (op !== lowHpVigLast) { lowHpVigLast = op; lowHpVigEl.style.opacity = op; }
+}
+function updateHUD() { document.getElementById('money').textContent = '$' + state.money; document.getElementById('hpBar').style.width = Math.max(0, state.hp) + '%'; updateLowHpVig(); if (state.dead) updateDeadScreen(); drawHudCanvas(); }
 
+// ---------------- QoL: photo mode ----------------
+// P toggles a free-fly camera for screenshots: HUD + first-person arms hidden,
+// the sim frozen (combat safe). Mouse looks (reuses yaw/pitch); WASD flies along
+// the view, Space/C climb & descend, hold Shift to boost. P or ESC exits.
+var photoMode = false;
+var photoPos = new THREE.Vector3();
+var _photoDir = new THREE.Vector3(), _photoRight = new THREE.Vector3();
+var _vmVisWas = true;
+function enterPhotoMode() {
+  if (photoMode || !state.running || state.menu || state.dead || chatOpen || bugOpen) return;
+  photoMode = true;
+  photoPos.copy(camera.position);
+  var hudEl = document.getElementById('hud'); if (hudEl) hudEl.style.opacity = '0';
+  _vmVisWas = vm.visible; vm.visible = false;
+  var hint = document.getElementById('photoHint'); if (hint) hint.classList.remove('hidden');
+}
+function exitPhotoMode() {
+  if (!photoMode) return;
+  photoMode = false;
+  var hudEl = document.getElementById('hud'); if (hudEl) hudEl.style.opacity = '';
+  vm.visible = _vmVisWas;
+  var hint = document.getElementById('photoHint'); if (hint) hint.classList.add('hidden');
+}
+function updatePhotoCam(dt) {
+  camera.rotation.y = yaw; camera.rotation.x = Math.max(-1.45, Math.min(1.45, pitch));
+  camera.getWorldDirection(_photoDir);
+  _photoRight.set(-_photoDir.z, 0, _photoDir.x);
+  var rl = Math.sqrt(_photoRight.x * _photoRight.x + _photoRight.z * _photoRight.z) || 1;
+  _photoRight.x /= rl; _photoRight.z /= rl;
+  var sp = ((keys['ShiftLeft'] || keys['ShiftRight']) ? 22 : 8) * dt;
+  if (keys['KeyW']) photoPos.addScaledVector(_photoDir, sp);
+  if (keys['KeyS']) photoPos.addScaledVector(_photoDir, -sp);
+  if (keys['KeyD']) photoPos.addScaledVector(_photoRight, sp);
+  if (keys['KeyA']) photoPos.addScaledVector(_photoRight, -sp);
+  if (keys['Space']) photoPos.y += sp;
+  if (keys['KeyC'] || keys['ControlLeft']) photoPos.y -= sp;
+  photoPos.x = Math.max(-HALF, Math.min(HALF, photoPos.x));
+  photoPos.z = Math.max(-HALF, Math.min(HALF, photoPos.z));
+  photoPos.y = Math.max(0.4, Math.min(140, photoPos.y));
+  camera.position.copy(photoPos);
+}
 // ---------------- main loop ----------------
 var last = performance.now();
 var lastRafMs = performance.now();   // bot mode watches this to detect RAF starvation
+// FPS counter (QoL): smoothed over ~0.5s windows so the readout is legible.
+var fpsVal = 0, _fpsAcc = 0, _fpsFrames = 0;
 function loop(now) {
   if (WC_BOT) return;   // bot sims on its own real-time interval, never renders
   requestAnimationFrame(loop);
   lastRafMs = performance.now();
   var dt = Math.min(0.05, (now - last) / 1000); last = now;
+  _fpsFrames++; _fpsAcc += (dt > 0 ? dt : 0.0001);
+  if (_fpsAcc >= 0.5) { fpsVal = _fpsFrames / _fpsAcc; _fpsAcc = 0; _fpsFrames = 0; }
   if (!state.running) { renderer.render(scene, camera); renderCreatorFrame(dt); return; }
+  // QoL: photo mode freezes the whole sim (combat paused, world held still) and
+  // flies a free camera for screenshots — no T advance, no update calls.
+  if (photoMode) { updatePhotoCam(dt); renderer.render(scene, camera); return; }
   T += dt;
   updateReflex(dt);                       // 8-Bit Reflexes: sets the slow-mo factor
   var sdt = dt * reflexScale();           // world sim dt (bullet-time scales it)
-  updatePlayer(dt); updateNPCs(sdt); updateKids(sdt); updateWildlife(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); updateQuestCaps(dt); updateSecrets(sdt); updateNpcTags(); updateHUD(); drawMinimap();
+  updatePlayer(dt); updateNPCs(sdt); updateKids(sdt); updateWildlife(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); updateQuestCaps(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
   renderer.render(scene, camera);
 }
 setEquipped('fists');
@@ -19533,7 +20765,53 @@ function loadNpcVoiceChunks() {
 setTimeout(loadNpcVoiceChunks, 800);
 
 // debug hook
+// ---------------- collider debug overlay (F9 / __wc.showColliders) ----------------
+// Translucent red outline boxes over every ACTIVE collider so players and
+// testers can SEE the barriers (part of the invisible-barrier prevention
+// layer). One LineSegments = one draw call; rebuilt on every enable so
+// toppled props (.active=false) drop out and late colliders appear.
+// Colors: red = AABB, orange = OBB (drawn rotated), cyan = lake/pond wade.
+var colViewMesh = null, colViewOn = false;
+function buildColliderView() {
+  if (colViewMesh) { scene.remove(colViewMesh); colViewMesh.geometry.dispose(); colViewMesh.material.dispose(); colViewMesh = null; }
+  var pos = [], col = [], CH = 2.2, i, k;
+  function seg(ax, az, bx, bz, r2, g2, b2) {
+    pos.push(ax, 0.08, az, bx, 0.08, bz,  ax, CH, az, bx, CH, bz,  ax, 0.08, az, ax, CH, az,  bx, 0.08, bz, bx, CH, bz);
+    for (k = 0; k < 8; k++) col.push(r2, g2, b2);
+  }
+  for (i = 0; i < colliders.length; i++) {
+    var c = colliders[i];
+    if (c.active === false) continue;
+    var r2 = 1, g2 = 0.12, b2 = 0.12, pts;
+    if (c.lake) { r2 = 0.15; g2 = 0.7; b2 = 1; }
+    else if (c.obb) { r2 = 1; g2 = 0.55; b2 = 0.05; }
+    if (c.obb) {
+      // world = (u*c + v*s + x, -u*s + v*c + z) — same frame as pushOut
+      pts = [];
+      var cor = [[-c.hx, -c.hz], [c.hx, -c.hz], [c.hx, c.hz], [-c.hx, c.hz]];
+      for (k = 0; k < 4; k++) pts.push([cor[k][0] * c.c + cor[k][1] * c.s + c.x, -cor[k][0] * c.s + cor[k][1] * c.c + c.z]);
+    } else {
+      pts = [[c.x0, c.z0], [c.x1, c.z0], [c.x1, c.z1], [c.x0, c.z1]];
+    }
+    for (var e = 0; e < 4; e++) { var p1 = pts[e], p2 = pts[(e + 1) % 4]; seg(p1[0], p1[1], p2[0], p2[1], r2, g2, b2); }
+  }
+  var g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+  g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(col), 3));
+  var m = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.55, fog: false, depthTest: true });
+  colViewMesh = new THREE.LineSegments(g, m);
+  colViewMesh.frustumCulled = false;
+  scene.add(colViewMesh);
+}
+function showColliders(on) {
+  colViewOn = on === undefined ? !colViewOn : !!on;
+  if (colViewOn) buildColliderView();
+  else if (colViewMesh) { scene.remove(colViewMesh); colViewMesh.geometry.dispose(); colViewMesh.material.dispose(); colViewMesh = null; }
+  return colViewOn;
+}
+
 window.__wc = {
+  showColliders: showColliders, colliderView: function () { return colViewOn; },
   state: state, player: player, npcs: npcs, cashes: cashes, cops: cops,
   kids: kids, adultRace: adultRace, spawnKids: spawnKids, updateKids: updateKids, playKidVoice: playKidVoice, kidVoiceDbg: function () { return kidVoiceDbg; },
   getKidPlaysets: getKidPlaysets, nearestPlayset: nearestPlayset, startKidPlay: startKidPlay,
@@ -19580,7 +20858,9 @@ window.__wc = {
   setGrip: function (w, arr) { GRIP_TGT[w] = arr; },   // debug: tune per-weapon support-hand IK grip target
   getGrip: function (w) { return GRIP_TGT[w]; },
   getBoneQ: function (i) { return psxArms ? psxArms.bones[i].quaternion.toArray().map(function (v) { return Math.round(v * 1000) / 1000; }) : null; },
-  poseArmsNow: function () { if (psxArms && GUNHOLD_GROUPS[state.equipped]) { armsPose(psxArms, gunHold.clip, gunHold.t, true); solveSupportIK(state.equipped); } },
+  poseArmsNow: function () { if (psxArms && GUNHOLD_GROUPS[state.equipped]) { armsPose(psxArms, gunHold.clip, gunHold.t, true); solveSupportIK(state.equipped); gripFingers(); } },
+  dbgBone: function (i, ov) { if (psxArms) { if (ov) { var e = new THREE.Euler(ov[0], ov[1], ov[2]); psxArms.bones[i].quaternion.setFromEuler(e); } psxArms.mesh.updateMatrixWorld(true); } },   // debug: set one bone's local euler
+  gripDbg: function () { if (!psxArms) return null; var g = vmMap[state.equipped]; if (!g) return null; g.updateMatrixWorld(true); psxArms.mesh.updateMatrixWorld(true); function loc(bi) { var v = new THREE.Vector3(); psxArms.bones[bi].getWorldPosition(v); g.worldToLocal(v); return v.toArray().map(function (n) { return Math.round(n * 1000) / 1000; }); } return { rHand: loc(4), lHand: loc(27), rPalm: loc(5), rShoul: loc(1), rElbow: loc(3) }; },   // debug: hand positions in gun-group local frame
   handPos: function () { if (!psxArms) return null; psxArms.mesh.updateMatrixWorld(true); var pl = new THREE.Vector3(), pr = new THREE.Vector3(); psxArms.bones[27].getWorldPosition(pl); psxArms.bones[4].getWorldPosition(pr); return { L: pl.toArray().map(function (v) { return Math.round(v * 100) / 100; }), R: pr.toArray().map(function (v) { return Math.round(v * 100) / 100; }) }; },
 
   spawnUfo: spawnUfo, damageUfo: damageUfo, damageAlien: damageAlien,
@@ -19592,10 +20872,13 @@ window.__wc = {
   creditCivKill: creditCivKill, creditCopKill: creditCopKill, dropWeapon: dropWeapon,
   copWeapon: copWeapon,
   openMenu: openMenu, closeMenus: closeMenus, spawnCashAt: spawnCash,
+  moneyFloats: function () { return moneyFloats; }, spawnMoneyFloat: spawnMoneyFloat,
+  enterPhotoMode: enterPhotoMode, exitPhotoMode: exitPhotoMode, isPhotoMode: function () { return photoMode; }, photoPos: function () { return photoPos; },
   renderer: renderer, scene: scene, camera: camera,
   listPowerlines: function () { return powerPoles; },
   powerlineStats: function () { return { poles: powerPoles.length, wires: powerWireCount, spans: powerSpanCount, serviceDrops: powerServiceDrops }; },
   cars: cars, boomAt: boomAt, killNpcRagdoll: killNpcRagdoll,
+  puffs: puffs, bHoles: bHoles, densityPlaced: densityPlaced,   // vfx debug (blood/impact routing + bullet holes + sign placement)
   // ---- social groups (#67) ----
   spawnSharpGroup: function (sons) { return grpSummary(spawnSharpGroup(sons)); },
   spawnXanderDerik: function () { return grpSummary(spawnXanderDerik()); },
@@ -19633,6 +20916,7 @@ window.__wc = {
   spawnBalloons: function () { spawnBalloonCluster(); return balloons.length; },
   balloonCount: function () { return balloons.length; },
   setMinimapZoom: setMinimapZoom, cycleMinimapZoom: cycleMinimapZoom,
+  setWaypoint: setWaypoint, clearWaypoint: clearWaypoint, toggleWaypointAtLook: toggleWaypointAtLook, getWaypoint: function () { return userWP; },
   minimapState: function () { if (!mmVenues) buildMMVenues(); return { zoom: mmZoom, scale: MM_ZOOMS[mmZoom], name: MM_ZOOM_NAMES[mmZoom], levels: MM_ZOOMS.length, venues: mmVenues.length }; },
   setRain: function (on) { raining = on; rainLeft = on ? 9999 : 0; if (on && rainTargetInten <= 0) rainTargetInten = rollInten(); },
   // force a weather mode: auto | clear | drizzle | rain | storm | overcast | rainbow
@@ -19717,7 +21001,7 @@ window.__wc = {
   spawnDumpsterRat: spawnDumpsterRat, spawnDumpsterBum: spawnDumpsterBum,
   bushSpots: function () { return bushSpots; }, bushRummage: bushRummage, checkMail: checkMail,
   envProps: envProps, envPropInteractables: envPropInteractables, envStats: envStats, getEnvProp: getEnvProp, envPropInteract: envPropInteract, envPropPrompt: envPropPrompt, envToys: envToys,
-  envPlaced: envPlaced, densityPlaced: densityPlaced, onSidewalkAt: function (x, z) { return onSidewalk(x, z); }, rmRef: function () { return RM; },
+  envPlaced: envPlaced, densityPlaced: densityPlaced, signAudit: signAudit, onSidewalkAt: function (x, z) { return onSidewalk(x, z); }, rmRef: function () { return RM; },
   solidMeshes: solidMeshes, nightEmis: nightEmis, signGlows: signGlows, colliders: colliders,
   houses: houseStats, houseBlocksSpot: houseBlocksSpot, houseMeshesRef: houseMeshesRef,
   isUnderwater: function () { return underwater; },

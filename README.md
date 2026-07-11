@@ -47,8 +47,13 @@ hijacked again for 15 seconds, so make your getaway count.
 pressing PLAY ONLINE and your progress — cash, guns, snacks, your item bag,
 your look, and your quest log — is saved to the server under that name+PIN
 and comes back on any browser or device. First sign-in creates the account;
-leave the PIN blank to play as a guest (nothing saved). Progress autosaves
-every few seconds while you play. Add an **email** and you can recover a
+leave the PIN blank to play as a guest — but even guests keep their progress
+**locally on this browser** now (cash, guns, snacks/sodas, and item bag are
+mirrored to local storage and restored on your next visit, so offline
+singleplayer no longer resets every reload; your look, settings, and quests
+already persisted). A PIN is what makes that progress follow you to *other*
+devices. Progress autosaves every few seconds while you play. Add an
+**email** and you can recover a
 forgotten PIN: a 6-digit code is mailed on sign-up to verify the address,
 and the **forgot PIN?** link on the menu emails a reset code that lets you
 pick a new PIN on the spot.
@@ -207,8 +212,9 @@ a leash (it trots along a step behind on a taut line, catches up when they get
 ahead, and never stretches off across the block), pushing a **stroller** or a
 mobility **walker** out front, or carrying a **handheld** — an umbrella held
 overhead, a cane, a coffee cup, shopping bags, a skateboard, a balloon on a
-string. Wheeled things (a bike, a rolling suitcase, a kid's wagon) get walked
-alongside. Each prop rolls a colour/style variant so no two look alike.
+string. Wheeled things (a bike, a rolling suitcase) get walked alongside —
+and the little red **toy wagon** belongs to the kids: you'll only ever see a
+child towing one. Each prop rolls a colour/style variant so no two look alike.
 
 Like the kids, the **dogs and stroller babies are off-limits** — they're
 decorations riding along with their owner, never targets, so bullets, fists,
@@ -260,11 +266,26 @@ pistol, a wider spread for the SMG and AK (it blooms open as you spray), a
 fine cross for the scoped rifle (which vanishes at the scope), corner
 brackets for the rocket launcher, and a boxed reticle for alien tech.
 
+Bullets land where they hit: people bleed a quick dark-red spray, walls
+and props kick out a small burst of dust and keep a **bullet hole** at the
+impact point for a minute — pock a facade up all you like, the newest 60
+holes stick around.
+
+Land a hit and a **hitmarker** flicks out from the reticle with a crisp
+tick — white when you connect, **red when you drop the target**. Recent
+takedowns stack up as a small **kill feed** under the money counter
+(pedestrians, officers, and wrecked vehicles each get their own colour),
+fading out after a few seconds.
+
 Die and you drop every gun you own — run back within 2 minutes to grab
 them off the pavement. Picking up a gun you already own sells it for half
 its price. In multiplayer the pavement is shared: anyone can scoop up your
 dropped arsenal before you get back, so dying near your killer is a
 donation.
+
+Grab a wad of loose cash and a green **"+$" floats up from the spot** it
+was lying and fades — a little hit of feedback anchored to the world, not
+just a number ticking up in the corner.
 
 ## Quests & the quest log
 
@@ -520,7 +541,9 @@ any other: park it wherever, lose it, blow it up — a wrecked lot car gets
 
 Press **E** next to a passing car to carjack it — the driver bails and
 runs off screaming (and yes, that's a crime). Driving is third-person:
-WASD to drive, **E** to get out. You can't shoot from the driver's seat,
+WASD to drive, **E** to get out. A **speedometer** lights up on the HUD
+while you're behind the wheel — a big MPH readout and a speed bar that
+greens up at a cruise and reddens as you floor it. You can't shoot from the driver's seat,
 but the car itself is the weapon — mow down pedestrians and cops, and
 ram traffic to send it spinning out of control like you'd shot it up.
 Trees and street lights snap and topple if you plow through them, in a
@@ -668,10 +691,24 @@ the same quiet noise bed as before, and the SFX volume slider controls it.
 - **WASD** — move, **Shift** — run, **Space** — jump, **Mouse** — look
 - **Left click** — punch / shoot
 - **Scroll wheel** — quick-swap to your next / previous weapon
+- **1 – 0** — jump straight to a weapon by number (its slot in your owned list —
+  1 is fists; keys for weapons you don't own are ignored). A **quick-bar** along
+  the bottom of the screen shows those slots with their number keys and lights up
+  the one you're holding (toggle it in Settings)
 - **`[` / `]`** — zoom the minimap out / in (WIDE / NORMAL / CLOSE); **Ctrl+scroll**
   does the same. Your choice is remembered between sessions.
+- **M** — drop a personal **waypoint** at whatever you're looking at (or click the
+  minimap while a menu is open). A cyan world beacon, an on-screen marker with
+  live distance, and a minimap blip guide you there; it clears when you arrive
+  or when you press **M** again.
 - **E** — talk to the dealer (when close)
-- **H** — honk the horn (while driving)
+- **P** — **photo mode**: the HUD and your gun vanish and the world freezes so
+  you can line up a shot. Fly the camera with **WASD**, climb / descend with
+  **Space / C**, hold **Shift** to move faster, mouse to aim. **P** or **Esc**
+  drops you back where you were — nothing in the world moves while you're framing,
+  so it's safe to pop into mid-firefight.
+- **H** — on foot, open the in-game **controls / help overlay**; while driving,
+  honk the horn (also reachable from the pause screen's **CONTROLS** button)
 - **Tab** — inventory: equip/unequip weapons + your 6×4 item grid (click an
   item to use it, right-click or **Q** to drop one)
 - **J** — quest log (see your active quest, all beats, and set which quest
@@ -681,7 +718,11 @@ the same quiet noise bed as before, and the SFX volume slider controls it.
 - **1 / 2 / 3** — pick your ending at the Q10 finale (Expose / Burn / Inherit)
 - **Enter** — open text chat (multiplayer), **Esc** to cancel
 - **Hold V** — push-to-talk voice chat (multiplayer)
-- **F8** — report a bug (grabs a screenshot + your note, sent for triage)
+- **F8** — report a bug (grabs a screenshot + your note, sent for triage —
+  the report auto-attaches the nearest collision boxes so "invisible wall"
+  reports pinpoint their culprit)
+- **F9** — toggle the collision debug overlay (outlines every barrier: red
+  boxes, orange rotated boxes, cyan water edges)
 - **Esc** — release mouse / close menus
 
 ## Minimap
@@ -712,6 +753,11 @@ to tune the game to your taste. Everything applies live and saves automatically
   longer view; Low trims the render detail for smoother performance on slower
   machines.
 - **CRT filter** — the scanline-and-vignette TV look, on or off.
+- **Crosshair** — show or hide the aiming reticle.
+- **Minimap** — show or hide the corner map.
+- **Hit markers** — show or hide the hit ticks and the kill feed.
+- **Weapon bar** — show or hide the bottom-center quick-bar of owned-weapon
+  slots (each tagged with its number key, the equipped one lit).
 - **Reset to defaults** — puts everything back the way it shipped.
 
 ## Rumors
@@ -767,6 +813,21 @@ rooftops and gone. Wave if you see them.
   painted walls. The whole layout — roads, buildings, and parking/pavement —
   is authored in a built-in map editor (`editor.html`) and imported into
   the game by `tools/mapimport.js` (source of truth: `tools/westchase_map.json`).
+- The outer residential pockets now have their own street networks,
+  ground-truthed against the real Westchase layout (OpenStreetMap around
+  Race Track Rd @ Countryway Blvd): east of Race Track Rd, the Fawn
+  Ridge-style quarter gets **Mountbatten Dr** (a collector riding the old
+  survey alignment), **Northumberland Dr** (through-route down to Citrus
+  Park Dr), and the **Evanshire / Tudor Chase / Gothic Ln** local grid;
+  west of Race Track, **Halbrook Dr** loops from the arterial through the
+  estate cluster down to **Stilton St** (the long far-west lane) with
+  **Stanwyck Cir** and **Bassbrook Ln** branching off; **Minaret Dr** ties
+  the SE pocket street back to Race Track; and **Chase Grove /
+  Pond Cypress** side lanes serve the homes west of Nine Eagles. AI
+  traffic drives the new collectors, streetlights and power poles line
+  them, and nearly every outer house now gets a paved **driveway** stub
+  from its front wall to the nearest local street (long straight drives
+  for the deep Florida lots).
 - The map is finite — a wall rings the city.
 - Watch for traffic; cars hurt.
 - Getting knocked out costs you 25% of your cash.
