@@ -249,5 +249,5 @@ All three FIXED@v1.66.63. mregjcuz + mreg8mld details are inline in Batch 8 / Ba
 - mrftesnl (-133,77) aimless pacing / mrftf1th (-125,49) stuck pacing / mrftf7lk (-111,45) stuck pacing — OPEN (same class; 5 reports this session = top priority for live2-ai round)
 - mrftaqio (-34,-172) Xander clipped inside building — OPEN
 - mrftfuy6 (17,13) invisible barrier + bus stop in the MIDDLE OF THE ROAD near the junction — OPEN (gameplay blocker, queue next)
-- mrftgg0z (587,-599) + mrfthui7 (556,-139) invisible barriers in the far-east zone — OPEN (cluster: probe east-map colliders vs meshes)
+- mrftgg0z (587,-599) + mrfthui7 (556,-139) + mrftk7q1 (575,194) invisible barriers across the far-east zone — OPEN (3-report cluster: probe east-map colliders vs meshes, x 530-590 span both N and S)
 - mrfthmf4 (575,-160) houses in the middle of grass look weird — refile of mredxzx6 no-road-homes class (DEFER round5-structure road-network pass; now user-confirmed twice)
