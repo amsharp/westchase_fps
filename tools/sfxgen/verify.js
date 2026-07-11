@@ -41,15 +41,25 @@ var PACK_SRC = fs.readFileSync(path.join(__dirname, '..', '..', 'soundfx.js'), '
           var e = { ok: true, sr: sr, dur: Math.round(buf.duration * 1000) / 1000, peak: Math.round(pk * 1000) / 1000, attackMs: Math.round(atk * 1000) };
           if (key.indexOf('eng_') === 0) {
             // seam check at the interior loop points the game uses
-            // (loopStart = 0.1s, loopEnd = dur - 0.1s; margins are context)
+            // (loopStart = 0.1s, loopEnd = dur - 0.1s; margins are context).
+            // A click = the wrap's first-difference is an OUTLIER vs the
+            // body's own first-difference distribution (near-Nyquist content
+            // makes adjacent samples legitimately jumpy, so absolute
+            // thresholds lie — compare against the signal's own p99).
             var M = Math.round(sr * 0.1), n = d.length, w = Math.round(sr * 0.01);
             var end = n - M, start = M, b4 = 0, af = 0;
             for (i = 0; i < w; i++) { b4 += d[end - w + i] * d[end - w + i]; af += d[start + i] * d[start + i]; }
             b4 = Math.sqrt(b4 / w); af = Math.sqrt(af / w);
+            var diffs = [];
+            for (i = start + 1; i < end; i += 7) diffs.push(Math.abs(d[i] - d[i - 1]));
+            diffs.sort(function (a, b) { return a - b; });
+            var p99 = diffs[Math.floor(diffs.length * 0.99)] || 0;
+            var seamDiff = Math.abs(d[start] - d[end - 1]);
             e.seamRmsBefore = Math.round(b4 * 1000) / 1000;
             e.seamRmsAfter = Math.round(af * 1000) / 1000;
-            e.seamSampleJump = Math.round(Math.abs(d[start] - d[end - 1]) * 1000) / 1000;
-            e.seamOk = Math.abs(d[start] - d[end - 1]) <= Math.max(0.06, 0.35 * Math.max(b4, af));
+            e.seamSampleJump = Math.round(seamDiff * 1000) / 1000;
+            e.bodyDiffP99 = Math.round(p99 * 1000) / 1000;
+            e.seamOk = seamDiff <= Math.max(0.02, p99 * 1.35);
           }
           out[key].push(e);
         } catch (err) {

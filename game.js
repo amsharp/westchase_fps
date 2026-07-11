@@ -21428,6 +21428,8 @@ window.__wc = {
   voiceDbg: function () { return { local: dbgVoiceLocal, net: dbgVoiceNet, bcast: dbgVoiceBcast }; },
   playNetVoice: playNetVoice, panicNear: panicNear, npcChatLine: npcChatLine,
   engineRPM: engineRPM, ensureEngineRich: ensureEngineRich,
+  sfx: sfx, footStep: footStep, fleeScream: fleeScream,
+  sfxPackInfo: function () { var o = {}; Object.keys(sfxPackBufs).forEach(function (k) { var n = 0; for (var i = 0; i < sfxPackBufs[k].length; i++) if (sfxPackBufs[k][i]) n++; o[k] = n; }); return o; },
   armsInfo: function () { return psxArms ? { clips: Object.keys(psxArms.clips), np: psxArms.np, anchor: psxArms.root.position.toArray().map(function (v) { return Math.round(v * 100) / 100; }) } : null; },
   isInside: function () { return inside; },
   storeState: function () { return { robbed: robbedVisit, copsCalled: copsCalledVisit, closedUntil: gasClosedUntil, now: T }; },

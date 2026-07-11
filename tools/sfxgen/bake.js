@@ -15,8 +15,13 @@ var PACK = {
   pistol: 'pistol', smg: 'smg', rifle: 'rifle', auto: 'ak',
   rocketfire: 'rocketfire', boom: 'boom', crash: 'crash', glass: 'glass',
   punch: 'punch', cash: 'cash', eat: 'eat', horn: 'horn',
+  ricochet: 'ricochet', cardoor: 'cardoor',
+  step_concrete: 'step_concrete', step_grass: 'step_grass',
+  step_water: 'step_water', step_wood: 'step_wood',
   eng_idle_a: 'eng_idle_a', eng_high_a: 'eng_high_a',
-  eng_idle_b: 'eng_idle_b', eng_high_b: 'eng_high_b'
+  eng_idle_b: 'eng_idle_b', eng_high_b: 'eng_high_b',
+  eng_idle_c: 'eng_idle_c', eng_high_c: 'eng_high_c',
+  eng_idle_d: 'eng_idle_d', eng_high_d: 'eng_high_d'
 };
 
 // flee screams (screamgen.js, psxified 8-bit/11025): trim lead/trail silence

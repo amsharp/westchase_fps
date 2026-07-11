@@ -118,15 +118,19 @@ var SPEC = JSON.parse(fs.readFileSync(path.join(__dirname, 'slices.json'), 'utf8
       var body = new Float32Array(Ls), i;
       for (i = 0; i < Ls; i++) body[i] = d[bestS + i];
       for (i = 0; i < F; i++) {
-        var w = i / F;   // 0 -> 1 across the fade
+        var w = (i + 1) / F;   // 0 -> exactly 1 at the last body sample
         body[Ls - F + i] = body[Ls - F + i] * (1 - w) + d[bestS - F + i] * w;
       }
-      // margins: pre = the audio the crossfade landed on (so body-end -> pre
-      // -> body-start reads as one continuous take), post = true continuation
+      // margins must CONTINUE the crossfaded take on both sides, or the
+      // resampler smears the mismatch into the loop region:
+      //   pre  = d[bestS-M..bestS]  (flows into body[0] = d[bestS])
+      //   post = body[0..M]         (body end was crossfaded to ≈ d[bestS-1],
+      //                              so its continuation IS the body start —
+      //                              also exactly what the wrap plays)
       var out = new Float32Array(M + Ls + M);
       for (i = 0; i < M; i++) out[i] = d[bestS - M + i];
       out.set(body, M);
-      for (i = 0; i < M; i++) out[M + Ls + i] = d[bestS + Ls + i];
+      for (i = 0; i < M; i++) out[M + Ls + i] = body[i];
       var peak = 0;
       for (i = 0; i < out.length; i++) { var a = out[i] < 0 ? -out[i] : out[i]; if (a > peak) peak = a; }
       return { out: out, peak: peak, seamErr: Math.sqrt(bestE / (W / 4)), margin: LOOP_MARGIN };
