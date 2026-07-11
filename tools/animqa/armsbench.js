@@ -77,15 +77,15 @@ fs.mkdirSync(OUT, { recursive: true });
       var fwd = new T.Vector3(); cam.getWorldDirection(fwd); fwd.normalize();
       var up = new T.Vector3(0, 1, 0);
       var right = new T.Vector3().crossVectors(fwd, up).normalize();
-      var tcam = new T.PerspectiveCamera(22, gl.width / gl.height, 0.01, 200);   // match the square canvas; putGL crops 4:3
-      var D = 0.85;
+      var tcam = new T.PerspectiveCamera(args.fov || 22, gl.width / gl.height, 0.01, 200);   // match the square canvas; putGL crops 4:3
+      var D = args.dist || 0.85;
       function view(pos, i) { tcam.position.copy(pos); tcam.lookAt(ctr); tcam.updateMatrixWorld(true); __wc.renderer.render(__wc.scene, tcam); putGL(i); }
       view(new T.Vector3().copy(ctr).addScaledVector(right, D).addScaledVector(fwd, 0.15), 2); label(2, 'side (grip check)');
       view(new T.Vector3().copy(ctr).addScaledVector(fwd, D).addScaledVector(up, 0.15), 3); label(3, 'front (muzzle)');
 
       return { url: sheet.toDataURL('image/png'), hp: hp, ctr: [ctr.x, ctr.y, ctr.z].map(function (v) { return Math.round(v * 100) / 100; }),
                grip: __wc.gripDbg && __wc.gripDbg() };
-    }, { w: w, ref: REF_HOLD });
+    }, { w: w, ref: REF_HOLD, dist: parseFloat(process.env.DIST || '0.85'), fov: parseFloat(process.env.FOV || '22') });
     fs.writeFileSync(path.join(OUT, w + '_' + (process.env.CLIP||'relax') + '.png'), Buffer.from(info.url.split(',')[1], 'base64'));
     console.log(w, '| grip', JSON.stringify(info.grip), '| pageErrs', errs.length);
   }
