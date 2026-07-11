@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.76';
+var GAME_VERSION = 'v1.66.77';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -18787,7 +18787,7 @@ function creditPvpKill() {
 // master+sfx+voice volume, draw-distance quality, CRT filter. Restored on
 // boot (applySettings() runs in the boot handoff, before the first frame).
 var SETTINGS_KEY = 'wc_settings';
-var SETTINGS_DEF = { sens: 1.0, invert: 0, fov: 72, volMaster: 1.0, volSfx: 1.0, volVoice: 1.0, quality: 2, crt: 1, crosshair: 1, minimap: 1, markers: 1 };
+var SETTINGS_DEF = { sens: 1.0, invert: 0, fov: 72, volMaster: 1.0, volSfx: 1.0, volVoice: 1.0, quality: 2, crt: 1, crosshair: 1, minimap: 1, markers: 1, fps: 0, compass: 1 };
 var QUALITY_NAMES = ['LOW', 'MEDIUM', 'HIGH'];
 var settings = null;
 function loadSettings() {
@@ -18802,6 +18802,8 @@ function loadSettings() {
   settings.crosshair = settings.crosshair ? 1 : 0;
   settings.minimap = settings.minimap ? 1 : 0;
   settings.markers = settings.markers ? 1 : 0;
+  settings.fps = settings.fps ? 1 : 0;
+  settings.compass = settings.compass ? 1 : 0;
   settings.sens = Math.max(0.2, Math.min(3, +settings.sens || 1));
   settings.volMaster = Math.max(0, Math.min(1, +settings.volMaster));
   settings.volSfx = Math.max(0, Math.min(1, +settings.volSfx));
@@ -18902,6 +18904,8 @@ function buildSettingsRows() {
   toggle('CROSSHAIR', 'show the aiming reticle', 'crosshair');
   toggle('MINIMAP', 'show the corner map', 'minimap');
   toggle('HIT MARKERS', 'hit ticks & kill feed', 'markers');
+  toggle('COMPASS', 'heading strip up top', 'compass');
+  toggle('FPS COUNTER', 'live frame rate & draw stats', 'fps');
 }
 function openSettings() {
   buildSettingsRows();
@@ -19984,6 +19988,20 @@ function drawHudCanvas() {
     hudCx.strokeRect(px2 - pw / 2 - 12, py - 20, pw + 24, 30);
     hudText(pt, px2, py, 19, '#ffe9a0', 'center');
   }
+  // ---- FPS / perf readout (QoL, settings.fps): left edge, clear of the quest
+  // tracker (top) and health (bottom). renderer.info reflects last frame. ----
+  if (settings && settings.fps) {
+    var fv = Math.round(fpsVal);
+    var fcol = fv >= 50 ? '#8ee87f' : (fv >= 30 ? '#ffd200' : '#ff5a3a');
+    var fy = hudMmB + 6;
+    hudText('FPS ' + (fv || '--'), M, fy, 13, fcol, 'left');
+    var ri = (renderer && renderer.info && renderer.info.render) ? renderer.info.render : null;
+    if (ri) {
+      var tri = ri.triangles || 0;
+      var triTxt = tri >= 1000 ? (Math.round(tri / 100) / 10) + 'k' : String(tri);
+      hudText((ri.calls || 0) + ' dc  ' + triTxt + ' tri', M, fy + 15, 11, '#9fb0c8', 'left');
+    }
+  }
 }
 // low-HP vignette (#QoL): sustained red edge glow that fades in below 30% HP
 // and pulses; cleared when healthy / dead / not playing. Cache el + last opacity
@@ -20008,11 +20026,15 @@ function updateHUD() { document.getElementById('money').textContent = '$' + stat
 // ---------------- main loop ----------------
 var last = performance.now();
 var lastRafMs = performance.now();   // bot mode watches this to detect RAF starvation
+// FPS counter (QoL): smoothed over ~0.5s windows so the readout is legible.
+var fpsVal = 0, _fpsAcc = 0, _fpsFrames = 0;
 function loop(now) {
   if (WC_BOT) return;   // bot sims on its own real-time interval, never renders
   requestAnimationFrame(loop);
   lastRafMs = performance.now();
   var dt = Math.min(0.05, (now - last) / 1000); last = now;
+  _fpsFrames++; _fpsAcc += (dt > 0 ? dt : 0.0001);
+  if (_fpsAcc >= 0.5) { fpsVal = _fpsFrames / _fpsAcc; _fpsAcc = 0; _fpsFrames = 0; }
   if (!state.running) { renderer.render(scene, camera); renderCreatorFrame(dt); return; }
   T += dt;
   updateReflex(dt);                       // 8-Bit Reflexes: sets the slow-mo factor
