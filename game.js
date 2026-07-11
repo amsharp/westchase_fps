@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.87';
+var GAME_VERSION = 'v1.66.88';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -11757,10 +11757,17 @@ function updateDriving(dt) {
       var lon = dx * fx + dz * fz, lat = -dx * fz + dz * fx;
       if (Math.abs(lon) < 2.8 && Math.abs(lat) < 1.5) {
         sfx('crash');
-        if (isClient()) netToHost({ t: 'ragNpc', i: i, kx: fx * sgn, kz: fz * sgn, pw: 8 + Math.abs(c.pspeed) * 0.55 });
-        else killNpcRagdoll(n, fx * sgn + (Math.random() - 0.5) * 0.5, fz * sgn + (Math.random() - 0.5) * 0.5, 8 + Math.abs(c.pspeed) * 0.55);
+        if (isClient()) {
+          // world snapshots can revert the local ragdoll flag before the host
+          // processes the kill, re-firing this hit test — one ped credited 4x
+          // (mrg3yaf0). ragNpc has no host 'kill' reply, so credit locally but
+          // exactly once per ped via the cooldown.
+          if (!n.ramCD || T - n.ramCD > 1.5) { n.ramCD = T; netToHost({ t: 'ragNpc', i: i, kx: fx * sgn, kz: fz * sgn, pw: 8 + Math.abs(c.pspeed) * 0.55 }); creditCivKill(); }
+        } else {
+          killNpcRagdoll(n, fx * sgn + (Math.random() - 0.5) * 0.5, fz * sgn + (Math.random() - 0.5) * 0.5, 8 + Math.abs(c.pspeed) * 0.55);
+          creditCivKill();
+        }
         n.state = 'ragdoll';   // avoid double-triggering while the host confirms
-        creditCivKill();
       }
     }
     // run over cops (local sim or host-mirrored)

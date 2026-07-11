@@ -338,4 +338,47 @@ render as a giant distorted polygon at some aim angles — flagging for round ow
 
 ## FP-ARMS REGRESSION (round owner: main agent's v1.66.74-87 fp-arms feature)
 - mrg3wvhm (-129,-51, v1.66.87) SMG hand models 'beyond fucked' — CONFIRMS the deformation flagged in the blood investigation note (giant distorted arm polygon in mrg0d0rw's shot). fp-arms is the OTHER agent's active feature — please fix on your next round; if unclaimed by the next fable cycle, fable will take it.
-- mrg3yaf0 (-58,48, .87) hitting ONE pedestrian with a car counts as 4 kills — OPEN (car-hit kill crediting: likely the collision fires multiple frames or counts ragdoll+death separately; check the wanted/kill-count path for car impacts + the new kill feed)
+- mrg3yaf0 (-58,48, .87) one ped rammed = 4 kill credits — FIXED@v1.66.88 (MP client: world snapshots reverted the local ragdoll flag before the host processed ragNpc, re-firing the hit test; ragNpc has no host kill-reply so the local credit fired each time. Now message+credit are gated by a 1.5s per-NPC cooldown — exactly one credit per ped)
+
+## ROAD-NETWORK MAJOR ROUND (mrg01xfw / mrfzrxfl owner directives) — SHIPPED@v1.66.88
+Ground truth: real residential grid pulled from OpenStreetMap (Overpass) around the true
+junction (Race Track Rd @ Countryway Blvd, 28.07031,-82.63131), projected into the game frame
+and matched pocket-by-pocket (evidence: scratchpad osm_overlay.png). Root cause of the whole
+no-road-homes class: the survey houses were planted against the LEGACY axis-world EXP_ROADS
+locals, which WC_REMAP deleted without replacement outside the core — the new streets ride
+those alignments where they exist, with real Westchase street names from the OSM pull.
+- NEW REMAP_ROADS (remapdata.js): EAST/Fawn-Ridge quarter: mountbatten_dr (cls1, rides the
+  legacy arterial alignment the diagonal house bands front), northumberland_dr (cls1 through
+  route mountbatten->citrus_park), evanshire_ct + tudor_chase_dr + gothic_ln (cls2 grid),
+  minaret_dr (cls1 race_track->res_se_pocket; res_se_pocket upgraded cls2->1 so the loop
+  carries AI traffic). WEST: halbrook_dr (cls1 race_track->stilton), bassbrook_ln (cls3 cul),
+  stilton_st (cls2 far-west lane joining stowbridge_ave), stanwyck_cir (cls2 N-S at x~-380).
+  NORTH/Nine-Eagles: chase_grove_dr_w + pond_cypress_way (cls3), res_s_pocket extended west
+  to (-218,-328). All junction endpoints stitch (<=3.5u) -> pads + lane-graph splits.
+- DRIVEWAY PASS (game.js buildDriveways, after buildSurveyHouses): every house front facing a
+  cls1-3 road within 40u gets a merged-mesh asphalt stub wall->curb (garage-side offset, house/
+  forest/lake/venue crossing tests, lot-served houses skip, mapDrives registered, no RNG =
+  MP-deterministic). Covers mrfzfyyf (0,165) and the whole street-adjacent class map-wide.
+- Verified: offline OBB validator = 0 houses dropped by houseOnRoad, 0 deep sidewalk jams (9
+  small nudges, all <=5u); _barrierscan 0 orphans; _signaudit 0 offenders; _mergeboot clean;
+  AI traffic observed on all 5 new lane roads over 120 sim-s (halbrook 4399 car-samples,
+  mountbatten 3289, northumberland 3264, minaret 1110, res_se 1027) with ZERO snap-180 flips;
+  player drive test 316u straight down northumberland, no stalls/walls. Evidence: scratchpad
+  roadnet_*_{before,after}.png (all md5-distinct runs) + roadnet_street_*.png ground views.
+- Report status: mrg01xfw (459,-46) FIXED@v1.66.88 (northumberland/evanshire/tudor grid +
+  driveways at the exact spot); mrfthmf4 (575,-160) FIXED@v1.66.88 (mountbatten frontage +
+  driveways; the 2 deepest 46.7-band rows are packed 13-17u apart = physically unroadable,
+  they read as deep-lot homes behind the front rows — left as-is); mrfzrxfl (-377,118)
+  FIXED@v1.66.88 (halbrook_dr passes within ~2u of the report point, bassbrook/stilton/
+  stanwyck around it); mrfzfyyf (0,165) FIXED@v1.66.88 (driveway pass); mredxzx6/mrfhmf4
+  residuals (240,-135 / 304,-136 big canopies) now sit in a real block ringed by res_se +
+  minaret + race_track with driveway/apron access; mreenqoe S pocket largely FIXED (res_s ext
+  + chase_grove/pond_cypress serve the front rows).
+- Honest OPENs left for a later pass: far-SE quadrant (z>200, x>150 — legacy #27-41 street
+  shapes never re-added; Twin-Branch dirt-road styling belongs there, REMAP_ROADS supports a
+  dirt:true flag already); mrfzzx7c (530,-446) race-track sidewalk gap NOT covered; deep rows
+  z<-352 in the S pocket (driveways would cross the front row); far-west estates around
+  (-445,-145)/(-442,-54) (blocked by their own outbuildings, no corridor); Carlby mansion
+  string internal lane impossible (validated: any polyline drops 2+ houses) — driveways to
+  halbrook serve the z<=176 string, the z 200-270 estate cluster stays gated-estate style;
+  nine_eagles deep-set homes >40u (51,-414 etc) keep no driveway.
