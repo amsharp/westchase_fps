@@ -10839,10 +10839,21 @@ function parkedSlotFree(x, z, ry) {
       if (parkedSlotFree(sx, sz, row.ry)) free.push([sx, sz]);
     }
     var want = Math.min(row.n, free.length);
-    for (var k = 0; k < want; k++) {
+    for (var k = 0; k < want && free.length; k++) {
       var pick = (rng() * free.length) | 0;
       var sp2 = free.splice(pick, 1)[0];
       addParkedCar(sp2[0], sp2[1], row.ry);
+      // self-QA: drop remaining slots too close to the one just filled. The
+      // survey-house rows pitch stalls at 3.3u — fine for sedans, but models
+      // are per-peer random and the big ones (taxi/step van/box truck) span
+      // ~5.5u, so ADJACENT fills interpenetrated (seen at (512,79) van-in-
+      // minivan and (-91,207) taxi-in-taxi). Slots must clear the LARGEST
+      // model: MP keeps positions deterministic, so placement can't consult
+      // the locally-rolled mesh. Deterministic (free-list order + seeded rng).
+      for (var q = free.length - 1; q >= 0; q--) {
+        var qdx = free[q][0] - sp2[0], qdz = free[q][1] - sp2[1];
+        if (qdx * qdx + qdz * qdz < 4.6 * 4.6) free.splice(q, 1);
+      }
     }
   }
 })();
