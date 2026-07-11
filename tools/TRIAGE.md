@@ -643,3 +643,12 @@ Rig: local relay (server.js, no bot) + host page + client page, RAF stubbed, sim
   relay's opaque passthrough). ensureRemote now rejects non-string/empty ids; 's' bails early.
   Re-fuzz: 32/32, 0 throws, world intact. Normal MP path unregressed (remote avatar still built,
   445/445 NPC mirror, PvP kill chain verified separately).
+
+## ENGINE ROBUSTNESS (opus, cycle 4 cont.): chaos-monkey soak — PASS
+New tool chaos.js: seeded PRNG fires ~4 random actions/sec (teleport to map
+edges / lake / gas interior / corners, combat with every weapon, carjack,
+drive, exit, goBerserk, boomAt, ragdoll, wanted 0-5 swings) for 150-180
+sim-sec. 3 seeds (1234567 / 42 / 999983): 0 NaN in any player/npc/car/cop
+position, sim stays running, 0 real pageerrors (only a harmless file://
+relay-fetch ERR_CONNECTION_RESET). The SP engine holds up under adversarial
+input. Reusable — re-run with SECS=/SEED= env after risky engine changes.
