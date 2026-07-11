@@ -399,6 +399,7 @@ those alignments where they exist, with real Westchase street names from the OSM
 - mrg4gnea (-177,39) overhead NPC health bars BROKEN on .88 — NOT the ram-kill merge (diffed: only ram fix in .88); suspect the new HUD settings toggles gate tag/bar drawing (settings.markers default?)
 - mrg4brvw (-129,79) quest overlay covers stars + compass — top-bar layout pass
 - mrg4egvx (-58,3) ESC should close the menu (currently only exposes mouse)
+- mrg4td44 (-119,12) hotbar text hard to read when item selected — ADD to hud-fix round (selected-slot text contrast in the PIX hotbar)
 Other new (logged, next rounds):
 - mrg4gw3o (-187,31) STILL way too much smoke — 2nd report of the lakeside ambient emitter (mrfzucre); find and shrink THAT emitter specifically
 - mrg4hbzx (-141,-9) kid glitched in the wall — kid steering/pushOut vs OBB
