@@ -283,6 +283,10 @@ its price. In multiplayer the pavement is shared: anyone can scoop up your
 dropped arsenal before you get back, so dying near your killer is a
 donation.
 
+Grab a wad of loose cash and a green **"+$" floats up from the spot** it
+was lying and fades — a little hit of feedback anchored to the world, not
+just a number ticking up in the corner.
+
 ## Quests & the quest log
 
 Westchase has **stories to work through**. Quest-givers stand around town

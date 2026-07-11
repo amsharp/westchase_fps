@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.84';
+var GAME_VERSION = 'v1.66.85';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -11763,7 +11763,7 @@ function updateCash(dt) {
       if (dx * dx + dz * dz < CASH_PICK_R2 && !c.pend) { c.pend = true; c.pendT = T; netToHost({ t: 'takeCash', x: c.mesh.position.x, z: c.mesh.position.z }); }
       continue;
     }
-    if (dx * dx + dz * dz < CASH_PICK_R2 || c.life <= 0) { if (c.life > 0) { state.money += c.val; popup('+$' + c.val); sfx('cash'); } scene.remove(c.mesh); cashes.splice(i, 1); }
+    if (dx * dx + dz * dz < CASH_PICK_R2 || c.life <= 0) { if (c.life > 0) { state.money += c.val; spawnMoneyFloat(c.mesh.position.x, 0.9, c.mesh.position.z, c.val); sfx('cash'); } scene.remove(c.mesh); cashes.splice(i, 1); }
   }
 }
 var puffs = [];
@@ -15704,6 +15704,15 @@ function hitMark(kill) {
   sfx(kill ? 'killtick' : 'tick');
 }
 var killFeed = [];   // {txt, col, t} newest first, drawn+expired in drawHudCanvas
+// ---- QoL: world-anchored money floats ("+$N" rising from the pickup spot,
+// projected to screen each frame in drawHudCanvas). Reuses one Vector3 for the
+// projection so hot-path cash grabs allocate nothing. ----
+var moneyFloats = [];   // {x, y, z, val, t0}
+var _mfProj = new THREE.Vector3();
+function spawnMoneyFloat(x, y, z, val) {
+  if (moneyFloats.length > 20) moneyFloats.shift();
+  moneyFloats.push({ x: x, y: y, z: z, val: val, t0: T });
+}
 function pushKillFeed(txt, col) {
   killFeed.unshift({ txt: txt, col: col || '#ff5a3a', t: T });
   if (killFeed.length > 4) killFeed.pop();
@@ -18424,7 +18433,7 @@ function handleNet(m, conn) {
       if (!ufoTriggered) { ufoTriggered = true; spawnUfo(); }
     }
   } else if (m.t === 'cash') {
-    state.money += m.val; popup('+$' + m.val); sfx('cash');
+    state.money += m.val; spawnMoneyFloat(player.x, 1.2, player.z, m.val); sfx('cash');
   } else if (m.t === 'kill') {
     if (m.kind === 'npc') { creditCivKill(); popup('KO!'); }
     else if (m.kind === 'cop') { creditCopKill(); popup('COP DOWN!'); }
@@ -20189,6 +20198,19 @@ function drawHudCanvas() {
   // ---- money: GTA-style counter, top-right under the minimap ----
   var my = hudMmB + 8;
   drawPix('$' + Math.max(0, state.money | 0), W - M, my, 3, '#46e05e', 'right');
+  // ---- QoL: world-anchored money floats — each "+$N" rises ~1.4 world units
+  // from where the cash was grabbed over its 1.1s life, fading out. Skips floats
+  // behind the camera (project z > 1). Drawn after the counter so they read on top. ----
+  for (var mf = moneyFloats.length - 1; mf >= 0; mf--) {
+    var mfe = moneyFloats[mf], mfAge = T - mfe.t0;
+    if (mfAge > 1.1) { moneyFloats.splice(mf, 1); continue; }
+    _mfProj.set(mfe.x, mfe.y + mfAge * 1.4, mfe.z); _mfProj.project(camera);
+    if (_mfProj.z > 1) continue;
+    var mfx = (_mfProj.x * 0.5 + 0.5) * W, mfy = (1 - (_mfProj.y * 0.5 + 0.5)) * H;
+    hudCx.globalAlpha = mfAge < 0.12 ? mfAge / 0.12 : Math.max(0, (1.1 - mfAge) / 0.55);
+    drawPix('+$' + mfe.val, mfx, mfy, 2, '#8ee87f', 'center');
+    hudCx.globalAlpha = 1;
+  }
   // ---- kill feed: recent takedowns, top-right under the money counter,
   // newest on top, each fading out over its ~3.6s life ----
   for (var kf = killFeed.length - 1; kf >= 0; kf--) {
@@ -20487,6 +20509,7 @@ window.__wc = {
   creditCivKill: creditCivKill, creditCopKill: creditCopKill, dropWeapon: dropWeapon,
   copWeapon: copWeapon,
   openMenu: openMenu, closeMenus: closeMenus, spawnCashAt: spawnCash,
+  moneyFloats: function () { return moneyFloats; }, spawnMoneyFloat: spawnMoneyFloat,
   renderer: renderer, scene: scene, camera: camera,
   listPowerlines: function () { return powerPoles; },
   powerlineStats: function () { return { poles: powerPoles.length, wires: powerWireCount, spans: powerSpanCount, serviceDrops: powerServiceDrops }; },
