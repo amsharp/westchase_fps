@@ -689,6 +689,10 @@ the same quiet noise bed as before, and the SFX volume slider controls it.
   1 is fists; keys for weapons you don't own are ignored)
 - **`[` / `]`** — zoom the minimap out / in (WIDE / NORMAL / CLOSE); **Ctrl+scroll**
   does the same. Your choice is remembered between sessions.
+- **M** — drop a personal **waypoint** at whatever you're looking at (or click the
+  minimap while a menu is open). A cyan world beacon, an on-screen marker with
+  live distance, and a minimap blip guide you there; it clears when you arrive
+  or when you press **M** again.
 - **E** — talk to the dealer (when close)
 - **H** — on foot, open the in-game **controls / help overlay**; while driving,
   honk the horn (also reachable from the pause screen's **CONTROLS** button)

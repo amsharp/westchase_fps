@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.80';
+var GAME_VERSION = 'v1.66.81';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -16640,6 +16640,83 @@ function setMinimapZoom(i) {
 }
 function cycleMinimapZoom(dir) { return setMinimapZoom(mmZoom + (dir > 0 ? 1 : -1)); }
 
+// ===== custom waypoint / map pin (QoL) =====
+// Drop a personal marker with M (casts your view onto the ground) or by
+// clicking the minimap while a menu is open. Shows a world beacon, an on-HUD
+// diamond/edge-arrow with live distance, and a cyan blip on the minimap.
+// Auto-clears on arrival (within 6u); M/click again toggles it off.
+var userWP = null;                 // {x, z} world coords, or null
+var wpBeacon = null;               // lazily-built 3D beacon group
+var wpPhase = 0;
+var _wpDir = new THREE.Vector3();
+var _wpProj = new THREE.Vector3();
+var mmXf = null;                   // last minimap draw transform (for click->world)
+function buildWPBeacon() {
+  var g = new THREE.Group();
+  var mat = new THREE.MeshBasicMaterial({ color: 0x36d6ff, transparent: true, opacity: 0.3, depthWrite: false, side: THREE.DoubleSide });
+  var beam = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 1.4, 60, 10, 1, true), mat);
+  beam.position.y = 30; g.add(beam);
+  var ringMat = new THREE.MeshBasicMaterial({ color: 0x9fefff, transparent: true, opacity: 0.6, depthWrite: false, side: THREE.DoubleSide });
+  var ring = new THREE.Mesh(new THREE.RingGeometry(2.2, 3.0, 24), ringMat);
+  ring.rotation.x = -Math.PI / 2; ring.position.y = 0.16; g.add(ring);
+  g.userData.beamMat = mat; g.userData.ring = ring; g.renderOrder = 3;
+  return g;
+}
+function setWaypoint(x, z) {
+  x = Math.max(-HALF + 2, Math.min(HALF - 2, x));
+  z = Math.max(-HALF + 2, Math.min(HALF - 2, z));
+  userWP = { x: x, z: z };
+  if (!wpBeacon) { wpBeacon = buildWPBeacon(); scene.add(wpBeacon); }
+  wpBeacon.position.set(x, 0, z); wpBeacon.visible = !inside;
+  if (typeof sfx === 'function') sfx('buy');
+  if (typeof toast === 'function') toast('◈ Waypoint set', 1400);
+  return userWP;
+}
+function clearWaypoint(silent) {
+  if (!userWP) return;
+  userWP = null;
+  if (wpBeacon) wpBeacon.visible = false;
+  if (!silent) { if (typeof sfx === 'function') sfx('deny'); if (typeof toast === 'function') toast('Waypoint cleared', 1100); }
+}
+function toggleWaypointAtLook() {
+  if (userWP) { clearWaypoint(false); return; }
+  // cast the camera-forward ray onto the ground (y=0); if aiming at/above the
+  // horizon, just drop it a fixed distance ahead.
+  camera.getWorldDirection(_wpDir);
+  var t = (_wpDir.y < -0.02) ? Math.min(240, camera.position.y / -_wpDir.y) : 60;
+  setWaypoint(camera.position.x + _wpDir.x * t, camera.position.z + _wpDir.z * t);
+}
+function updateWaypoint(dt) {
+  if (!userWP) return;
+  if (wpBeacon) {
+    wpBeacon.visible = !inside;
+    wpPhase += dt;
+    wpBeacon.userData.beamMat.opacity = 0.2 + 0.14 * (Math.sin(wpPhase * 3) * 0.5 + 0.5);
+    var ring = wpBeacon.userData.ring;
+    ring.rotation.z += dt * 1.4;
+    var s = 1 + 0.12 * Math.sin(wpPhase * 3); ring.scale.set(s, s, s);
+  }
+  var dx = userWP.x - player.x, dz = userWP.z - player.z;
+  if (dx * dx + dz * dz < 36) {          // arrived
+    clearWaypoint(true);
+    if (typeof toast === 'function') toast('◈ Arrived at waypoint', 1400);
+    if (typeof sfx === 'function') sfx('cash');
+  }
+}
+// minimap click -> world waypoint (works when the cursor is free: a menu open,
+// or before the pointer locks). Toggles off if you click near the existing pin.
+mm.addEventListener('click', function (e) {
+  if (!state.running || !mmXf || (settings && !settings.minimap)) return;
+  var rect = mm.getBoundingClientRect();
+  if (!rect.width) return;
+  var px = (e.clientX - rect.left) / rect.width * mm.width;
+  var py = (e.clientY - rect.top) / rect.height * mm.height;
+  var wx = (px - mmXf.txp) / (mmXf.Z * MMS) - HALF;
+  var wz = (py - mmXf.typ) / (mmXf.Z * MMS) - HALF;
+  if (userWP) { var ax = wx - userWP.x, az = wz - userWP.z; if (ax * ax + az * az < 400) { clearWaypoint(false); return; } }
+  setWaypoint(wx, wz);
+});
+
 // ---- venue/landmark blips (#46): REMAP_VENUES is parsed ONCE into a compact
 // blip list (colour + short glyph per named venue) so drawMinimap never walks
 // the raw venue table per frame. Blips render at constant PIXEL size in screen
@@ -16691,6 +16768,7 @@ function drawMinimap() {
   var bx = Math.max(halfW, Math.min(cw - halfW, w2m(player.x)));
   var by = Math.max(halfH, Math.min(ch - halfH, w2m(player.z)));
   var txp = cw / 2 - bx * Z, typ = ch / 2 - by * Z;
+  mmXf = { Z: Z, txp: txp, typ: typ };          // cached for click->world inversion
   function sx(x) { return w2m(x) * Z + txp; }   // world x -> minimap px (pan+zoom)
   function sz(z) { return w2m(z) * Z + typ; }
 
@@ -16792,6 +16870,19 @@ function drawMinimap() {
       var cx = cw / 2, cy = ch / 2, ang = Math.atan2(my - cy, mx - cx);
       var ex = Math.max(7, Math.min(cw - 7, mx)), ey = Math.max(7, Math.min(ch - 7, my));
       mg.save(); mg.translate(ex, ey); mg.rotate(ang); mg.beginPath(); mg.moveTo(6, 0); mg.lineTo(-4, 4); mg.lineTo(-4, -4); mg.closePath(); mg.fill(); mg.stroke(); mg.restore();
+    }
+  }
+  // custom waypoint blip (QoL): cyan diamond, off-map clamps to a border arrow
+  if (userWP) {
+    var wmx = sx(userWP.x), wmy = sz(userWP.z), winb = wmx >= 5 && wmx <= cw - 5 && wmy >= 5 && wmy <= ch - 5;
+    var wbl = (Math.sin(T * 5) * 0.5 + 0.5);
+    mg.fillStyle = 'rgba(60,214,255,' + (0.6 + 0.4 * wbl).toFixed(2) + ')'; mg.strokeStyle = '#04212e'; mg.lineWidth = 1;
+    if (winb) {
+      mg.save(); mg.translate(wmx, wmy); mg.rotate(Math.PI / 4); var wd = 3.4; mg.fillRect(-wd, -wd, wd * 2, wd * 2); mg.strokeRect(-wd, -wd, wd * 2, wd * 2); mg.restore();
+    } else {
+      var wcx = cw / 2, wcy = ch / 2, wang = Math.atan2(wmy - wcy, wmx - wcx);
+      var wex = Math.max(7, Math.min(cw - 7, wmx)), wey = Math.max(7, Math.min(ch - 7, wmy));
+      mg.save(); mg.translate(wex, wey); mg.rotate(wang); mg.beginPath(); mg.moveTo(6, 0); mg.lineTo(-4, 4); mg.lineTo(-4, -4); mg.closePath(); mg.fill(); mg.stroke(); mg.restore();
     }
   }
   // north indicator: this minimap is fixed-north (top edge = -z = north), so an
@@ -19531,6 +19622,8 @@ document.addEventListener('keydown', function (e) {
     if (e.code === 'BracketRight') { e.preventDefault(); cycleMinimapZoom(1); return; }
     if (e.code === 'BracketLeft') { e.preventDefault(); cycleMinimapZoom(-1); return; }
   }
+  // QoL: M drops/clears a personal waypoint at whatever you're looking at
+  if (e.code === 'KeyM' && !e.repeat && state.running && !state.menu && !state.dead) { e.preventDefault(); toggleWaypointAtLook(); return; }
   // #78 quest-reward capability toggles (only while playing, no menu)
   if (!e.repeat && state.running && !state.menu && !state.dead) {
     if (e.code === 'KeyL' && hasUnlock('loupe')) { toggleLoupe(); return; }
@@ -20131,6 +20224,34 @@ function drawHudCanvas() {
     hudCx.strokeRect(px2 - pw / 2 - 12, py - 20, pw + 24, 30);
     hudText(pt, px2, py, 19, '#ffe9a0', 'center');
   }
+  // ---- custom waypoint HUD marker (QoL): a cyan diamond over the world beacon
+  // when it's on-screen, else a clamped edge arrow — both carry live distance ----
+  if (userWP && !inside) {
+    var wtX = userWP.x - camera.position.x, wtZ = userWP.z - camera.position.z;
+    var wdist = Math.sqrt((userWP.x - player.x) * (userWP.x - player.x) + (userWP.z - player.z) * (userWP.z - player.z));
+    var wdtxt = (wdist >= 1000 ? (Math.round(wdist / 100) / 10) + 'k' : Math.round(wdist)) + 'm';
+    camera.getWorldDirection(_wpDir);
+    var wInFront = (wtX * _wpDir.x + wtZ * _wpDir.z) > 0;
+    var wmx2, wmy2, wEdge = !wInFront;
+    if (wInFront) {
+      _wpProj.set(userWP.x, 1.6, userWP.z); _wpProj.project(camera);
+      wmx2 = (_wpProj.x * 0.5 + 0.5) * W; wmy2 = (1 - (_wpProj.y * 0.5 + 0.5)) * H;
+      if (wmx2 < 24 || wmx2 > W - 24 || wmy2 < 46 || wmy2 > H - 46) wEdge = true;
+    }
+    if (wEdge) {
+      var camB = Math.atan2(_wpDir.x, -_wpDir.z), wpB = Math.atan2(wtX, -wtZ);
+      var wrel = wpB - camB; while (wrel > Math.PI) wrel -= 2 * Math.PI; while (wrel < -Math.PI) wrel += 2 * Math.PI;
+      var wrr = Math.min(W, H) * 0.34;
+      wmx2 = W / 2 + Math.sin(wrel) * wrr; wmy2 = H / 2 - Math.cos(wrel) * wrr;
+      wmx2 = Math.max(24, Math.min(W - 24, wmx2)); wmy2 = Math.max(52, Math.min(H - 40, wmy2));
+    }
+    hudCx.save(); hudCx.translate(wmx2, wmy2);
+    hudCx.fillStyle = '#0a1420'; hudCx.strokeStyle = '#36d6ff'; hudCx.lineWidth = 2;
+    hudCx.beginPath(); hudCx.moveTo(0, -8); hudCx.lineTo(8, 0); hudCx.lineTo(0, 8); hudCx.lineTo(-8, 0); hudCx.closePath(); hudCx.fill(); hudCx.stroke();
+    hudCx.fillStyle = '#36d6ff'; hudCx.beginPath(); hudCx.arc(0, 0, 2.2, 0, 7); hudCx.fill();
+    hudCx.restore();
+    hudText(wdtxt, wmx2, wmy2 - 12, 12, '#bfefff', 'center');
+  }
   // ---- FPS / perf readout (QoL, settings.fps): left edge, clear of the quest
   // tracker (top) and health (bottom). renderer.info reflects last frame. ----
   if (settings && settings.fps) {
@@ -20141,7 +20262,7 @@ function drawHudCanvas() {
     var ri = (renderer && renderer.info && renderer.info.render) ? renderer.info.render : null;
     if (ri) {
       var tri = ri.triangles || 0;
-      var triTxt = tri >= 1000 ? (Math.round(tri / 100) / 10) + 'k' : String(tri);
+      var triTxt = tri >= 1e6 ? (Math.round(tri / 1e5) / 10) + 'M' : (tri >= 1000 ? Math.round(tri / 1000) + 'k' : String(tri));
       hudText((ri.calls || 0) + ' dc  ' + triTxt + ' tri', M, fy + 15, 11, '#9fb0c8', 'left');
     }
   }
@@ -20182,7 +20303,7 @@ function loop(now) {
   T += dt;
   updateReflex(dt);                       // 8-Bit Reflexes: sets the slow-mo factor
   var sdt = dt * reflexScale();           // world sim dt (bullet-time scales it)
-  updatePlayer(dt); updateNPCs(sdt); updateKids(sdt); updateWildlife(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); updateQuestCaps(dt); updateSecrets(sdt); updateNpcTags(); updateHUD(); drawMinimap();
+  updatePlayer(dt); updateNPCs(sdt); updateKids(sdt); updateWildlife(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); updateQuestCaps(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
   renderer.render(scene, camera);
 }
 setEquipped('fists');
@@ -20361,6 +20482,7 @@ window.__wc = {
   spawnBalloons: function () { spawnBalloonCluster(); return balloons.length; },
   balloonCount: function () { return balloons.length; },
   setMinimapZoom: setMinimapZoom, cycleMinimapZoom: cycleMinimapZoom,
+  setWaypoint: setWaypoint, clearWaypoint: clearWaypoint, toggleWaypointAtLook: toggleWaypointAtLook, getWaypoint: function () { return userWP; },
   minimapState: function () { if (!mmVenues) buildMMVenues(); return { zoom: mmZoom, scale: MM_ZOOMS[mmZoom], name: MM_ZOOM_NAMES[mmZoom], levels: MM_ZOOMS.length, venues: mmVenues.length }; },
   setRain: function (on) { raining = on; rainLeft = on ? 9999 : 0; if (on && rainTargetInten <= 0) rainTargetInten = rollInten(); },
   // force a weather mode: auto | clear | drizzle | rain | storm | overcast | rainbow
