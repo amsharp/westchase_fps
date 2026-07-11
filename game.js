@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.91';
+var GAME_VERSION = 'v1.66.92';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -15059,7 +15059,7 @@ var ANCHOR_OFF = {
   pistol: [0.06, -0.06, -0.32],
   smg:    [0.09, -0.05, -0.36],
   rifle:  [0.10, -0.05, -0.39],
-  auto:   [0.11, -0.05, -0.39],
+  auto:   [0.13, -0.13, -0.39],   // v1.66.87: lowered so the support forearm enters from the bottom, not across the frame
   rocket: [0.10, -0.05, -0.36],
   silenced: [0.06, -0.06, -0.32]
 };
@@ -15104,10 +15104,10 @@ function seedRightArm(w) {
 // quaternion into bone-local space, premultiply.
 var GRIP_TGT = {
   // (no pistol entry — one-handed, see SUPPORT_POSE)
-  smg:    [0.28, -0.30, -0.56],
-  rifle:  [0.18, -0.33, -0.82],
-  auto:   [0.19, -0.31, -0.71],
-  rocket: [0.22, -0.35, -0.66],
+  smg:    [0.248, -0.15, -0.696],   // v1.66.87: diagonal composition
+  rifle:  [0.079, -0.173, -0.741],  // v1.66.87: diagonal composition
+  auto:   [0.08, -0.114, -0.718],   // v1.66.87: handguard, re-derived for the diagonal AK pose
+  rocket: [0.159, -0.231, -0.598],  // v1.66.87: diagonal composition
   silenced: [0.21, -0.40, -0.52]
 };
 // v1.66.74: RIGHT (trigger) hand grip target per weapon, in the gun-group local
@@ -15116,10 +15116,10 @@ var GRIP_TGT = {
 // the right wrist (bone 4, via upper_arm.R/forearm.R) onto these points, matching
 // the old capsule-arm grip anchors. Pistol/silenced stay one-handed (relax hold).
 var RIGHT_GRIP = {
-  smg:    [0.29, -0.47, -0.24],
-  rifle:  [0.27, -0.47, -0.34],
-  auto:   [0.29, -0.47, -0.30],
-  rocket: [0.32, -0.48, -0.32]
+  smg:    [0.33, -0.48, -0.3],   // v1.66.87: diagonal composition
+  rifle:  [0.34, -0.5, -0.29],   // v1.66.87: diagonal composition
+  auto:   [0.34, -0.5, -0.29],   // v1.66.87: pistol grip, re-derived for the diagonal AK pose
+  rocket: [0.34, -0.46, -0.3]   // v1.66.87: diagonal composition
 };
 var _ikEnd = new THREE.Vector3(), _ikJ = new THREE.Vector3(), _ikTV = new THREE.Vector3(),
     _ikA = new THREE.Vector3(), _ikB = new THREE.Vector3(),
@@ -15364,13 +15364,14 @@ var vmPistol = new THREE.Group();
 var vmSmg = new THREE.Group();
 (function () {
   if (hasMeshyGun('tec9')) {
-    var mg = getGunMesh('tec9', 0.5);
-    mg.position.set(0.27, -0.29, -0.41);   // v1.43: retracted 0.14 toward camera
+    // v1.66.87: real-FPS diagonal composition (see AK), compact for the SMG.
+    var mg = getGunMesh('tec9', 0.72);
+    mg.position.set(0.324, -0.18, -0.495);
     mg.rotation.order = 'YXZ';
-    mg.rotation.y = -Math.PI / 2 + 0.22;
-    mg.rotation.x = 0.05;
+    mg.rotation.set(-0.266, -0.871, -0.316);
     vmSmg.add(mg);
-    var sAr = vmArm(0.29, -0.47, -0.24, 0.18); sAr.userData.gunArm = 1; vmSmg.add(sAr);
+    var sAr = vmArm(0.33, -0.48, -0.3, 0.18); sAr.userData.gunArm = 1; vmSmg.add(sAr);
+    var sAr2 = vmArm(0.25, -0.42, -0.7, -0.3); sAr2.userData.gunArm = 1; vmSmg.add(sAr2);
     WEAPONS.smg.flashAt = meshyMuzzleAt(mg);
     WEAPONS.smg.flashScale = 0.65;
     return;
@@ -15408,14 +15409,15 @@ var vmSmg = new THREE.Group();
 var vmRifle = new THREE.Group();
 (function () {
   if (hasMeshyGun('kar98k')) {
-    var mg = getGunMesh('kar98k', 0.95);
-    mg.position.set(0.25, -0.29, -0.56);   // v1.43: retracted 0.16 toward camera
+    // v1.66.87: real-FPS diagonal composition (see AK) — stock off bottom-right,
+    // barrel diagonal up-left toward the crosshair, flat side 3/4 to camera.
+    var mg = getGunMesh('kar98k', 1.15);
+    mg.position.set(0.301, -0.233, -0.505);
     mg.rotation.order = 'YXZ';
-    mg.rotation.y = -Math.PI / 2 + 0.22;
-    mg.rotation.x = 0.05;
+    mg.rotation.set(-0.258, -0.822, -0.32);
     vmRifle.add(mg);
-    var rAr1 = vmArm(0.27, -0.47, -0.34, 0.18); rAr1.userData.gunArm = 1; vmRifle.add(rAr1);
-    var rAr2 = vmArm(0.11, -0.44, -0.82, -0.32); rAr2.userData.gunArm = 1; vmRifle.add(rAr2);
+    var rAr1 = vmArm(0.34, -0.5, -0.29, 0.18); rAr1.userData.gunArm = 1; vmRifle.add(rAr1);
+    var rAr2 = vmArm(0.08, -0.4, -0.78, -0.32); rAr2.userData.gunArm = 1; vmRifle.add(rAr2);
     WEAPONS.rifle.flashAt = meshyMuzzleAt(mg);
     WEAPONS.rifle.flashScale = 0.8;
     return;
@@ -15434,16 +15436,20 @@ var vmRifle = new THREE.Group();
 var vmAuto = new THREE.Group();
 (function () {
   if (hasMeshyGun('ak47')) {
-    var mg = getGunMesh('ak47', 0.8);
-    mg.position.set(0.26, -0.30, -0.46);   // v1.43: retracted 0.16 toward camera
+    // v1.66.87: real-FPS composition — the rifle enters from the bottom-right
+    // (stock off-screen at the shoulder), receiver filling the lower-right, the
+    // barrel running DIAGONALLY up-and-left toward the crosshair. mg.quaternion
+    // maps the model -x (muzzle) axis onto that diagonal; position anchors the
+    // pistol grip at the bottom-right. GRIP_TGT/RIGHT_GRIP re-derived below.
+    var mg = getGunMesh('ak47', 1.12);
+    mg.position.set(0.313, -0.218, -0.458);
     mg.rotation.order = 'YXZ';
-    mg.rotation.y = -Math.PI / 2 + 0.22;
-    mg.rotation.x = 0.05;
+    mg.rotation.set(-0.258, -0.822, -0.32);   // YXZ euler: barrel diagonal up-left, flat receiver 3/4 to camera
     vmAuto.add(mg);
-    var aAr1 = vmArm(0.29, -0.47, -0.3, 0.18); aAr1.userData.gunArm = 1; vmAuto.add(aAr1);
-    var aAr2 = vmArm(0.13, -0.44, -0.72, -0.3); aAr2.userData.gunArm = 1; vmAuto.add(aAr2);
+    var aAr1 = vmArm(0.31, -0.47, -0.33, 0.18); aAr1.userData.gunArm = 1; vmAuto.add(aAr1);
+    var aAr2 = vmArm(0.15, -0.42, -0.78, -0.3); aAr2.userData.gunArm = 1; vmAuto.add(aAr2);
     WEAPONS.auto.flashAt = meshyMuzzleAt(mg);
-    WEAPONS.auto.flashScale = 0.75;
+    WEAPONS.auto.flashScale = 0.9;
     return;
   }
   vmAuto.add(box(0.07, 0.09, 0.34, metalM, 0.26, -0.265, -0.5));            // receiver
@@ -15469,18 +15475,21 @@ var rpgWarhead = null;   // the Meshy launcher's own warhead mesh (hidden while 
 (function () {
   var headCant = 0;
   if (hasMeshyGun('rpg7')) {
-    var mg = getGunMesh('rpg7', 0.95);
+    // v1.66.87: real-FPS diagonal composition (see AK) — tube over the shoulder,
+    // warhead up-left. rocketFwd/seat derive from the actual muzzle so the reload
+    // slide still tracks the tube after the re-cant.
+    var mg = getGunMesh('rpg7', 1.05);
     mg.traverse(function (o) { if (o.userData && o.userData.warhead) rpgWarhead = o; });
-    mg.position.set(0.3, -0.26, -0.46);   // v1.43: retracted 0.14 toward camera
+    mg.position.set(0.342, -0.197, -0.42);
     mg.rotation.order = 'YXZ';
-    mg.rotation.y = -Math.PI / 2 + 0.22;
+    mg.rotation.set(-0.217, -0.956, -0.228);
     vmRocket.add(mg);
-    var kAr1 = vmArm(0.32, -0.48, -0.32, 0.18); kAr1.userData.gunArm = 1; vmRocket.add(kAr1);
-    var kAr2 = vmArm(0.16, -0.46, -0.6, -0.3); kAr2.userData.gunArm = 1; vmRocket.add(kAr2);
-    var fa = gunFlashAt(0.3, -0.26, -0.46, 0.95, 0.02);   // muzzle literal tracks the retracted mesh
+    var kAr1 = vmArm(0.34, -0.46, -0.3, 0.18); kAr1.userData.gunArm = 1; vmRocket.add(kAr1);
+    var kAr2 = vmArm(0.15, -0.44, -0.62, -0.3); kAr2.userData.gunArm = 1; vmRocket.add(kAr2);
+    var fa = meshyMuzzleAt(mg);   // exact barrel tip of the re-canted tube
     WEAPONS.rocket.flashAt = fa;
-    headCant = 0.22;
-    rocketFwd.set(-Math.cos(-Math.PI / 2 + 0.22), 0, Math.sin(-Math.PI / 2 + 0.22));
+    // tube-forward = model -x mapped through the mesh quaternion
+    rocketFwd.set(-1, 0, 0).applyQuaternion(mg.quaternion).normalize();
     rocketSeat.set(fa[0], fa[1], fa[2]).addScaledVector(rocketFwd, -0.05);
   } else {
     var oliveM = lamb({ color: 0x4a5a3a });
@@ -15590,7 +15599,7 @@ Object.keys(vmMap).forEach(function (k) { vm.add(vmMap[k]); vmMap[k].visible = f
 // bottom of the frame (grip cut off at a level look). The equipped group's
 // position is rebased to this per-weapon lift each frame (see the draw block),
 // which moves gun AND arms together so the grip relationship is preserved.
-var VM_LIFT = { pistol: 0.24, smg: 0.12, rifle: 0.11, auto: 0.11, rocket: 0.11, silenced: 0.24 };
+var VM_LIFT = { pistol: 0.24, smg: 0.12, rifle: 0.11, auto: 0.02, rocket: 0.11, silenced: 0.24 };
 vmFists.visible = true;
 var zoomed = false;
 function setZoom(on) {
