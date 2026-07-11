@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.94';   // merge: live2-ai marathon branch + main
+var GAME_VERSION = 'v1.66.95';   // merge: live2-ai marathon branch + main
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -11952,7 +11952,7 @@ var puffGeo = new THREE.PlaneGeometry(0.35, 0.35);
 // fire = additive flame licks on black. Callers keep passing a color hex to
 // puff(): warm hues route to fire, greys to smoke. Both fall back to the old
 // flat colored quad until the images finish decoding / if the files are absent.
-var VFX_GRID = 4, VFX_NF = 16, smokeFrames = null, fireFrames = null;
+var VFX_GRID = 4, VFX_NF = 16, smokeFrames = null, fireFrames = null, bloodFrames = null;
 function sliceVfxSheet(dataurl, pixelated) {
   var frames = [], canv = [];
   for (var k = 0; k < VFX_NF; k++) {
@@ -11977,6 +11977,7 @@ function sliceVfxSheet(dataurl, pixelated) {
 }
 if (typeof VFX_SMOKE !== 'undefined') smokeFrames = sliceVfxSheet(VFX_SMOKE, false);
 if (typeof VFX_FIRE !== 'undefined') fireFrames = sliceVfxSheet(VFX_FIRE, true);
+if (typeof VFX_BLOOD !== 'undefined') bloodFrames = sliceVfxSheet(VFX_BLOOD, true);
 function vfxIsFire(col) { if (col === undefined) return false; var r = (col >> 16) & 255, b = col & 255; return r > 140 && r > b + 60; }
 // kind (optional): explicit routing that bypasses the hue heuristic.
 //  'blood'  — bullet/melee hits on PEOPLE: small dark-red droplets, gravity,
@@ -11987,7 +11988,16 @@ function vfxIsFire(col) { if (col === undefined) return false; var r = (col >> 1
 // No kind → legacy hue routing (explosions/burning cars keep big fire/smoke).
 function puff(p, col, kind) {
   if (kind === 'blood') {
-    for (var bi = 0; bi < 3; bi++) {
+    if (bloodFrames) {
+      // one-shot animated splat (mrg52jt3 "punch blood should be a cool
+      // sprite"): the sheet animates its own expansion + fade, so no grow
+      var bs = new THREE.Mesh(puffGeo, new THREE.MeshBasicMaterial({ map: bloodFrames[0], transparent: true, depthWrite: false, opacity: 0.96 }));
+      bs.position.copy(p); bs.rotation.z = Math.random() * 6.28;
+      bs.scale.setScalar(1.0 + Math.random() * 0.35);
+      scene.add(bs);
+      puffs.push({ mesh: bs, life: 0.4, max: 0.4, splat: true, frames: bloodFrames });
+    }
+    for (var bi = 0; bi < 2; bi++) {
       var bm = new THREE.Mesh(puffGeo, new THREE.MeshBasicMaterial({ color: bi === 0 ? 0x8f1512 : 0x66100d, transparent: true, opacity: 0.92, depthWrite: false }));
       bm.position.set(p.x + (Math.random() - 0.5) * 0.24, p.y + (Math.random() - 0.5) * 0.24, p.z + (Math.random() - 0.5) * 0.24);
       bm.scale.setScalar(0.5 + Math.random() * 0.45);
@@ -12034,7 +12044,11 @@ function updatePuffs(dt) {
       p.mesh.material.opacity = Math.max(0, 0.92 * (p.life / p.max));
     } else if (p.frames) {
       var fr;
-      if (p.fire) { fr = (p.start + Math.floor(t * 10)) % VFX_NF; p.mesh.scale.multiplyScalar(1 + dt * 1.6); p.mesh.material.opacity = Math.max(0, 1 - t); }
+      if (p.splat) {
+        fr = Math.min(15, Math.floor(t * 16));   // play the whole sheet once; frames 13-15 self-fade
+        if (p.mesh.material.map !== p.frames[fr]) p.mesh.material.map = p.frames[fr];
+        p.mesh.material.opacity = t > 0.8 ? Math.max(0, 0.96 * (1 - (t - 0.8) / 0.2)) : 0.96;
+      } else if (p.fire) { fr = (p.start + Math.floor(t * 10)) % VFX_NF; p.mesh.scale.multiplyScalar(1 + dt * 1.6); p.mesh.material.opacity = Math.max(0, 1 - t); }
       else { fr = Math.min(11, Math.floor(t * 12)); p.mesh.scale.multiplyScalar(1 + dt * (p.grow || 3.2)); p.mesh.material.opacity = Math.max(0, (p.omax || 0.9) * (1 - t * t)); }
       if (p.mesh.material.map !== p.frames[fr]) p.mesh.material.map = p.frames[fr];
     } else {
