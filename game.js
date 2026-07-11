@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.61';
+var GAME_VERSION = 'v1.66.62';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -8446,6 +8446,7 @@ if (WC_REMAP) (function densityLayer() {
         var py = rmAt(ry3.pts, ry3.cum, yv), oy = ry3.hw + rnd(3, 6);
         var yx = py.x - py.uz * oy * yd, yz = py.z + py.ux * oy * yd; yd = -yd;
         if (!spotClear(yx, yz) || inLake(yx, yz) || remapInClear(yx, yz, 0)) continue;
+        if (!remapPointClear(yx, yz, 0.5) || dOnPavedRect(yx, yz)) continue;   // lawns only — no yard signs planted in asphalt/driveway slabs
         // mregdctj: the stake used to be as tall as the placard CENTER (both
         // 0.9), so the post ran across the whole lower half of the sign face
         // (visible whenever the stake side faced you) — and the placard read
@@ -8471,6 +8472,15 @@ if (WC_REMAP) (function densityLayer() {
   // asphalt / the middle of the lot drive lanes and read as scattered litter.
   // Boxes may hug the wall on a service PAVEMENT apron, but never on road
   // asphalt/junction pads and never on a parking lot's drive surface.
+  // inside ANY editor-authored surface rect (parking or pavement)
+  function dOnPavedRect(x, z) {
+    for (var i = 0; i < SURF.length; i++) {
+      var s = SURF[i], ra = (s.rot || 0) * deg, c = Math.cos(ra), sn = Math.sin(ra);
+      var dx = x - s.x, dz = z - s.z, u = dx * c - dz * sn, v = dx * sn + dz * c;
+      if (Math.abs(u) < s.w / 2 && Math.abs(v) < s.d / 2) return true;
+    }
+    return false;
+  }
   function clutterSpotOK(x, z) {
     if (!remapPointClear(x, z, 0.5)) return false;
     for (var i = 0; i < SURF.length; i++) {
