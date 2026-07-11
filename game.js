@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.99';
+var GAME_VERSION = 'v1.66.100';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -15638,7 +15638,7 @@ var GRIP_TGT = {
   // (no pistol entry — one-handed, see SUPPORT_POSE)
   smg:    [0.248, -0.15, -0.696],   // v1.66.87: diagonal composition
   rifle:  [0.079, -0.173, -0.741],  // v1.66.87: diagonal composition
-  auto:   [0.24, 0.02, -0.72],   // v1.66.97: hand lifted up-right-forward so it actually contacts+wraps the wood handguard (was a fist curling in air below-left of the wood)
+  auto:   [0.22, -0.08, -0.72],   // v1.66.100: wrist BELOW the handguard (CS-style under-grip) so the curled fingers wrap UP onto the wood instead of the wrist sitting inside the receiver (clipping)
   rocket: [0.159, -0.231, -0.598],  // v1.66.87: diagonal composition
   silenced: [0.21, -0.40, -0.52]
 };
@@ -20727,9 +20727,9 @@ function updatePlayer(dt) {
   vmSwayX += (_sx - vmSwayX) * swK;              // ease toward the (clamped) turn-lag target
   vmSwayY += (_sy - vmSwayY) * swK;
   vm.position.x = brX + vmSwayX * 0.16 + bobX;
-  vm.position.z = recoil * 0.14;                 // snappier muzzle kick back toward the shoulder
-  vm.position.y = bob * 0.5 + brY + vmSwayY * 0.10 + recoil * 0.02;    // muzzle-rise lift
-  vm.rotation.x = recoil * 0.13 + brY * 0.7 + vmSwayY * 0.4;           // more visible barrel-climb + settle dip
+  vm.position.z = recoil * 0.14;                 // snappier muzzle kick back toward the shoulder (kickback, not climb)
+  vm.position.y = bob * 0.5 + brY + vmSwayY * 0.10 + recoil * 0.006;   // small muzzle-rise lift
+  vm.rotation.x = recoil * 0.06 + brY * 0.7 + vmSwayY * 0.4;           // dampened barrel-climb so full-auto stays at/below center (SPEC: nothing above 52%); recoil READS via the z-kickback + settle bounce
   vm.rotation.y = vmSwayX * 0.42;
   vm.rotation.z = brX * 0.5 - vmSwayX * 0.55 + bobX * 6;   // slight weight-shift roll coupled to the horizontal walk-bob
   gunBloom = Math.max(0, gunBloom - dt * 0.06);   // spread recovers ~0.7s after easing off
