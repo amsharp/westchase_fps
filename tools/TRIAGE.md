@@ -292,3 +292,5 @@ All three FIXED@v1.66.63. mregjcuz + mreg8mld details are inline in Batch 8 / Ba
 - mrfzed2k (14,88) wagon sb kids-only (RE-VERIFY on .73 — shipped) + 'wagon looks bad' (OPEN, wagon model quality)
 - mrfzf22j (67,131) walker held wrong, rotate 90deg — OPEN (v1.66.72; the .66 walker fix set ry=0 — owner says still 90deg off; RE-CHECK orientation on .73 then rotate if confirmed)
 - mrfzfmfo (25,154) guy floats during idle — OPEN (adult idle float — same class as the kid meshyPlantPose fix; apply plant-frame idle to adult Meshy characters?)
+- mrfzgk9n (-2,165) leaves-scatter 'rework as individual alpha leaves or delete' — filed on .72 PRE-GKEY-fix (v1.66.70 moved it to blend-key); RE-VERIFY on .73: if it still reads as a sheet, rework to alpha-cut individual leaf decals (owner spec)
+- mrfzfyyf (0,165) no driveways for these houses — OPEN (driveway stub pass for street-adjacent survey houses; road-network territory, pairs with mredxzx6 class)
