@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.67.10';
+var GAME_VERSION = 'v1.67.11';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -6134,7 +6134,7 @@ function buildPerson(shirtC, pantsC, skinC, opts) {
 }
 
 var npcs = [];
-var NPC_COUNT = 440;  // doubled crowd — affordable now that off-screen skinned characters frustum-cull (see buildMeshySkinned) + distance anim-LOD (was 220)
+var NPC_COUNT = 250;  // frustum-cull + anim-LOD only cut RENDER cost; the HOST bot sims ALL npcs every sub-step (CPU-bound headless), so 440 spiralled its fixed-timestep loop into slow-motion for every client (mrgmuf3y/mrgmusra). 250 holds real-time; raising it needs host-side sim-distance culling (perf round).
 // home-zone weights: core intersection / residential neighborhoods / collectors+Lynmar
 var NPC_W_CORE = 0.60, NPC_W_RES = 0.32;   // remainder (~0.08) = collectors
 var WALK = WC_REMAP ? { x0: -240, x1: 120, z0: -180, z1: 170 }   // recentred on the true venue span
@@ -21517,7 +21517,7 @@ function loop(now) {
   if (WC_BOT) return;   // bot sims on its own real-time interval, never renders
   requestAnimationFrame(loop);
   lastRafMs = performance.now();
-  var dt = Math.min(0.05, (now - last) / 1000); last = now;
+  var dt = Math.min(0.083, (now - last) / 1000); last = now;   // 12fps floor before slow-mo (was 0.05=20fps; heavy scenes dipped under it -> whole game ran slow, mrgmuf3y)
   _fpsFrames++; _fpsAcc += (dt > 0 ? dt : 0.0001);
   if (_fpsAcc >= 0.5) { fpsVal = _fpsFrames / _fpsAcc; _fpsAcc = 0; _fpsFrames = 0; }
   if (!state.running) { renderer.render(scene, camera); renderCreatorFrame(dt); return; }

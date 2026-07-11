@@ -538,3 +538,8 @@ barrierscan 0 orphans, boots 0 page errors. Ear check is the owner's once live. 
 - mrgmsvpb (27,240) arm clipping through body — OPEN (NPC/char arm-through-torso at some pose; identify char)
 - mrgmtcce (5,140) reversed sign — OPEN (another single-plane sign face missed by the two-plane pass; venue fascia? probe pos)
 - mrgmu0ai (-23,87) floating coconuts — OPEN (palm coconut cluster detached from the frond crown; palm builder offset)
+
+## REGRESSION — slow-motion world (mrgmuf3y "all characters in slomo" + mrgmusra "npcs no longer running away") — FIXED@v1.67.11
+Root cause: NPC_COUNT was doubled to 440 with a note that frustum-cull makes it affordable — but frustum-cull only cuts RENDER cost. The world-bot HOST (CPU-bound headless Chromium) sims ALL 440 npcs every fixed-timestep sub-step; per-step work exceeded its budget and its catch-up loop spiralled into slow-motion, mirrored to every client (so NPCs also barely advanced = "not running away"). Fixes: NPC_COUNT 440->250 (host-sustainable; flee logic itself verified fine headless — 4.6u/s), and client dt clamp 0.05->0.083 (12fps floor) so heavy client scenes stay real-time instead of slomo. Bigger crowds later need HOST-SIDE sim-distance culling (perf round).
+- mrgms310 AK twisted + fire rate too slow (CS:GO feel) — OPEN, fp-arms round owner
+- mrgmsvpb arm clipping through body / mrgmtcce reversed sign / mrgmu0ai floating coconuts — OPEN, next world-polish round
