@@ -361,9 +361,10 @@ those alignments where they exist, with real Westchase street names from the OSM
   MP-deterministic). Covers mrfzfyyf (0,165) and the whole street-adjacent class map-wide.
 - Verified: offline OBB validator = 0 houses dropped by houseOnRoad, 0 deep sidewalk jams (9
   small nudges, all <=5u); _barrierscan 0 orphans; _signaudit 0 offenders; _mergeboot clean;
-  AI traffic observed on all 5 new lane roads over 120 sim-s (halbrook 4399 car-samples,
-  mountbatten 3289, northumberland 3264, minaret 1110, res_se 1027) with ZERO snap-180 flips;
-  player drive test 316u straight down northumberland, no stalls/walls. Evidence: scratchpad
+  AI traffic re-verified on v1.66.89 on all 5 new lane roads over 120 sim-s (car-samples:
+  halbrook 5932, mountbatten 4001, northumberland 3196, res_se 1748, minaret 455) with ZERO
+  snap-180 flips; player drive test 279u straight down northumberland (457,-45 -> 457,234,
+  through the citrus_park junction), no stalls/walls. Evidence: scratchpad
   roadnet_*_{before,after}.png (all md5-distinct runs) + roadnet_street_*.png ground views.
 - Report status: mrg01xfw (459,-46) FIXED@v1.66.89 (northumberland/evanshire/tudor grid +
   driveways at the exact spot); mrfthmf4 (575,-160) FIXED@v1.66.89 (mountbatten frontage +
@@ -403,3 +404,4 @@ Other new (logged, next rounds):
 - mrg4hbzx (-141,-9) kid glitched in the wall — kid steering/pushOut vs OBB
 - mrg4iels (-153,22) quest NPCs should FACE the player when near (design ask, small)
 - mrg4k6e2 (-53,-55) weird looking fence segment — OPEN (fence quality cluster w/ mrg49ri9 poleless fence)
+- mrg4rouw (-106,-20) transparent hair refile (2nd report of mree59kf class) — queue for the CHARACTER-REGEN round: KEISHA arms (mrg48urv, Meshy authorized) + transparent-hair head (identify char from live_hair.jpg in scratchpad) + RAVEN run clips (mrfzod76; try the HECTOR world-delta bake first — bake script is character-generic per that round's notes)
