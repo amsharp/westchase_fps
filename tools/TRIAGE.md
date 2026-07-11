@@ -519,3 +519,27 @@ Plan: scratchpad POLISH_PLAN.md; hourly self-cycle armed. Progress so far (v1.66
 Remaining queue: S7 z-fight scan, S9 quest smoke, S10 MP smoke, S11 perf pass, S12 audio
 smoke, then Phase 2 fun-details (fireflies/porch lights, lake interactions, stash hunt,
 hoop mini-game, street flavor). __wc additions this round: laneGraph().
+
+## Marathon cycle 2 (fable, live2-ai branch): merged main + live batch 6 pickups (v1.66.93-95)
+- MERGED origin/main (v1.66.92) into the marathon branch. Notable reconciliations:
+  (a) house colliders — main's radians fix + source tags KEPT, but main had missed the
+  near-axis w/d swap: rot~90 houses still had both long faces walk-through. Re-applied my
+  hx/hz fix on top. (b) pacing — adopted main's npcBailTarget machinery (superset of my
+  npcGiveUp), kept my npcTarget/ring-slot validation + doorClearancePass, AND widened the
+  wall-slide gate dtg>2.5 -> >1.0 (my tested dead-zone: a blocked target holds an NPC in a
+  free orbit at 1.05-2.5u where neither watchdog fired — it showed up as the ONE remaining
+  tight pacer on the merged build). Merged-build scan: 445 NPCs / 60 sim-sec / 0 pacers.
+  (c) remapdata — main's roadnet + my stowbridge elbow re-smoothed on top.
+- mrg54993 (3rd "huge AC awful") — FIXED@v1.66.94 (ground ac_condenser rebuilt from the
+  praised rooftop-RTU materials: ribbed cabinet + galvanized deck + 2 top fan grilles +
+  plinth + pipe, baked shared batches. The rough tan PROPANE_TANK next to it is a separate
+  asset — flagging for the prop-quality round.)
+- mrg52jt3 (punch blood cool sprite) — FIXED@v1.66.95 (VFX_BLOOD 16-frame animated splat,
+  generated offline via gemini-3.1-flash-image; plays on ALL person hits incl. melee through
+  puff kind:'blood' + 2 ballistic droplets. NOTE: user-provided GEMINI key lives in the
+  session scratchpad SECRETS.md — never commit, never call from the game. Anim agent: your
+  Gemini animation-troubleshooting pipeline can share it from there.)
+- NOT taken (other lanes): stroller-run/bike/umbrella grips + rain-umbrella rollout (anim),
+  photomode shift speed (photomode owner), balloon string physics (anim-adjacent), fence
+  placement mrg51b3u (fence cluster). Skid-mark decal transparency sub-item: still open,
+  queued next cycle in my lane (decal key class).
