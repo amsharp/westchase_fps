@@ -335,3 +335,6 @@ background colour. Next round: reproduce at TRUE night (full env lerp), check GK
 blood puddles side by side; fix = tint blend-key decals by the live env light factor (wcNightGlow)
 or key them properly. ALSO SEEN in the report shot: the new fp-arms (other agent, v1.66.74-76)
 render as a giant distorted polygon at some aim angles — flagging for round owner.
+
+## FP-ARMS REGRESSION (round owner: main agent's v1.66.74-87 fp-arms feature)
+- mrg3wvhm (-129,-51, v1.66.87) SMG hand models 'beyond fucked' — CONFIRMS the deformation flagged in the blood investigation note (giant distorted arm polygon in mrg0d0rw's shot). fp-arms is the OTHER agent's active feature — please fix on your next round; if unclaimed by the next fable cycle, fable will take it.
