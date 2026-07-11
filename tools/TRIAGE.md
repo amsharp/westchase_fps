@@ -296,6 +296,26 @@ territory), east-zone sidewalks (round5-roads).
   "likely resolves mrftt0x4" note can be retired — verified EGAROTS FLES -> SELF STORAGE
   readable both sides at the report spot.)
 
+## SELF-QA sweep 1 (fable, live2-ai branch — proactive, no user reports; 2026-07-11)
+Found by turning the new __wc collision exports on the world itself.
+- UNREACHABLE NPC DOORS — FIXED@v1.66.65 (scan: 83/494 registered doors were fatally blocked —
+  50 stoop waypoints inside colliders + 33 door points no NPC could reach arrival range (d<1)
+  of; props/fences placed after registerDoor sat on the approach. Every errand to one was a
+  doorSeek orbit (the pacing class), and killed-NPC respawns emerged inside props. New
+  load-time doorClearancePass (after ALL collider sources): slides blocked stoops to the
+  nearest free spot (outward+lateral fan), pulls unreachable door targets off the facade until
+  the arrival ring is walkable, unregisters 38 unsalvageable doors. Re-scan: 456 doors, 0
+  blocked stoops, 0 blocked rings. Counters on npcDoors.qaFixedStoop/qaPulledDoor/qaRemovedDead.)
+- PARKED-CAR INTERPENETRATION — FIXED@v1.66.65 (oriented-overlap scan: 3 clipping pairs/26 cars.
+  spawnParkedCars vets a row's slots BEFORE placing, so same-row picks never checked each other;
+  survey-house rows pitch at 3.3u and per-peer-random big models (taxi/step van ~5.5u) overflow
+  into adjacent fills. Placement now drops free slots within 4.6u of each fill — deterministic,
+  MP indices unchanged. 3 pairs -> 1; survivor verified visually clean (tight diagonal stalls).)
+- DEGREES-VS-RADIANS AUDIT — CLEAN (after the house-collider find, audited every rotation
+  consumer: all other addColliderOBB call sites, houseOnRoad/houseSidewalkNudge, HOUSE_LOTS,
+  placeVenueData yaw, fenceRect, groundHeightAt, playground/env place() — all convert
+  correctly. The buildSurveyHouses collider was the only unit bug.)
+
 ## qa2-misc (fable): mregjcuz night lighting + mreg8mld unbreakable post + facade close-up texture smear (mrf7rsy0 sub-note / mree84pq class)
 All three FIXED@v1.66.63. mregjcuz + mreg8mld details are inline in Batch 8 / Batch 7 above.
 - Facade close-up smear (mrf7rsy0 sub-note, mree84pq class) — FIXED@v1.66.63 (ROOT: low-res canvas wall textures magnified over huge wall spans. Worst offenders measured: stuccoTex 128px tiled 2x2 across the 82m school wall = ~3 px/m; thStuccoMat 64px across a whole 8m townhouse ground floor = 8 px/m; facadeTex 256px across a multi-story facade. Fix, same recipe as the v1.66.58 roadT fix — resolution + structure, style unchanged: (1) stuccoTex 128->512 with area-scaled grain + NEW subtle trowel-sweep arcs and sparse hairline cracks (school, strips, Publix beige, terracotta pilasters, Dunkin block — 7 materials); (2) shared stucco() helper's speck count now scales with canvas area (was fixed 700, tuned for 128px — 256px canvases were half-empty); (3) thStuccoMat 64->256; (4) facadeTex canvas 256->512 — grain painted at full res, window/door layout kept authored in 256-space via ctx.scale, night-emissive companion canvas intentionally left at 256 (soft glows need no res). Survey-house atlas walls (houses.js) deliberately NOT bumped: 55+ per-cluster-variant 512 atlases would cost ~170MB GPU at 1024, and their source tiles are only ~120x80 — no detail to gain; noted as accepted residual. Texture-memory delta measured in-engine (unique canvas-backed maps in scene): 92.3MB -> 110.3MB canvas RGBA (+18MB, +~24MB GPU with mips; 512px canvas count 55->74). Evidence: qa2misc_before_i3_school_close.png (blur blob) vs qa2misc_after_i3_school_close.png (grain), qa2misc_before/after_i3_townhouse_close.png + _mid.png)
