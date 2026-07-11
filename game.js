@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.93';   // merge: live2-ai marathon branch + main
+var GAME_VERSION = 'v1.66.94';   // merge: live2-ai marathon branch + main
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -8651,6 +8651,21 @@ if (WC_REMAP) (function densityLayer() {
     }
     densityStats.clutter++; densityPlaced.push({ n: 'trash_bags', x: x, z: z });
   }
+  // proper commercial ground condenser (mrg54993, 3rd "huge AC looks awful"
+  // complaint): the upscaled ac_condenser asset was a 1.8m plain box with a
+  // fuzzy painted circle. Rebuild from the praised rooftop-RTU materials:
+  // ribbed coil cabinet + galvanized deck + TWO top-discharge fan grilles +
+  // dark plinth. Baked into shared batches (5 draw calls map-wide total).
+  function dGroundAC(x, z, ry) {
+    var c = Math.cos(ry), sn = Math.sin(ry);
+    bake('d_gac_base', { color: 0x3c3f42 }, UBOX, mtx(x, 0.06, z, ry, 1.6, 0.12, 0.85));
+    bake('d_gac_rib', { mapTex: acRibTex }, UBOX, mtx(x, 0.72, z, ry, 1.7, 1.32, 0.95));
+    bake('d_gac_top', { mapTex: acTopTex }, UBOX, mtx(x, 1.42, z, ry, 1.74, 0.08, 0.99));
+    bake('d_gac_fan', { mapTex: fanGrilleTex }, UBOX, mtx(x + 0.42 * c, 1.47, z - 0.42 * sn, ry, 0.62, 0.05, 0.62));
+    bake('d_gac_fan', { mapTex: fanGrilleTex }, UBOX, mtx(x - 0.42 * c, 1.47, z + 0.42 * sn, ry, 0.62, 0.05, 0.62));
+    bake('d_gac_pipe', { color: 0x6a6f6a }, UCYL, mtx(x + 0.72 * c, 0.5, z - 0.72 * sn, 0, 0.08, 1.0, 0.08));
+    densityStats.clutter++; densityPlaced.push({ n: 'ac_condenser', x: x, z: z });
+  }
   function dCylAsset(name, x, y, z) { if (!dAsset[name]) return; var a = dAsset[name]; bake('d_' + name, { texName: name }, UCYL, mtx(x, y, z, 0, a.dims[0], a.dims[1], a.dims[0])); densityStats.clutter++; densityPlaced.push({ n: name, x: x, z: z }); }
   // waist-high+ poles (roadside sign posts, billboard legs) block the player;
   // short yard-sign stakes (h < 1.5) stay pass-through
@@ -9057,7 +9072,7 @@ if (WC_REMAP) (function densityLayer() {
     // asset is a tiny 0.75m residential cube; businesses want a big commercial
     // ground condenser (mref3ibd), so upsize it ~2.4x (-> ~1.8m).
     var sidex = vv3.x + f3.rx * (vv3.w / 2 + 1.0), sidez = vv3.z + f3.rz * (vv3.w / 2 + 1.0);
-    dBoxAsset('ac_condenser', sidex, 0.9, sidez, f3.yaw, 2.4);
+    dGroundAC(sidex, sidez, f3.yaw);
     dBoxAsset('utility_box', sidex + f3.fx * 2, 0.5, sidez + f3.fz * 2, f3.yaw);
     if (Math.random() < 0.6) dCylAsset('propane_tank', sidex - f3.fx * 2, 0.6, sidez - f3.fz * 2);
     // potted plants + mulch bed flanking the entrance
