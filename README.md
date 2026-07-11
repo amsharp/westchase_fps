@@ -686,7 +686,11 @@ the same quiet noise bed as before, and the SFX volume slider controls it.
 - **1 / 2 / 3** — pick your ending at the Q10 finale (Expose / Burn / Inherit)
 - **Enter** — open text chat (multiplayer), **Esc** to cancel
 - **Hold V** — push-to-talk voice chat (multiplayer)
-- **F8** — report a bug (grabs a screenshot + your note, sent for triage)
+- **F8** — report a bug (grabs a screenshot + your note, sent for triage —
+  the report auto-attaches the nearest collision boxes so "invisible wall"
+  reports pinpoint their culprit)
+- **F9** — toggle the collision debug overlay (outlines every barrier: red
+  boxes, orange rotated boxes, cyan water edges)
 - **Esc** — release mouse / close menus
 
 ## Minimap

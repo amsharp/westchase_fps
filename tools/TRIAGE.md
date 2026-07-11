@@ -4,6 +4,24 @@ Statuses: OPEN / IN-AGENT (assigned to a fix round) / FIXED@version / WONTFIX.
 Claude agents: update this file when you fix or ship something so rounds
 don't collide. Report images: /bug/<id>.jpg?key=<BUG_ADMIN_KEY>.
 
+## BARRIER GATE (run before EVERY ship)
+
+```
+NODE_PATH=/opt/node22/lib/node_modules node tools/_barrierscan.js   # server on :8155
+```
+
+Exit 0 = clean, exit 1 = orphan colliders found (colliders with NO visible
+geometry inside their bounds = invisible walls). **0 orphans required to
+ship** — fix the source pass or, for a genuine false positive, fix the
+scanner, never the report. The scanner is instancing-aware (InstancedMesh
+forest fill counts as geometry) and reads each collider's `tag` (creator
+string passed to addCollider/addColliderOBB — always tag new call sites).
+`STRICT=1` additionally disables the mapBuildings/breakables registry
+shortcut so every collider must be proven by raw geometry (slower; run it
+when touching those registries). Debug aids: **F9** in-game toggles the
+collider overlay (`__wc.showColliders(on)`), and every F8 bug report's meta
+now carries `cols:` = the 3 nearest colliders with tags.
+
 ## Round 1 — SHIPPED v1.64.1
 - mredmh10 (Don walks into garden bed) — FIXED@v1.64.1 (whisker on door errands)
 - mredohyy (npc stuck at Publix)       — FIXED@v1.64.1 (same)
@@ -248,8 +266,13 @@ All three FIXED@v1.66.63. mregjcuz + mreg8mld details are inline in Batch 8 / Ba
 - mrftbul8 (-102,-169) NPC aimlessly pacing — OPEN (same class)
 - mrftesnl (-133,77) aimless pacing / mrftf1th (-125,49) stuck pacing / mrftf7lk (-111,45) stuck pacing — OPEN (same class; 5 reports this session = top priority for live2-ai round)
 - mrftaqio (-34,-172) Xander clipped inside building — OPEN
-- mrftfuy6 (17,13) invisible barrier + bus stop in the MIDDLE OF THE ROAD near the junction — OPEN (gameplay blocker, queue next)
-- INVIS-BARRIER CLUSTER — IN-AGENT (barrier-scrub, fable, OWNER MANDATE 24h). Map-wide scan (tools/_barrierscan.js): 882/3299 colliders are ORPHANS (no visible geometry inside bounds). Root causes: (1) forestPatchClearTiles blanket 5x5 tiling of road-adjacent forest leaves regardless of actual tree positions = the bulk; (2) >=1 house-sized OBB with no mesh (~314,556) = survey-house chunk/collider mismatch; (3) world-edge clamp invisible since horizonSkirt (599,599 etc.) = needs visible perimeter treatment. Reports: mrftgg0z, mrfthui7, mrftk7q1, mrftpi58, mrftpuse, mrftoq2o, mrftu8ws, mrftuk90, mrftyqsn + bus-stop blocker mrftfuy6. Prevention layer in same round: collider source tags, F8 meta auto-attaches nearest colliders, __wc.showColliders/F9 overlay, scanner as pre-ship gate.
+- mrftfuy6 (17,13) invisible barrier + bus stop in the MIDDLE OF THE ROAD near the junction — FIXED@v1.66.66 (ROOT: the per-arterial bus-shelter pass placed at polyline-midpoint offset hw+3.4 from ITS OWN road only — at the junction that spot sits on ANOTHER road's asphalt; and its SP_SOLID collider was the "invisible barrier" when approached from the far side. Fix: shelter spot must now pass remapPointClear(pad 2, includes junction pads) + !remapInClear, sliding ±18u steps along the polyline until clear; shelter relocated to the corner pavement at (25,2). Walk test at 17,13: 8/8 directions free, nearest collider is a visible 0.4u light pole 2.5u away. Evidence: scrub_junction_1713.png, scrub_shelter2.png)
+- INVIS-BARRIER CLUSTER — FIXED@v1.66.66 (barrier-scrub round, OWNER MANDATE). Scan went 882/3299 orphans -> 0/2486 (and 0 even under STRICT=1 with registry shortcuts off). Root causes fixed:
+  (1) forestPatchClearTiles blanket 5x5 tiling of road-adjacent forest leaves wherever ground was merely road-clear (855 of 882 orphans) — tiling now DEFERS until expForestFill has planted (pendingForestTiles -> processForestTiles), and a cell only gets a collider when >=1 visible instanced fill tree stands inside it (tag 'forest:tile'; ~600 blanket tiles dropped, 248 tree-backed tiles kept).
+  (2) survey-house OBB colliders passed rot in DEGREES to addColliderOBB which does cos/sin in RADIANS — every diagonal house's collider was misoriented vs its visible mesh (the "house-sized OBB with no mesh" at ~314,556 was exactly this: the mesh renders fine, the collider was rotated off it into the yard). Fixed to pass radians; plus houseTemplate output is now guarded (empty template => skip instance entirely with console.warn, so mesh+collider always come as a pair).
+  (3) world-edge clamp reachable through every perimeter exit gap (ROAD CLOSED barrier is narrower than the wall gap; horizonSkirt makes the edge look open) — each exit gap now closes at the bound with a VISIBLE galvanized guardrail (twin beams + posts, tag 'perimeter:rail', clamp itself unmoved) plus flanking oaks. Reports at 599,599 / 599,593 / 587,-599 now stop at visible rails/forest walls.
+  NOTE the old scan numbers were also inflated by a scanner blind spot: it could not see InstancedMesh forest fill, so even fully-forested rect colliders flagged as orphans. _barrierscan.js v2 is instancing-aware (per-instance occupancy points), does tight bbox-overlap for small meshes (adaptive inset so zero-thickness fence planes in 0.3u colliders count), keeps grid raycasts for big merged batches, exits 1 on any orphan (ship gate — see BARRIER GATE section at top).
+  Walk tests at all reported points (587,-599 / 556,-139 / 575,194 / 218,507 / 226,399 / 326,537 / 599,593 / 599,599 / 32,-328 / 17,13): every blocked direction stops at a tagged collider backed by visible geometry (houses / perimeter walls / rails); rest walk free. Collider total DOWN 3347 -> ~2492. Prevention layer shipped: addCollider/addColliderOBB tag param threaded through all major passes (forest/house/bldg/prop/env/fence/perimeter/gas/signal/pole/venue), F8 meta auto-attaches 3 nearest colliders w/ tags (meta.cols), F9 + __wc.showColliders(on) overlay (single LineSegments; red AABB / orange OBB / cyan lake), scanner as pre-ship gate. Reports covered: mrftgg0z, mrfthui7, mrftk7q1, mrftpi58, mrftpuse, mrftoq2o, mrftu8ws, mrftuk90, mrftyqsn, mrftfuy6. Evidence: scrub_scan.json, scrub_scan_strict.json, scrub_*.png (scratchpad).
 - mrftp7em (328,525) cars should ride over curbs, not clip/stop on them — OPEN (curb collision: make median/sidewalk curbs drive-over bumps not walls)
 - mrfto9qj (253,335) sign floating off pole + pole mid-sidewalk + too thick — OPEN
 - mrftcjh1 (-99,-122) 'horrible animations on her' — OPEN (identify NPC look at pos)
@@ -259,6 +282,6 @@ All three FIXED@v1.66.63. mregjcuz + mreg8mld details are inline in Batch 8 / Ba
 - mrfttd8s (2,123) chainlink texture too thick here + aimless walking — OPEN (a fence type missed by the v1.66.12 retile?)
 - mrfttu3a (-7,74) npcs stuck pacing — pacing cluster (7 reports)
 - mrftxqdt (-14,-112) 'wtf is this' = litter/spill decal FLOATING at chest height over sidewalk (unrotated/unlowered decal quad, rain-splash family) — OPEN
-- mrftyqsn (32,-328) invis barrier SOUTH zone — folds into barrier cluster (9 reports, not just east)
+- mrftyqsn (32,-328) invis barrier SOUTH zone — FIXED@v1.66.66 with the barrier cluster (walk test: 5/8 directions free, the rest stop against the VISIBLE survey house at (56,-350); the phantom blockers there were blanket forest tiles, now gone)
 - mrfthmf4 (575,-160) houses in the middle of grass look weird — refile of mredxzx6 no-road-homes class (DEFER round5-structure road-network pass; now user-confirmed twice)
 - mrftn1qd (351,201) no sidewalk here / mrftnnxa (245,329) grass sliver between road+sidewalk — OPEN (east-zone sidewalk-ribbon quality, same territory as round5-roads)
