@@ -285,3 +285,6 @@ All three FIXED@v1.66.63. mregjcuz + mreg8mld details are inline in Batch 8 / Ba
 ## Live session batch 3 (Alex on v1.66.72)
 - mrfzble5 (-56,30) HECTOR walk still broken, owner: "FIX IT OR DELETE AND REGENERATE" — IN-AGENT (live3-hector, fable; Meshy clip regeneration authorized, fallback = remove HECTOR from rotation)
 - mrfzbvxk (-39,20) stroller pushed with no hands — IN-AGENT (live3-hector, fable; poseWalkerGrip class)
+- mrfzd401 (-19,47) stroller hands-free — dupe of mrfzbvxk (same round)
+- mrfzcpmk (-25,51) two NPCs of the same kind near each other — OPEN (twin-spacing rule may need rescale after NPC count doubled to 445)
+- mrfzdcwu (-15,59) pacing against a wall / mrfzdlpd (4,85) more stuck npcs — filed on v1.66.72, PRE-pacing-fix; RE-VERIFY on v1.66.73 before treating as new (12->0 pacers measured on .70)
