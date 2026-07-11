@@ -644,7 +644,9 @@ dry land, which makes the water a decent (slow) escape route.
 
 Day fades into properly dark night on a cycle; street lights along the
 roads and parking lots switch on automatically, each casting a soft warm
-pool of light on the asphalt below. After dark the town reads as lived-in:
+pool of light on the asphalt below — and the ornate park lamps (Publix lot
+edge, the strip-mall plaza, the lakeside path) light their globes right
+along with them. After dark the town reads as lived-in:
 windows glow warm in a scattered, inhabited pattern across the buildings,
 and the storefront and venue signs (RaceTrac, Publix, Dollar Tree and the
 rest) pick up a warm neon backglow. All of it is gated to night and fades
