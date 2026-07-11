@@ -692,7 +692,9 @@ the same quiet noise bed as before, and the SFX volume slider controls it.
 - **Left click** — punch / shoot
 - **Scroll wheel** — quick-swap to your next / previous weapon
 - **1 – 0** — jump straight to a weapon by number (its slot in your owned list —
-  1 is fists; keys for weapons you don't own are ignored)
+  1 is fists; keys for weapons you don't own are ignored). A **quick-bar** along
+  the bottom of the screen shows those slots with their number keys and lights up
+  the one you're holding (toggle it in Settings)
 - **`[` / `]`** — zoom the minimap out / in (WIDE / NORMAL / CLOSE); **Ctrl+scroll**
   does the same. Your choice is remembered between sessions.
 - **M** — drop a personal **waypoint** at whatever you're looking at (or click the
@@ -754,6 +756,8 @@ to tune the game to your taste. Everything applies live and saves automatically
 - **Crosshair** — show or hide the aiming reticle.
 - **Minimap** — show or hide the corner map.
 - **Hit markers** — show or hide the hit ticks and the kill feed.
+- **Weapon bar** — show or hide the bottom-center quick-bar of owned-weapon
+  slots (each tagged with its number key, the equipped one lit).
 - **Reset to defaults** — puts everything back the way it shipped.
 
 ## Rumors

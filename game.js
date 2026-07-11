@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.86';
+var GAME_VERSION = 'v1.66.87';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -15713,6 +15713,34 @@ function spawnMoneyFloat(x, y, z, val) {
   if (moneyFloats.length > 20) moneyFloats.shift();
   moneyFloats.push({ x: x, y: y, z: z, val: val, t0: T });
 }
+// ---- QoL: weapon quick-bar — slim bottom-center row of owned-weapon slots with
+// their number key, equipped slot lit. Mirrors selectWeaponSlot's ordered list
+// (fists + owned guns in GUN_LIST order + snack/soda). _qbList is reused so the
+// per-frame HUD draw allocates nothing. ----
+var _qbList = [];
+var QB_ABBR = { fists: 'FST', pistol: 'PST', smg: 'SMG', rifle: 'RIF', auto: 'AK', rocket: 'RPG', raygun: 'RAY', neon_blaster: 'NEO', silenced: 'SIL', snack: 'SNK', soda: 'SOD' };
+function drawQuickBar(W, H) {
+  var list = _qbList; list.length = 0;
+  list.push('fists');
+  for (var g = 0; g < GUN_LIST.length; g++) if (state.owned[GUN_LIST[g]]) list.push(GUN_LIST[g]);
+  if (state.snacks > 0) list.push('snack');
+  if (state.sodas > 0) list.push('soda');
+  var n = list.length;
+  if (n < 2) return;                          // just fists — nothing worth a bar
+  var gap = 5, sw = 40, maxW = W - 16;
+  var tot = n * sw + (n - 1) * gap;
+  if (tot > maxW) { sw = Math.max(22, Math.floor((maxW - (n - 1) * gap) / n)); tot = n * sw + (n - 1) * gap; }
+  var apx = sw >= 34 ? 2 : 1;
+  var x0 = Math.round(W / 2 - tot / 2), y0 = H - 37, bh = 30;
+  for (var i = 0; i < n; i++) {
+    var w = list[i], eq = (w === state.equipped), bx = x0 + i * (sw + gap);
+    hudCx.fillStyle = '#000'; hudCx.fillRect(bx - 1, y0 - 1, sw + 2, bh + 2);
+    hudCx.fillStyle = eq ? 'rgba(255,180,40,0.92)' : 'rgba(10,13,20,0.74)'; hudCx.fillRect(bx, y0, sw, bh);
+    if (eq) { hudCx.strokeStyle = '#ffe9a0'; hudCx.lineWidth = 2; hudCx.strokeRect(bx + 1, y0 + 1, sw - 2, bh - 2); }
+    hudText('' + ((i + 1) % 10), bx + sw / 2, y0 + 11, 10, eq ? '#3a2a06' : '#8fa0b8', 'center');
+    drawPix(QB_ABBR[w] || w.substr(0, 3), bx + sw / 2 + 1, y0 + 15, apx, eq ? '#20160a' : '#dfe6f0', 'center');
+  }
+}
 function pushKillFeed(txt, col) {
   killFeed.unshift({ txt: txt, col: col || '#ff5a3a', t: T });
   if (killFeed.length > 4) killFeed.pop();
@@ -19014,7 +19042,7 @@ function creditPvpKill() {
 // master+sfx+voice volume, draw-distance quality, CRT filter. Restored on
 // boot (applySettings() runs in the boot handoff, before the first frame).
 var SETTINGS_KEY = 'wc_settings';
-var SETTINGS_DEF = { sens: 1.0, invert: 0, fov: 72, volMaster: 1.0, volSfx: 1.0, volVoice: 1.0, quality: 2, crt: 1, crosshair: 1, minimap: 1, markers: 1, fps: 0, compass: 1 };
+var SETTINGS_DEF = { sens: 1.0, invert: 0, fov: 72, volMaster: 1.0, volSfx: 1.0, volVoice: 1.0, quality: 2, crt: 1, crosshair: 1, minimap: 1, markers: 1, fps: 0, compass: 1, quickbar: 1 };
 var QUALITY_NAMES = ['LOW', 'MEDIUM', 'HIGH'];
 var settings = null;
 function loadSettings() {
@@ -19031,6 +19059,7 @@ function loadSettings() {
   settings.markers = settings.markers ? 1 : 0;
   settings.fps = settings.fps ? 1 : 0;
   settings.compass = settings.compass ? 1 : 0;
+  settings.quickbar = settings.quickbar ? 1 : 0;
   settings.sens = Math.max(0.2, Math.min(3, +settings.sens || 1));
   settings.volMaster = Math.max(0, Math.min(1, +settings.volMaster));
   settings.volSfx = Math.max(0, Math.min(1, +settings.volSfx));
@@ -19132,6 +19161,7 @@ function buildSettingsRows() {
   toggle('MINIMAP', 'show the corner map', 'minimap');
   toggle('HIT MARKERS', 'hit ticks & kill feed', 'markers');
   toggle('COMPASS', 'heading strip up top', 'compass');
+  toggle('WEAPON BAR', 'owned-weapon slots along the bottom', 'quickbar');
   toggle('FPS COUNTER', 'live frame rate & draw stats', 'fps');
 }
 function openSettings() {
@@ -20327,6 +20357,9 @@ function drawHudCanvas() {
     hudText('MPH', scxs + 12, sby - 12, 12, '#b9b19a', 'left');
     if ((driving.pspeed || 0) < -0.5) drawPix('R', scxs - sbw / 2 + 8, sby - 34, 3, '#ff5a3a', 'left');
     hudBar(scxs - sbw / 2 + 10, sby - 10, sbw - 20, 5, sfrac, scol, 0);
+  } else if (state.running && !state.dead && (!settings || settings.quickbar)) {
+    // on foot: weapon quick-bar occupies the same bottom-center strip as the speedo
+    drawQuickBar(W, H);
   }
   // ---- FPS / perf readout (QoL, settings.fps): left edge, clear of the quest
   // tracker (top) and health (bottom). renderer.info reflects last frame. ----
