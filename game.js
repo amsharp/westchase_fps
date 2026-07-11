@@ -879,11 +879,17 @@ function addSignGlow(x, y, z, ry, w, h) {
   return hm;
 }
 function signPlane(x, y, z, ry, w, h, lines, bg, fg, noGlow) {
-  var m = new THREE.Mesh(new THREE.PlaneGeometry(w, h),
-    new THREE.MeshBasicMaterial({ map: signTex(lines, bg, fg), side: THREE.DoubleSide }));
-  m.position.set(x, y, z); m.rotation.y = ry; scene.add(m);
+  // TWO front-facing planes back-to-back, not one DoubleSide plane: the
+  // backface rendered the text MIRRORED (mrftt0x4 — the SELF STORAGE banner
+  // read backwards from the street). Same recipe as the dSign/poleSign fix.
+  var mat = new THREE.MeshBasicMaterial({ map: signTex(lines, bg, fg) });
+  var g = new THREE.Group();
+  var f = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat); f.position.z = 0.012;
+  var b = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat); b.rotation.y = Math.PI; b.position.z = -0.012;
+  g.add(f); g.add(b);
+  g.position.set(x, y, z); g.rotation.y = ry; scene.add(g);
   if (!noGlow) addSignGlow(x, y, z, ry, w, h);
-  return m;
+  return g;
 }
 // AI PUBLIX wordmark strip (publixsign.js), repeat-tiled so each instance keeps
 // its natural aspect on a wide banner instead of the old stretched/cut-off text
@@ -8329,9 +8335,15 @@ if (WC_REMAP) (function densityLayer() {
     var a = dAsset[name]; if (!a) return;
     var H = a.dims[0], dx = bx - ax, dz = bz - az, L = Math.sqrt(dx * dx + dz * dz);
     if (L < 0.6) return;
-    var rep = Math.max(1, Math.round(L / (H * 1.4)));
+    // chainlink: fixed ~0.7u square tile period — same retile the panel fences
+    // got in v1.66.12. One tile stretched over the full height rendered the
+    // asset's coarse native diamonds as a giant thick lattice on the storage/
+    // school perimeter runs (mrfttd8s refile at the self-storage lot)
+    var mesh = name === 'chainlink_fence';
+    var rep = mesh ? Math.max(1, L / 0.7) : Math.max(1, Math.round(L / (H * 1.4)));
+    var repV = mesh ? Math.max(1, H / 0.7) : 0;
     var g = new THREE.PlaneGeometry(L, H), uv = g.attributes.uv;
-    for (var i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * rep);
+    for (var i = 0; i < uv.count; i++) { uv.setX(i, uv.getX(i) * rep); if (repV) uv.setY(i, uv.getY(i) * repV); }
     var ry = Math.atan2(-dz, dx);
     bake('d_' + name, { texName: name, double: true }, g, mtx((ax + bx) / 2, H / 2 + 0.02, (az + bz) / 2, ry, 1, 1, 1));
     if (solid) addColliderOBB((ax + bx) / 2, (az + bz) / 2, L / 2, 0.25, ry);
@@ -8359,15 +8371,16 @@ if (WC_REMAP) (function densityLayer() {
     return (poleSignMats[name] = lamb(mo));
   }
   function poleSign(name, x, z, ry, mountY, poleH, poleR) {
-    poleR = poleR || 0.11;
+    poleR = poleR || 0.065;   // was 0.11 — a 22cm post read as comically thick (mrfto9qj); real sign posts are ~6-7cm
     var a = dAsset[name];
     if (!a) { pole(x, z, poleH, poleR); return; }
     var g = new THREE.Group();
     g.add(cyl(poleR, poleR, poleH, 8, poleSignPoleM, 0, poleH / 2, 0));
-    // seat the placard clear of the pole SURFACE — a 0.06 offset was inside the
-    // 0.11 pole radius, so the post speared through the sign face (mref48hy)
+    // seat the placard clear of the pole SURFACE — an offset INSIDE poleR
+    // speared the post through the sign face (mref48hy); +0.04 keeps it clear
+    // without the visible detached-from-the-pole air gap +0.1 left (mrfto9qj)
     var pl = new THREE.Mesh(new THREE.PlaneGeometry(a.dims[0], a.dims[1]), poleSignMat(name));
-    pl.position.set(0, mountY, poleR + 0.1);
+    pl.position.set(0, mountY, poleR + 0.04);
     g.add(pl);
     g.position.set(x, 0, z); g.rotation.y = ry;
     scene.add(g);
@@ -8563,7 +8576,9 @@ if (WC_REMAP) (function densityLayer() {
       var rc = RM.roads[rs]; if (rc.cls > 1 || rc.dirt) continue;
       var lenS = rc.cum[rc.cum.length - 1], sd = 1;
       for (var sv = 40; sv < lenS - 30; sv += 78) {
-        var ps = rmAt(rc.pts, rc.cum, sv), of = rc.hw + 2.4;
+        // just BEHIND the walk band (hw+0.6 .. hw+0.6+sw), not hw+2.4 which
+        // planted every roadside post dead-center of the sidewalk (mrfto9qj)
+        var ps = rmAt(rc.pts, rc.cum, sv), of = rc.hw + (rc.cls === 0 ? 5 : 3.4) + 1.2;
         var sx = ps.x - ps.uz * of * sd, sz = ps.z + ps.ux * of * sd; sd = -sd;
         if (!spotClear(sx, sz) || remapInClear(sx, sz, 0)) continue;
         var facing = Math.atan2(-ps.ux, -ps.uz);   // face oncoming traffic
