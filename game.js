@@ -8337,6 +8337,7 @@ if (WC_REMAP) (function densityLayer() {
       var mat = lamb(mo);
       if (o.decal) { mat.polygonOffset = true; mat.polygonOffsetFactor = -2; mat.polygonOffsetUnits = -2; }
       var mesh = new THREE.Mesh(g, mat); if (o.decal) mesh.frustumCulled = false;
+      mesh.name = key;   // batch key on the mesh so world scans can attribute geometry
       scene.add(mesh); n++;
     }
     densityStats.batches = n;
@@ -9425,6 +9426,7 @@ if (WC_REMAP) (function fenceSystem() {
       if (o.alpha) { mo.transparent = true; mo.alphaTest = o.alpha; mo.side = THREE.DoubleSide; }
       if (o.color !== undefined) mo.color = o.color;
       var mesh = new THREE.Mesh(g, lamb(mo));
+      mesh.name = key;   // batch key on the mesh so world scans can attribute geometry
       scene.add(mesh);
     }
   }
