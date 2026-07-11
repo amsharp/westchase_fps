@@ -319,3 +319,32 @@ Found by turning the new __wc collision exports on the world itself.
 ## qa2-misc (fable): mregjcuz night lighting + mreg8mld unbreakable post + facade close-up texture smear (mrf7rsy0 sub-note / mree84pq class)
 All three FIXED@v1.66.63. mregjcuz + mreg8mld details are inline in Batch 8 / Batch 7 above.
 - Facade close-up smear (mrf7rsy0 sub-note, mree84pq class) — FIXED@v1.66.63 (ROOT: low-res canvas wall textures magnified over huge wall spans. Worst offenders measured: stuccoTex 128px tiled 2x2 across the 82m school wall = ~3 px/m; thStuccoMat 64px across a whole 8m townhouse ground floor = 8 px/m; facadeTex 256px across a multi-story facade. Fix, same recipe as the v1.66.58 roadT fix — resolution + structure, style unchanged: (1) stuccoTex 128->512 with area-scaled grain + NEW subtle trowel-sweep arcs and sparse hairline cracks (school, strips, Publix beige, terracotta pilasters, Dunkin block — 7 materials); (2) shared stucco() helper's speck count now scales with canvas area (was fixed 700, tuned for 128px — 256px canvases were half-empty); (3) thStuccoMat 64->256; (4) facadeTex canvas 256->512 — grain painted at full res, window/door layout kept authored in 256-space via ctx.scale, night-emissive companion canvas intentionally left at 256 (soft glows need no res). Survey-house atlas walls (houses.js) deliberately NOT bumped: 55+ per-cluster-variant 512 atlases would cost ~170MB GPU at 1024, and their source tiles are only ~120x80 — no detail to gain; noted as accepted residual. Texture-memory delta measured in-engine (unique canvas-backed maps in scene): 92.3MB -> 110.3MB canvas RGBA (+18MB, +~24MB GPU with mips; 512px canvas count 55->74). Evidence: qa2misc_before_i3_school_close.png (blur blob) vs qa2misc_after_i3_school_close.png (grain), qa2misc_before/after_i3_townhouse_close.png + _mid.png)
+
+## SELF-QA sweep 2 / polish marathon (fable, live2-ai branch — user mandate: 6h autonomous polish)
+Plan: scratchpad POLISH_PLAN.md; hourly self-cycle armed. Progress so far (v1.66.66-67):
+- S1 GAMEPLAY SMOKE — PASS (all core loops driven headlessly: shoot/wanted/cops/kill/death+
+  respawn/carjack+drive/car-dmg/interior/swim/items; zero pageerrors). Finding: CLAUDE.md
+  world-layout coords are pre-remap (lake is at (-280,55) NOT (-255,-150); spawn (-63,4);
+  dealer (-60,0)) — stale-coords warning added to CLAUDE.md.
+- S2 FLOATING/SUNKEN PROPS — CLEAN (all flagged floaters intentional: quest beacons,
+  billboard boards on baked poles, venue marquees; 0 sunken).
+- S3 NPC 6-SIM-MIN SOAK — PASS (0 tight pacers; hidden/chat/flee spans within design
+  bounds; no stranded group followers; no kid stalls).
+- S4 TRAFFIC SOAK — FIXED@v1.66.66: stowbridge_ave authored polyline packed a 90-deg elbow
+  into an overshooting 6-vertex hairpin (only elbow >45deg/8u map-wide) — cars visibly
+  overshot + reversed every lap (6 flips/3min at (-171,-41), now 0). Replaced with an r=10
+  quarter-arc in remapdata.js (citrus-kink precedent). Residual: known junction traffic-shove
+  blips at origin pad + countryway/citrus Y (~1.3/min, cosmetic, prior-agent-documented).
+- S5 DAY POI SWEEP (20 venue-front shots) — FIXED@v1.66.66: split-animated env props
+  (tube-man flail bands, windmill/pizza spin, flag wave, umbrella/swing sway) showed BLACK
+  backface gashes when their cut seams opened mid-anim; split props now clone DoubleSide.
+- S6 NIGHT+RAIN SWEEP — SHIPPED@v1.66.67: RaceTrac canopy night lighting (nightLitMats
+  hook ramped by setLamps: light panels burn, soffit glows, forecourt pad warm wash) — the
+  forecourt was pitch dark while the fascia neon glowed. Lamps/halos/pools/signals/headlights/
+  townhouse windows/strip soffits/rain streaks all verified working.
+- S8 COP/WANTED MATRIX — PASS (counts 4/6/8/10/12 at 1-5 stars; decay-from-1 exactly 18s;
+  3-star open-ground lethality 269 dmg/60s; regen 5/s only after 5s clean — cannot facetank).
+- Horn silence >62u from player confirmed BY DESIGN (audio-node saving), not a bug.
+Remaining queue: S7 z-fight scan, S9 quest smoke, S10 MP smoke, S11 perf pass, S12 audio
+smoke, then Phase 2 fun-details (fireflies/porch lights, lake interactions, stash hunt,
+hoop mini-game, street flavor). __wc additions this round: laneGraph().
