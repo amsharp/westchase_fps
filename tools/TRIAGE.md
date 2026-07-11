@@ -249,7 +249,7 @@ All three FIXED@v1.66.63. mregjcuz + mreg8mld details are inline in Batch 8 / Ba
 - mrftesnl (-133,77) aimless pacing / mrftf1th (-125,49) stuck pacing / mrftf7lk (-111,45) stuck pacing — OPEN (same class; 5 reports this session = top priority for live2-ai round)
 - mrftaqio (-34,-172) Xander clipped inside building — OPEN
 - mrftfuy6 (17,13) invisible barrier + bus stop in the MIDDLE OF THE ROAD near the junction — OPEN (gameplay blocker, queue next)
-- INVIS-BARRIER CLUSTER (E/NE expansion): mrftgg0z (587,-599), mrfthui7 (556,-139), mrftk7q1 (575,194), mrftpi58 (218,507), mrftpuse (226,399), mrftoq2o (326,537) — OPEN, 6 reports, probe in progress (fable)
+- INVIS-BARRIER CLUSTER (E/NE expansion): mrftgg0z (587,-599), mrfthui7 (556,-139), mrftk7q1 (575,194), mrftpi58 (218,507), mrftpuse (226,399), mrftoq2o (326,537), mrftu8ws (599,593), mrftuk90 (599,599) — OPEN, 8 reports, probe in progress (fable). THEORY: several points sit at |coord|~600 = the hard world-boundary clamp; since horizonSkirt the edge LOOKS open — needs a visible perimeter treatment (fence/treeline) at the playable bound. Inner points (218,507 etc.) may be real stray colliders — probe will tell.
 - mrftp7em (328,525) cars should ride over curbs, not clip/stop on them — OPEN (curb collision: make median/sidewalk curbs drive-over bumps not walls)
 - mrfto9qj (253,335) sign floating off pole + pole mid-sidewalk + too thick — OPEN
 - mrftcjh1 (-99,-122) 'horrible animations on her' — OPEN (identify NPC look at pos)
@@ -257,5 +257,6 @@ All three FIXED@v1.66.63. mregjcuz + mreg8mld details are inline in Batch 8 / Ba
 - mrftsrmg (9,167) adult NPC using the kids' wagon — OPEN (restrict wagon accessory to kids)
 - mrftt0x4 (7,133) backward text (mirrored sign at pos) — OPEN (another single-plane sign face)
 - mrfttd8s (2,123) chainlink texture too thick here + aimless walking — OPEN (a fence type missed by the v1.66.12 retile?)
+- mrfttu3a (-7,74) npcs stuck pacing — pacing cluster (7 reports)
 - mrfthmf4 (575,-160) houses in the middle of grass look weird — refile of mredxzx6 no-road-homes class (DEFER round5-structure road-network pass; now user-confirmed twice)
 - mrftn1qd (351,201) no sidewalk here / mrftnnxa (245,329) grass sliver between road+sidewalk — OPEN (east-zone sidewalk-ribbon quality, same territory as round5-roads)
