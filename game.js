@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.82';
+var GAME_VERSION = 'v1.66.83';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -15706,6 +15706,16 @@ function pushKillFeed(txt, col) {
   killFeed.unshift({ txt: txt, col: col || '#ff5a3a', t: T });
   if (killFeed.length > 4) killFeed.pop();
 }
+// death/respawn (QoL): the WASTED overlay shows a live countdown + progress
+// bar, and a click gets you up early once a short grace has passed.
+var RESPAWN_MS = 2600, deadAt = 0, deadUntil = 0, deadTimer = null;
+function doRespawn() {
+  if (!state.dead) return;
+  if (deadTimer) { clearTimeout(deadTimer); deadTimer = null; }
+  player.x = spawnX; player.z = spawnZ; player.y = EYE; yaw = 0; pitch = 0; recoilPitch = 0;
+  state.hp = 100; state.dead = false;
+  document.getElementById('deadScreen').classList.add('hidden');
+}
 function hurtPlayer(d, sx, sz) {
   if (state.dead) return;
   state.hp -= d; state.lastHurt = T;
@@ -15729,6 +15739,7 @@ function hurtPlayer(d, sx, sz) {
     var lost = Math.floor(state.money * 0.25); state.money -= lost;
     document.getElementById('deadInfo').textContent = lost > 0 ? 'You dropped $' + lost + ' on the pavement.' : 'At least you were already broke.';
     document.getElementById('deadScreen').classList.remove('hidden');
+    deadAt = performance.now(); deadUntil = deadAt + RESPAWN_MS;   // drives the countdown UI
     state.wanted = 0; state.civKills = 0; state.copKills = 0; updateStarsHUD();
     // drop everything you were carrying
     var dropped = 0;
@@ -15742,9 +15753,27 @@ function hurtPlayer(d, sx, sz) {
       dropped++;
     });
     setEquipped('fists');
-    setTimeout(function () { player.x = spawnX; player.z = spawnZ; player.y = EYE; yaw = 0; pitch = 0; recoilPitch = 0; state.hp = 100; state.dead = false; document.getElementById('deadScreen').classList.add('hidden'); }, 2600);
+    if (deadTimer) clearTimeout(deadTimer);
+    deadTimer = setTimeout(doRespawn, RESPAWN_MS);
   }
 }
+// live WASTED-screen countdown + progress bar; click after a short grace to
+// respawn early. Cache last strings so we only touch the DOM on change.
+var _deadTxtLast = '', _deadBarLast = '';
+function updateDeadScreen() {
+  if (!state.dead) return;
+  var now = performance.now();
+  var rem = Math.max(0, deadUntil - now);
+  var frac = Math.max(0, Math.min(1, (now - deadAt) / RESPAWN_MS));
+  var txt = 'RESPAWNING IN ' + (Math.ceil(rem / 100) / 10).toFixed(1) + 's';
+  if (txt !== _deadTxtLast) { _deadTxtLast = txt; var dt2 = document.getElementById('deadTimer'); if (dt2) dt2.textContent = txt; }
+  var bw = Math.round(frac * 100) + '%';
+  if (bw !== _deadBarLast) { _deadBarLast = bw; var db = document.getElementById('deadBar'); if (db) db.style.width = bw; }
+}
+(function () {
+  var ds = document.getElementById('deadScreen');
+  if (ds) ds.addEventListener('click', function () { if (state.dead && performance.now() - deadAt > 600) doRespawn(); });
+})();
 
 // ---------------- audio ----------------
 // ---------------- character creator (main menu) ----------------
@@ -20285,7 +20314,7 @@ function updateLowHpVig() {
   }
   if (op !== lowHpVigLast) { lowHpVigLast = op; lowHpVigEl.style.opacity = op; }
 }
-function updateHUD() { document.getElementById('money').textContent = '$' + state.money; document.getElementById('hpBar').style.width = Math.max(0, state.hp) + '%'; updateLowHpVig(); drawHudCanvas(); }
+function updateHUD() { document.getElementById('money').textContent = '$' + state.money; document.getElementById('hpBar').style.width = Math.max(0, state.hp) + '%'; updateLowHpVig(); if (state.dead) updateDeadScreen(); drawHudCanvas(); }
 
 // ---------------- main loop ----------------
 var last = performance.now();
