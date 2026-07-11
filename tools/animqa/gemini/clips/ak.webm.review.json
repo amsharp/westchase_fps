@@ -1,0 +1,52 @@
+{
+  "verdict": "FAIL",
+  "score": 2,
+  "issues": [
+    {
+      "t": "00:00",
+      "subject": "Hands/Arms",
+      "problem": "The left arm is a massive, featureless bare-arm cylinder occupying the bottom-left quadrant, violating the 'no huge bare-arm masses' rule.",
+      "severity": "high",
+      "fix_hint": "Move the arm origin further off-screen to the left and down; add a sleeve texture to break up the skin mass."
+    },
+    {
+      "t": "00:00",
+      "subject": "Hands/Arms",
+      "problem": "The left hand is a closed fist floating beneath the weapon rather than gripping the foregrip.",
+      "severity": "high",
+      "fix_hint": "Re-pose the hand to have fingers wrapped around the wooden foregrip of the AK."
+    },
+    {
+      "t": "00:00",
+      "subject": "Composition",
+      "problem": "The weapon is positioned too high and centered; the muzzle is pointing upward toward the crosshair area rather than downrange.",
+      "severity": "high",
+      "fix_hint": "Lower the entire viewmodel and tilt the muzzle down so it sits below the 52% screen height mark."
+    },
+    {
+      "t": "00:04",
+      "subject": "Motion",
+      "problem": "The walking bob is extremely jerky and linear, lacking the smooth 'figure-eight' or sine-wave motion of classic FPS titles.",
+      "severity": "med",
+      "fix_hint": "Smooth the keyframes on the walk cycle and use a curved interpolation for the vertical bob."
+    },
+    {
+      "t": "00:07",
+      "subject": "Motion",
+      "problem": "The weapon is rigidly parented to the camera during the look-sweep with zero lag or inertia.",
+      "severity": "med",
+      "fix_hint": "Implement a 'weapon sway' script that causes the viewmodel to slightly lag behind camera rotation."
+    },
+    {
+      "t": "00:02",
+      "subject": "Firing",
+      "problem": "The recoil is a stiff vertical pop that lacks weight, and the muzzle flash is a static-looking sprite that doesn't illuminate the barrel.",
+      "severity": "low",
+      "fix_hint": "Add a slight rotational kick to the recoil and vary the scale/rotation of the muzzle flash sprite per shot."
+    }
+  ],
+  "praise": [
+    "The low-poly mesh and pixelated textures perfectly capture the intended PS1/retro aesthetic.",
+    "Audio for gunshots and footsteps is present and correctly triggered."
+  ]
+}
