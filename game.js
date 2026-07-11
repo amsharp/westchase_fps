@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.89';
+var GAME_VERSION = 'v1.66.90';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -15727,6 +15727,17 @@ function tryAttack() {
     var rgt = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
     var mo = camera.position.clone().add(dir.clone().multiplyScalar(1.3)).add(rgt.multiplyScalar(0.24));
     spawnBeam(mo.x, mo.y - 0.3, mo.z, bp.x, bp.y, bp.z, 0x66ff88);
+  }
+  // no mesh in the way: shooting the GROUND leaves a hole too (mrg4bexs) —
+  // the ground plane isn't in solidMeshes, so intersect the ray analytically.
+  if (!hits.length && dir.y < -0.02) {
+    var gY = (typeof inside !== 'undefined' && inside) ? INT.y + 0.06 : 0.18;
+    var gT = (gY - camera.position.y) / dir.y;
+    if (gT > 0 && gT < 300) {
+      var gPt = camera.position.clone().add(dir.clone().multiplyScalar(gT));
+      puff(gPt, 0xbbbbbb, 'impact');
+      bulletHole({ point: gPt, face: { normal: new THREE.Vector3(0, 1, 0) }, object: scene });
+    }
   }
   if (hits.length) {
     var h = hits[0], o = h.object, npcHit = null, copHit = null, carHit = null, remoteHit = null, copMHit = -1, ufoHit = false, alienHit = false, atmHit = null;
