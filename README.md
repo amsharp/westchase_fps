@@ -685,10 +685,13 @@ the same quiet noise bed as before, and the SFX volume slider controls it.
 - **WASD** — move, **Shift** — run, **Space** — jump, **Mouse** — look
 - **Left click** — punch / shoot
 - **Scroll wheel** — quick-swap to your next / previous weapon
+- **1 – 0** — jump straight to a weapon by number (its slot in your owned list —
+  1 is fists; keys for weapons you don't own are ignored)
 - **`[` / `]`** — zoom the minimap out / in (WIDE / NORMAL / CLOSE); **Ctrl+scroll**
   does the same. Your choice is remembered between sessions.
 - **E** — talk to the dealer (when close)
-- **H** — honk the horn (while driving)
+- **H** — on foot, open the in-game **controls / help overlay**; while driving,
+  honk the horn (also reachable from the pause screen's **CONTROLS** button)
 - **Tab** — inventory: equip/unequip weapons + your 6×4 item grid (click an
   item to use it, right-click or **Q** to drop one)
 - **J** — quest log (see your active quest, all beats, and set which quest
@@ -733,6 +736,9 @@ to tune the game to your taste. Everything applies live and saves automatically
   longer view; Low trims the render detail for smoother performance on slower
   machines.
 - **CRT filter** — the scanline-and-vignette TV look, on or off.
+- **Crosshair** — show or hide the aiming reticle.
+- **Minimap** — show or hide the corner map.
+- **Hit markers** — show or hide the hit ticks and the kill feed.
 - **Reset to defaults** — puts everything back the way it shipped.
 
 ## Rumors

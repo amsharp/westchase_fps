@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.70';
+var GAME_VERSION = 'v1.66.73';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -16507,6 +16507,7 @@ function buildMMVenues() {
 }
 
 function drawMinimap() {
+  if (settings && !settings.minimap) return;   // hidden via settings (canvas also display:none)
   if (!mmVenues) buildMMVenues();
   var cw = mm.width, ch = mm.height;
   var Z = MM_ZOOMS[mmZoom];
@@ -18708,7 +18709,7 @@ function creditPvpKill() {
 // master+sfx+voice volume, draw-distance quality, CRT filter. Restored on
 // boot (applySettings() runs in the boot handoff, before the first frame).
 var SETTINGS_KEY = 'wc_settings';
-var SETTINGS_DEF = { sens: 1.0, invert: 0, fov: 72, volMaster: 1.0, volSfx: 1.0, volVoice: 1.0, quality: 2, crt: 1 };
+var SETTINGS_DEF = { sens: 1.0, invert: 0, fov: 72, volMaster: 1.0, volSfx: 1.0, volVoice: 1.0, quality: 2, crt: 1, crosshair: 1, minimap: 1, markers: 1 };
 var QUALITY_NAMES = ['LOW', 'MEDIUM', 'HIGH'];
 var settings = null;
 function loadSettings() {
@@ -18720,6 +18721,9 @@ function loadSettings() {
   settings.quality = Math.max(0, Math.min(2, settings.quality | 0));
   settings.invert = settings.invert ? 1 : 0;
   settings.crt = settings.crt ? 1 : 0;
+  settings.crosshair = settings.crosshair ? 1 : 0;
+  settings.minimap = settings.minimap ? 1 : 0;
+  settings.markers = settings.markers ? 1 : 0;
   settings.sens = Math.max(0.2, Math.min(3, +settings.sens || 1));
   settings.volMaster = Math.max(0, Math.min(1, +settings.volMaster));
   settings.volSfx = Math.max(0, Math.min(1, +settings.volSfx));
@@ -18754,6 +18758,8 @@ function applySettings() {
   applyAudioSettings();
   applyQuality();
   applyCRT();
+  var mmEl = document.getElementById('mm');
+  if (mmEl) mmEl.style.display = settings.minimap ? '' : 'none';
 }
 function setSetting(k, v) {
   if (!settings) loadSettings();
@@ -18815,6 +18821,9 @@ function buildSettingsRows() {
   slider('VOICE VOLUME', 'character dialogue', 'volVoice', 0, 1, 0.05, pct);
   cycle('DRAW DISTANCE', 'fog range & render detail', 'quality', QUALITY_NAMES);
   toggle('CRT FILTER', 'scanlines & vignette', 'crt');
+  toggle('CROSSHAIR', 'show the aiming reticle', 'crosshair');
+  toggle('MINIMAP', 'show the corner map', 'minimap');
+  toggle('HIT MARKERS', 'hit ticks & kill feed', 'markers');
 }
 function openSettings() {
   buildSettingsRows();
@@ -18831,10 +18840,32 @@ function closeSettings() {
   var fromPause = settingsFromPause; settingsFromPause = false;
   if (fromPause && state.running) lockPointer();   // re-lock = resume the game
 }
-// Escape closes the settings panel (capture-phase so the game's own Esc handler
-// doesn't clear state.menu while the panel is still up)
+// ---- in-game controls/help overlay (QoL): reachable mid-play with H or from
+// the pause screen. Read-only reference panel; gates look/attack via
+// state.menu='help' while up, mirrors the settings open/close dance. ----
+var helpOpen = false, helpFromPause = false;
+function openHelp() {
+  var p = document.getElementById('helpPanel'); if (!p) return;
+  var ps = document.getElementById('pauseScreen');
+  helpFromPause = !!(ps && !ps.classList.contains('hidden'));
+  p.classList.remove('hidden');
+  helpOpen = true;
+  if (state.running) state.menu = 'help';   // freeze look/attack while reading
+  if (ps) ps.classList.add('hidden');
+}
+function closeHelp() {
+  var p = document.getElementById('helpPanel'); if (p) p.classList.add('hidden');
+  helpOpen = false;
+  if (state.running && state.menu === 'help') state.menu = null;
+  var fromPause = helpFromPause; helpFromPause = false;
+  if (fromPause && state.running) { var ps = document.getElementById('pauseScreen'); if (ps) ps.classList.remove('hidden'); }
+  else if (state.running) lockPointer();   // opened mid-play -> resume
+}
+// Escape closes the settings/help panel (capture-phase so the game's own Esc
+// handler doesn't clear state.menu while a panel is still up)
 document.addEventListener('keydown', function (e) {
-  if (settingsOpen && e.code === 'Escape') { e.preventDefault(); e.stopPropagation(); closeSettings(); }
+  if (settingsOpen && e.code === 'Escape') { e.preventDefault(); e.stopPropagation(); closeSettings(); return; }
+  if (helpOpen && e.code === 'Escape') { e.preventDefault(); e.stopPropagation(); closeHelp(); }
 }, true);
 (function () {
   var b;
@@ -18842,6 +18873,8 @@ document.addEventListener('keydown', function (e) {
   if ((b = document.getElementById('btnPauseSettings'))) b.addEventListener('click', function (e) { e.stopPropagation(); openSettings(); });
   if ((b = document.getElementById('btnSettingsDone'))) b.addEventListener('click', closeSettings);
   if ((b = document.getElementById('btnSettingsReset'))) b.addEventListener('click', resetSettings);
+  if ((b = document.getElementById('btnPauseHelp'))) b.addEventListener('click', function (e) { e.stopPropagation(); openHelp(); });
+  if ((b = document.getElementById('btnHelpDone'))) b.addEventListener('click', closeHelp);
 })();
 loadSettings();   // populate `settings` at load; applySettings() runs in the boot handoff
 
@@ -18911,6 +18944,18 @@ function cycleEquip(dir) {
   var idx = list.indexOf(state.equipped);
   if (idx < 0) idx = 0;
   setEquipped(list[(idx + dir + list.length) % list.length]);
+}
+// QoL: number-key direct weapon select. Slot n (1-based) = position in the same
+// owned list cycleEquip walks (1=fists, then owned guns, then snack/soda). Keys
+// for slots you don't own are ignored.
+function selectWeaponSlot(n) {
+  if (!state.running || state.menu || state.dead || driving) return;
+  var list = ['fists'];
+  for (var i = 0; i < GUN_LIST.length; i++) if (state.owned[GUN_LIST[i]]) list.push(GUN_LIST[i]);
+  if (state.snacks > 0) list.push('snack');
+  if (state.sodas > 0) list.push('soda');
+  if (n < 1 || n > list.length) return;
+  if (list[n - 1] !== state.equipped) setEquipped(list[n - 1]);
 }
 document.addEventListener('wheel', function (e) {
   if (document.pointerLockElement !== canvas) return;
@@ -19294,6 +19339,11 @@ document.addEventListener('keydown', function (e) {
   if (e.code === 'KeyV' && !e.repeat && state.running && !state.menu && netActive()) { voiceStart(); return; }
   keys[e.code] = true;
   if (e.code === 'KeyH' && driving && state.running && !state.menu && !state.dead) { playerHorn(); return; }
+  // QoL: H (on foot) toggles the in-game controls/help overlay
+  if (e.code === 'KeyH' && !e.repeat && !driving && state.running && !state.dead) {
+    if (helpOpen) closeHelp(); else if (!state.menu) openHelp();
+    return;
+  }
   if ((e.code === 'Enter' || e.code === 'NumpadEnter') && state.running && !state.menu && netActive()) { e.preventDefault(); openChat(); return; }
   if (e.code === 'Tab') { e.preventDefault(); if (!state.running || state.dead) return; if (state.menu === 'inv') closeMenus(); else { closeMenus(false); openMenu('inv'); } }
   if (e.code === 'KeyJ' && !e.repeat) { e.preventDefault(); if (!state.running || state.dead) return; if (state.menu === 'quest') closeMenus(); else if (!state.menu) openMenu('quest'); return; }
@@ -19313,6 +19363,12 @@ document.addEventListener('keydown', function (e) {
       if (e.code === 'Digit2' || e.code === 'Numpad2') { chooseEnding('burn'); return; }
       if (e.code === 'Digit3' || e.code === 'Numpad3') { chooseEnding('inherit'); return; }
     }
+    // QoL: number-key direct weapon select (1..9, 0 = slot 10). Skipped above if
+    // a quest ending choice owns the digits this frame.
+    var wslot = -1;
+    if (e.code.length === 6 && e.code.indexOf('Digit') === 0) wslot = e.code.charCodeAt(5) - 48;
+    else if (e.code.length === 7 && e.code.indexOf('Numpad') === 0) { var nc = e.code.charCodeAt(6) - 48; if (nc >= 0 && nc <= 9) wslot = nc; }
+    if (wslot >= 0) { selectWeaponSlot(wslot === 0 ? 10 : wslot); return; }
   }
   if (e.code === 'KeyE') {
     // dead-guard matters: E during the 2.6s death window could enterStore
@@ -19695,6 +19751,7 @@ function drawSprite(rows, x, y, px, color) {
 // style.display is the visibility flag (setZoom/driving toggle it); we read it
 // so a scoped rifle / driving view hides the reticle exactly as before.
 function drawCrosshair(W, H) {
+  if (settings && !settings.crosshair) return;               // hidden via settings
   var crossEl = document.getElementById('crosshair');
   if (crossEl && crossEl.style.display === 'none') return;   // scoped / driving / hidden
   var cx = Math.round(W / 2), cy = Math.round(H / 2), w = state.equipped, col = '#eef4ff';
@@ -19741,7 +19798,7 @@ function drawHudCanvas() {
   // ---- hitmarker: four short diagonal ticks that flick out from the reticle
   // and fade (white on a hit, red on a kill) ----
   var hmAge = T - hitMarkerT;
-  if (hmAge < 0.32) {
+  if (hmAge < 0.32 && (!settings || settings.markers)) {
     var hmA = 1 - hmAge / 0.32, hcx = Math.round(W / 2), hcy = Math.round(H / 2);
     var hin = 4 + hmAge * 26, hlen = 5;   // ticks push outward as they fade
     hudCx.save();
@@ -19789,7 +19846,7 @@ function drawHudCanvas() {
     var kfAge = T - killFeed[kf].t;
     if (kfAge > 3.6) { killFeed.splice(kf, 1); continue; }
   }
-  for (kf = 0; kf < killFeed.length; kf++) {
+  for (kf = 0; (!settings || settings.markers) && kf < killFeed.length; kf++) {
     var kfe = killFeed[kf], kfy = my + 28 + kf * 17, kfLife = T - kfe.t;
     hudCx.globalAlpha = kfLife > 3.0 ? Math.max(0, (3.6 - kfLife) / 0.6) : 1;
     hudText('☠ ' + kfe.txt, W - M, kfy, 12, kfe.col, 'right');
@@ -19849,7 +19906,25 @@ function drawHudCanvas() {
     hudText(pt, px2, py, 19, '#ffe9a0', 'center');
   }
 }
-function updateHUD() { document.getElementById('money').textContent = '$' + state.money; document.getElementById('hpBar').style.width = Math.max(0, state.hp) + '%'; drawHudCanvas(); }
+// low-HP vignette (#QoL): sustained red edge glow that fades in below 30% HP
+// and pulses; cleared when healthy / dead / not playing. Cache el + last opacity
+// so we only touch the DOM when the string actually changes.
+var lowHpVigEl = document.getElementById('lowHpVig');
+var lowHpVigLast = '';
+function updateLowHpVig() {
+  if (!lowHpVigEl) return;
+  var op = '0';
+  if (state.running && !state.dead) {
+    var hpF = Math.max(0, Math.min(100, state.hp)) / 100;
+    if (hpF < 0.30) {
+      var inten = (0.30 - hpF) / 0.30;                 // 0 at 30% -> 1 at 0%
+      var pulse = 0.70 + 0.30 * Math.sin(T * 6.0);     // ~1.7 Hz heartbeat
+      op = ((0.20 + 0.45 * inten) * pulse).toFixed(3);
+    }
+  }
+  if (op !== lowHpVigLast) { lowHpVigLast = op; lowHpVigEl.style.opacity = op; }
+}
+function updateHUD() { document.getElementById('money').textContent = '$' + state.money; document.getElementById('hpBar').style.width = Math.max(0, state.hp) + '%'; updateLowHpVig(); drawHudCanvas(); }
 
 // ---------------- main loop ----------------
 var last = performance.now();
