@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.66';   // .64 taken by live2-vfx on the parallel branch
+var GAME_VERSION = 'v1.66.67';   // .64 taken by live2-vfx on the parallel branch
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -84,6 +84,10 @@ var gasRob = { x: 60, z: 42 };   // entrance zone in front of the RaceTrac door
 var LAKE = { x: -280, z: 55, r: 62 };   // open SW field, nudged east toward the road (clear of it + the parking lot)
 var LAKE_DEPTH = 4;            // bowl depth at the center
 var WATER_Y = 0.2;             // water surface height
+// materials that switch their emissive on with the street lights (gas-station
+// canopy light panels / soffit / forecourt pad) — filled by venue builders
+// that run before the lamp system exists; setLamps ramps them
+var nightLitMats = [];
 function lakeBedY(x, z) {
   // paraboloid bowl matching the bed mesh; 0 outside the shoreline
   var dx = (x - LAKE.x) / (LAKE.r * 1.25), dz = (z - LAKE.z) / (LAKE.r * 0.85);
@@ -1019,17 +1023,25 @@ function gasStation(x, z) {
   var soffitM = lamb({ color: 0xf3f1ea }), hoseM = lamb({ color: 0x2a2a2a }), boltM = lamb({ color: 0xe6b800 });
   var fasciaM = lamb({ map: gasFasciaTex() });
   var cx = x - 8, cw = 22, cd = 14, cy = 6.0;                     // canopy centre/size
+  // night lighting (S6 sweep): the forecourt read pitch-dark after sundown —
+  // a gas station should be the brightest thing on the road. The light
+  // panels burn, the soffit underside glows softly, and the pad picks up a
+  // warm wash; all ramped by setLamps with the street lights.
+  var padM = lamb({ color: 0xcfccc2, emissive: 0x8a7a52, emissiveIntensity: 0 });
+  var softM = lamb({ color: 0xf3f1ea, emissive: 0xfff0d0, emissiveIntensity: 0 });
+  nightLitMats.push({ m: padM, on: 0.22 }, { m: softM, on: 0.35 });
   // light concrete forecourt pad under the canopy (reads as a real pump court)
-  scene.add(box(cw + 3, 0.09, cd + 2.5, concM, cx, 0.13, z));
+  scene.add(box(cw + 3, 0.09, cd + 2.5, padM, cx, 0.13, z));
   // canopy: white soffit + roof slab + branded red fascia band on all 4 sides
   scene.add(box(cw, 0.55, cd, soffitM, cx, cy, z));               // roof slab
-  scene.add(box(cw - 1.2, 0.12, cd - 1.2, soffitM, cx, cy - 0.34, z)); // bright soffit underside
+  scene.add(box(cw - 1.2, 0.12, cd - 1.2, softM, cx, cy - 0.34, z)); // bright soffit underside
   scene.add(box(cw + 0.2, 0.78, 0.5, fasciaM, cx, cy - 0.25, z - cd / 2 - 0.02));
   scene.add(box(cw + 0.2, 0.78, 0.5, fasciaM, cx, cy - 0.25, z + cd / 2 + 0.02));
   var fsE = box(0.5, 0.78, cd + 0.2, fasciaM, cx - cw / 2 - 0.02, cy - 0.25, z); scene.add(fsE);
   var fsW = box(0.5, 0.78, cd + 0.2, fasciaM, cx + cw / 2 + 0.02, cy - 0.25, z); scene.add(fsW);
   // recessed light panels on the soffit
-  var litM = lamb({ color: 0xfffef2 });
+  var litM = lamb({ color: 0xfffef2, emissive: 0xfff6d8, emissiveIntensity: 0 });
+  nightLitMats.push({ m: litM, on: 1.5 });
   for (var li = -1; li <= 1; li++) scene.add(box(cw - 3, 0.05, 0.7, litM, cx, cy - 0.41, z + li * 3.6));
   // 4 sturdy canopy columns with red bases
   [[cx - cw / 2 + 1.5, z - 5], [cx + cw / 2 - 1.5, z - 5], [cx - cw / 2 + 1.5, z + 5], [cx + cw / 2 - 1.5, z + 5]].forEach(function (p) {
@@ -4802,6 +4814,7 @@ function setLamps(on) {
     L.pool.visible = on && !L.broken;
   }
   for (var pg = 0; pg < parkLampGlows.length; pg++) parkLampGlows[pg].visible = on;
+  for (var nl = 0; nl < nightLitMats.length; nl++) nightLitMats[nl].m.emissiveIntensity = on ? nightLitMats[nl].on : 0;
 }
 
 // ---------------- day/night + rain ----------------
