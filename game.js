@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.101';   // merge: live2-ai marathon (netcode+fireflies) + main
+var GAME_VERSION = 'v1.66.102';   // merge + netcode fuzz hardening
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -19236,6 +19236,11 @@ function updateNpcTags() {
 }
 function hashStr(s) { var h = 0; for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h); }
 function ensureRemote(id) {
+  // valid peer ids are 8-char strings from the relay (rid(8)); a malicious or
+  // buggy peer can inject {t:'s', id:null/number/''} through the relay's
+  // opaque data passthrough — hashStr(id)/id.slice(0,6) below then threw on a
+  // non-string, aborting the whole message-handler callback (netfuzz caught it)
+  if (typeof id !== 'string' || !id) return null;
   if (net.remotes[id]) return net.remotes[id];
   var hsh = hashStr(id);
   var mesh = buildCharacter(randomCharConfig(seededRng(hsh)));   // placeholder until their cc arrives
@@ -19261,6 +19266,7 @@ function handleNet(m, conn) {
   if (!m || !m.t) return;
   if (m.t === 's') {
     var r = ensureRemote(m.id);
+    if (!r) return;   // garbage id (see ensureRemote) — ignore the state frame
     // the data channel is unordered: drop anything older than what we have
     if (m.q) { if (r.lastQ && m.q <= r.lastQ) return; r.lastQ = m.q; }
     r.lastSeen = T;
