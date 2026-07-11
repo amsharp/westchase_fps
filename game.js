@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.67.2';
+var GAME_VERSION = 'v1.67.4';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -15638,7 +15638,7 @@ var GRIP_TGT = {
   // (no pistol entry — one-handed, see SUPPORT_POSE)
   smg:    [0.248, -0.15, -0.696],   // v1.66.87: diagonal composition
   rifle:  [0.079, -0.173, -0.741],  // v1.66.87: diagonal composition
-  auto:   [0.22, -0.08, -0.72],   // v1.66.100: wrist BELOW the handguard (CS-style under-grip) so the curled fingers wrap UP onto the wood instead of the wrist sitting inside the receiver (clipping)
+  auto:   [0.18, 0.05, -0.66],    // v1.67.3: raised onto the handguard so the curled fingers DRAPE OVER the top of the wood (reads as a foregrip); verified FP+side+front that the palm contacts, not penetrates, the guard
   rocket: [0.159, -0.231, -0.598],  // v1.66.87: diagonal composition
   silenced: [0.21, -0.40, -0.52]
 };
@@ -15799,6 +15799,31 @@ function buildPSXArms(skinHex) {
   root.add(mesh);
   mesh.updateMatrixWorld(true); root.updateMatrixWorld(true);
   mesh.bind(new THREE.Skeleton(bones));
+  // --- fabric sleeves over the bare arm skin (v1.66.101) -------------------
+  // Every reviewer (flash + pro) flagged the FP forearm as a "large bare-arm
+  // mass dominating the lower screen". A dark rigid sleeve tube down each arm
+  // segment breaks up the skin and reads as a clothed arm (CS-style), leaving
+  // only the wrist/hand bare. The tubes are rigid CHILDREN of each segment's
+  // bone, so they follow the arm without needing skin weights.
+  var _slUp = new THREE.Vector3(0, 1, 0), _slV = new THREE.Vector3(), _slQ = new THREE.Quaternion();
+  var sleeveMat = lamb({ color: 0x3a3d42 });
+  function armSleeve(seg, end, r0, r1, cov, off) {
+    seg.updateMatrixWorld(true); end.updateMatrixWorld(true);
+    _slV.setFromMatrixPosition(end.matrixWorld); seg.worldToLocal(_slV);   // end joint in seg-local
+    var len = _slV.length(); if (len < 1e-4) return;
+    var g = new THREE.CylinderGeometry(r1, r0, len * cov, 10);
+    g.translate(0, len * (off || 0) + len * cov / 2, 0);                   // base at bone origin, extends +Y toward the end joint
+    var m = new THREE.Mesh(g, sleeveMat); m.frustumCulled = false;
+    _slQ.setFromUnitVectors(_slUp, _slV.clone().normalize());
+    m.quaternion.copy(_slQ);
+    seg.add(m);
+  }
+  // forearms (elbow->wrist): cover ~78%, leaving the wrist + hand bare
+  armSleeve(bones[26], bones[27], 0.060, 0.050, 0.78, 0.0);
+  armSleeve(bones[3], bones[4], 0.060, 0.050, 0.78, 0.0);
+  // upper arms (shoulder->elbow): full cover, slightly thicker
+  armSleeve(bones[25], bones[26], 0.066, 0.060, 1.02, 0.0);
+  armSleeve(bones[2], bones[3], 0.066, 0.060, 1.02, 0.0);
   // clips: frame-major Int16 quats (/16384) + translations (/1024 or clip.ts)
   var clips = {};
   for (var k in A.clips) {
@@ -21446,7 +21471,9 @@ window.__wc = {
   setSupPose: function (w, arr) { SUPPORT_POSE[w] = arr; },   // debug: tune support-arm seed eulers (bones 24-27)
   getSupPose: function (w) { return SUPPORT_POSE[w]; },
   getBoneQ: function (i) { return psxArms ? psxArms.bones[i].quaternion.toArray().map(function (v) { return Math.round(v * 1000) / 1000; }) : null; },
-  poseArmsNow: function () { if (psxArms && GUNHOLD_GROUPS[state.equipped]) { armsPose(psxArms, gunHold.clip, gunHold.t, true); solveSupportIK(state.equipped); gripFingers(); } },
+  poseArmsNow: function () { if (psxArms && GUNHOLD_GROUPS[state.equipped]) { var g = vmMap[state.equipped]; if (g) g.position.set(VM_SHIFT[state.equipped] || 0, VM_LIFT[state.equipped] || 0, 0); armsPose(psxArms, gunHold.clip, gunHold.t, true); solveSupportIK(state.equipped); gripFingers(); } },
+  setLift: function (w, v) { VM_LIFT[w] = v; }, getLift: function (w) { return VM_LIFT[w]; },
+  setShift: function (w, v) { VM_SHIFT[w] = v; }, getShift: function (w) { return VM_SHIFT[w]; },
   dbgBone: function (i, ov) { if (psxArms) { if (ov) { var e = new THREE.Euler(ov[0], ov[1], ov[2]); psxArms.bones[i].quaternion.setFromEuler(e); } psxArms.mesh.updateMatrixWorld(true); } },   // debug: set one bone's local euler
   gripDbg: function () { if (!psxArms) return null; var g = vmMap[state.equipped]; if (!g) return null; g.updateMatrixWorld(true); psxArms.mesh.updateMatrixWorld(true); function loc(bi) { var v = new THREE.Vector3(); psxArms.bones[bi].getWorldPosition(v); g.worldToLocal(v); return v.toArray().map(function (n) { return Math.round(n * 1000) / 1000; }); } return { rHand: loc(4), lHand: loc(27), rPalm: loc(5), rShoul: loc(1), rElbow: loc(3) }; },   // debug: hand positions in gun-group local frame
   handPos: function () { if (!psxArms) return null; psxArms.mesh.updateMatrixWorld(true); var pl = new THREE.Vector3(), pr = new THREE.Vector3(); psxArms.bones[27].getWorldPosition(pl); psxArms.bones[4].getWorldPosition(pr); return { L: pl.toArray().map(function (v) { return Math.round(v * 100) / 100; }), R: pr.toArray().map(function (v) { return Math.round(v * 100) / 100; }) }; },
@@ -21597,6 +21624,16 @@ window.__wc = {
   playOnline: playOnline, becomeHost: becomeHost,
   buildIceConfig: buildIceConfig, hmacSha1B64: hmacSha1B64,
   buildCharacter: buildCharacter, randomCharConfig: randomCharConfig, buildMeshySkinned: buildMeshySkinned,
+  // animqa NPC lineup: enumerate the visually-distinct civilian roster indexed
+  // by cfg.preset (0 = procedural PSX, 1..N = PSX_SKINS, N+1.. = MESHY_CIVS) so
+  // the lineup harness can force + label each model. Debug/tooling only.
+  charRoster: function () {
+    var names = ['PROC'];
+    for (var i = 0; i < PSX_SKINS.length; i++) names.push((PSX_SKINS[i] && PSX_SKINS[i].n) || ('SKIN' + i));
+    for (var j = 0; j < MESHY_CIVS.length; j++) names.push((MESHY_LIST[MESHY_CIVS[j]] && MESHY_LIST[MESHY_CIVS[j]].n) || ('CIV' + j));
+    return { presetMax: names.length, names: names, psx: PSX_SKINS.length, civ: MESHY_CIVS.length };
+  },
+  hideVM: function (on) { vm.visible = !on; },   // animqa lineup: hide the FP viewmodel so it doesn't block the NPC row
   // NPC accessories (#70) — local-only cosmetic props on a fraction of walkers
   listAccessories: listAccessories, accessories: function () { return accessories; }, accStats: function () { return accStats; },
   getAccessory: getAccessory, attachAccessory: attachAccessory,

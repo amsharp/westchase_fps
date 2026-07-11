@@ -1,3 +1,18 @@
 # --- gemini-in-the-loop session (opus, AVI pipeline) ---
 2026-07-11 ak.webm(committed baseline) flash score=3 tokens=2749
 2026-07-11 ak.avi(new harness v3) flash score=3 tokens=4363 issues: hand-not-gripping(H), hand-static-in-recoil(H), bare-arm-mass(M), no-look-sway(M), no-idle-sway(L)
+
+# --- resume session (opus takeover) — AK viewmodel + NPC lineup infra ---
+# NOTE: gemini-3-pro-preview RETIRED (404). Use gemini-3.1-pro-preview for sign-off, gemini-3-flash-preview for iteration.
+# gemini-3-flash-preview is HIGH-VARIANCE on these clips: identical composition scored PASS-6 then FAIL-4 across runs; it flip-flops recoil/sway praise-vs-defect. Direct frame inspection (snap.js) + CS-reference A/B (armsbench) proved more reliable than chasing the flash score.
+2026-07-11 ak.avi flash score=4 (VM_LIFT -0.10) muzzle 42%->50%, forearm mass(H)
+2026-07-11 ak.avi flash score=4 (VM_LIFT -0.20) muzzle correct, grip-not-on-guard(H)
+2026-07-11 ak.avi flash score=4 (grip onto handguard) forearm-central(H)
+2026-07-11 ak.avi flash score=6 PASS (arm right + sway boost) muzzle+grip praised
+2026-07-11 ak.avi flash score=4 (recoil/flash refine) muzzle-too-high(H) [NOISE — no muzzle change]
+2026-07-11 ak.avi flash score=4 (re-review same clip) too-high/central [judge variance]
+2026-07-11 ak.avi flash score=4 (VM_SHIFT right) forearm-horizontal(H) [NOISE — idle frame verified good]
+2026-07-11 ak.avi flash score=4 (grip UNDER handguard, no-clip) lacks-recoil(H) [over-dampened, fixed]
+2026-07-11 ak.avi PRO gemini-3.1-pro-preview score=4: HIGH=bare-forearm-mass (BOTH judges agree — the real blocker); praised "composition hits target landmarks","recoil+flash functional". -> fixed with fabric SLEEVES.
+2026-07-11 lineup0_walk.avi NPC flash score=4: HIGH=foot-skating (preset0-3 procedural/PSX-skin use non-stride-matched sin-swing; meshy preset4+ have st calibration), LOW=NIA forward-lean (has MESHY_LEG_FIX). praised: no clipping, smooth loops, consistent aesthetic.
+# session totals: ~9 flash + 1 pro(3.1). Cap ~60 flash + 6 pro — well under budget.
