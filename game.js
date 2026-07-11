@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.66';
+var GAME_VERSION = 'v1.66.69';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -5585,7 +5585,12 @@ function buildMeshySkinned(cfg, mi) {
   mesh.add(root);
   mesh.updateMatrixWorld(true);
   mesh.bind(new THREE.Skeleton(bones));
-  mesh.frustumCulled = false;
+  // Off-screen characters must not render (lets us carry a much larger crowd).
+  // Re-enable native frustum culling with a padded bind-pose sphere so swinging
+  // limbs / run lean never pop the character out at the screen edge.
+  mesh.geometry.computeBoundingSphere();
+  if (mesh.geometry.boundingSphere) mesh.geometry.boundingSphere.radius = Math.max(mesh.geometry.boundingSphere.radius + 0.5, 1.9);
+  mesh.frustumCulled = true;
   g.add(mesh);
   var names = MESHY_LIST[mi].skel.names, bi = {};
   for (i = 0; i < nj; i++) bi[names[i]] = i;
@@ -5827,7 +5832,7 @@ function buildPerson(shirtC, pantsC, skinC, opts) {
 }
 
 var npcs = [];
-var NPC_COUNT = 220;  // +60% density pass (was 138; report mrefogw8 asked 5x — hold at 220 until instancing/LOD, see TRIAGE)
+var NPC_COUNT = 440;  // doubled crowd — affordable now that off-screen skinned characters frustum-cull (see buildMeshySkinned) + distance anim-LOD (was 220)
 // home-zone weights: core intersection / residential neighborhoods / collectors+Lynmar
 var NPC_W_CORE = 0.60, NPC_W_RES = 0.32;   // remainder (~0.08) = collectors
 var WALK = WC_REMAP ? { x0: -240, x1: 120, z0: -180, z1: 170 }   // recentred on the true venue span
@@ -10451,16 +10456,21 @@ function addStar(n) { setWanted(state.wanted + (n || 1)); }
 // 6 more = 3rd, doubling likewise. Counters reset when the heat fully dies.
 var CIV_STAR_KILLS = [5, 15, 35, 75, 155];
 var COP_STAR_KILLS = [3, 9, 21, 45];   // stars 2-5 (star 1 comes from just hurting one)
-function creditCivKill() {
+function creditCivKill(kind) {
   state.civKills++;
   lastCrimeT = T;
   if (CIV_STAR_KILLS.indexOf(state.civKills) >= 0) { addStar(1); popup2('WANTED LEVEL UP'); }
+  hitMark(true);
+  if (kind === 'car') pushKillFeed('Vehicle wrecked', '#ffd24a');
+  else pushKillFeed('Pedestrian down', '#ff6a4a');
 }
 function creditCopKill() {
   state.copKills++;
   lastCrimeT = T;
   if (state.wanted < 1) setWanted(1);   // you can't kill one without damaging one
   if (COP_STAR_KILLS.indexOf(state.copKills) >= 0) { addStar(1); popup2('WANTED LEVEL UP'); }
+  hitMark(true);
+  pushKillFeed('Officer down', '#66b0ff');
 }
 
 function buildCop() {
@@ -11480,7 +11490,7 @@ function updateDriving(dt) {
           else {
             shoveCar(oc, rkx, rkz, rsp);
             oc.dmgT += imp;
-            if (oc.dmgT >= 1.5 && goBerserk(oc)) { popup('WRECKED!'); creditCivKill(); }
+            if (oc.dmgT >= 1.5 && goBerserk(oc)) { popup('WRECKED!'); creditCivKill('car'); }
           }
         }
         c.pspeed *= 0.5;
@@ -15258,7 +15268,7 @@ function tryAttack() {
     else if (bestRemote) { netSendHit(bestRemote.id, w.dmg, true); puff(new THREE.Vector3(bestRemote.x, 1.3, bestRemote.z), 0xd96a4f, 'blood'); }
     // connecting sounds different from swinging — and a slap CRACKS
     var meleeAt = best ? best : (bestCop ? bestCop : (bestCopM >= 0 ? copsM[bestCopM] : bestRemote));
-    if (meleeAt) sfx(punchSlap ? 'slap' : 'punchhit', { x: meleeAt.x, z: meleeAt.z, range: 45 });
+    if (meleeAt) { sfx(punchSlap ? 'slap' : 'punchhit', { x: meleeAt.x, z: meleeAt.z, range: 45 }); hitMark(false); }
     return;
   }
   if (T - (lastShotBy[state.equipped] || -99) < w.rate) return;
@@ -15356,16 +15366,36 @@ function tryAttack() {
         netToHost({ t: 'shootCar', i: cars.indexOf(carHit), rate: w.rate });
       } else {
         carHit.dmgT += w.rate;
-        if (carHit.dmgT >= 1.5 && goBerserk(carHit)) { popup('WRECKED!'); creditCivKill(); }   // trashing a ride weighs like a body (credit once, on the wreck)
+        if (carHit.dmgT >= 1.5 && goBerserk(carHit)) { popup('WRECKED!'); creditCivKill('car'); }   // trashing a ride weighs like a body (credit once, on the wreck)
       }
     }
     else if (atmHit) shootAtm(atmHit, h.point);   // streetprops: burst the ATM open
     else { puff(h.point, 0xbbbbbb, 'impact'); bulletHole(h); }   // static surface: small dust + a hole
+    // hitmarker on any damageable connect (a kill mark from damageNPC/Cop above
+    // out-ranks this via hitMark's downgrade guard)
+    if (npcHit || copHit || remoteHit || copMHit >= 0 || carHit || alienHit || ufoHit) hitMark(false);
   }
   recoilPitch += 0.012 + Math.random() * 0.008;
 }
 
 var dmgDirs = [];   // recent damage sources: {a: world angle to source, t}
+// ---- combat feedback: hitmarker (X on the reticle when a shot/punch lands,
+// red on a kill) + kill feed (recent takedowns list, top-right). Both are
+// LOCAL-only cosmetic reactions; kills route through creditCiv/CopKill so they
+// fire in SP, on the host, AND on a client (via the host's `kill` message). ----
+var hitMarkerT = -99, hitMarkerKill = false;
+function hitMark(kill) {
+  // a fresh kill mark (red) must not be downgraded to a plain hit mark when the
+  // same trigger-pull both connects and kills in one frame (one-shot kills)
+  if (!kill && hitMarkerKill && T - hitMarkerT < 0.09) return;
+  hitMarkerT = T; hitMarkerKill = !!kill;
+  sfx(kill ? 'killtick' : 'tick');
+}
+var killFeed = [];   // {txt, col, t} newest first, drawn+expired in drawHudCanvas
+function pushKillFeed(txt, col) {
+  killFeed.unshift({ txt: txt, col: col || '#ff5a3a', t: T });
+  if (killFeed.length > 4) killFeed.pop();
+}
 function hurtPlayer(d, sx, sz) {
   if (state.dead) return;
   state.hp -= d; state.lastHurt = T;
@@ -16126,6 +16156,8 @@ function sfx(kind, at) {
     case 'crash': nb(0.3, 900, 0.8); bp(85, 0.18, 0.35, 'square', 45); break;
     case 'glass': nb(0.07, 3400, 0.5); bp(190, 0.09, 0.14, 'square', 70); setTimeout(function () { nb(0.1, 2700, 0.38); }, 70); setTimeout(function () { nb(0.14, 2100, 0.28); }, 160); break;
     case 'boom': nb(0.8, 320, 1.3); bp(60, 0.6, 0.6, 'sine', 24); setTimeout(function () { nb(0.4, 700, 0.4); }, 120); break;
+    case 'tick': bp(1500, 0.03, 0.11, 'square', 0); break;   // crisp hitmarker blip
+    case 'killtick': bp(1650, 0.035, 0.14, 'square', -260); setTimeout(function () { bp(1050, 0.05, 0.12, 'square', -180); }, 45); break;   // two-note kill confirm
   }
 }
 // ---- surface footsteps (#47): cheap per-surface noise blips synced to the
@@ -17303,6 +17335,7 @@ function questHatchUnlocked(id) {
 loadQuests();
 questRegisterItems();
 placeQuestSurfaceProps();   // #78: quest set-dressing props at the POI entrances
+loadLocalProgress();        // restore offline/guest money+guns+consumables (cloud login overrides later)
 
 // ================= #78 QUEST REWARD CAPABILITIES =================
 // The five stubbed rewards, made real. Each gated on its state.unlocks flag;
@@ -17962,7 +17995,7 @@ function handleNet(m, conn) {
   } else if (m.t === 'kill') {
     if (m.kind === 'npc') { creditCivKill(); popup('KO!'); }
     else if (m.kind === 'cop') { creditCopKill(); popup('COP DOWN!'); }
-    else if (m.kind === 'car') { creditCivKill(); popup('WRECKED!'); }
+    else if (m.kind === 'car') { creditCivKill('car'); popup('WRECKED!'); }
   }
 }
 function onConn(c) {
@@ -18916,6 +18949,36 @@ function acctApplySave(s) {
   }
   updateHUD();
 }
+// ---------------- offline/guest local save (localStorage 'wc_save') ----------------
+// The account system above only persists to the relay when signed in with a
+// PIN. For file:// / guest / offline play, money + owned guns + snacks/sodas +
+// bag would reset every reload — so we also mirror them to localStorage. Char,
+// settings and quests already persist under their own keys; this fills the gap.
+// Applied once at boot (a later cloud sign-in overrides via acctApplySave).
+// NOTE: the key is inlined as a literal, not a `var` — loadLocalProgress runs
+// at boot ABOVE this section, where a hoisted-but-unassigned var would be
+// undefined (the classic load-order gotcha in this file).
+function saveLocalProgress() {
+  try {
+    localStorage.setItem('wc_save', JSON.stringify({
+      money: state.money | 0, owned: state.owned,
+      snacks: state.snacks | 0, sodas: state.sodas | 0, bag: state.bag
+    }));
+  } catch (e) { }
+}
+function loadLocalProgress() {
+  var s = null;
+  try { s = JSON.parse(localStorage.getItem('wc_save') || 'null'); } catch (e) { s = null; }
+  if (!s) return;
+  if (typeof s.money === 'number') state.money = Math.max(0, s.money | 0);
+  if (s.owned) for (var k in state.owned) state.owned[k] = !!s.owned[k];
+  if (typeof s.snacks === 'number') state.snacks = Math.max(0, s.snacks | 0);
+  if (typeof s.sodas === 'number') state.sodas = Math.max(0, s.sodas | 0);
+  if (s.bag && s.bag.length === BAG_SLOTS) for (var i = 0; i < BAG_SLOTS; i++) {
+    var it = s.bag[i];
+    state.bag[i] = (it && it.id && itemDef(it.id) && (it.n | 0) > 0) ? { id: it.id, n: Math.min(99, it.n | 0) } : null;
+  }
+}
 function acctPost(payload, cb) {
   var base = bugServerUrl(); if (!base) { cb(new Error('no server')); return; }
   fetch(base + '/acct', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
@@ -19012,8 +19075,9 @@ function acctAutosave(force) {
     if (!err) acct.lastSaved = j;
   });
 }
-setInterval(function () { acctAutosave(false); }, 10000);
+setInterval(function () { acctAutosave(false); if (state.running) saveLocalProgress(); }, 10000);
 window.addEventListener('beforeunload', function () {
+  if (state.running) saveLocalProgress();   // guests + offline: keep a local mirror
   if (!acct.token) return;
   try {
     navigator.sendBeacon(bugServerUrl() + '/acct',
@@ -19538,6 +19602,29 @@ function drawHudCanvas() {
   var W = hudW, H = hudH, M = 14;
   hudCx.clearRect(0, 0, W, H);
   drawCrosshair(W, H);
+  // ---- hitmarker: four short diagonal ticks that flick out from the reticle
+  // and fade (white on a hit, red on a kill) ----
+  var hmAge = T - hitMarkerT;
+  if (hmAge < 0.32) {
+    var hmA = 1 - hmAge / 0.32, hcx = Math.round(W / 2), hcy = Math.round(H / 2);
+    var hin = 4 + hmAge * 26, hlen = 5;   // ticks push outward as they fade
+    hudCx.save();
+    hudCx.globalAlpha = hmA;
+    hudCx.lineWidth = 2.4; hudCx.lineCap = 'butt';
+    var hqs = [[-1, -1], [1, -1], [-1, 1], [1, 1]];
+    for (var hq = 0; hq < 4; hq++) {
+      var sxn = hqs[hq][0], syn = hqs[hq][1];
+      var ax = hcx + sxn * hin, ay = hcy + syn * hin;
+      hudCx.strokeStyle = '#000'; hudCx.beginPath(); hudCx.moveTo(ax, ay); hudCx.lineTo(ax + sxn * hlen, ay + syn * hlen); hudCx.stroke();
+    }
+    hudCx.strokeStyle = hitMarkerKill ? '#ff3b28' : '#f4f8ff';
+    for (hq = 0; hq < 4; hq++) {
+      var sx2 = hqs[hq][0], sy2 = hqs[hq][1];
+      var bx = hcx + sx2 * hin, by = hcy + sy2 * hin;
+      hudCx.beginPath(); hudCx.moveTo(bx, by); hudCx.lineTo(bx + sx2 * (hlen - 1), by + sy2 * (hlen - 1)); hudCx.stroke();
+    }
+    hudCx.restore(); hudCx.globalAlpha = 1;
+  }
   // ---- directional damage indicators: red chevrons around screen center
   // pointing at whoever hurt you, fading over 0.9s (report mregrr51) ----
   for (var di = dmgDirs.length - 1; di >= 0; di--) {
@@ -19560,6 +19647,18 @@ function drawHudCanvas() {
   // ---- money: GTA-style counter, top-right under the minimap ----
   var my = hudMmB + 8;
   drawPix('$' + Math.max(0, state.money | 0), W - M, my, 3, '#46e05e', 'right');
+  // ---- kill feed: recent takedowns, top-right under the money counter,
+  // newest on top, each fading out over its ~3.6s life ----
+  for (var kf = killFeed.length - 1; kf >= 0; kf--) {
+    var kfAge = T - killFeed[kf].t;
+    if (kfAge > 3.6) { killFeed.splice(kf, 1); continue; }
+  }
+  for (kf = 0; kf < killFeed.length; kf++) {
+    var kfe = killFeed[kf], kfy = my + 28 + kf * 17, kfLife = T - kfe.t;
+    hudCx.globalAlpha = kfLife > 3.0 ? Math.max(0, (3.6 - kfLife) / 0.6) : 1;
+    hudText('☠ ' + kfe.txt, W - M, kfy, 12, kfe.col, 'right');
+    hudCx.globalAlpha = 1;
+  }
   // ---- wanted stars: top-center (lit gold, unlit dark silhouettes) ----
   var sw = state.wanted | 0, spx = 2, sgap = 9 * spx + 6;
   for (var i = 0; i < 5; i++)

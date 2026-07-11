@@ -19,10 +19,12 @@ const VM_CROP = [250, 200, 680, 380], NPC_CROP = [130, 30, 680, 540];
 fs.mkdirSync(OUT, { recursive: true });
 
 (async () => {
-  const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', args: ['--use-gl=swiftshader', '--no-sandbox'] });
-  let page = null, since = 0; const errs = [];
+  let browser = null, page = null, since = 0; const errs = [];
   async function boot() {
-    if (page) await page.close();
+    // swiftshader corrupts the whole chromium process after a dozen renders, so
+    // relaunch the BROWSER (not just the page) each boot — keeps captures stable.
+    if (browser) { try { await browser.close(); } catch (_) {} }
+    browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', args: ['--use-gl=swiftshader', '--no-sandbox'] });
     page = await browser.newPage({ viewport: { width: W, height: H } });
     page.on('pageerror', e => errs.push('PAGEERR ' + e.message));
     await page.goto(GAME, { waitUntil: 'domcontentloaded', timeout: 60000 });
@@ -40,13 +42,21 @@ fs.mkdirSync(OUT, { recursive: true });
     since = 0;
   }
   await boot();
-  async function cap(name, setupStr, crop, stepStr, dt) {
-    if (!page || since >= 2) await boot(); since++;
-    await page.evaluate(([setupStr, crop]) => { (0, eval)('(' + setupStr + ')')(); window.__mk(crop); }, [setupStr, crop]);
-    for (let i = 0; i < N; i++) await page.evaluate(([i, dt, body]) => { (0, eval)('(' + body + ')')(i, dt); window.__cell(); }, [i, dt, stepStr]);
-    const url = await page.evaluate(() => window.__url());
-    fs.writeFileSync(path.join(OUT, name + '.png'), Buffer.from(url.split(',')[1], 'base64'));
-    console.log('sheet', name);
+  async function cap(name, setupStr, crop, stepStr, dt, _retry) {
+    try {
+      if (!page || page.isClosed() || since >= 2) await boot(); since++;
+      await page.evaluate(([setupStr, crop]) => { (0, eval)('(' + setupStr + ')')(); window.__mk(crop); }, [setupStr, crop]);
+      for (let i = 0; i < N; i++) await page.evaluate(([i, dt, body]) => { (0, eval)('(' + body + ')')(i, dt); window.__cell(); }, [i, dt, stepStr]);
+      const url = await page.evaluate(() => window.__url());
+      fs.writeFileSync(path.join(OUT, name + '.png'), Buffer.from(url.split(',')[1], 'base64'));
+      console.log('sheet', name);
+    } catch (e) {
+      // swiftshader can crash the browser tab mid-run — reboot a fresh page and retry once
+      console.log('retry', name, '(' + e.message.split('\n')[0] + ')');
+      try { page = null; } catch (_) {}
+      if (!_retry) { await boot(); since = 1; await cap(name, setupStr, crop, stepStr, dt, true); }
+      else console.log('FAIL', name);
+    }
   }
   const tick = 'function(i,dt){ __wc.tick(dt); }';
   // viewmodels: idle sway + fire recoil
