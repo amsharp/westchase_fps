@@ -3823,11 +3823,19 @@ var houseFronts = [];      // final (post-nudge) house-front frames for the land
       // rotated house: ORIENTED collider hugging the true footprint. The old
       // axis-aligned AABB swallowed the driveway/side-yard corners on diagonal
       // streets — players hit "invisible walls" in front of their own garage
-      // (bug reports mree5z0n, mreealh2)
-      addColliderOBB(x, z, w / 2 + 0.2, d / 2 + 0.2, rot);
+      // (bug reports mree5z0n, mreealh2).
+      // `a`, NOT `rot`: addColliderOBB expects THREE rotation.y RADIANS, and
+      // rot is authored in degrees — cos(-67 rad) gave each diagonal house an
+      // effectively random collider yaw, so its walls were walk-through on
+      // some faces and invisible-wall on others (mrftaqio "Xander clipped
+      // inside building" + part of the invis-barrier cluster)
+      addColliderOBB(x, z, w / 2 + 0.2, d / 2 + 0.2, a);
       houseStats.colliders++;
     } else {
-      addCollider(x, z, w + 0.4, d + 0.4);
+      // near-axis house: hx/hz are the ROTATED extents (a rot≈90 house spans
+      // d along x, w along z) — raw (w,d) left the two long faces uncovered
+      // and stuck the collider 2u+ into the side yards (same reports)
+      addCollider(x, z, hx * 2 + 0.4, hz * 2 + 0.4);
       houseStats.colliders++;
     }
     // invisible raycast proxy (bullets, cop line-of-sight)
@@ -19649,7 +19657,7 @@ window.__wc = {
 };
 // collision probes for headless QA scans (separate lines so parallel agent
 // edits to the export block above don't conflict)
-window.__wc.pointFree = pointFree; window.__wc.pushOut = pushOut; window.__wc.spotClear = spotClear;
+window.__wc.pointFree = pointFree; window.__wc.pushOut = pushOut; window.__wc.spotClear = spotClear; window.__wc.solidMeshes = solidMeshes;
 
 // ---------------- boot screen handoff + menu cover art ----------------
 // apply saved user settings before the first frame (after CRT_FX default is
