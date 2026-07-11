@@ -300,3 +300,5 @@ All three FIXED@v1.66.63. mregjcuz + mreg8mld details are inline in Batch 8 / Ba
 - mrfzj1oh (78,241) 'why does the sign have alpha' (sign face has holes/transparency) — OPEN (sign texture keying; possibly a GKEY/luminance-key casualty on a sign that shouldn't be keyed)
 - mrfzl9on (80,11) 'this prop looks ridiculous, rework it' — OPEN (fetch shot; prop-quality)
 - mrfzm42w (84,-15) grill smoke too big + should emit FROM the grill; inflatable man 'terrible, figure something out' — OPEN (grill smoke = impact-size the bbq emitter + anchor at grill mouth; wacky-man = prop-quality rework or replace)
+- mrfzmw9u (72,-15) gas station price sign: bigger, on the curb, GLOWING 7-SEGMENT displays, 'leverage chat gpt here' — OPEN (owner authorizes gpt-image-1 for the sign face; RaceTrac pylon rework)
+- mrfzn54t (77,-36) floating tree roots — OPEN (tree root flare above ground; probably the oak canopy-clamp scale lift raised roots off grade — check OAK_CANOPY_MIN interaction)
