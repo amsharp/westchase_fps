@@ -11959,7 +11959,9 @@ function updateDrops(dt) {
   for (var i = drops.length - 1; i >= 0; i--) {
     var d = drops[i];
     d.mesh.rotation.y += dt * 1.6;
-    d.mesh.position.y = 0.7 + Math.sin(T * 2.2 + i) * 0.12;
+    // items are flat sprites: hover at knee height (sprite bottom skims the
+    // ground) instead of the gun-mesh band, or they read as floating litter
+    d.mesh.position.y = d.item ? (0.34 + Math.sin(T * 2.2 + i) * 0.05) : (0.7 + Math.sin(T * 2.2 + i) * 0.12);
     var dx = player.x - d.mesh.position.x, dz = player.z - d.mesh.position.z;
     if (!state.dead && dx * dx + dz * dz < 2.6) {
       if (d.net) {
@@ -12078,7 +12080,10 @@ function funItem(slot, s, def) {
 // spawn a world pickup of an item (billboard sprite; walk over to re-collect)
 function itemDropGroup(id) {
   var m = new THREE.SpriteMaterial({ map: itemTex(id), alphaTest: 0.35, transparent: true });
-  var sp = new THREE.Sprite(m); sp.scale.set(1.0, 1.0, 1.0);
+  // 0.62, not 1.0: a metre-wide flat newspaper/cardboard sprite hovering at
+  // the shared drop height read as "litter decal floating at chest height"
+  // (report mrftxqdt) — item sprites are litter-sized and hug the ground
+  var sp = new THREE.Sprite(m); sp.scale.set(0.62, 0.62, 1.0);
   var g = new THREE.Group(); g.add(sp);
   return g;
 }
