@@ -238,12 +238,44 @@ Claimed 2026-07-11. Slice = the items live batch 2 left OPEN that no other round
 NOT touching: live2-vfx (shipped), live2-anim (in flight), barrier-scrub cluster incl.
 bus-stop blocker mrftfuy6 (owner mandate), curb ride-over mrftp7em (barrier/collision
 territory), east-zone sidewalks (round5-roads).
-- PACING CLUSTER (7 reports): mrft9al8 (13,-87), mrftbul8 (-102,-169), mrftesnl (-133,77),
-  mrftf1th (-125,49), mrftf7lk (-111,45), mrftc5d4 (-121,-143), mrfttu3a (-7,74)
-  — NPC wander ping-pong / stuck pacing — IN-AGENT
-- mrftsrmg (9,167) adult NPC using the kids' wagon — IN-AGENT
-- mrftxqdt (-14,-112) litter/spill decal floating at chest height — IN-AGENT
-- mrftaqio (-34,-172) Xander clipped inside building — IN-AGENT
+- PACING CLUSTER (7 reports: mrft9al8, mrftbul8, mrftesnl, mrftf1th, mrftf7lk, mrftc5d4,
+  mrfttu3a) — FIXED@v1.66.65 (headless movement scans found TWO pathologies. (a) BLOCKED-TARGET
+  ORBITS: core wander targets (npcTarget/randTarget/group-follower ring slots) were never
+  collider-checked — a target inside a prop/building/lake collider held the whisker in an
+  eternal ~2.6-3.4u orbit (arrival needs d<1); targets now retry via spotClear, ring slots too.
+  (b) WHISKER-DANCE POCKETS: in a concave collider pocket the whisker sidesteps freely forever —
+  stepGot stays high (face-plant timer silent) and pushOut never eats the step (wall-slide
+  watchdog silent); several NPCs piled up pacing at the SAME coords ((-140.7,-14), (-101,-108.6)).
+  New no-net-progress watchdog: best distance-to-goal not improved for 4s => give up. All
+  give-up paths route through npcGiveUp(): consecutive-give-up counter (reset on real arrival),
+  re-rolls prefer a target whose first 11u of straight line is walkable (kills turn-around
+  ping-pong), and 3 straight failures with NO player within 45u = quiet door-respawn (identical
+  walk-out contract to death respawns — never pops in/out on camera; MP wires it as 'hidden').
+  Scan evidence: 120-sim-sec / 225 NPCs — pacers 57 -> 15 and TIGHT loops (bbox diag <5u,
+  the user-visible metronome) 20+ -> 0; give-up escalation verified end-to-end (orbit -> trips
+  at 5s/9.2s -> hidden 13.4s -> re-emerges walking from a door 16.2s). Watchdog gate is >1.0u,
+  not 1.2: testing found a dead zone where a blocked point held an NPC at ~1.05u forever.)
+- mrftsrmg (9,167) adult NPC using the kids' wagon — FIXED@v1.66.65 (wagon pulled from
+  ACC_POOL_WALK — asset stays for the __wc hook; re-homing it onto parents walking kids or
+  kid NPCs is future content work, kids currently ship no accessory rig)
+- mrftxqdt (-14,-112) litter/spill decal floating at chest height — FIXED@v1.66.65 (not a
+  decal: ITEM-DROP sprites (junk/food spills, NPC drops — newspaper/cardboard etc) shared the
+  weapon-drop hover band, i.e. 1m flat sprites bobbing at y~0.7 = chest height. Item sprites
+  now 0.62-scale hovering at knee height (sprite bottom skims pavement); gun meshes keep the
+  old band. Verified: 3 junk drops on the report sidewalk read as ground litter)
+- mrftaqio (-34,-172) Xander clipped inside building — FIXED@v1.66.65 (ROOT much bigger than
+  Xander: buildSurveyHouses collider registration had (1) rotated houses passing DEGREES to
+  addColliderOBB which expects RADIANS — cos(-67 rad) = random collider yaw per diagonal house;
+  (2) near-axis (rot~90) houses passing raw (w,d) unswapped to addCollider — the collider
+  covered a 90-degree-wrong footprint, both long faces walk-through, both side yards blocked.
+  Ground-truth proxy scan (sample each house's solid raycast-proxy interior at walk height for
+  pushOut-walkable points): 263/465 houses were walk-through BEFORE, 0/465 after. 8
+  historically-verified open spots regression-checked still open.)
+- NOTE for barrier-scrub (fable, in flight): the house-collider yaw fix above REMOVES a large
+  class of collider-where-no-mesh cases (mis-yawed OBBs jutting into open yards = invisible
+  walls). Re-run tools/barrierscan.js against v1.66.65 before shipping — your orphan counts
+  and the (~314,556) meshless-house diagnosis may change. Also __wc now exports
+  pointFree/pushOut/spotClear/solidMeshes for headless collision QA.
 
 ## qa2-misc (fable): mregjcuz night lighting + mreg8mld unbreakable post + facade close-up texture smear (mrf7rsy0 sub-note / mree84pq class)
 All three FIXED@v1.66.63. mregjcuz + mreg8mld details are inline in Batch 8 / Batch 7 above.
