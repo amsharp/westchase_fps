@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.92';
+var GAME_VERSION = 'v1.66.93';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -15678,13 +15678,17 @@ function tryAttack() {
     }
     if (best) {
       puff(new THREE.Vector3(best.x, 1.3, best.z), 0xd96a4f, 'blood');
-      if (isClient()) netToHost({ t: 'dmgNpc', i: npcs.indexOf(best), dmg: w.dmg, kx: fx, kz: fz });
+      // clients predict hp locally so the overhead tag bar moves on hit
+      // (mrg4gnea: host resolves the damage but never snapshots NPC hp, so
+      // online bars sat at full forever); host confirms kills via 'kill'+state
+      if (isClient()) { netToHost({ t: 'dmgNpc', i: npcs.indexOf(best), dmg: w.dmg, kx: fx, kz: fz }); best.hp = Math.max(0, (best.hp || 100) - w.dmg); }
       else damageNPC(best, w.dmg, fx, fz);
     }
     else if (bestCop) { damageCop(bestCop, w.dmg, fx, fz); puff(new THREE.Vector3(bestCop.x, 1.3, bestCop.z), 0xd96a4f, 'blood'); }
     else if (bestCopM >= 0) {
       puff(new THREE.Vector3(copsM[bestCopM].x, 1.3, copsM[bestCopM].z), 0xd96a4f, 'blood');
       netToHost({ t: 'dmgCop', id: copsM[bestCopM].nid, dmg: w.dmg, kx: fx, kz: fz });
+      copsM[bestCopM].hpM = Math.max(0, (copsM[bestCopM].hpM !== undefined ? copsM[bestCopM].hpM : 100) - w.dmg);   // tag-bar prediction (mrg4gnea)
       if (!copsM[bestCopM].down) {
         if (state.wanted < 1) setWanted(1);   // hurting a cop is star #1 — fists included
         lastCrimeT = T;
@@ -15773,13 +15777,16 @@ function tryAttack() {
     else if (npcHit) {
       puff(h.point, 0xd93a2a, 'blood');
       meleeHit = state.equipped === 'fists';
-      if (isClient()) netToHost({ t: 'dmgNpc', i: npcs.indexOf(npcHit), dmg: w.dmg, kx: dir.x, kz: dir.z });
+      // clients predict hp so the overhead bar drops on hit (mrg4gnea) — the
+      // host stays authoritative for the actual kill/credit
+      if (isClient()) { netToHost({ t: 'dmgNpc', i: npcs.indexOf(npcHit), dmg: w.dmg, kx: dir.x, kz: dir.z }); npcHit.hp = Math.max(0, (npcHit.hp || 100) - w.dmg); }
       else damageNPC(npcHit, w.dmg, dir.x, dir.z, ghostActive());   // #78 Ghost: silenced kills stay silent (no star)
     }
     else if (remoteHit) { netSendHit(remoteHit, w.dmg, true); puff(h.point, 0xd93a2a, 'blood'); }
     else if (copMHit >= 0) {
       puff(h.point, 0xd93a2a, 'blood');
       netToHost({ t: 'dmgCop', id: copsM[copMHit] ? copsM[copMHit].nid : undefined, dmg: w.dmg, kx: dir.x, kz: dir.z });
+      if (copsM[copMHit]) copsM[copMHit].hpM = Math.max(0, (copsM[copMHit].hpM !== undefined ? copsM[copMHit].hpM : 100) - w.dmg);   // tag-bar prediction (mrg4gnea)
       if (copsM[copMHit] && !copsM[copMHit].down) {
         if (state.wanted < 1) setWanted(1);   // hurting a cop is star #1, even a host-simmed one
         lastCrimeT = T;
@@ -15859,10 +15866,14 @@ function drawQuickBar(W, H) {
   for (var i = 0; i < n; i++) {
     var w = list[i], eq = (w === state.equipped), bx = x0 + i * (sw + gap);
     hudCx.fillStyle = '#000'; hudCx.fillRect(bx - 1, y0 - 1, sw + 2, bh + 2);
-    hudCx.fillStyle = eq ? 'rgba(255,180,40,0.92)' : 'rgba(10,13,20,0.74)'; hudCx.fillRect(bx, y0, sw, bh);
-    if (eq) { hudCx.strokeStyle = '#ffe9a0'; hudCx.lineWidth = 2; hudCx.strokeRect(bx + 1, y0 + 1, sw - 2, bh - 2); }
-    hudText('' + ((i + 1) % 10), bx + sw / 2, y0 + 11, 10, eq ? '#3a2a06' : '#8fa0b8', 'center');
-    drawPix(QB_ABBR[w] || w.substr(0, 3), bx + sw / 2 + 1, y0 + 15, apx, eq ? '#20160a' : '#dfe6f0', 'center');
+    // selected slot: dark amber plate + bright border + GOLD text. The old
+    // solid-amber plate under near-black text buried the label (mrg4td44
+    // "hot bar text is hard to read when you have the item selected") —
+    // bright-on-dark matches every other PIX readout on this HUD.
+    hudCx.fillStyle = eq ? 'rgba(66,44,10,0.92)' : 'rgba(10,13,20,0.74)'; hudCx.fillRect(bx, y0, sw, bh);
+    if (eq) { hudCx.strokeStyle = '#ffd200'; hudCx.lineWidth = 2; hudCx.strokeRect(bx + 1, y0 + 1, sw - 2, bh - 2); }
+    hudText('' + ((i + 1) % 10), bx + sw / 2, y0 + 11, 10, eq ? '#ffe9a0' : '#8fa0b8', 'center');
+    drawPix(QB_ABBR[w] || w.substr(0, 3), bx + sw / 2 + 1, y0 + 15, apx, eq ? '#ffd200' : '#dfe6f0', 'center');
   }
 }
 function pushKillFeed(txt, col) {
@@ -18135,7 +18146,11 @@ function giveUnlock(flag) {
 
 // ---------------- input ----------------
 var canvas = renderer.domElement;
-function lockPointer() { if (WC_BOT) return; if (canvas.requestPointerLock) canvas.requestPointerLock(); }   // headless bot has no user gesture
+// headless bot has no user gesture. Swallow the promise rejection newer
+// Chromes return when a re-lock lands inside the ~1.25s post-Esc cooldown
+// (mrg4egvx: Esc-resume can race it — the PAUSED overlay simply stays up and
+// the next Esc/click gets the lock).
+function lockPointer() { if (WC_BOT) return; if (canvas.requestPointerLock) { var pr = canvas.requestPointerLock(); if (pr && pr.catch) pr.catch(function () { }); } }
 var startScreen = document.getElementById('startScreen');
 var pauseScreen = document.getElementById('pauseScreen');
 function startGame() {
@@ -18303,9 +18318,10 @@ function updateNpcTags() {
   var px = player.x, pz = player.z, R2 = NPC_TAG_RANGE * NPC_TAG_RANGE, cands = [];
   for (i = 0; i < npcs.length; i++) { var n = npcs[i]; if (n.state === 'down' || n.state === 'ragdoll' || n.state === 'hidden') continue; var d2 = (n.x - px) * (n.x - px) + (n.z - pz) * (n.z - pz); if (d2 < R2) cands.push({ e: n, d2: d2, kind: 'npc', by: 0 }); }
   for (i = 0; i < cops.length; i++) { var cp = cops[i]; if (cp.state === 'down' || cp.interior) continue; var cd2 = (cp.x - px) * (cp.x - px) + (cp.z - pz) * (cp.z - pz); if (cd2 < R2) cands.push({ e: cp, d2: cd2, kind: 'cop', by: cp.baseY || 0 }); }
-  // clients mirror street cops in copsM (their `cops` array is empty) — no hp on
-  // the wire, so their bar reads full until they go down
-  for (i = 0; i < copsM.length; i++) { var cm = copsM[i]; if (cm.down) continue; var md2 = (cm.x - px) * (cm.x - px) + (cm.z - pz) * (cm.z - pz); if (md2 < R2) cands.push({ e: { x: cm.x, z: cm.z, hp: 100, vname: 'POLICE' }, d2: md2, kind: 'cop', by: 0 }); }
+  // clients mirror street cops in copsM (their `cops` array is empty) — no hp
+  // on the wire, so the bar shows the locally-PREDICTED hp (hpM, decremented
+  // where dmgCop is sent; reset on slot reuse — mrg4gnea)
+  for (i = 0; i < copsM.length; i++) { var cm = copsM[i]; if (cm.down) continue; var md2 = (cm.x - px) * (cm.x - px) + (cm.z - pz) * (cm.z - pz); if (md2 < R2) cands.push({ e: { x: cm.x, z: cm.z, hp: cm.hpM !== undefined ? cm.hpM : 100, vname: 'POLICE' }, d2: md2, kind: 'cop', by: 0 }); }
   cands.sort(function (a, b) { return a.d2 - b.d2; });
   var nShow = Math.min(cands.length, NPC_TAG_MAX);
   for (i = 0; i < NPC_TAG_MAX; i++) {
@@ -18987,6 +19003,9 @@ function applyWorldSnap(dt) {
     else { n.x = ilerp(sp && sp.npcs, i, 0, b[0]) / 10; n.z = ilerp(sp && sp.npcs, i, 1, b[1]) / 10; }
     n.hiddenM = isHid;
     nm.visible = !isHid;
+    // host confirmed a respawn (down/ragdoll -> alive again): reset the
+    // locally-predicted hp so the reused slot's tag bar reads full (mrg4gnea)
+    if ((n.state === 'down' || n.state === 'ragdoll') && st !== 2 && st !== 3) n.hp = 100;
     n.state = st === 2 ? 'down' : (st === 3 ? 'ragdoll' : (isHid ? 'hidden' : 'walk'));
     nm.position.set(n.x, st === 3 ? (b[4] / 10 || 0) : 0, n.z);
     nm.rotation.y = b[2] / 100;
@@ -19022,6 +19041,7 @@ function applyWorldSnap(dt) {
     if (!cp.down && cp.mesh.userData.handR && (cp.mesh.userData.heldKind || null) !== wantGunM) attachHeldGun(cp.mesh, wantGunM);
     var cox = cp.x, coz = cp.z;
     cp.x = ilerp(sp && sp.cops, i, 0, cs[0]) / 10; cp.z = ilerp(sp && sp.cops, i, 1, cs[1]) / 10;
+    if (cp.nid !== cs[4]) cp.hpM = 100;   // slot reused by a fresh cop: reset the predicted tag-bar hp (mrg4gnea)
     cp.nid = cs[4];   // stable host-side id, so dmgCop can't mistarget after a despawn
     if (cs[3] === 2) cp.hit = false;   // kill confirmed: free the run-over latch (slots get reused)
     cp.down = cs[3] === 2;
@@ -19380,7 +19400,11 @@ document.getElementById('btnCopy').addEventListener('click', function () {
 if (location.hash.indexOf('#join=') === 0) {
   document.getElementById('joinCode').value = location.hash.split('#join=').pop();
 }
-pauseScreen.addEventListener('click', function () { pauseScreen.classList.add('hidden'); lockPointer(); });
+// resume on click: request the lock and let the pointerlockchange handler
+// below hide the overlay once it actually lands — hiding it eagerly left a
+// dead state (no menu, free mouse) when the browser refused the re-lock
+// inside its post-Esc cooldown (mrg4egvx)
+pauseScreen.addEventListener('click', function () { lockPointer(); });
 document.addEventListener('pointerlockchange', function () { var locked = document.pointerLockElement === canvas; if (!locked && photoMode) exitPhotoMode(); if (!locked && state.running && !state.menu && !chatOpen && !bugOpen) pauseScreen.classList.remove('hidden'); else if (locked) pauseScreen.classList.add('hidden'); });
 document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 document.addEventListener('mousemove', function (e) { if (document.pointerLockElement !== canvas || state.menu) return; var sens = 0.0022 * (zoomed ? 0.35 : 1) * lookSens; yaw -= e.movementX * sens; pitch -= (lookInvert ? -1 : 1) * e.movementY * sens; pitch = Math.max(-1.45, Math.min(1.45, pitch)); });
@@ -19882,6 +19906,16 @@ document.addEventListener('keydown', function (e) {
   }
   if (e.code === 'Escape' && state.menu) closeMenus(false);
   if (e.code === 'Escape' && !state.running && creatorOpen) closeCreator();
+  // ---- ESC toggles the pause menu (report mrg4egvx: "esc only exposes the
+  // mouse"). The FIRST Esc in pointer lock is consumed by the browser (it just
+  // drops the lock — that can't be intercepted) and the pointerlockchange
+  // handler above raises the PAUSED overlay. This handles every Esc AFTER
+  // that: overlay up -> resume (re-lock; the pointerlockchange handler hides
+  // the overlay once the lock lands), overlay down + mouse free -> pause.
+  if (e.code === 'Escape' && state.running && !state.menu && !state.dead && !chatOpen && !bugOpen && !photoMode) {
+    if (!pauseScreen.classList.contains('hidden')) { e.preventDefault(); lockPointer(); }
+    else if (document.pointerLockElement !== canvas) { e.preventDefault(); pauseScreen.classList.remove('hidden'); }
+  }
 });
 document.addEventListener('keyup', function (e) { keys[e.code] = false; if (e.code === 'KeyV') voiceStop(); });
 // safety: never leave the mic hot if focus/lock is lost mid-transmit
@@ -20342,7 +20376,13 @@ function drawHudCanvas() {
   for (var di = dmgDirs.length - 1; di >= 0; di--) {
     var hitAge = T - dmgDirs[di].t;
     if (hitAge > 0.9) { dmgDirs.splice(di, 1); continue; }
-    var rel = dmgDirs[di].a - yaw;               // 0 = straight ahead
+    // screen-relative bearing to the source, 0 = straight ahead. The camera
+    // looks down -z at yaw 0 while dmgDirs stores atan2(dx,dz) (a +z-forward
+    // world angle), so mirror front/back: rel = PI - (a - yaw). The old
+    // `a - yaw` had ahead/behind swapped while left/right happened to match
+    // (report mrg4dns9 "chevrons 180 off") — verified against spawned sources
+    // on all four cardinals.
+    var rel = Math.PI - (dmgDirs[di].a - yaw);
     var alpha2 = 1 - hitAge / 0.9;
     var rr2 = Math.min(W, H) * 0.24;
     var cxp = W / 2 + Math.sin(rel) * rr2, cyp = H / 2 - Math.cos(rel) * rr2;
@@ -20396,11 +20436,13 @@ function drawHudCanvas() {
   var hy = H - M - 42;
   drawSprite(SPR_HEART, M, hy + 8, 3, '#ff3b56');
   drawPix('' + hp, M + 34, hy, 6, hcol, 'left');
-  // ---- active-quest tracker (top-left — the bitmap layout keeps this corner
-  // free; quest name in pixel type, objective line in small flavor text) ----
+  // ---- active-quest tracker (left edge, BELOW the top bar: the compass strip
+  // sits topmost, wanted stars under it, and the tracker clears both — its old
+  // M+10 anchor put the panel across the compass' left half and the star row
+  // on long objective lines, report mrg4brvw) ----
   var qo = questObjectiveText();
   if (qo) {
-    var qy = M + 10;
+    var qy = starY + 34;   // stars end at starY+18; 8px gap above the panel plate
     var otxt = (qo.text === 'COMPLETE') ? '✔ COMPLETE' : ('◆ ' + qo.text);
     hudCx.font = 'bold 12px "Courier New",monospace';
     var qtw = hudCx.measureText(otxt).width;
@@ -20490,7 +20532,9 @@ function drawHudCanvas() {
   if (settings && settings.fps) {
     var fv = Math.round(fpsVal);
     var fcol = fv >= 50 ? '#8ee87f' : (fv >= 30 ? '#ffd200' : '#ff5a3a');
-    var fy = hudMmB + 6;
+    // below the minimap line AND below the quest tracker (which now hangs
+    // under the top bar on the same left edge — mrg4brvw layout pass)
+    var fy = Math.max(hudMmB + 6, qo ? qy + 52 : 0);
     hudText('FPS ' + (fv || '--'), M, fy, 13, fcol, 'left');
     var ri = (renderer && renderer.info && renderer.info.render) ? renderer.info.render : null;
     if (ri) {
