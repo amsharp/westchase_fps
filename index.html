@@ -121,6 +121,11 @@
   .bugBtn.primary { background:#1c74a8; border-color:#5ad6ff; color:#fff; font-weight:bold; }
   .bugBtn:hover { filter:brightness(1.15); }
   #dmgFlash { position:fixed; inset:0; background:#c00; opacity:0; pointer-events:none; z-index:9; transition:opacity .45s; }
+  /* sustained low-health cue: red pulsing edge vignette below ~30% HP. JS
+     (updateHUD) drives its opacity from HP + a sine pulse; transparent center
+     keeps the play area clear. */
+  #lowHpVig { position:fixed; inset:0; pointer-events:none; z-index:8; opacity:0; will-change:opacity;
+    background:radial-gradient(ellipse at center, rgba(140,0,0,0) 46%, rgba(150,0,0,0.55) 80%, rgba(90,0,0,0.9) 100%); }
   #waterFx { position:fixed; inset:0; pointer-events:none; z-index:7;
     background:radial-gradient(circle at center, rgba(20,80,150,0.38) 0%, rgba(8,40,90,0.55) 100%); }
   #scope { position:fixed; inset:0; pointer-events:none; z-index:8;
@@ -265,6 +270,7 @@
   </div>
 </div>
 <div id="dmgFlash"></div>
+<div id="lowHpVig"></div>
 <div id="waterFx" class="hidden"></div>
 <div id="scope" class="hidden"></div>
 <div id="crtFx"></div>
@@ -275,8 +281,8 @@
   <h2>A PS1-STYLE FLORIDA STORY &middot; TAMPA, FL</h2>
   <div class="controls">
     WASD — move &nbsp;&nbsp; MOUSE — look &nbsp;&nbsp; SHIFT — run &nbsp;&nbsp; SPACE — jump &nbsp;&nbsp; TAB — inventory<br>
-    LEFT CLICK — punch / shoot &nbsp;&nbsp; E — dealer / gas station / steal car<br>
-    <span style="color:#5ad6ff">MULTIPLAYER:</span> ENTER — chat &nbsp;&nbsp; HOLD V — voice &nbsp;&nbsp; F8 — report a bug
+    LEFT CLICK — punch / shoot &nbsp;&nbsp; 1-0 — pick weapon &nbsp;&nbsp; E — dealer / gas station / steal car<br>
+    <span style="color:#ffd94a">H — controls / help</span> &nbsp;&nbsp; <span style="color:#5ad6ff">MULTIPLAYER:</span> ENTER — chat &nbsp;&nbsp; HOLD V — voice &nbsp;&nbsp; F8 — report a bug
   </div>
   <div id="menuMain">
     <div class="joinRow"><input id="playerName" maxlength="12" placeholder="your display name (shown in multiplayer)"></div>
@@ -307,7 +313,7 @@
   <div id="gameVer"></div>
 </div>
 
-<div id="pauseScreen" class="overlay hidden"><h1>PAUSED</h1><p style="margin-top:10px">click to resume</p><button class="menuBtn" id="btnPauseSettings" style="width:320px; margin-top:22px">SETTINGS</button></div>
+<div id="pauseScreen" class="overlay hidden"><h1>PAUSED</h1><p style="margin-top:10px">click to resume</p><button class="menuBtn" id="btnPauseHelp" style="width:320px; margin-top:22px">CONTROLS</button><button class="menuBtn" id="btnPauseSettings" style="width:320px; margin-top:13px">SETTINGS</button></div>
 <div id="deadScreen" class="overlay hidden"><h1>KNOCKED OUT</h1><p id="deadInfo"></p></div>
 
 <div id="shopPanel" class="panel hidden">
@@ -350,6 +356,30 @@
   <p id="clerkSay" style="margin-bottom:12px; color:#cfc9b4; font-size:15px;"></p>
   <div id="clerkRows"></div>
   <div class="footer">[ESC] walk away</div>
+</div>
+
+<div id="helpPanel" class="panel hidden">
+  <h1>CONTROLS</h1>
+  <div class="row"><span class="desc">MOVE</span><span>W A S D</span></div>
+  <div class="row"><span class="desc">LOOK</span><span>MOUSE</span></div>
+  <div class="row"><span class="desc">SPRINT / JUMP</span><span>SHIFT&nbsp;/&nbsp;SPACE</span></div>
+  <div class="row"><span class="desc">PUNCH / SHOOT</span><span>LEFT CLICK</span></div>
+  <div class="row"><span class="desc">AIM / SCOPE</span><span>RIGHT CLICK</span></div>
+  <div class="row"><span class="desc">SELECT WEAPON</span><span>1 &ndash; 0</span></div>
+  <div class="row"><span class="desc">CYCLE WEAPON</span><span>MOUSE WHEEL</span></div>
+  <div class="row"><span class="desc">INVENTORY</span><span>TAB</span></div>
+  <div class="row"><span class="desc">QUEST LOG</span><span>J</span></div>
+  <div class="row"><span class="desc">INTERACT&nbsp;<small>dealer / store / car / doors</small></span><span>E</span></div>
+  <div class="row"><span class="desc">HORN&nbsp;<small>while driving</small></span><span>H</span></div>
+  <div class="row"><span class="desc">MINIMAP ZOOM</span><span>[&nbsp;&nbsp;]&nbsp;&middot;&nbsp;CTRL+WHEEL</span></div>
+  <div class="row"><span class="desc">CHAT / VOICE&nbsp;<small>multiplayer</small></span><span>ENTER&nbsp;/&nbsp;HOLD V</span></div>
+  <div class="row"><span class="desc">REPORT A BUG</span><span>F8</span></div>
+  <div class="row"><span class="desc">THIS SCREEN</span><span>H</span></div>
+  <div class="row"><span class="desc">PAUSE / CLOSE</span><span>ESC</span></div>
+  <div class="footer">
+    <button id="btnHelpDone">DONE</button>
+    &nbsp;·&nbsp; [H] or [ESC] to close
+  </div>
 </div>
 
 <div id="settingsPanel" class="panel hidden">
