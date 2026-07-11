@@ -70,7 +70,7 @@ var keys = {}, mouseDown = false;
 var yaw = 0, pitch = 0;
 var player = { x: -72, z: -97, y: EYE, vy: 0, grounded: true };   // Publix lot, next to the dealer
 var spawnX = -72, spawnZ = -97;   // where death respawns you — overridden to the real spawn per world
-var lastShot = -99, punchT = -99, recoil = 0, punchSide = false, punchSlap = false, gunBloom = 0, equipT = -99;
+var lastShot = -99, punchT = -99, recoil = 0, recoilV = 0, punchSide = false, punchSlap = false, gunBloom = 0, equipT = -99;
 // FP viewmodel idle sway state: eased look-lag (weapon trails a beat behind the
 // turn) + a remembered view angle to diff against. Breathing itself is a pure
 // sin(T) term computed inline — no state needed.
@@ -15591,7 +15591,7 @@ var ANCHOR_OFF = {
   pistol: [0.06, -0.06, -0.32],
   smg:    [0.09, -0.05, -0.36],
   rifle:  [0.10, -0.05, -0.39],
-  auto:   [0.13, -0.13, -0.39],   // v1.66.87: lowered so the support forearm enters from the bottom, not across the frame
+  auto:   [0.24, -0.24, -0.39],   // v1.66.97: shoulder low + right so the support forearm enters near-vertically from the bottom-right edge (was a diagonal/central bare mass)
   rocket: [0.10, -0.05, -0.36],
   silenced: [0.06, -0.06, -0.32]
 };
@@ -15638,7 +15638,7 @@ var GRIP_TGT = {
   // (no pistol entry — one-handed, see SUPPORT_POSE)
   smg:    [0.248, -0.15, -0.696],   // v1.66.87: diagonal composition
   rifle:  [0.079, -0.173, -0.741],  // v1.66.87: diagonal composition
-  auto:   [0.16, -0.05, -0.66],   // v1.66.94: raised+forward onto the wood handguard so the support hand wraps it (was floating below)
+  auto:   [0.24, 0.02, -0.72],   // v1.66.97: hand lifted up-right-forward so it actually contacts+wraps the wood handguard (was a fist curling in air below-left of the wood)
   rocket: [0.159, -0.231, -0.598],  // v1.66.87: diagonal composition
   silenced: [0.21, -0.40, -0.52]
 };
@@ -15981,7 +15981,7 @@ var vmAuto = new THREE.Group();
     var aAr1 = vmArm(0.31, -0.47, -0.33, 0.18); aAr1.userData.gunArm = 1; vmAuto.add(aAr1);
     var aAr2 = vmArm(0.15, -0.42, -0.78, -0.3); aAr2.userData.gunArm = 1; vmAuto.add(aAr2);
     WEAPONS.auto.flashAt = meshyMuzzleAt(mg);
-    WEAPONS.auto.flashScale = 0.9;
+    WEAPONS.auto.flashScale = 0.42;   // v1.66.97: was 0.9 — Gemini flagged the flash as oversized, obscuring center-frame
     return;
   }
   vmAuto.add(box(0.07, 0.09, 0.34, metalM, 0.26, -0.265, -0.5));            // receiver
@@ -16131,7 +16131,11 @@ Object.keys(vmMap).forEach(function (k) { vm.add(vmMap[k]); vmMap[k].visible = f
 // bottom of the frame (grip cut off at a level look). The equipped group's
 // position is rebased to this per-weapon lift each frame (see the draw block),
 // which moves gun AND arms together so the grip relationship is preserved.
-var VM_LIFT = { pistol: 0.24, smg: 0.12, rifle: 0.11, auto: 0.02, rocket: 0.11, silenced: 0.24 };
+var VM_LIFT = { pistol: 0.24, smg: 0.12, rifle: 0.11, auto: -0.22, rocket: 0.11, silenced: 0.24 };   // auto dropped: Gemini-measured muzzle 42%->50%(-0.10)->~57%(-0.20) screen height
+// v1.66.97: per-weapon lateral shift of the whole equipped group (gun AND arms
+// together, so the grip is preserved) — nudges the AK from center toward the
+// SPEC lower-RIGHT anchor (muzzle target x=55; it was reading ~52 = "central").
+var VM_SHIFT = { auto: 0.055 };
 vmFists.visible = true;
 var zoomed = false;
 function setZoom(on) {
@@ -16246,8 +16250,18 @@ function tryAttack() {
     recoilPitch += 0.04;
     return;
   }
-  flash.visible = true; flash.position.set(w.flashAt[0], w.flashAt[1], w.flashAt[2]); flash.rotation.z = Math.random() * Math.PI; flash.scale.setScalar((w.flashScale || 1) * (0.85 + Math.random() * 0.35)); flashT = 0.07;   // v1.66.94: was 0.045 — too brief to read (and to survive a capture frame)
+  // flash is a child of vm, but the gun group (wg) is offset within vm by
+  // VM_LIFT — so the muzzle-tip flashAt (measured in gun-local space) must be
+  // shifted by the equipped weapon's lift or the flash floats off the barrel
+  // (v1.66.97: the big auto drop pushed it up to center-screen).
+  var _vlf = VM_LIFT[state.equipped] || 0, _vsx = VM_SHIFT[state.equipped] || 0;
+  flash.visible = true; flash.position.set(w.flashAt[0] + _vsx, w.flashAt[1] + _vlf, w.flashAt[2]); flash.rotation.z = Math.random() * Math.PI; flashT = 0.07;   // v1.66.94: was 0.045 — too brief to read (and to survive a capture frame)
+  // per-shot variety (Gemini): jitter overall size + a slight non-uniform stretch
+  // + hue between hot-white and orange so no two flashes look identical.
+  var _fb = (w.flashScale || 1) * (0.78 + Math.random() * 0.5);
+  flash.scale.set(_fb * (0.85 + Math.random() * 0.4), _fb * (0.85 + Math.random() * 0.4), 1);
   if (flashTexs.length) flash.material.map = flashTexs[(Math.random() * flashTexs.length) | 0];
+  else if (flash.material.color) flash.material.color.setHSL(0.09 + Math.random() * 0.06, 1, 0.6 + Math.random() * 0.25);
   sfx(state.equipped);
   var dir = new THREE.Vector3(); camera.getWorldDirection(dir);
   // bloom weapons (SMG): tight while tapping, blossoms under sustained fire
@@ -20663,6 +20677,9 @@ function updatePlayer(dt) {
   recoilPitch += -recoilPitch * Math.min(1, dt * 5);   // recoil recovers back to the aim over ~0.4s (was: pitch climbed and stuck)
   camera.position.set(player.x, player.y, player.z); camera.rotation.y = yaw; camera.rotation.x = Math.max(-1.45, Math.min(1.45, pitch + recoilPitch + divePitch));
   var moving = (f || s) && player.grounded; var bob = moving ? Math.sin(T * (spd > 6 ? 13 : 9)) * 0.035 : 0; camera.position.y += bob;
+  // horizontal walk-bob at HALF the vertical cadence → a natural figure-eight
+  // weight-shift (Gemini: "stiff vertical bobbing lacks horizontal sway").
+  var bobX = moving ? Math.sin(T * (spd > 6 ? 6.5 : 4.5)) * 0.022 : 0;
   // ---- surface footsteps (#47): advance a step phase by cadence; each wrap
   // plays one footstep whose timbre matches the ground underfoot ----
   if (moving && !state.sitting) {
@@ -20679,7 +20696,16 @@ function updatePlayer(dt) {
   }
   if (state.sitting) camera.position.y -= 0.55;   // seated eye height
   camera.position.y += diveDip;                    // dumpster-dive head dip
-  recoil = Math.max(0, recoil - dt * 8);
+  // recoil: underdamped spring back to rest so the muzzle kick RECOVERS with a
+  // slight settle bounce (dips a hair past zero, then eases home) instead of a
+  // stiff linear snap. Gemini flagged the old linear decay as "no settle".
+  // Substepped so the stiff spring stays stable at the 15fps capture dt.
+  var _rst = dt > 0.04 ? Math.ceil(dt / 0.04) : 1, _rdt = dt / _rst;
+  for (var _rs = 0; _rs < _rst; _rs++) {
+    recoilV += (-recoil * 210 - recoilV * 10) * _rdt;   // softer/underdamped: kick snaps up, then eases home past zero with a clear settle bounce over ~0.4s (reads at 15fps)
+    recoil += recoilV * _rdt;
+  }
+  if (recoil < 0.0005 && recoil > -0.0005 && recoilV > -0.02 && recoilV < 0.02) { recoil = 0; recoilV = 0; }
   // ---- idle breathing + weapon look-sway ----
   // The FP viewmodel used to sit dead-static at rest (only recoil + walk-bob
   // moved it). Give it a life-signal: a two-axis breathing wobble driven by T
@@ -20691,21 +20717,28 @@ function updatePlayer(dt) {
   var brX = Math.sin(T * 1.1 + 0.7) * 0.006 * swayAmt;
   var dYaw = yaw - vmSwayYaw; if (dYaw > Math.PI) dYaw -= 2 * Math.PI; else if (dYaw < -Math.PI) dYaw += 2 * Math.PI;
   var dPit = pitch - vmSwayPit; vmSwayYaw = yaw; vmSwayPit = pitch;
-  var swK = 1 - Math.exp(-dt * 10);   // v1.66.94: framerate-independent smoothing — the old min(1,dt*10) saturated to 1 (zero lag) at low fps, killing the look-sway
-  vmSwayX += (-dYaw * 0.9 - vmSwayX) * swK;      // ease toward the turn-lag target
-  vmSwayY += (dPit * 0.9 - vmSwayY) * swK;
-  vm.position.x = brX + vmSwayX * 0.06;
-  vm.position.z = recoil * 0.10;                 // snappier muzzle kick back toward the shoulder
-  vm.position.y = bob * 0.5 + brY + vmSwayY * 0.05 + recoil * 0.012;   // slight muzzle-rise lift
-  vm.rotation.x = recoil * 0.095 + brY * 0.7 + vmSwayY * 0.18;         // more visible barrel-climb
-  vm.rotation.y = vmSwayX * 0.14;
-  vm.rotation.z = brX * 0.5 - vmSwayX * 0.25;
+  // v1.66.97: pronounced turn-lag so the weapon visibly trails the camera with
+  // WEIGHT (Gemini: "zero rotational lag/inertia"). Slower follow (exp(-dt*5)) =
+  // longer trail; the swing target is velocity-proportional and CLAMPED so fast
+  // flicks stay sane; large rotation/position coeffs make the lean readable.
+  var swK = 1 - Math.exp(-dt * 5);   // framerate-independent smoothing (min() saturated to zero-lag at low fps)
+  var _sx = -dYaw * 3.2; if (_sx > 0.32) _sx = 0.32; else if (_sx < -0.32) _sx = -0.32;
+  var _sy = dPit * 2.8;  if (_sy > 0.32) _sy = 0.32; else if (_sy < -0.32) _sy = -0.32;
+  vmSwayX += (_sx - vmSwayX) * swK;              // ease toward the (clamped) turn-lag target
+  vmSwayY += (_sy - vmSwayY) * swK;
+  vm.position.x = brX + vmSwayX * 0.16 + bobX;
+  vm.position.z = recoil * 0.14;                 // snappier muzzle kick back toward the shoulder
+  vm.position.y = bob * 0.5 + brY + vmSwayY * 0.10 + recoil * 0.02;    // muzzle-rise lift
+  vm.rotation.x = recoil * 0.13 + brY * 0.7 + vmSwayY * 0.4;           // more visible barrel-climb + settle dip
+  vm.rotation.y = vmSwayX * 0.42;
+  vm.rotation.z = brX * 0.5 - vmSwayX * 0.55 + bobX * 6;   // slight weight-shift roll coupled to the horizontal walk-bob
   gunBloom = Math.max(0, gunBloom - dt * 0.06);   // spread recovers ~0.7s after easing off
   // weapon draw + rocket reload animations (procedural, PS1-cheap)
   var wg = vmMap[state.equipped];
   if (wg && state.equipped !== 'fists' && state.equipped !== 'snack' && state.equipped !== 'soda') {
     var vlift = VM_LIFT[state.equipped] || 0;
-    wg.position.set(0, vlift, 0); wg.rotation.set(0, 0, 0);
+    var vshx = VM_SHIFT[state.equipped] || 0;
+    wg.position.set(vshx, vlift, 0); wg.rotation.set(0, 0, 0);
     var det = T - equipT;
     if (det >= 0 && det < 0.45) {   // draw: rise from below with a rolling rack
       var ek = 1 - det / 0.45; ek *= ek;
