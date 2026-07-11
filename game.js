@@ -804,9 +804,21 @@ function sidewalk(cx, cz, w, d, raise) {
   var m = lamb({ map: walkT.clone() }); m.map.repeat.set(w / 8, d / 8); m.map.needsUpdate = true;
   var mesh = new THREE.Mesh(geo, m); mesh.position.set(cx, raise ? 0.125 : 0.12, cz); scene.add(mesh);
 }
+// Parking/pavement lots share the ~0.1 ground band and their painted stripes
+// are baked INTO the texture, so two overlapping lots (or a lot over the merged
+// house apron) at the same y z-fight — stripes flicker in/out with the camera
+// (report mrgn7ixv @ -82,5). A per-surface depth bias (like the road-paint
+// polygonOffset) gives every lot a distinct, camera-independent depth so
+// coplanar lots never fight. Cheap, no visible y change. Cycled + combined with
+// the small y-ladder so the bias stays modest and bounded.
+var _parkSeq = 0;
+function parkDepthBias(m) {
+  m.polygonOffset = true; m.polygonOffsetFactor = -1; m.polygonOffsetUnits = -1 - (_parkSeq++ % 14);
+  return m;
+}
 function parkingLot(cx, cz, w, d) {
   var geo = new THREE.PlaneGeometry(w, d); geo.rotateX(-Math.PI / 2);
-  var m = lamb({ map: parkingT.clone() }); m.map.repeat.set(w / 22, d / 22); m.map.needsUpdate = true;
+  var m = parkDepthBias(lamb({ map: parkingT.clone() })); m.map.repeat.set(w / 22, d / 22); m.map.needsUpdate = true;
   var mesh = new THREE.Mesh(geo, m); mesh.position.set(cx, 0.1, cz); scene.add(mesh);
   mapParking.push({ x: cx, z: cz, w: w, d: d });
 }
@@ -2412,7 +2424,7 @@ function remapSurfaces() {
   for (var i = 0; i < REMAP_SURFACES.length; i++) {
     var s = REMAP_SURFACES[i], park = s.kind === 'parking';
     var geo = new THREE.PlaneGeometry(s.w, s.d); geo.rotateX(-Math.PI / 2);
-    var m = lamb({ map: (park ? parkingT : concreteT).clone() });
+    var m = parkDepthBias(lamb({ map: (park ? parkingT : concreteT).clone() }));
     m.map.repeat.set(Math.max(1, s.w / (park ? 22 : 6)), Math.max(1, s.d / (park ? 22 : 6))); m.map.needsUpdate = true;
     var mesh = new THREE.Mesh(geo, m);
     // per-surface y ladder so overlapping same-kind lots don't sit coplanar and
@@ -4148,7 +4160,7 @@ var houseFronts = [];      // final (post-nudge) house-front frames for the land
     lgeo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(luv), 2));
     var lt = parkingT.clone(); lt.needsUpdate = true;
     lt.wrapS = lt.wrapT = THREE.RepeatWrapping;
-    var lmesh = new THREE.Mesh(lgeo, lamb({ map: lt }));
+    var lmesh = new THREE.Mesh(lgeo, parkDepthBias(lamb({ map: lt })));
     scene.add(lmesh);
     houseStats.meshes++;
   }
