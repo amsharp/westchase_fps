@@ -886,9 +886,15 @@ function addSignGlow(x, y, z, ry, w, h) {
   return hm;
 }
 function signPlane(x, y, z, ry, w, h, lines, bg, fg, noGlow) {
-  var m = new THREE.Mesh(new THREE.PlaneGeometry(w, h),
-    new THREE.MeshBasicMaterial({ map: signTex(lines, bg, fg), side: THREE.DoubleSide }));
+  // two front-side planes back-to-back (greenSign lesson): a single DoubleSide
+  // plane shows MIRRORED text from behind (reports mrftt0x4/mrgmtcce — the
+  // SELF STORAGE fascia read reversed from the back).
+  var geo = new THREE.PlaneGeometry(w, h);
+  var mat = new THREE.MeshBasicMaterial({ map: signTex(lines, bg, fg) });
+  var m = new THREE.Mesh(geo, mat);
   m.position.set(x, y, z); m.rotation.y = ry; scene.add(m);
+  var b = new THREE.Mesh(geo, mat);
+  b.position.set(x, y, z); b.rotation.y = ry + Math.PI; scene.add(b);
   if (!noGlow) addSignGlow(x, y, z, ry, w, h);
   return m;
 }
@@ -904,8 +910,12 @@ function publixSign(x, y, z, ry, w, h) {
   tx.repeat.set(Math.max(1, Math.round((w / h) / aspect)), 1);
   im.onload = function () { tx.needsUpdate = true; };
   im.src = PUBLIX_SIGN;
-  var m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: tx, side: THREE.DoubleSide }));
+  // two front-side planes back-to-back (DoubleSide mirrors the wordmark from behind)
+  var pgeo = new THREE.PlaneGeometry(w, h), pmat = new THREE.MeshBasicMaterial({ map: tx });
+  var m = new THREE.Mesh(pgeo, pmat);
   m.position.set(x, y, z); m.rotation.y = ry; m.name = 'publixSign'; scene.add(m);
+  var pb = new THREE.Mesh(pgeo, pmat);
+  pb.position.set(x, y, z); pb.rotation.y = ry + Math.PI; pb.name = 'publixSign'; scene.add(pb);
   addSignGlow(x, y, z, ry, w, h);
   return m;
 }
