@@ -97,6 +97,14 @@ that only run at runtime are safe anywhere.
 
 ## World layout (hand-authored, matches satellite reference)
 
+**STALE-COORDS WARNING (WC_REMAP):** the current build rebuilds the world from
+editor data (`WC_REMAP` / remapdata.js) and several coordinates below are the
+LEGACY axis-world values. Verified live values as of v1.66.65: **lake
+`LAKE {x:-280, z:55, r:62}`** (SW field — NOT -255,-150), **player spawn
+(-63,4)**, **dealer (-60,0)** (see `PARKED_CLEAR`). Check the constants at the
+top of game.js before trusting any coordinate in this section; headless tests
+against stale spots silently probe empty ground.
+
 Map is 680×680 (HALF=340), origin at the main intersection. Main road E–W at
 z=0 (MAIN_HW=14), cross road N–S at x=0 (CROSS_HW=11). Perimeter = fogged
 forest walls + "ROAD CLOSED" barriers at the four road exits.
