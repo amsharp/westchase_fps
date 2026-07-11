@@ -8219,6 +8219,9 @@ if (WC_REMAP) (function densityLayer() {
       if (o.mapTex) mo.map = o.mapTex;   // pre-built canvas texture (e.g. tree wells)
       if (o.color !== undefined) mo.color = o.color;
       if (o.double) mo.side = THREE.DoubleSide;
+      // sign placards bake TWO front-facing planes back-to-back (dSign) —
+      // DoubleSide here would z-fight the pair AND is what mirrored the text
+      if (o.twoPlane) mo.side = THREE.FrontSide;
       var mat = lamb(mo);
       if (o.decal) { mat.polygonOffset = true; mat.polygonOffsetFactor = -2; mat.polygonOffsetUnits = -2; }
       var mesh = new THREE.Mesh(g, mat); if (o.decal) mesh.frustumCulled = false;
@@ -8228,7 +8231,17 @@ if (WC_REMAP) (function densityLayer() {
   }
   // helpers to place one asset instance into the right batch
   function dDecal(name, x, z, y, ry, scale) { if (!dAsset[name]) return; var a = dAsset[name]; var w = a.dims[0] * (scale || 1), d = a.dims[1] * (scale || 1); bake('d_' + name, { texName: name, decal: true }, UDECAL, mtx(x, y, z, ry || 0, w, 1, d)); densityStats.decals++; }
-  function dSign(name, x, y, z, ry, scale) { if (!dAsset[name]) return; var a = dAsset[name]; bake('d_' + name, { texName: name, double: true }, USIGN, mtx(x, y, z, ry, a.dims[0] * (scale || 1), a.dims[1] * (scale || 1), 1)); densityStats.signs++; densityPlaced.push({ n: name, x: x, z: z, y: y }); }
+  // placards were a single DoubleSide plane → text read MIRRORED from behind
+  // (seen live on a FOR SALE yard sign, mrft7zm5 shot). Same fix as greenSign:
+  // bake the plane twice, front-to-front (ry and ry+PI), FrontSide material —
+  // exactly coplanar, but backface culling draws only one per view direction.
+  function dSign(name, x, y, z, ry, scale) {
+    if (!dAsset[name]) return; var a = dAsset[name];
+    var sw = a.dims[0] * (scale || 1), sh = a.dims[1] * (scale || 1);
+    bake('d_' + name, { texName: name, twoPlane: true }, USIGN, mtx(x, y, z, ry, sw, sh, 1));
+    bake('d_' + name, { texName: name, twoPlane: true }, USIGN, mtx(x, y, z, ry + Math.PI, sw, sh, 1));
+    densityStats.signs++; densityPlaced.push({ n: name, x: x, z: z, y: y });
+  }
   function dBoxAsset(name, x, y, z, ry, sc) { if (!dAsset[name]) return; sc = sc || 1; var a = dAsset[name]; bake('d_' + name, { texName: name }, UBOX, mtx(x, y, z, ry || 0, a.dims[0] * sc, a.dims[1] * sc, a.dims[2] * sc)); densityStats.clutter++; densityPlaced.push({ n: name, x: x, z: z }); }
   // a flat textured box read as "2D trash" (report mredr84j); pile 3-4 lumpy,
   // squashed blobs instead so it reads as bulging plastic bags. Reuses the
@@ -8277,7 +8290,9 @@ if (WC_REMAP) (function densityLayer() {
   var poleSignMats = {};
   function poleSignMat(name) {
     if (poleSignMats[name]) return poleSignMats[name];
-    var t = dTex(name), mo = { side: THREE.DoubleSide };
+    // FrontSide + a second back-to-back plane in poleSign: DoubleSide showed
+    // mirrored text from behind (same class as the yard-sign dSign fix)
+    var t = dTex(name), mo = {};
     if (t) { mo.map = t.tex; if (t.keyed) { mo.transparent = true; mo.alphaTest = 0.5; } }
     return (poleSignMats[name] = lamb(mo));
   }
@@ -8289,9 +8304,13 @@ if (WC_REMAP) (function densityLayer() {
     g.add(cyl(poleR, poleR, poleH, 8, poleSignPoleM, 0, poleH / 2, 0));
     // seat the placard clear of the pole SURFACE — a 0.06 offset was inside the
     // 0.11 pole radius, so the post speared through the sign face (mref48hy)
-    var pl = new THREE.Mesh(new THREE.PlaneGeometry(a.dims[0], a.dims[1]), poleSignMat(name));
+    var plGeo = new THREE.PlaneGeometry(a.dims[0], a.dims[1]);
+    var pl = new THREE.Mesh(plGeo, poleSignMat(name));
     pl.position.set(0, mountY, poleR + 0.1);
     g.add(pl);
+    var plB = new THREE.Mesh(plGeo, poleSignMat(name));
+    plB.position.set(0, mountY, poleR + 0.1); plB.rotation.y = Math.PI;
+    g.add(plB);
     g.position.set(x, 0, z); g.rotation.y = ry;
     scene.add(g);
     registerBreakable(g, x, z, Math.max(0.6, a.dims[0] / 2 + 0.15), 'light', null, 0.14);
@@ -11642,7 +11661,52 @@ function scorch(x, z) {
   m.scale.setScalar(3.5); m.position.set(x, 0.168, z);
   scene.add(m); decals.push({ mesh: m, life: 40 });
 }
+// ---- bullet holes (mrft7zm5): small dark pocks stamped on static surfaces
+// at the hitscan intersection, oriented to the surface normal. Own capped
+// pool (60, oldest recycled) so a firefight can't evict blood/scorch decals.
+// Canvas texture (near-black core, ragged edge, subtle chipped rim); shared
+// material, depthWrite:false + polygonOffset + tiny normal lift = no z-fight.
+var bHoles = [], bHoleMat = null, bHoleGeo = null, bHoleM3 = null;
+function bulletHoleTex() {
+  var cv = document.createElement('canvas'); cv.width = cv.height = 32;
+  var g = cv.getContext('2d');
+  g.clearRect(0, 0, 32, 32);
+  // ragged dark blob
+  g.fillStyle = 'rgba(32,27,22,0.85)';
+  for (var i = 0; i < 9; i++) {
+    var a = i / 9 * 6.28;
+    g.beginPath(); g.arc(16 + Math.cos(a) * 3.4, 16 + Math.sin(a) * 3.4, 3.2 + Math.random() * 2.2, 0, 6.28); g.fill();
+  }
+  // subtle pale rim — chipped paint/stucco catch-light
+  g.strokeStyle = 'rgba(214,204,188,0.4)'; g.lineWidth = 1.4;
+  for (i = 0; i < 6; i++) { var a2 = Math.random() * 6.28; g.beginPath(); g.arc(16, 16, 8.6 + Math.random() * 2, a2, a2 + 0.9); g.stroke(); }
+  // near-black core
+  var rg = g.createRadialGradient(16, 16, 0, 16, 16, 7);
+  rg.addColorStop(0, 'rgba(0,0,0,0.96)'); rg.addColorStop(0.6, 'rgba(8,7,6,0.8)'); rg.addColorStop(1, 'rgba(10,8,6,0)');
+  g.fillStyle = rg; g.beginPath(); g.arc(16, 16, 7, 0, 6.28); g.fill();
+  return new THREE.CanvasTexture(cv);
+}
+function bulletHole(h) {
+  if (!h || !h.face || !h.object) return;
+  if (!bHoleMat) {
+    bHoleGeo = new THREE.PlaneGeometry(0.16, 0.16);
+    bHoleMat = new THREE.MeshBasicMaterial({ map: bulletHoleTex(), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
+    bHoleM3 = new THREE.Matrix3();
+  }
+  var nrm = h.face.normal.clone().applyMatrix3(bHoleM3.getNormalMatrix(h.object.matrixWorld)).normalize();
+  var m = new THREE.Mesh(bHoleGeo, bHoleMat);
+  m.position.copy(h.point).addScaledVector(nrm, 0.02);
+  m.lookAt(h.point.x + nrm.x, h.point.y + nrm.y, h.point.z + nrm.z);
+  m.rotateZ(Math.random() * 6.28);   // random roll so repeat hits don't tile
+  scene.add(m);
+  bHoles.push({ mesh: m, life: 60 });
+  if (bHoles.length > 60) { var o = bHoles.shift(); scene.remove(o.mesh); }
+}
 function updateDecals(dt) {
+  for (var bh = bHoles.length - 1; bh >= 0; bh--) {
+    bHoles[bh].life -= dt;
+    if (bHoles[bh].life <= 0) { scene.remove(bHoles[bh].mesh); bHoles.splice(bh, 1); }
+  }
   for (var i = decals.length - 1; i >= 0; i--) {
     var d = decals[i]; d.life -= dt;
     if (d.life < 5) d.mesh.material.opacity = Math.max(0, d.life / 5 * 0.75);
@@ -11666,7 +11730,7 @@ function killNpcRagdoll(n, dx, dz, power) {
   n.spinX = (Math.random() - 0.5) * 14;
   n.spinZ = (Math.random() - 0.5) * 14;
   sfx('grunt', { x: n.x, z: n.z, range: 60, fem: n.fem });
-  for (var i = 0; i < 5; i++) puff(new THREE.Vector3(n.x + (Math.random() - 0.5), 0.8 + Math.random() * 1.2, n.z + (Math.random() - 0.5)), 0xa01212);
+  for (var i = 0; i < 5; i++) puff(new THREE.Vector3(n.x + (Math.random() - 0.5), 0.8 + Math.random() * 1.2, n.z + (Math.random() - 0.5)), 0xa01212, 'blood');
   bloodDecal(n.x, n.z);
   spawnCash(n.x, n.z, 5 + ((Math.random() * 18) | 0));
   maybeNpcItemDrop(n.x, n.z);
@@ -14961,20 +15025,20 @@ function tryAttack() {
       if (rd < w.range && (rdx * fx + rdz * fz) / (rd || 1) > 0.55 && rd < bestD) { bestRemote = rm; best = null; bestCop = null; bestCopM = -1; bestD = rd; }
     }
     if (best) {
-      puff(new THREE.Vector3(best.x, 1.3, best.z), 0xd96a4f);
+      puff(new THREE.Vector3(best.x, 1.3, best.z), 0xd96a4f, 'blood');
       if (isClient()) netToHost({ t: 'dmgNpc', i: npcs.indexOf(best), dmg: w.dmg, kx: fx, kz: fz });
       else damageNPC(best, w.dmg, fx, fz);
     }
-    else if (bestCop) { damageCop(bestCop, w.dmg, fx, fz); puff(new THREE.Vector3(bestCop.x, 1.3, bestCop.z), 0xd96a4f); }
+    else if (bestCop) { damageCop(bestCop, w.dmg, fx, fz); puff(new THREE.Vector3(bestCop.x, 1.3, bestCop.z), 0xd96a4f, 'blood'); }
     else if (bestCopM >= 0) {
-      puff(new THREE.Vector3(copsM[bestCopM].x, 1.3, copsM[bestCopM].z), 0xd96a4f);
+      puff(new THREE.Vector3(copsM[bestCopM].x, 1.3, copsM[bestCopM].z), 0xd96a4f, 'blood');
       netToHost({ t: 'dmgCop', id: copsM[bestCopM].nid, dmg: w.dmg, kx: fx, kz: fz });
       if (!copsM[bestCopM].down) {
         if (state.wanted < 1) setWanted(1);   // hurting a cop is star #1 — fists included
         lastCrimeT = T;
       }
     }
-    else if (bestRemote) { netSendHit(bestRemote.id, w.dmg, true); puff(new THREE.Vector3(bestRemote.x, 1.3, bestRemote.z), 0xd96a4f); }
+    else if (bestRemote) { netSendHit(bestRemote.id, w.dmg, true); puff(new THREE.Vector3(bestRemote.x, 1.3, bestRemote.z), 0xd96a4f, 'blood'); }
     // connecting sounds different from swinging — and a slap CRACKS
     var meleeAt = best ? best : (bestCop ? bestCop : (bestCopM >= 0 ? copsM[bestCopM] : bestRemote));
     if (meleeAt) sfx(punchSlap ? 'slap' : 'punchhit', { x: meleeAt.x, z: meleeAt.z, range: 45 });
@@ -18125,7 +18189,7 @@ function applyWorldSnap(dt) {
       var mzv = new THREE.Vector3(fe[0] / 10, fe[1] / 10, fe[2] / 10);
       puff(mzv, 0xffe08a);
       sfx((fe[3] & 1) ? 'copsmg' : 'copshot', { x: mzv.x, z: mzv.z, y: mzv.y, range: 150 });
-      if ((fe[3] & 2) && fe.length >= 7) puff(new THREE.Vector3(fe[4] / 10, fe[5] / 10, fe[6] / 10), 0xd93a2a);
+      if ((fe[3] & 2) && fe.length >= 7) puff(new THREE.Vector3(fe[4] / 10, fe[5] / 10, fe[6] / 10), 0xd93a2a, 'blood');
     }
   }
   // cash mirror
