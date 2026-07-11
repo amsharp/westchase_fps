@@ -438,3 +438,7 @@ tree mrfzz4s0), character seed art. Same rule as always: bake data-URL JS files 
 - mrgb92wa (-15,4) health HUD too big + quest plate covers screen — FIXED@v1.66.97 (HP numerals scale 6->4, heart 3->2, quest plate 46->38px w/ 30-char objective truncation + 200px width cap)
 - mrgb9qqd (23,-8) 'at night I can see all the colliders' — FIXED@v1.66.97 (he fat-fingered F9 next to F8; the toggle now announces COLLIDER DEBUG ON/OFF via popup2 so it self-explains)
 - mrgbe7vt (73,-35) business sign hard to see / not like the logo — OPEN (which venue at 73,-35? RaceTrac store fascia? next content round; Gemini authorized)
+
+## SOUND OVERHAUL ROUND — IN-AGENT (sfx-gemini, fable). OWNER DIRECTIVE: replace all synthesized SFX
+(guns, cars, crashes, explosions, UI etc.) with Lyria-3-generated audio; TTS voices STAY untouched.
+Method validated: lyria-3-clip-preview returns ~27s audio/mpeg clips; discrete transients slice cleanly.
