@@ -265,6 +265,12 @@ and props kick out a small burst of dust and keep a **bullet hole** at the
 impact point for a minute — pock a facade up all you like, the newest 60
 holes stick around.
 
+Land a hit and a **hitmarker** flicks out from the reticle with a crisp
+tick — white when you connect, **red when you drop the target**. Recent
+takedowns stack up as a small **kill feed** under the money counter
+(pedestrians, officers, and wrecked vehicles each get their own colour),
+fading out after a few seconds.
+
 Die and you drop every gun you own — run back within 2 minutes to grab
 them off the pavement. Picking up a gun you already own sells it for half
 its price. In multiplayer the pavement is shared: anyone can scoop up your

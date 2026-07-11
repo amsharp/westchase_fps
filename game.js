@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.66';
+var GAME_VERSION = 'v1.66.67';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -10456,16 +10456,21 @@ function addStar(n) { setWanted(state.wanted + (n || 1)); }
 // 6 more = 3rd, doubling likewise. Counters reset when the heat fully dies.
 var CIV_STAR_KILLS = [5, 15, 35, 75, 155];
 var COP_STAR_KILLS = [3, 9, 21, 45];   // stars 2-5 (star 1 comes from just hurting one)
-function creditCivKill() {
+function creditCivKill(kind) {
   state.civKills++;
   lastCrimeT = T;
   if (CIV_STAR_KILLS.indexOf(state.civKills) >= 0) { addStar(1); popup2('WANTED LEVEL UP'); }
+  hitMark(true);
+  if (kind === 'car') pushKillFeed('Vehicle wrecked', '#ffd24a');
+  else pushKillFeed('Pedestrian down', '#ff6a4a');
 }
 function creditCopKill() {
   state.copKills++;
   lastCrimeT = T;
   if (state.wanted < 1) setWanted(1);   // you can't kill one without damaging one
   if (COP_STAR_KILLS.indexOf(state.copKills) >= 0) { addStar(1); popup2('WANTED LEVEL UP'); }
+  hitMark(true);
+  pushKillFeed('Officer down', '#66b0ff');
 }
 
 function buildCop() {
@@ -11485,7 +11490,7 @@ function updateDriving(dt) {
           else {
             shoveCar(oc, rkx, rkz, rsp);
             oc.dmgT += imp;
-            if (oc.dmgT >= 1.5 && goBerserk(oc)) { popup('WRECKED!'); creditCivKill(); }
+            if (oc.dmgT >= 1.5 && goBerserk(oc)) { popup('WRECKED!'); creditCivKill('car'); }
           }
         }
         c.pspeed *= 0.5;
@@ -15263,7 +15268,7 @@ function tryAttack() {
     else if (bestRemote) { netSendHit(bestRemote.id, w.dmg, true); puff(new THREE.Vector3(bestRemote.x, 1.3, bestRemote.z), 0xd96a4f, 'blood'); }
     // connecting sounds different from swinging — and a slap CRACKS
     var meleeAt = best ? best : (bestCop ? bestCop : (bestCopM >= 0 ? copsM[bestCopM] : bestRemote));
-    if (meleeAt) sfx(punchSlap ? 'slap' : 'punchhit', { x: meleeAt.x, z: meleeAt.z, range: 45 });
+    if (meleeAt) { sfx(punchSlap ? 'slap' : 'punchhit', { x: meleeAt.x, z: meleeAt.z, range: 45 }); hitMark(false); }
     return;
   }
   if (T - (lastShotBy[state.equipped] || -99) < w.rate) return;
@@ -15361,16 +15366,36 @@ function tryAttack() {
         netToHost({ t: 'shootCar', i: cars.indexOf(carHit), rate: w.rate });
       } else {
         carHit.dmgT += w.rate;
-        if (carHit.dmgT >= 1.5 && goBerserk(carHit)) { popup('WRECKED!'); creditCivKill(); }   // trashing a ride weighs like a body (credit once, on the wreck)
+        if (carHit.dmgT >= 1.5 && goBerserk(carHit)) { popup('WRECKED!'); creditCivKill('car'); }   // trashing a ride weighs like a body (credit once, on the wreck)
       }
     }
     else if (atmHit) shootAtm(atmHit, h.point);   // streetprops: burst the ATM open
     else { puff(h.point, 0xbbbbbb, 'impact'); bulletHole(h); }   // static surface: small dust + a hole
+    // hitmarker on any damageable connect (a kill mark from damageNPC/Cop above
+    // out-ranks this via hitMark's downgrade guard)
+    if (npcHit || copHit || remoteHit || copMHit >= 0 || carHit || alienHit || ufoHit) hitMark(false);
   }
   recoilPitch += 0.012 + Math.random() * 0.008;
 }
 
 var dmgDirs = [];   // recent damage sources: {a: world angle to source, t}
+// ---- combat feedback: hitmarker (X on the reticle when a shot/punch lands,
+// red on a kill) + kill feed (recent takedowns list, top-right). Both are
+// LOCAL-only cosmetic reactions; kills route through creditCiv/CopKill so they
+// fire in SP, on the host, AND on a client (via the host's `kill` message). ----
+var hitMarkerT = -99, hitMarkerKill = false;
+function hitMark(kill) {
+  // a fresh kill mark (red) must not be downgraded to a plain hit mark when the
+  // same trigger-pull both connects and kills in one frame (one-shot kills)
+  if (!kill && hitMarkerKill && T - hitMarkerT < 0.09) return;
+  hitMarkerT = T; hitMarkerKill = !!kill;
+  sfx(kill ? 'killtick' : 'tick');
+}
+var killFeed = [];   // {txt, col, t} newest first, drawn+expired in drawHudCanvas
+function pushKillFeed(txt, col) {
+  killFeed.unshift({ txt: txt, col: col || '#ff5a3a', t: T });
+  if (killFeed.length > 4) killFeed.pop();
+}
 function hurtPlayer(d, sx, sz) {
   if (state.dead) return;
   state.hp -= d; state.lastHurt = T;
@@ -16131,6 +16156,8 @@ function sfx(kind, at) {
     case 'crash': nb(0.3, 900, 0.8); bp(85, 0.18, 0.35, 'square', 45); break;
     case 'glass': nb(0.07, 3400, 0.5); bp(190, 0.09, 0.14, 'square', 70); setTimeout(function () { nb(0.1, 2700, 0.38); }, 70); setTimeout(function () { nb(0.14, 2100, 0.28); }, 160); break;
     case 'boom': nb(0.8, 320, 1.3); bp(60, 0.6, 0.6, 'sine', 24); setTimeout(function () { nb(0.4, 700, 0.4); }, 120); break;
+    case 'tick': bp(1500, 0.03, 0.11, 'square', 0); break;   // crisp hitmarker blip
+    case 'killtick': bp(1650, 0.035, 0.14, 'square', -260); setTimeout(function () { bp(1050, 0.05, 0.12, 'square', -180); }, 45); break;   // two-note kill confirm
   }
 }
 // ---- surface footsteps (#47): cheap per-surface noise blips synced to the
@@ -17967,7 +17994,7 @@ function handleNet(m, conn) {
   } else if (m.t === 'kill') {
     if (m.kind === 'npc') { creditCivKill(); popup('KO!'); }
     else if (m.kind === 'cop') { creditCopKill(); popup('COP DOWN!'); }
-    else if (m.kind === 'car') { creditCivKill(); popup('WRECKED!'); }
+    else if (m.kind === 'car') { creditCivKill('car'); popup('WRECKED!'); }
   }
 }
 function onConn(c) {
@@ -19543,6 +19570,29 @@ function drawHudCanvas() {
   var W = hudW, H = hudH, M = 14;
   hudCx.clearRect(0, 0, W, H);
   drawCrosshair(W, H);
+  // ---- hitmarker: four short diagonal ticks that flick out from the reticle
+  // and fade (white on a hit, red on a kill) ----
+  var hmAge = T - hitMarkerT;
+  if (hmAge < 0.32) {
+    var hmA = 1 - hmAge / 0.32, hcx = Math.round(W / 2), hcy = Math.round(H / 2);
+    var hin = 4 + hmAge * 26, hlen = 5;   // ticks push outward as they fade
+    hudCx.save();
+    hudCx.globalAlpha = hmA;
+    hudCx.lineWidth = 2.4; hudCx.lineCap = 'butt';
+    var hqs = [[-1, -1], [1, -1], [-1, 1], [1, 1]];
+    for (var hq = 0; hq < 4; hq++) {
+      var sxn = hqs[hq][0], syn = hqs[hq][1];
+      var ax = hcx + sxn * hin, ay = hcy + syn * hin;
+      hudCx.strokeStyle = '#000'; hudCx.beginPath(); hudCx.moveTo(ax, ay); hudCx.lineTo(ax + sxn * hlen, ay + syn * hlen); hudCx.stroke();
+    }
+    hudCx.strokeStyle = hitMarkerKill ? '#ff3b28' : '#f4f8ff';
+    for (hq = 0; hq < 4; hq++) {
+      var sx2 = hqs[hq][0], sy2 = hqs[hq][1];
+      var bx = hcx + sx2 * hin, by = hcy + sy2 * hin;
+      hudCx.beginPath(); hudCx.moveTo(bx, by); hudCx.lineTo(bx + sx2 * (hlen - 1), by + sy2 * (hlen - 1)); hudCx.stroke();
+    }
+    hudCx.restore(); hudCx.globalAlpha = 1;
+  }
   // ---- directional damage indicators: red chevrons around screen center
   // pointing at whoever hurt you, fading over 0.9s (report mregrr51) ----
   for (var di = dmgDirs.length - 1; di >= 0; di--) {
@@ -19565,6 +19615,18 @@ function drawHudCanvas() {
   // ---- money: GTA-style counter, top-right under the minimap ----
   var my = hudMmB + 8;
   drawPix('$' + Math.max(0, state.money | 0), W - M, my, 3, '#46e05e', 'right');
+  // ---- kill feed: recent takedowns, top-right under the money counter,
+  // newest on top, each fading out over its ~3.6s life ----
+  for (var kf = killFeed.length - 1; kf >= 0; kf--) {
+    var kfAge = T - killFeed[kf].t;
+    if (kfAge > 3.6) { killFeed.splice(kf, 1); continue; }
+  }
+  for (kf = 0; kf < killFeed.length; kf++) {
+    var kfe = killFeed[kf], kfy = my + 28 + kf * 17, kfLife = T - kfe.t;
+    hudCx.globalAlpha = kfLife > 3.0 ? Math.max(0, (3.6 - kfLife) / 0.6) : 1;
+    hudText('☠ ' + kfe.txt, W - M, kfy, 12, kfe.col, 'right');
+    hudCx.globalAlpha = 1;
+  }
   // ---- wanted stars: top-center (lit gold, unlit dark silhouettes) ----
   var sw = state.wanted | 0, spx = 2, sgap = 9 * spx + 6;
   for (var i = 0; i < 5; i++)
