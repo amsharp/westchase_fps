@@ -9807,6 +9807,15 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
   function envAnimInit(rec, e) {
     var mesh = rec.g.children[0], d = e.dims, a = e.anim;
     rec.phase = Math.random() * 6.28;
+    // split-animated props (spin/wave/flail/sway) open their cut seams as the
+    // parts move — with FrontSide the gaps showed backface-culled BLACK
+    // gashes (worst on the tube-man's flail bands). DoubleSide turns seam
+    // gaps into texture-colored folds. Clone so the shared prop material for
+    // static instances stays single-sided.
+    if (a === 'spin' || a === 'wave' || a === 'flail' || a === 'sway') {
+      mesh.material = mesh.material.clone();
+      mesh.material.side = THREE.DoubleSide;
+    }
     if (a === 'spin') {
       if (rec.name === 'barber_pole') { rec.spinMesh = mesh; rec.spinSpd = 2.4; }
       else if (rec.name === 'pizza_sign') { var top = splitMesh(mesh, function (x, y, z) { return y > d[1] * 0.74; }, 0); top.geometry.computeBoundingBox(); var pcy = (top.geometry.boundingBox.min.y + top.geometry.boundingBox.max.y) / 2; top.geometry.translate(0, -pcy, 0); var ppv = new THREE.Group(); ppv.position.y = pcy; ppv.add(top); rec.g.add(ppv); rec.spinChild = ppv; rec.spinAxis = 'z'; rec.spinSpd = 1.6; }   // round disc faces +z: spin in-plane (about its face-normal) like a wheel, not edge-on around Y
