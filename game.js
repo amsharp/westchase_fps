@@ -911,6 +911,119 @@ function publixSign(x, y, z, ry, w, h) {
 }
 function parapetM(color) { return lamb({ color: new THREE.Color(color).multiplyScalar(0.85) }); }
 
+// ---------------- RaceTrac price pylon (report mrfzmw9u) ----------------
+// Tall curbside pylon: AI branding cabinet on top (racetracsign.js RT_SIGN,
+// canvas-text fallback), fuel prices below in RUNTIME-drawn glowing 7-segment
+// digits on a canvas texture (MeshBasicMaterial = burns at night; segments can
+// flicker/update live — see updateRtPylon). Two-plane pattern per face
+// (greenSign lesson: DoubleSide mirrors text), OBB collider, sign backglow.
+var RT_PRICES = [['REGULAR', '2.89'], ['MIDGRADE', '3.19'], ['DIESEL', '3.45']];
+var rtPylonState = null;   // { tex, draw(dimRow), t, dimRow, dimT }
+// classic 7-segment digit renderer: '.' is a dot; unlit segments stay as dark
+// ghosts so the panel reads as a real LED price display.
+function rt7seg(g, str, x, y, dh, lit, ghost) {
+  var dw = dh * 0.56, th = dh * 0.13, gap = dh * 0.16;   // digit w / seg thickness / spacing
+  var SEG = { '0': 63, '1': 6, '2': 91, '3': 79, '4': 102, '5': 109, '6': 125, '7': 7, '8': 127, '9': 111, '-': 64, ' ': 0 };
+  function segRects(px) {
+    return [
+      [px + th, y, dw - 2 * th, th],                              // a top
+      [px + dw - th, y + th * 0.5, th, dh / 2 - th * 0.75],       // b top-right
+      [px + dw - th, y + dh / 2 + th * 0.25, th, dh / 2 - th * 0.75], // c bot-right
+      [px + th, y + dh - th, dw - 2 * th, th],                    // d bottom
+      [px, y + dh / 2 + th * 0.25, th, dh / 2 - th * 0.75],       // e bot-left
+      [px, y + th * 0.5, th, dh / 2 - th * 0.75],                 // f top-left
+      [px + th, y + dh / 2 - th / 2, dw - 2 * th, th]             // g middle
+    ];
+  }
+  var px = x;
+  for (var i = 0; i < str.length; i++) {
+    var ch = str.charAt(i);
+    if (ch === '.') { g.fillStyle = lit; g.fillRect(px - gap * 0.72, y + dh - th, th, th); continue; }
+    var bits = SEG[ch] === undefined ? 0 : SEG[ch], rects = segRects(px), s;
+    g.shadowBlur = 0; g.fillStyle = ghost;
+    for (s = 0; s < 7; s++) if (!(bits & (1 << s))) g.fillRect(rects[s][0], rects[s][1], rects[s][2], rects[s][3]);
+    g.shadowColor = lit; g.shadowBlur = dh * 0.22; g.fillStyle = lit;
+    for (s = 0; s < 7; s++) if (bits & (1 << s)) g.fillRect(rects[s][0], rects[s][1], rects[s][2], rects[s][3]);
+    g.shadowBlur = 0;
+    px += dw + gap;
+  }
+}
+function rtPriceTexture() {
+  var c = document.createElement('canvas'); c.width = 256; c.height = 256;
+  var g = c.getContext('2d');
+  function draw(dimRow) {
+    // cabinet: near-black panel w/ subtle blue-navy sheen + separator bars
+    var bg = g.createLinearGradient(0, 0, 0, 256);
+    bg.addColorStop(0, '#10141c'); bg.addColorStop(0.5, '#171c26'); bg.addColorStop(1, '#0d1017');
+    g.fillStyle = bg; g.fillRect(0, 0, 256, 256);
+    g.strokeStyle = '#2a3140'; g.lineWidth = 4; g.strokeRect(3, 3, 250, 250);
+    for (var r = 0; r < 3; r++) {
+      var ry0 = 8 + r * 82;
+      if (r) { g.fillStyle = '#232a38'; g.fillRect(8, ry0 - 4, 240, 3); }
+      // fuel-grade label plate
+      g.shadowBlur = 0; g.fillStyle = '#e8e6df';
+      g.font = 'bold 21px Arial, sans-serif'; g.textAlign = 'left'; g.textBaseline = 'middle';
+      g.fillText(RT_PRICES[r][0], 14, ry0 + 40);
+      // glowing 7-seg price (amber top row like the real ones, red below)
+      var lit = r === 0 ? '#ffb428' : '#ff2e1e', ghost = r === 0 ? '#33240a' : '#331110';
+      if (dimRow === r) lit = r === 0 ? '#5a3f0e' : '#5a120c';   // brown-out flicker
+      rt7seg(g, RT_PRICES[r][1], 128, ry0 + 12, 56, lit, ghost);
+    }
+  }
+  draw(-1);
+  var t = new THREE.CanvasTexture(c);
+  t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearMipmapLinearFilter; t.anisotropy = MAXANISO;
+  rtPylonState = { tex: t, draw: draw, t: 4 + Math.random() * 6, dimT: 0, dimRow: -1 };
+  return t;
+}
+// rare LED brown-out flicker: one random price row dims for ~0.12 s every
+// 6-16 s. Two cheap canvas repaints per event, driven from updateWorldFx.
+function updateRtPylon(dt) {
+  var st = rtPylonState; if (!st) return;
+  if (st.dimRow >= 0) {
+    st.dimT -= dt;
+    if (st.dimT <= 0) { st.dimRow = -1; st.draw(-1); st.tex.needsUpdate = true; st.t = 6 + Math.random() * 10; }
+  } else {
+    st.t -= dt;
+    if (st.t <= 0) { st.dimRow = (Math.random() * 3) | 0; st.dimT = 0.09 + Math.random() * 0.08; st.draw(st.dimRow); st.tex.needsUpdate = true; }
+  }
+}
+function raceTracPylon(x, z, ry) {
+  var g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = ry;
+  var W = 4.6, H = 10.7;                       // cabinet width / total height
+  var redM = lamb({ color: 0x8e1420 }), steelM = lamb({ color: 0x666d75 }), baseM = lamb({ color: 0x9b968c });
+  g.add(box(2.3, 1.4, 0.95, baseM, 0, 0.7, 0));                    // concrete pedestal
+  g.add(box(0.62, H - 1.4, 0.5, steelM, 0, 1.4 + (H - 1.4) / 2, 0)); // steel core column
+  g.add(box(W, 2.6, 0.5, redM, 0, 9.4, 0));                        // brand cabinet body
+  g.add(box(W - 0.4, 4.0, 0.5, lamb({ color: 0x11151d }), 0, 5.9, 0)); // price cabinet body
+  // brand faces (two front-side planes back-to-back, greenSign pattern)
+  var bmat;
+  if (typeof RT_SIGN !== 'undefined') {
+    var im = new Image(), tx2 = new THREE.Texture(im);
+    tx2.magFilter = THREE.LinearFilter; tx2.minFilter = THREE.LinearMipmapLinearFilter; tx2.anisotropy = MAXANISO;
+    im.onload = function () { tx2.needsUpdate = true; };
+    im.src = RT_SIGN;
+    bmat = new THREE.MeshBasicMaterial({ map: tx2 });
+  } else bmat = new THREE.MeshBasicMaterial({ map: signTex(['RaceTrac'], '#a51422', '#ffffff') });
+  var bgeo = new THREE.PlaneGeometry(W, 2.5);                      // 4:3-ish art face
+  var pmat = new THREE.MeshBasicMaterial({ map: rtPriceTexture() });
+  var pgeo = new THREE.PlaneGeometry(W - 0.4, 4.0);
+  for (var sdd = 0; sdd < 2; sdd++) {
+    var off = sdd ? -0.27 : 0.27, rot = sdd ? Math.PI : 0;
+    var bm = new THREE.Mesh(bgeo, bmat); bm.position.set(0, 9.4, off); bm.rotation.y = rot; g.add(bm);
+    var pm = new THREE.Mesh(pgeo, pmat); pm.position.set(0, 5.9, off); pm.rotation.y = rot; g.add(pm);
+  }
+  scene.add(g);
+  addColliderOBB(x, z, 1.15, 0.5, ry, 'sign:pylon');
+  // warm night backglow on both brand faces (park-lamp-style halo quads)
+  var nx = Math.sin(ry), nz = Math.cos(ry);
+  addSignGlow(x + nx * 0.3, 9.4, z + nz * 0.3, ry, W, 2.6);
+  addSignGlow(x - nx * 0.3, 9.4, z - nz * 0.3, ry + Math.PI, W, 2.6);
+  signAudit.push({ n: 'racetrac_pylon', kind: 'pylon', ry: ry, x: x, z: z, stakeTop: H, stakeR: 0.25, plBot: 3.9, plTop: H, plW: W, latOff: 0.27 });
+  return g;
+}
+
+
 function bldg(x, z, w, d, h, color, o) {
   o = o || {};
   var fac = nightLit(lamb({ map: facadeTex(color, Math.max(w, d), h, o.door !== false) }));
@@ -1061,16 +1174,10 @@ function gasStation(x, z) {
     scene.add(cyl(0.12, 0.14, 0.85, 8, boltM, ix, 0.42, z + 2.5));
     addCollider(ix, z, 1.8, 5.0, 'gas:pump');                     // solid pump island
   });
-  // monument price sign at the road corner (pole + red brand cabinet + prices)
-  var sx = cx - cw / 2 - 3, sz = z + cd / 2 + 1;
-  scene.add(box(0.9, 6.2, 0.5, poleM, sx, 3.1, sz));
-  scene.add(box(3.6, 1.7, 0.7, redM, sx, 6.3, sz));               // brand cabinet
-  signPlane(sx, 6.3, sz + 0.38, 0, 3.2, 1.4, ['RaceTrac'], '#d0202f', '#ffffff');
-  signPlane(sx, 6.3, sz - 0.38, Math.PI, 3.2, 1.4, ['RaceTrac'], '#d0202f', '#ffffff');
-  scene.add(box(3.4, 2.5, 0.5, lamb({ color: 0x14243a }), sx, 4.2, sz));  // price panel body
-  signPlane(sx, 4.2, sz + 0.28, 0, 3.0, 2.2, ['REG 3.29', 'PLUS 3.59', 'PREM 3.89'], '#14243a', '#ffd94a');
-  signPlane(sx, 4.2, sz - 0.28, Math.PI, 3.0, 2.2, ['REG 3.29', 'PLUS 3.59', 'PREM 3.89'], '#14243a', '#ffd94a');
-  addCollider(sx, sz, 1.2, 1.2, 'gas:sign');
+  // (the old in-lot monument price sign lived here — removed for mrfzmw9u:
+  // the branded RaceTrac price pylon with glowing runtime 7-segment digits
+  // now stands at the road curb — see raceTracPylon(), placed by the density
+  // sign pass.)
   // forecourt amenities against the store front: air/water, ice box, trash, propane
   var afx = x + 6, afz = z - 7.2;                                 // store front line
   var airM = lamb({ color: 0xe23b2e }), iceM = lamb({ color: 0xf2f2f2 }), binM = lamb({ color: 0x2e6b3a });
@@ -4186,6 +4293,25 @@ function bush(x, z, scale) {
 }
 var thinTrunkM = lamb({ color: 0x7a5a3a });
 var crepeBloomMats = [lamb({ color: 0xd76a9e }), lamb({ color: 0xe08ab4 }), lamb({ color: 0xc85a86 }), lamb({ color: 0xf1efe4 })];  // pink/white crepe-myrtle blossom
+// AI foliage textures (gemfoliage.js, report mrfzz4s0 "multicolor tree needs
+// texture"): the flat-color blob balls read as an ugly multicolor asset. Each
+// myrtle is now single-hue (pink OR white bloom canopy, or plain leaf), the
+// balls carry a real blossom/leaf texture, and the flat mats stay as fallback.
+var myrtleTexMats = null;
+function getMyrtleMats() {
+  if (myrtleTexMats) return myrtleTexMats;
+  if (typeof MYRTLE_TEX === 'undefined') return null;
+  function mk(durl) {
+    var im = new Image(), t = new THREE.Texture(im);
+    t.wrapS = THREE.RepeatWrapping; t.wrapT = THREE.RepeatWrapping; t.repeat.set(2, 1.4);
+    t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearMipmapLinearFilter; t.anisotropy = MAXANISO;
+    im.onload = function () { t.needsUpdate = true; };
+    im.src = durl;
+    return lamb2(t);
+  }
+  myrtleTexMats = { pink: mk(MYRTLE_TEX.pink), white: mk(MYRTLE_TEX.white), leaf: mk(MYRTLE_TEX.leaf) };
+  return myrtleTexMats;
+}
 // A crepe myrtle is not a single ball on a stick (report mree6ten: "unnatural")
 // — it's a multi-stem VASE: several slender trunks fanning from the base into a
 // rounded, blossoming crown. Build 3-4 leaning trunks + a mound of overlapping
@@ -4202,8 +4328,12 @@ function crepeMyrtle(x, z) {
   }
   var pinkTree = Math.random() < 0.7, canY = h - 0.2, spread = 0.9 + Math.random() * 0.5;
   var nb = 5 + (Math.random() * 3 | 0);
+  var mm = getMyrtleMats();
+  var bloomM = mm ? (Math.random() < 0.78 ? mm.pink : mm.white) : null;   // one hue per tree, not per ball
   for (var i = 0; i < nb; i++) {
-    var lm = (pinkTree && Math.random() < 0.72) ? crepeBloomMats[(Math.random() * crepeBloomMats.length) | 0] : bushMats[(Math.random() * 3) | 0];
+    var lm;
+    if (mm) lm = (pinkTree && (i === 0 || Math.random() < 0.8)) ? bloomM : mm.leaf;
+    else lm = (pinkTree && Math.random() < 0.72) ? crepeBloomMats[(Math.random() * crepeBloomMats.length) | 0] : bushMats[(Math.random() * 3) | 0];
     var c = new THREE.Mesh(bushGeo, lm);
     var a2 = i / nb * 6.28, rad = i === 0 ? 0 : (0.45 + Math.random() * 0.7) * spread;
     var rr = (i === 0 ? 0.95 : 0.6 + Math.random() * 0.45) * spread;
@@ -6353,7 +6483,12 @@ var ACC_PLACE = {
 // the hand: -y drops the top-held items down, +y floats the balloon up. `tilt`
 // is the world euler [pitchX, yawOffset(+ owner yaw), rollZ].
 var ACC_HAND = {
-  umbrella:      { grip: [0.0, 0.0, 0.0],   tilt: [-0.12, 0, 0] },   // pole base at hand, canopy overhead
+  // umbrella: hand wraps the shaft BELOW the canopy (canopy underside is
+  // authored y 0.62, so -0.30 lands the mid-shaft in the fist with ~0.3 of
+  // shaft + the canopy above it); poseUmbrellaArm raises the arm so the
+  // canopy clears the head. Old [0,0,0] held the pole by its very base at
+  // hip height — canopy at face level (bug mrg53h5l / mree9kv6).
+  umbrella:      { grip: [0.0, -0.30, 0.0], tilt: [-0.15, 0, 0] },
   cane:          { grip: [0.0, -0.86, 0.0], tilt: [0.14, 0, 0] },    // crook at hand, tip near the ground
   coffee_cup:    { grip: [0.0, -0.06, 0.0], tilt: [0, 0, 0] },       // cup upright in the fist
   shopping_bags: { grip: [0.0, -0.36, 0.0], tilt: [0, 0, 0] },       // hangs from the handles
@@ -6458,10 +6593,70 @@ function detachAccessory(a, i) {
   if (a.owner) a.owner.acc = null;
   accessories.splice(i, 1);
 }
+// ---- rain umbrellas (owner feature, mrg53h5l) -------------------------------
+// When it rains, roughly half the adult pedestrians raise umbrellas in
+// different canopy colors, staggered over ~20s so the rollout reads natural;
+// they put them away (staggered ~15s) once the rain stops. Deterministic per
+// NPC slot index — accessories stay per-peer local, but every peer derives
+// the same crowd from the env-synced rain flag. Kids never roll accessories,
+// so the feature is adults-only by construction. Canopy colors come from
+// hue-rotating the base umbrella texture on a canvas (once per hue, cached) —
+// the authored canopy is solid red, so a material color multiply could only
+// darken it, never recolor it.
+var rainUmbTexCache = {};
+function rainUmbTex(k) {
+  if (rainUmbTexCache[k]) return rainUmbTexCache[k];
+  var cv = document.createElement('canvas'); cv.width = cv.height = 128;
+  var tx = new THREE.CanvasTexture(cv);
+  tx.magFilter = THREE.NearestFilter; tx.minFilter = THREE.NearestFilter; tx.generateMipmaps = false;
+  var im = new Image();
+  im.onload = function () {
+    cv.width = im.width; cv.height = im.height;
+    var g2 = cv.getContext('2d');
+    g2.filter = 'hue-rotate(' + (k * 45) + 'deg)';
+    g2.drawImage(im, 0, 0);
+    tx.needsUpdate = true;
+  };
+  im.src = ACCESS_BY_NAME.umbrella.tex;
+  return (rainUmbTexCache[k] = tx);
+}
+function npcHash01(i) { var h = ((i + 7) * 2654435761) >>> 0; return ((h >>> 9) % 8192) / 8192; }
+var rainUmbPrev = false, rainUmbClock = 999, rainUmbTick = 0;
+function updateRainUmbrellas(dt) {
+  if (typeof ACCESS_PROPS === 'undefined' || !ACCESS_BY_NAME.umbrella) return;
+  if (raining !== rainUmbPrev) { rainUmbPrev = raining; rainUmbClock = 0; }
+  rainUmbClock += dt;
+  rainUmbTick -= dt; if (rainUmbTick > 0) return; rainUmbTick = 0.25;   // 4Hz scan is plenty
+  var i, n, h;
+  if (raining) {
+    if (rainUmbClock > 24) return;   // rollout window over
+    for (i = 0; i < npcs.length; i++) {
+      n = npcs[i]; h = npcHash01(i);
+      if (h > 0.5) continue;                       // ~50% of peds shelter
+      if (rainUmbClock < h * 2 * 20) continue;     // staggered raise over ~20s
+      if (!n || n.acc || (n.hp !== undefined && n.hp <= 0)) continue;
+      if (n.state === 'down' || n.state === 'ragdoll') continue;
+      var rec = attachAccessory(n, 'umbrella', 0);
+      if (rec) {
+        rec.rainTemp = true; rec.rainH = h;
+        var mm = rec.mesh.children[0];
+        if (mm && mm.material) { mm.material.map = rainUmbTex(((h * 8192) | 0) % 8); mm.material.needsUpdate = true; }
+      }
+    }
+  } else {
+    // rain over: put them away, staggered so the crowd doesn't blink at once
+    for (i = accessories.length - 1; i >= 0; i--) {
+      var a = accessories[i];
+      if (!a.rainTemp || a.dropped) continue;
+      if (rainUmbClock > 1 + (a.rainH || 0) * 14) detachAccessory(a, i);
+    }
+  }
+}
 // per-frame accessory driver — called from updateNPCs after animPerson has posed
 // every NPC this frame (so hand items ride the freshly-posed arm)
 var _accFace = function (dx, dz) { return Math.atan2(dz, -dx); };   // authored front -x -> world dir
 function updateAccessories(dt) {
+  updateRainUmbrellas(dt);   // rain rollout: peds raise colored umbrellas (mrg53h5l)
   for (var i = accessories.length - 1; i >= 0; i--) {
     var a = accessories[i];
     if (a.dropped) continue;                 // detached scenery, nothing to do
@@ -6477,13 +6672,18 @@ function updateAccessories(dt) {
     if (a.mesh && !a.mesh.visible) a.mesh.visible = true;
     if (a.leash && !a.leash.visible) a.leash.visible = true;
     if (a.mode === 'leash') updateLeashDog(a, n, dt);
-    else if (a.mode === 'hand') { if (a.name === 'boombox') poseCarryArm(n); updateHandAcc(a, n, dt); }
+    else if (a.mode === 'hand') {
+      if (a.name === 'boombox') poseCarryArm(n);
+      else if (a.name === 'umbrella') poseUmbrellaArm(n);   // raised hold, canopy overhead (mrg53h5l)
+      updateHandAcc(a, n, dt);
+    }
     else if (a.name === 'walker') poseWalkerGrip(n);
     else if (a.name === 'stroller') poseStrollerGrip(n);   // hands on the bar (mrfzbvxk)
+    else if (a.name === 'bicycle') poseBikeGrip(n);        // hands on the handlebar (mrg52tm7/mrftgle)
     else if (a.name === 'suitcase') poseCaseDrag(n);
     // other side items ride their parent group transform (no per-frame work).
-    // Grip-class items (walker/stroller/boombox/suitcase) pose the owner's
-    // arms above.
+    // Grip-class items (walker/stroller/bicycle/boombox/suitcase) pose the
+    // owner's arms above.
     if (n.mesh && n.mesh.userData) n.mesh.userData.reposed = false;   // consumed (see gripPoseOK)
   }
 }
@@ -6507,7 +6707,12 @@ function gripTmps() {
 function gripPoseOK(n) {
   var m = n.mesh;
   if (!m || !m.userData.skin || !m.userData.reposed) return false;
-  if (n.state !== 'walk' && n.state !== 'stand') return false;   // fleeing/chat/downed: let the clip play
+  // every upright state keeps the grip — push/side items are glued to the
+  // owner group, so a FLEEING (running) stroller pusher whose arms pumped the
+  // run clip read as "no hands while running" (mrg4vcjd/mrg53rgl; the old
+  // check only allowed walk/stand). Chatting owners hold on too. Downed/
+  // ragdoll/hidden/fight states still let the raw clip play.
+  if (n.state !== 'walk' && n.state !== 'stand' && n.state !== 'flee' && n.state !== 'chat') return false;
   var L = m.userData.limbs;
   return !!(L && L.armL && L.armR);
 }
@@ -6576,6 +6781,40 @@ function poseCaseDrag(n) {
   if (!hR) return;
   m.updateMatrixWorld(true);
   _gripV.set(-0.36, 0.92, -0.21); m.localToWorld(_gripV);
+  aimLimbAt(L.armR, hR, _gripV.x, _gripV.y, _gripV.z);
+}
+// bicycle walker (mrg52tm7 / refile mrftgle "no hands on the bike"): the bike
+// is only ever WALKED (never ridden — 'side' mode parks it at the owner's +x/
+// left flank, ry +PI/2, front wheel forward). Probed geometry: the handlebar
+// grips sit at authored (-0.2, ~1.0, z ±0.34) — after the side placement that
+// lands the two bar ends at owner-local (0.16, 1.0, 0.25) and (0.84, 1.0,
+// 0.25). Left hand takes the far end (leftward reach over the frame), right
+// hand the near end, plus a light forward lean into the push.
+function poseBikeGrip(n) {
+  if (!gripPoseOK(n)) return;
+  gripTmps();
+  var m = n.mesh, L = m.userData.limbs;
+  m.updateMatrixWorld(true);
+  var sp = m.userData.spine;
+  if (sp) { pitchLimbWorld(sp, m.rotation.y, 0.12); m.updateMatrixWorld(true); }   // slight lean over the bar
+  var hL = m.userData.handL || L.armL, hR = m.userData.handR || L.armR;
+  _gripV.set(0.78, 1.0, 0.25); m.localToWorld(_gripV);    // far bar end — left hand (bike on the +x/left side)
+  aimLimbAt(L.armL, hL, _gripV.x, _gripV.y, _gripV.z);
+  _gripV.set(0.16, 1.0, 0.25); m.localToWorld(_gripV);    // near bar end — right hand
+  aimLimbAt(L.armR, hR, _gripV.x, _gripV.y, _gripV.z);
+}
+// umbrella hold (mrg53h5l / mree9kv6 "grip looks off"): raise the right arm
+// ~45° up-forward so the hand wraps the SHAFT below the canopy (ACC_HAND grip
+// -0.30 puts the mid-shaft in the fist; canopy underside is authored y 0.62)
+// and the canopy clears the head. updateHandAcc keeps the shaft near-vertical
+// with the slight forward tilt.
+function poseUmbrellaArm(n) {
+  if (!gripPoseOK(n)) return;
+  gripTmps();
+  var m = n.mesh, L = m.userData.limbs, hR = m.userData.handR;
+  if (!hR) return;
+  m.updateMatrixWorld(true);
+  _gripV.set(-0.2, 1.72, 0.34); m.localToWorld(_gripV);   // up-forward of the right shoulder
   aimLimbAt(L.armR, hR, _gripV.x, _gripV.y, _gripV.z);
 }
 // boombox: pin the carrying arm straight down (pushed slightly out so the box
@@ -8865,15 +9104,43 @@ if (WC_REMAP) (function densityLayer() {
       var mount = (nm === 'wall_mural' || nm === 'graffiti_panel') ? a2.dims[1] / 2 + 1.0 : 3.4;
       dSign(nm, wallx + f2.rx * lateral, mount, wallz + f2.rz * lateral, f2.yaw, nm === 'grand_opening_banner' ? 1 : 1);
     }
-    // gas pylon out at the RaceTrac frontage
-    if (vv2.type === 'racetrac') {
-      var px = vv2.x + f2.fx * (vv2.d / 2 + 7), pz = vv2.z + f2.fz * (vv2.d / 2 + 7);
-      // panel plane 0.02 clear of the pole surface — ON the axis the pole
-      // speared the lower 0.3 of the price panel face (sign-assembly audit)
-      var gpOff = 0.14 + 0.02;
-      pole(px, pz, 3.2, 0.14); dSign('gas_price_sign', px + f2.fx * gpOff, 4.2, pz + f2.fz * gpOff, f2.yaw);
-      var gpa = dAsset['gas_price_sign'];
-      if (gpa) signAudit.push({ n: 'gas_price_sign', kind: 'pylon', ry: f2.yaw, x: px, z: pz, stakeTop: 3.2, stakeR: 0.14, plBot: 4.2 - gpa.dims[1] / 2, plTop: 4.2 + gpa.dims[1] / 2, plW: gpa.dims[0], latOff: gpOff });
+    // RaceTrac price pylon (mrfzmw9u: the old 3.2m pole + flat placard read
+    // as an awful mini sign). Proper 10.7u branded pylon AT THE CURB: walk
+    // the nearest road, stand just outside the walk ribbon on the venue side,
+    // faces perpendicular to traffic so both directions read the prices.
+    if (vv2.type === 'racetrac' && RM) {
+      var fpx = vv2.x + f2.fx * (vv2.d / 2 + 7), fpz = vv2.z + f2.fz * (vv2.d / 2 + 7);
+      var bestD = 1e9, bestPs = null, bestRc = null;
+      for (var pr = 0; pr < RM.roads.length; pr++) {
+        var prc = RM.roads[pr]; if (prc.cls > 1 || prc.dirt) continue;
+        var prLen = prc.cum[prc.cum.length - 1];
+        for (var pt = 0; pt <= prLen; pt += 3) {
+          var pps = rmAt(prc.pts, prc.cum, pt);
+          var pdx = pps.x - fpx, pdz = pps.z - fpz, pd2 = pdx * pdx + pdz * pdz;
+          if (pd2 < bestD) { bestD = pd2; bestPs = pps; bestRc = prc; }
+        }
+      }
+      var placed = false;
+      if (bestPs) {
+        // venue side of the road (sign of the perp component toward the store)
+        var vsd = ((fpx - bestPs.x) * -bestPs.uz + (fpz - bestPs.z) * bestPs.ux) >= 0 ? 1 : -1;
+        var pyaw = Math.atan2(bestPs.ux, bestPs.uz);   // faces along the road
+        // two passes: prefer 4.5u clear of any tree/pole (a canopy right
+        // behind the pylon swallowed the back face), relax to 3.0 if needed
+        for (var ppass = 0; ppass < 2 && !placed; ppass++) {
+          var treeClr = ppass ? 3.0 : 4.5;
+          for (var pof = bestRc.hw + 3.2; pof <= bestRc.hw + 9.2 && !placed; pof += 0.5) {
+            var qx = bestPs.x - bestPs.uz * pof * vsd, qz = bestPs.z + bestPs.ux * pof * vsd;
+            if (onSidewalk(qx, qz)) continue;                      // never in the walk ribbon
+            if (!remapPointClear(qx, qz, 1.4)) continue;           // clear of road asphalt
+            if (!spotClear(qx, qz) || remapInClear(qx, qz, 0)) continue;
+            if (breakablePoleNear(qx, qz, treeClr)) continue;      // off trees/poles
+            raceTracPylon(qx, qz, pyaw);
+            placed = true;
+          }
+        }
+      }
+      if (!placed) raceTracPylon(fpx, fpz, f2.yaw + Math.PI / 2);   // frontage fallback
     }
     // freestanding entrance clutter markers
   }
@@ -9015,12 +9282,19 @@ if (WC_REMAP) (function densityLayer() {
       else dBoxAsset(cn, jx, ca.dims[1] / 2 + 0.02, jz, rnd(0, 6.28));
     }
     // AC condenser + utility box against a side wall. The base ac_condenser
-    // asset is a tiny 0.75m residential cube; businesses want a big commercial
-    // ground condenser (mref3ibd), so upsize it ~2.4x (-> ~1.8m).
-    var sidex = vv3.x + f3.rx * (vv3.w / 2 + 1.0), sidez = vv3.z + f3.rz * (vv3.w / 2 + 1.0);
-    dBoxAsset('ac_condenser', sidex, 0.9, sidez, f3.yaw, 2.4);
-    dBoxAsset('utility_box', sidex + f3.fx * 2, 0.5, sidez + f3.fz * 2, f3.yaw);
-    if (Math.random() < 0.6) dCylAsset('propane_tank', sidex - f3.fx * 2, 0.6, sidez - f3.fz * 2);
+    // asset is a residential cube; businesses want a commercial ground
+    // condenser (mref3ibd), but the old 2.4x (~1.8m) cube read as a HUGE ugly
+    // beige box (mrg54993 x3) — now ~1.3m with a proper Gemini-generated
+    // galvanized fan/louver texture (densityprops.js). The racetrac venue rect
+    // includes the pump canopy, so its "side wall" spot landed in the middle
+    // of the forecourt (mrfzl9on "ridiculous prop") — gas station keeps only
+    // its rooftop RTUs, no ground cluster.
+    if (vv3.type !== 'racetrac') {
+      var sidex = vv3.x + f3.rx * (vv3.w / 2 + 1.0), sidez = vv3.z + f3.rz * (vv3.w / 2 + 1.0);
+      dBoxAsset('ac_condenser', sidex, 0.65, sidez, f3.yaw, 1.75);
+      dBoxAsset('utility_box', sidex + f3.fx * 2, 0.5, sidez + f3.fz * 2, f3.yaw);
+      if (Math.random() < 0.6) dCylAsset('propane_tank', sidex - f3.fx * 2, 0.6, sidez - f3.fz * 2);
+    }
     // potted plants + mulch bed flanking the entrance
     var frx = vv3.x + f3.fx * (vv3.d / 2 + 1.3), frz = vv3.z + f3.fz * (vv3.d / 2 + 1.3), ee = Math.min(vv3.w / 2 - 1, 4);
     dBoxAsset('potted_plant', frx + f3.rx * ee, 0.35, frz + f3.rz * ee, 0);
@@ -13259,7 +13533,14 @@ function npcChatLine(n, cat) {
   return false;
 }
 function updateNPCs(dt) {
-  if (isClient()) { updateNPCExtras(); updateAccessories(dt); return; }   // npcs mirrored from host snapshot; accessories still ride them locally
+  // clients: NPCs are mirrored from the host snapshot. Accessories still ride
+  // them locally, but updateAccessories must run AFTER applyWorldSnap (end of
+  // that function) — updateNPCs runs before updateNet in the frame, so posing
+  // grips here let the snapshot's animPerson re-pose the arms from the raw
+  // clip every frame before render: ONLINE players never saw a grip at all
+  // (mrg4vcjd/mrg53rgl hands-free stroller — the owner always plays as a
+  // pure client of the world bot).
+  if (isClient()) { updateNPCExtras(); return; }
   // sample car velocities (player/remote-driven cars have no analytic speed —
   // approximate from last frame's position delta, same idea as _bx/_bz in
   // updateWorldFx but sampled here so the delta isn't already consumed)
@@ -16087,6 +16368,7 @@ function carShellPush(cx2, cz2, ry2) {
 var fallAxis = new THREE.Vector3(), fallQ = new THREE.Quaternion();
 function updateWorldFx(dt) {
   updateSignals(dt);   // traffic-signal cycle (corridor details section)
+  updateRtPylon(dt);   // RaceTrac pylon 7-seg flicker (rare canvas repaint)
   // cars snap trees & street lights (works on host and on mirrored client cars)
   for (var i = 0; i < cars.length; i++) {
     var c = cars[i];
@@ -19158,6 +19440,11 @@ function applyWorldSnap(dt) {
   } else if (alien && alien.net) {
     scene.remove(alien.mesh); alien = null;
   }
+  // accessories LAST: the mirror loops above just re-posed every NPC from its
+  // clip (animPerson), so grips (stroller/walker/bike/umbrella arms) must be
+  // applied after or they render one whole frame of raw clip pose — on
+  // clients that meant never seeing a grip at all (mrg4vcjd/mrg53rgl)
+  updateAccessories(dt);
 }
 function netSendHit(toId, dmg, byPlayer) {
   var m = { t: 'hit', to: toId, dmg: dmg };
