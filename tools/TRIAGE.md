@@ -313,3 +313,15 @@ All three FIXED@v1.66.63. mregjcuz + mreg8mld details are inline in Batch 8 / Ba
 - mrfzulkp (-193,41) kids running into a fence — OPEN (kid wander lacks the adult whisker/bail logic? check kid steering vs fence colliders)
 - mrfzv2sb (-150,-34) 'wtf is this in the middle of the road' — OPEN (fetch shot; road obstruction)
 - mrfzvti9 (-109,-41) swing set: WHOLE frame swings, only seat+cables should — owner: 'FIX THIS TONIGHT' — HIGH PRIORITY (playground swing anim pivots the full prop group instead of the seat assembly)
+
+## Live session batch 4 (Alex, v1.66.72, east+central sweep) — logged 251
+- NPC crowding (RE-VERIFY on .73 first — pacing fix may cover): mrfzw5v9 (-48,-51) fence jam, mrfzwh6i (-38,-57) cluster clipping, mrfzx1ut (-14,-131) npcs stuck IN a house
+- mrfzxd7v (-15,-126) invis wall — meta.cols shows nearest collider 11u away (house) — blocker not in top-3, needs walk probe
+- BARRIER REFINEMENT: mrg00upt (473,-394) cols=forest:tile — tree-backed tiles still block the full 5x5 cell when the tree is off-center; shrink collider to hug the trunk (2.2-2.6u) instead of the grid cell
+- mrg01b6n (473,-141) cols=3 house OBBs — probe the gap between them (OBB corners may pinch the visual alley)
+- Decal patches refile (east zone): mrfzxqma (-8,-120) square sidewalk patches, mrfzy2tl (67,-83) random dirt patch, mrg00iyj (549,-517) square shadows
+- mrfzyjtd (144,-76) 'gas station thing looks awful' — second gas station prop quality
+- mrfzz4s0 (140,-110) multicolor tree needs texture — ugly asset
+- mrfzzx7c (530,-446) no sidewalk on the right — east sidewalk gaps
+- mrg01xfw (459,-46) "ADD ROADS TO THIS NEIGHBORHOOD, MAKE IT LOOK NORMAL" — SECOND all-caps demand; road-network major round is now top of queue after in-flight rounds
+- mrfzvti9 swing set — FIXED@branch (frame static, seats swing; shipped with next deploy)
