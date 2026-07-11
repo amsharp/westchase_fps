@@ -405,3 +405,4 @@ Other new (logged, next rounds):
 - mrg4iels (-153,22) quest NPCs should FACE the player when near (design ask, small)
 - mrg4k6e2 (-53,-55) weird looking fence segment — OPEN (fence quality cluster w/ mrg49ri9 poleless fence)
 - mrg4rouw (-106,-20) transparent hair refile (2nd report of mree59kf class) — queue for the CHARACTER-REGEN round: KEISHA arms (mrg48urv, Meshy authorized) + transparent-hair head (identify char from live_hair.jpg in scratchpad) + RAVEN run clips (mrfzod76; try the HECTOR world-delta bake first — bake script is character-generic per that round's notes)
+- mrg4sbrk (-112,-54) DON floating, legs angled back — character-regen round queue (DON = another Meshy clip/retarget defect; try the HECTOR world-delta bake — same class)
