@@ -6919,7 +6919,7 @@ function updateBalloonString(a, g, n) {
       var pt = rope[i], pv = prev[i];
       // verlet integrate: carry velocity (with air drag) + buoyancy up
       var vx = (pt.x - pv.x) * 0.9, vy = (pt.y - pv.y) * 0.9, vz = (pt.z - pv.z) * 0.9;
-      var buoy = (i === BAL_SEG) ? 16 : 6;   // the balloon floats hardest
+      var buoy = (i === BAL_SEG) ? 26 : 10;   // the balloon floats hardest (keeps the string taut)
       pv.copy(pt);
       pt.x += vx; pt.y += vy + buoy * dt2; pt.z += vz;
     }
