@@ -277,6 +277,25 @@ territory), east-zone sidewalks (round5-roads).
   and the (~314,556) meshless-house diagnosis may change. Also __wc now exports
   pointFree/pushOut/spotClear/solidMeshes for headless collision QA.
 
+## live2-ai ROUND 2 (fable, same branch): sign posts / chainlink / mirrored venue signs
+- mrfto9qj (253,335) sign floating off pole + pole mid-sidewalk + too thick — FIXED@v1.66.65
+  (roadside sign posts planted at hw+2.4 = dead-center of the walk band; now behind the walk
+  at hw+sw+1.2. Pole r 0.11 -> 0.065; placard mount poleR+0.1 -> +0.04 kills the visible
+  detached-placard air gap while keeping the mref48hy spearing fix. MERGE NOTE for live2-vfx:
+  your two-plane poleSign placard change touches the same lines — on merge, keep BOTH planes
+  and use my ±(poleR+0.04) offset + r 0.065 default.)
+- mrfttd8s (2,123) chainlink too thick — FIXED@v1.66.65 (ROOT: fenceRun — the DENSITY fence
+  builder used by fenceRect for the storage + school perimeters — stretched ONE texture tile
+  over the whole fence height; the v1.66.12 retile only fixed buildFenceRun. Chainlink runs in
+  fenceRun now tile at the same fixed ~0.7u square period. The report's "aimless walking"
+  sub-note is the pacing cluster, fixed above.)
+- mrftt0x4 (7,133) backward text — FIXED@v1.66.65 in THIS lane (the mirrored sign is the
+  SELF STORAGE signPlane banner — signPlane is a separate venue-text-sign system live2-vfx's
+  dSign/poleSign two-plane fix does NOT cover. signPlane (storage banner, strip-mall names,
+  RaceTrac boards, venue signs) is now two front-facing planes back-to-back. live2-vfx: your
+  "likely resolves mrftt0x4" note can be retired — verified EGAROTS FLES -> SELF STORAGE
+  readable both sides at the report spot.)
+
 ## qa2-misc (fable): mregjcuz night lighting + mreg8mld unbreakable post + facade close-up texture smear (mrf7rsy0 sub-note / mree84pq class)
 All three FIXED@v1.66.63. mregjcuz + mreg8mld details are inline in Batch 8 / Batch 7 above.
 - Facade close-up smear (mrf7rsy0 sub-note, mree84pq class) — FIXED@v1.66.63 (ROOT: low-res canvas wall textures magnified over huge wall spans. Worst offenders measured: stuccoTex 128px tiled 2x2 across the 82m school wall = ~3 px/m; thStuccoMat 64px across a whole 8m townhouse ground floor = 8 px/m; facadeTex 256px across a multi-story facade. Fix, same recipe as the v1.66.58 roadT fix — resolution + structure, style unchanged: (1) stuccoTex 128->512 with area-scaled grain + NEW subtle trowel-sweep arcs and sparse hairline cracks (school, strips, Publix beige, terracotta pilasters, Dunkin block — 7 materials); (2) shared stucco() helper's speck count now scales with canvas area (was fixed 700, tuned for 128px — 256px canvases were half-empty); (3) thStuccoMat 64->256; (4) facadeTex canvas 256->512 — grain painted at full res, window/door layout kept authored in 256-space via ctx.scale, night-emissive companion canvas intentionally left at 256 (soft glows need no res). Survey-house atlas walls (houses.js) deliberately NOT bumped: 55+ per-cluster-variant 512 atlases would cost ~170MB GPU at 1024, and their source tiles are only ~120x80 — no detail to gain; noted as accepted residual. Texture-memory delta measured in-engine (unique canvas-backed maps in scene): 92.3MB -> 110.3MB canvas RGBA (+18MB, +~24MB GPU with mips; 512px canvas count 55->74). Evidence: qa2misc_before_i3_school_close.png (blur blob) vs qa2misc_after_i3_school_close.png (grain), qa2misc_before/after_i3_townhouse_close.png + _mid.png)
