@@ -1609,6 +1609,29 @@ var PALM_VARIANTS = [
   { c: 2, hMin: 4.2, hMax: 5.5, lean: 0 },
   { c: 3, hMin: 5.4, hMax: 7.4, lean: 0.13 }
 ];
+// Coconut cluster seated at the crown base (report mrgmu0ai: owner saw a
+// "floating coconut cluster" — palms had NO coconut mesh at all and the crown
+// is rigidly parented to the trunk top, so nothing could actually detach). We
+// add a real drupe cluster, tucked right under the frond crown as a CHILD of
+// the palm group so it leans/spins with the trunk and can never float off.
+// One shared merged geometry keeps it to a single extra draw per palm.
+var cocoMat = lamb({ color: 0x6b4a2b });
+var PALM_COCOS = (function () {
+  var base = new THREE.SphereGeometry(0.15, 7, 6);
+  var offs = [[0.02, 0.02, 0.0], [0.17, -0.05, 0.06], [-0.15, -0.04, 0.11], [0.06, -0.03, -0.17], [-0.09, -0.09, -0.07]];
+  var P = [], N = [];
+  for (var k = 0; k < offs.length; k++) {
+    var gg = base.clone();
+    gg.scale(0.72 + 0.4 * (k % 2), 0.88, 0.72 + 0.32 * (k % 3 ? 1 : 0));
+    gg.translate(offs[k][0], offs[k][1], offs[k][2]);
+    var pos = gg.attributes.position, nm = gg.attributes.normal, idx = gg.index, cnt = idx ? idx.count : pos.count;
+    for (var i = 0; i < cnt; i++) { var vi = idx ? idx.getX(i) : i; P.push(pos.getX(vi), pos.getY(vi), pos.getZ(vi)); N.push(nm.getX(vi), nm.getY(vi), nm.getZ(vi)); }
+  }
+  var g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(P), 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(N), 3));
+  return g;
+})();
 function palm(x, z) {
   // v1.65.5 prop-placement fix: same building-clearance guard as oak().
   if (typeof WC_REMAP !== 'undefined' && WC_REMAP && typeof remapInClear === 'function' && remapInClear(x, z, 3.5)) return;
@@ -1617,7 +1640,14 @@ function palm(x, z) {
   g.add(cyl(0.17, 0.26, h, 7, lamb2(barkT2), 0, h / 2, 0));
   var crownMesh = new THREE.Mesh(PALM_CROWNS[pv.c], frondMat);
   crownMesh.position.y = h; crownMesh.rotation.y = Math.random() * Math.PI * 2;
-  g.add(crownMesh); g.add(blobShadow(1.1, 1.1, 0.05));
+  g.add(crownMesh);
+  // ~55% of palms fruit; cluster sits just under the crown base at the trunk top
+  if (Math.random() < 0.55) {
+    var coco = new THREE.Mesh(PALM_COCOS, cocoMat);
+    coco.position.y = h - 0.2; coco.rotation.y = Math.random() * Math.PI * 2;
+    g.add(coco);
+  }
+  g.add(blobShadow(1.1, 1.1, 0.05));
   g.position.set(x, 0, z); g.rotation.y = Math.random() * Math.PI;
   if (pv.lean) g.rotation.z = (Math.random() < 0.5 ? 1 : -1) * pv.lean * (0.7 + Math.random() * 0.5);   // some palms lean
   scene.add(g);
