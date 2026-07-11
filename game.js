@@ -10484,6 +10484,41 @@ function copAimArm(c, m, tgt) {
     gun.updateMatrixWorld(true);
   }
 }
+// gun drawn but nobody in range (or a client-side mirror cop): carry at LOW
+// READY — fist pinned down-forward of the shoulder, barrel continuing that
+// line toward the ground ahead — instead of letting the walk clip swing the
+// pistol around flat on the open palm like a brick (bug mrft8cw7). Same
+// post-animPerson world-space delta trick as copAimArm, so it's rig-agnostic
+// and self-correcting; runs every frame the gun is out and no target is aimed.
+function copLowReady(m) {
+  var L = m.userData.limbs, hand = m.userData.handR, gun = m.userData.heldGun;
+  if (!L || !L.armR || !hand || !gun) return;
+  if (!copAimQ) {
+    copAimQ = new THREE.Quaternion(); copAimDQ = new THREE.Quaternion(); copAimPQ = new THREE.Quaternion();
+    copAimV1 = new THREE.Vector3(); copAimV2 = new THREE.Vector3(); copAimV3 = new THREE.Vector3(); copAimM = new THREE.Matrix4();
+  }
+  m.updateMatrixWorld(true);   // animPerson just re-posed the bones
+  var yw = m.rotation.y, fx = Math.sin(yw), fz = Math.cos(yw);          // facing
+  var rx = -Math.cos(yw), rz = Math.sin(yw);                            // owner right axis (hands live on -x)
+  L.armR.getWorldPosition(copAimV1);                                    // shoulder
+  hand.getWorldPosition(copAimV2);                                      // fist
+  // fist target: ~50 deg below level, slightly forward and off to the gun side
+  copAimV3.set(copAimV1.x + fx * 0.34 + rx * 0.1, copAimV1.y - 0.5, copAimV1.z + fz * 0.34 + rz * 0.1);
+  copAimV2.sub(copAimV1).normalize();
+  copAimV3.sub(copAimV1).normalize();
+  copAimDQ.setFromUnitVectors(copAimV2, copAimV3);
+  L.armR.parent.getWorldQuaternion(copAimPQ);
+  copAimQ.copy(copAimPQ).invert().multiply(copAimDQ).multiply(copAimPQ);
+  L.armR.quaternion.premultiply(copAimQ);
+  // wrap the gun to the fist: barrel (-Z) continues the arm's down-forward line
+  L.armR.updateMatrixWorld(true);
+  gun.getWorldPosition(copAimV1);
+  copAimV3.set(copAimV1.x + fx * 0.68, copAimV1.y - 1, copAimV1.z + fz * 0.68);
+  copAimM.lookAt(copAimV1, copAimV3, Y_UP);
+  copAimDQ.setFromRotationMatrix(copAimM);
+  hand.getWorldQuaternion(copAimPQ);
+  gun.quaternion.copy(copAimPQ.invert()).multiply(copAimDQ);
+}
 // world-space muzzle tip of the cop's held gun (null while holstered)
 // front-of-barrel z for each held (dropMesh) gun = -halfDepth of its main body
 // box, so the world/cop muzzle flash sits ON the tip (not floating past it)
@@ -10616,7 +10651,7 @@ function updateCops(dt) {
       m.rotation.y = Math.atan2(dx, dz);
       if (d < wpn.range) aimTgt = tgt;   // aim + fire below, after animPerson poses the bones
     } else {
-      if (c.interior) { animPerson(m, 0, dt); m.position.set(c.x, baseY, c.z); continue; }
+      if (c.interior) { m.position.set(c.x, baseY, c.z); animPerson(m, 0, dt); if (m.userData.heldGun) copLowReady(m); continue; }
       var tdx = c.tx - c.x, tdz = c.tz - c.z, td = Math.sqrt(tdx * tdx + tdz * tdz);
       if (td < 1) { var t = randTarget(); c.tx = t[0]; c.tz = t[1]; }
       else { vx = tdx / td; vz = tdz / td; spd = 1.6; moving = true; m.rotation.y = Math.atan2(vx, vz); }
@@ -10646,6 +10681,7 @@ function updateCops(dt) {
     m.position.set(c.x, baseY + (c.hurtFlash > 0 ? 0.06 : 0), c.z);
     animPerson(m, moving ? spd : 0, dt, c.phase);
     if (aimTgt) { copAimArm(c, m, aimTgt); copShoot(c, wpn, dt, aimTgt); }
+    else if (m.userData.heldGun) copLowReady(m);   // drawn but not aiming: low-ready, not brick-on-palm
   }
   // lose the heat: 18s with no crimes and no cops within 50 units
   if (state.wanted > 0 && T - lastCrimeT > 18) {
@@ -13800,8 +13836,13 @@ function mirrorKids(dt) {
     var ox = k.x, oz = k.z;
     k.x += (e[0] / 10 - k.x) * k2; k.z += (e[1] / 10 - k.z) * k2;
     m.position.set(k.x, 0, k.z); m.rotation.y = e[2] / 100;
-    var mv = Math.hypot(k.x - ox, k.z - oz), sp = (dt > 0 && mv / dt > 0.4) ? mv / dt : 0; k.phase += mv * 3.4;
-    if (sp > 0.05) animPerson(m, sp, dt, k.phase); else meshyPlantPose(m);
+    // smoothed speed + locally-integrated phase, matching the NPC/cop mirrors
+    // (raw per-frame deltas surge at snapshot boundaries — bug mrft8ygx)
+    var mv = Math.hypot(k.x - ox, k.z - oz), rsp = dt > 0 ? mv / dt : 0;
+    if (rsp > 40) { rsp = 0; k.sspd = 0; }
+    k.sspd = (k.sspd || 0) + (rsp - (k.sspd || 0)) * Math.min(1, dt * 7);
+    k.phase += k.sspd * dt * 3.4;
+    if (k.sspd > 0.4) animPerson(m, k.sspd, dt, k.phase); else meshyPlantPose(m);
   }
 }
 spawnKids();
@@ -18093,7 +18134,14 @@ function updateNet(dt) {
       r.yaw += dy * k;
     }
     var moved = Math.sqrt((r.x - r.lx) * (r.x - r.lx) + (r.z - r.lz) * (r.z - r.lz));
-    r.phase += moved * 3.4;
+    // walk-cycle phase advances from a SMOOTHED local velocity every frame —
+    // raw per-frame deltas freeze/spike whenever the snapshot buffer runs dry
+    // for a beat (late/dropped packet), which snapped the clip between idle
+    // and a sprint pose at the wire rate ("laggy walking", bug mrft8ygx)
+    var rawSp = dt > 0 ? moved / dt : 0;
+    if (rawSp > 40) { rawSp = 0; r.sspd = 0; }   // teleport/respawn: resync, don't sprint the clip
+    r.sspd = (r.sspd || 0) + (rawSp - (r.sspd || 0)) * Math.min(1, dt * 7);
+    r.phase += r.sspd * dt * 3.4;
     // smoothed world velocity of this remote — the host's only handle on a
     // remote-driven car's speed/heading (npcCarThreat reads it so pedestrians
     // dodge cars piloted by other players, not just host-simmed traffic)
@@ -18108,10 +18156,9 @@ function updateNet(dt) {
       r.mesh.position.set(r.x, Math.max(-59.9, r.y - EYE), r.z);
       r.mesh.rotation.y = r.yaw + Math.PI;
       r.mesh.rotation.x = r.dead ? -1.5 : 0;
-      var rspd = moved / Math.max(dt, 0.001);   // real speed so sprinters pick the run clip
       // dead players lie flat (rotation.x=-1.5) — DON'T drive the idle clip or
       // their limbs "swim" horizontally; just freeze the current pose
-      if (!r.dead) animPerson(r.mesh, rspd <= 0.5 ? 0 : rspd, dt, r.phase);
+      if (!r.dead) animPerson(r.mesh, r.sspd <= 0.5 ? 0 : r.sspd, dt, r.phase);
       r.tag.position.set(r.x, r.y - EYE + 2.5, r.z);
     }
     // fade the (through-wall, co-op friendly) player tag out at distance so far
@@ -18189,7 +18236,7 @@ function applyWorldSnap(dt) {
     // hidden (st 4) = inside a building: mesh invisible, and position SNAPS on
     // the way in/out — teleports through doors must not glide across the map
     var isHid = st === 4;
-    if (isHid !== !!n.hiddenM) { n.x = b[0] / 10; n.z = b[1] / 10; nox = n.x; noz = n.z; }
+    if (isHid !== !!n.hiddenM) { n.x = b[0] / 10; n.z = b[1] / 10; nox = n.x; noz = n.z; n.sspd = 0; }
     else { n.x = ilerp(sp && sp.npcs, i, 0, b[0]) / 10; n.z = ilerp(sp && sp.npcs, i, 1, b[1]) / 10; }
     n.hiddenM = isHid;
     nm.visible = !isHid;
@@ -18207,8 +18254,16 @@ function applyWorldSnap(dt) {
     }
     if (nm.userData.shadow) nm.userData.shadow.visible = st < 2;   // hidden st=4 also hides (>= 2)
     // animate from the mirrored movement so idle/standing NPCs don't "march in
-    // place" — speed derived from the position delta, stride-matched phase
-    if (st === 0) { var nmv = Math.hypot(n.x - nox, n.z - noz); n.phase += nmv * 3.4; animPerson(nm, (dt > 0 && nmv / dt > 0.5) ? nmv / dt : 0, dt, n.phase); }
+    // place". Speed is a smoothed estimate and phase integrates from it every
+    // frame (same formula the host sim uses) — advancing phase from raw
+    // per-frame position deltas stuttered at snapshot boundaries (bug mrft8ygx)
+    if (st === 0) {
+      var nmv = Math.hypot(n.x - nox, n.z - noz), nsp = dt > 0 ? nmv / dt : 0;
+      if (nsp > 40) { nsp = 0; n.sspd = 0; }   // door teleport/snap: don't sprint the clip
+      n.sspd = (n.sspd || 0) + (nsp - (n.sspd || 0)) * Math.min(1, dt * 7);
+      n.phase += n.sspd * dt * 3.4;
+      animPerson(nm, n.sspd > 0.5 ? n.sspd : 0, dt, n.phase);
+    } else n.sspd = 0;
   }
   // snapshot cop entries are just [x,z,ry,down] — no engage state — so mirror
   // cops approximate "gun out" with the LOCAL player's wanted level instead
@@ -18228,10 +18283,19 @@ function applyWorldSnap(dt) {
     cp.mesh.rotation.x = cs[3] === 2 ? -1.5 : 0;
     cp.mesh.userData.copM = i;
     // speed-driven anim: a cop standing/shooting on the host stays put here
-    // (idle) instead of marching in place; walks only when actually moving
-    var cmv = Math.hypot(cp.x - cox, cp.z - coz); cp.phase += cmv * 3.4;
+    // (idle) instead of marching in place; walks only when actually moving.
+    // Speed is SMOOTHED and phase advances from it locally each frame — raw
+    // frame deltas stall/spike at snapshot boundaries and made the walk cycle
+    // stutter at the 8Hz wire rate (bug mrft8ygx)
+    var cmv = Math.hypot(cp.x - cox, cp.z - coz), csp = dt > 0 ? cmv / dt : 0;
+    if (csp > 40) { csp = 0; cp.sspd = 0; }   // slot reuse/teleport: snap, don't sprint
+    cp.sspd = (cp.sspd || 0) + (csp - (cp.sspd || 0)) * Math.min(1, dt * 7);
+    cp.phase += cp.sspd * dt * 3.4;
     // a downed cop (cs[3]===2) lies flat — freeze rather than play idle (swim)
-    if (cs[3] !== 2) animPerson(cp.mesh, (dt > 0 && cmv / dt > 0.5) ? cmv / dt : 0, dt, cp.phase);
+    if (cs[3] !== 2) {
+      animPerson(cp.mesh, cp.sspd > 0.5 ? cp.sspd : 0, dt, cp.phase);
+      if (cp.mesh.userData.heldGun) copLowReady(cp.mesh);   // mirrors never aim locally: low-ready (bug mrft8cw7)
+    }
   }
   // cop gunfire FX: the host runs copShoot and buffers each shot; render the
   // muzzle flash + gunshot (+ blood at whoever got hit) so bystanders and the
