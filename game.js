@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.67.2';
+var GAME_VERSION = 'v1.67.3';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -15638,7 +15638,7 @@ var GRIP_TGT = {
   // (no pistol entry — one-handed, see SUPPORT_POSE)
   smg:    [0.248, -0.15, -0.696],   // v1.66.87: diagonal composition
   rifle:  [0.079, -0.173, -0.741],  // v1.66.87: diagonal composition
-  auto:   [0.22, -0.08, -0.72],   // v1.66.100: wrist BELOW the handguard (CS-style under-grip) so the curled fingers wrap UP onto the wood instead of the wrist sitting inside the receiver (clipping)
+  auto:   [0.18, 0.05, -0.66],    // v1.67.3: raised onto the handguard so the curled fingers DRAPE OVER the top of the wood (reads as a foregrip); verified FP+side+front that the palm contacts, not penetrates, the guard
   rocket: [0.159, -0.231, -0.598],  // v1.66.87: diagonal composition
   silenced: [0.21, -0.40, -0.52]
 };
@@ -21471,7 +21471,9 @@ window.__wc = {
   setSupPose: function (w, arr) { SUPPORT_POSE[w] = arr; },   // debug: tune support-arm seed eulers (bones 24-27)
   getSupPose: function (w) { return SUPPORT_POSE[w]; },
   getBoneQ: function (i) { return psxArms ? psxArms.bones[i].quaternion.toArray().map(function (v) { return Math.round(v * 1000) / 1000; }) : null; },
-  poseArmsNow: function () { if (psxArms && GUNHOLD_GROUPS[state.equipped]) { armsPose(psxArms, gunHold.clip, gunHold.t, true); solveSupportIK(state.equipped); gripFingers(); } },
+  poseArmsNow: function () { if (psxArms && GUNHOLD_GROUPS[state.equipped]) { var g = vmMap[state.equipped]; if (g) g.position.set(VM_SHIFT[state.equipped] || 0, VM_LIFT[state.equipped] || 0, 0); armsPose(psxArms, gunHold.clip, gunHold.t, true); solveSupportIK(state.equipped); gripFingers(); } },
+  setLift: function (w, v) { VM_LIFT[w] = v; }, getLift: function (w) { return VM_LIFT[w]; },
+  setShift: function (w, v) { VM_SHIFT[w] = v; }, getShift: function (w) { return VM_SHIFT[w]; },
   dbgBone: function (i, ov) { if (psxArms) { if (ov) { var e = new THREE.Euler(ov[0], ov[1], ov[2]); psxArms.bones[i].quaternion.setFromEuler(e); } psxArms.mesh.updateMatrixWorld(true); } },   // debug: set one bone's local euler
   gripDbg: function () { if (!psxArms) return null; var g = vmMap[state.equipped]; if (!g) return null; g.updateMatrixWorld(true); psxArms.mesh.updateMatrixWorld(true); function loc(bi) { var v = new THREE.Vector3(); psxArms.bones[bi].getWorldPosition(v); g.worldToLocal(v); return v.toArray().map(function (n) { return Math.round(n * 1000) / 1000; }); } return { rHand: loc(4), lHand: loc(27), rPalm: loc(5), rShoul: loc(1), rElbow: loc(3) }; },   // debug: hand positions in gun-group local frame
   handPos: function () { if (!psxArms) return null; psxArms.mesh.updateMatrixWorld(true); var pl = new THREE.Vector3(), pr = new THREE.Vector3(); psxArms.bones[27].getWorldPosition(pl); psxArms.bones[4].getWorldPosition(pr); return { L: pl.toArray().map(function (v) { return Math.round(v * 100) / 100; }), R: pr.toArray().map(function (v) { return Math.round(v * 100) / 100; }) }; },

@@ -2,11 +2,11 @@
 // (video + audio) animation review. Returns structured JSON findings.
 //
 // Run:  GEMINI_API_KEY=... node review.js <clip.webm> <scenario> [model]
-// Models: gemini-3-pro-preview (default, best judge) | gemini-3-flash-preview (cheap iteration)
+// Models: gemini-3.1-pro-preview (default, best judge) | gemini-3.5-flash (cheap iteration)
 // Out: prints JSON verdict; also saves alongside the clip as <clip>.review.json
 const fs = require('fs'); const path = require('path'); const https = require('https');
 const CLIP = process.argv[2]; const SCEN = process.argv[3] || 'weapon';
-const MODEL = process.argv[4] || 'gemini-3-pro-preview';
+const MODEL = process.argv[4] || 'gemini-3.1-pro-preview';
 const KEY = process.env.GEMINI_API_KEY;
 if (!KEY) { console.error('GEMINI_API_KEY env required (never commit it)'); process.exit(2); }
 if (!CLIP || !fs.existsSync(CLIP)) { console.error('clip not found:', CLIP); process.exit(2); }
