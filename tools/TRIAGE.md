@@ -288,3 +288,5 @@ All three FIXED@v1.66.63. mregjcuz + mreg8mld details are inline in Batch 8 / Ba
 - mrfzd401 (-19,47) stroller hands-free — dupe of mrfzbvxk (same round)
 - mrfzcpmk (-25,51) two NPCs of the same kind near each other — OPEN (twin-spacing rule may need rescale after NPC count doubled to 445)
 - mrfzdcwu (-15,59) pacing against a wall / mrfzdlpd (4,85) more stuck npcs — filed on v1.66.72, PRE-pacing-fix; RE-VERIFY on v1.66.73 before treating as new (12->0 pacers measured on .70)
+- mrfzdzwh (4,91) fence too thick (RE-VERIFY on .73 — chainlink retile shipped) + AC unit looks awful (OPEN, prop-quality refile of mreds4nw class at this spot)
+- mrfzed2k (14,88) wagon sb kids-only (RE-VERIFY on .73 — shipped) + 'wagon looks bad' (OPEN, wagon model quality)
