@@ -15762,7 +15762,7 @@ var ANCHOR_OFF = {
   smg:    [0.22, -0.22, -0.36],   // v1.67.5: low+right shoulder (AK-style) so the support forearm enters from the bottom-right and the hand reaches the shroud (was central → hand floated off the gun)
   rifle:  [0.22, -0.22, -0.40],   // v1.67.6: low+right shoulder (AK-style) so the forestock hand reaches the wood from the bottom-right (hip view; vm is hidden while scoped)
   auto:   [0.24, -0.24, -0.39],   // v1.66.97: shoulder low + right so the support forearm enters near-vertically from the bottom-right edge (was a diagonal/central bare mass)
-  rocket: [0.10, -0.05, -0.36],
+  rocket: [0.20, -0.18, -0.36],   // v1.67.7: low+right shoulder so the support hand rides the tube and the launcher stops crossing the frame as a central bare-arm mass
   silenced: [0.06, -0.06, -0.32]
 };
 var dbgArmOv = null;                 // debug override for SUPPORT_POSE (via __wc.dbgArm)
@@ -15809,7 +15809,7 @@ var GRIP_TGT = {
   smg:    [0.19, 0.04, -0.62],   // v1.67.5: raised onto the shroud so the fingers drape over the top (was under → floating hand)
   rifle:  [0.13, 0.05, -0.64],   // v1.67.6: raised onto the forestock so the fingers drape over the wood (was under → floating hand)
   auto:   [0.18, 0.05, -0.66],    // v1.67.3: raised onto the handguard so the curled fingers DRAPE OVER the top of the wood (reads as a foregrip); verified FP+side+front that the palm contacts, not penetrates, the guard
-  rocket: [0.159, -0.231, -0.598],  // v1.66.87: diagonal composition
+  rocket: [0.16, -0.05, -0.64],   // v1.67.7: support hand raised onto the tube grip (forward on the launcher) so it reads as holding the tube, not floating beside it
   silenced: [0.21, -0.40, -0.52]
 };
 // v1.66.74: RIGHT (trigger) hand grip target per weapon, in the gun-group local
@@ -16326,11 +16326,11 @@ Object.keys(vmMap).forEach(function (k) { vm.add(vmMap[k]); vmMap[k].visible = f
 // bottom of the frame (grip cut off at a level look). The equipped group's
 // position is rebased to this per-weapon lift each frame (see the draw block),
 // which moves gun AND arms together so the grip relationship is preserved.
-var VM_LIFT = { pistol: 0.24, smg: -0.20, rifle: -0.22, auto: -0.22, rocket: 0.11, silenced: 0.24 };   // auto/smg/rifle dropped so the muzzle rests just below the crosshair and the gun fills the lower-right (rifle hip view; vm hidden while scoped)
+var VM_LIFT = { pistol: 0.24, smg: -0.20, rifle: -0.22, auto: -0.22, rocket: -0.12, silenced: 0.24 };   // auto/smg/rifle/rocket dropped so the weapon sits in the lower-right instead of crossing the frame (rifle hip view; vm hidden while scoped)
 // v1.66.97: per-weapon lateral shift of the whole equipped group (gun AND arms
 // together, so the grip is preserved) — nudges the AK from center toward the
 // SPEC lower-RIGHT anchor (muzzle target x=55; it was reading ~52 = "central").
-var VM_SHIFT = { auto: 0.055, smg: 0.06, rifle: 0.06 };
+var VM_SHIFT = { auto: 0.055, smg: 0.06, rifle: 0.06, rocket: 0.05 };
 vmFists.visible = true;
 var zoomed = false;
 function setZoom(on) {
