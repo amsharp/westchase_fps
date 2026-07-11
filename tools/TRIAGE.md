@@ -543,3 +543,21 @@ hoop mini-game, street flavor). __wc additions this round: laneGraph().
   photomode shift speed (photomode owner), balloon string physics (anim-adjacent), fence
   placement mrg51b3u (fence cluster). Skid-mark decal transparency sub-item: still open,
   queued next cycle in my lane (decal key class).
+
+## Marathon cycle 3 (fable, live2-ai): S10 NETCODE SMOKE — real engine bug found + fixed (v1.66.96)
+Rig: local relay (server.js, no bot) + host page + client page, RAF stubbed, sims hand-ticked.
+- ENGINE BUG FIXED: parked-car layout was NONDETERMINISTIC across peers (host 73/25 vs client
+  74/26 observed live) — snapshots map cars[] by index, so shootCar/jackCD/park/carBoom hit the
+  WRONG car cross-peer. Root: parkedSlotFree consulted breakables + all colliders; instrumented
+  slot-decision diffs (__parkedQA breadcrumbs, kept as a zero-cost QA hook) caught 'prop:tree',
+  'env:bollard' and 'forest:tile' colliders each rejecting a slot on one page only. Fixes:
+  static-tag allowlist for slot rejection, slots must sit ON a paved lot (onRemapLotStatic:
+  editor rects + house aprons — also ends lawn-parking under yard trees), oak()/palm() reject
+  lot interiors. 10/10 loads byte-identical; live MP host==client 76/28.
+- VERIFIED HEALTHY: NPC mirror 445/445 (0.45u), hidden wire (st 4) + client snap + invisibility,
+  env clock sync exact, PvP kill chain end-to-end (client hitscan -> netSendHit -> host
+  hurtPlayer -> death at 4 pistol hits). Skinned-character raycast WORKS in r149 (bind-pose geo).
+  Earlier PvP "misses" were the stale-matrix headless gotcha (render stubbed) — rigs must
+  scene.updateMatrixWorld(true) before aiming; mpsmoke.js hardened accordingly.
+- NOTE for barrier-scrub: one forest:tile blanket collider still intrudes the lot at (20,-85)
+  (invisible, a parked car sits "in" it) — your orphan class, no action on my side.
