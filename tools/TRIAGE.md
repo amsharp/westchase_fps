@@ -294,3 +294,5 @@ All three FIXED@v1.66.63. mregjcuz + mreg8mld details are inline in Batch 8 / Ba
 - mrfzfmfo (25,154) guy floats during idle — OPEN (adult idle float — same class as the kid meshyPlantPose fix; apply plant-frame idle to adult Meshy characters?)
 - mrfzgk9n (-2,165) leaves-scatter 'rework as individual alpha leaves or delete' — filed on .72 PRE-GKEY-fix (v1.66.70 moved it to blend-key); RE-VERIFY on .73: if it still reads as a sheet, rework to alpha-cut individual leaf decals (owner spec)
 - mrfzfyyf (0,165) no driveways for these houses — OPEN (driveway stub pass for street-adjacent survey houses; road-network territory, pairs with mredxzx6 class)
+- mrfzgznx (-5,181) road stub jutting into walkway — OPEN (roads/junction geometry, round5-roads territory)
+- mrfzhm8g (27,191) people walking in the road too much, want stronger sidewalk bias — OPEN (tune: 85% sidewalk bias + jaywalk frequency; possibly interacts with the new goal-side crossing fix)
