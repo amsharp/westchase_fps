@@ -2621,6 +2621,12 @@ var expFillPts = [];   // [x,z] of every fill tree (debug/audit)
     scene.add(sm);
   }
 })();
+// deferred road-adjacent forest-leaf tiling (see forestPatchClearTiles):
+// now that every instanced fill tree exists, collide only the 5x5 cells a
+// visible tree actually stands in. If the prop pack was absent (no fill),
+// the queue drops harmlessly — sparse oak() trees carry their own trunk
+// colliders via registerBreakable.
+processForestTiles(expFillPts);
 
 // ---- merged forest-floor cover ----
 // One dark leaf-litter quad under every forest patch, all merged into a single
@@ -3827,6 +3833,14 @@ var houseFronts = [];      // final (post-nudge) house-front frames for the land
       if (nud) { x += nud[0]; z += nud[1]; }
     }
     var tpl = houseTemplate(ci);
+    // mesh and collider must always come as a PAIR: a template variant that
+    // yields no triangles would render nothing while still registering a
+    // house-sized collider (invisible barrier). Skip the whole instance.
+    if (!tpl || !tpl.pos || !tpl.pos.length) {
+      console.warn('[houses] empty template for cluster ' + ci + ' — skipping instance @' + x + ',' + z + ' (no mesh => no collider)');
+      houseStats.skipped++;
+      continue;
+    }
     var key = ci + '|' + vi;
     var ch = chunks[key];
     if (!ch) ch = chunks[key] = { pos: [], norm: [], uv: [] };
@@ -3859,7 +3873,7 @@ var houseFronts = [];      // final (post-nudge) house-front frames for the land
       for (var cb = 0; cb < ft.length; cb++) {
         if (ft[cb][0] !== 'door') continue;
         var clx = ft[cb][1] * sc, clz = ft[cb][3] * sc;
-        addCollider(clx * ca + clz * sa + x, -clx * sa + clz * ca + z, 1.1, 1.1);
+        addCollider(clx * ca + clz * sa + x, -clx * sa + clz * ca + z, 1.1, 1.1, 'house:column');
         houseStats.colliders++;
       }
     } else if (Math.min(co, so) > 0.05) {
@@ -3867,10 +3881,10 @@ var houseFronts = [];      // final (post-nudge) house-front frames for the land
       // axis-aligned AABB swallowed the driveway/side-yard corners on diagonal
       // streets — players hit "invisible walls" in front of their own garage
       // (bug reports mree5z0n, mreealh2)
-      addColliderOBB(x, z, w / 2 + 0.2, d / 2 + 0.2, rot);
+      addColliderOBB(x, z, w / 2 + 0.2, d / 2 + 0.2, rot, 'house');
       houseStats.colliders++;
     } else {
-      addCollider(x, z, w + 0.4, d + 0.4);
+      addCollider(x, z, w + 0.4, d + 0.4, 'house');
       houseStats.colliders++;
     }
     // invisible raycast proxy (bullets, cop line-of-sight)
