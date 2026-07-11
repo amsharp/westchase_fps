@@ -101,39 +101,48 @@ var SPEC = JSON.parse(fs.readFileSync(path.join(__dirname, 'slices.json'), 'utf8
     };
     // loop cutter: best seam by waveform self-similarity, then a 90ms
     // crossfade INTO the pre-start audio so end==start by construction.
+    // Output carries 100ms of real context on BOTH sides of the loop body —
+    // the game plays it with loopStart/loopEnd at the interior points, so
+    // decode-time resampling never rings at the loop seam (edge effects live
+    // in the margins, outside the loop).
+    window.LOOP_MARGIN = 0.1;   // seconds of context either side
     window.cutLoop = function (d, sr, r0, r1, L) {
-      var Ls = Math.round(L * sr), F = Math.round(sr * 0.09);
-      var lo = Math.max(F + 1, Math.round(r0 * sr)), hi = Math.min(d.length - Ls - 1, Math.round(r1 * sr) - Ls);
+      var Ls = Math.round(L * sr), F = Math.round(sr * 0.09), M = Math.round(sr * LOOP_MARGIN);
+      var lo = Math.max(F + M + 1, Math.round(r0 * sr)), hi = Math.min(d.length - Ls - M - 1, Math.round(r1 * sr) - Ls);
       var W = Math.round(sr * 0.03), bestS = lo, bestE = 1e9;
       for (var s = lo; s < hi; s += Math.round(sr * 0.01)) {
         var e = 0;
         for (var j = 0; j < W; j += 4) { var df = d[s + j] - d[s + Ls + j]; e += df * df; }
         if (e < bestE) { bestE = e; bestS = s; }
       }
-      var out = new Float32Array(Ls), i;
-      for (i = 0; i < Ls; i++) out[i] = d[bestS + i];
+      var body = new Float32Array(Ls), i;
+      for (i = 0; i < Ls; i++) body[i] = d[bestS + i];
       for (i = 0; i < F; i++) {
         var w = i / F;   // 0 -> 1 across the fade
-        out[Ls - F + i] = out[Ls - F + i] * (1 - w) + d[bestS - F + i] * w;
+        body[Ls - F + i] = body[Ls - F + i] * (1 - w) + d[bestS - F + i] * w;
       }
+      // margins: pre = the audio the crossfade landed on (so body-end -> pre
+      // -> body-start reads as one continuous take), post = true continuation
+      var out = new Float32Array(M + Ls + M);
+      for (i = 0; i < M; i++) out[i] = d[bestS - M + i];
+      out.set(body, M);
+      for (i = 0; i < M; i++) out[M + Ls + i] = d[bestS + Ls + i];
       var peak = 0;
-      for (i = 0; i < Ls; i++) { var a = out[i] < 0 ? -out[i] : out[i]; if (a > peak) peak = a; }
-      return { out: out, peak: peak, seamErr: Math.sqrt(bestE / (W / 4)) };
+      for (i = 0; i < out.length; i++) { var a = out[i] < 0 ? -out[i] : out[i]; if (a > peak) peak = a; }
+      return { out: out, peak: peak, seamErr: Math.sqrt(bestE / (W / 4)), margin: LOOP_MARGIN };
     };
     window.normTo = function (out, peak, norm) {
       var g = norm / Math.max(0.0001, peak);
       for (var i = 0; i < out.length; i++) out[i] *= g;
     };
-    // loop seam QA: double the buffer and measure the env jump at the seam
-    window.seamCheck = function (out, sr) {
-      var two = new Float32Array(out.length * 2);
-      two.set(out); two.set(out, out.length);
-      var w = Math.round(sr * 0.01), c = out.length;
-      var a = 0, b = 0;
-      for (var i = 0; i < w; i++) { var x = two[c - w + i], y = two[c + i]; a += x * x; b += y * y; }
+    // loop seam QA at the INTERIOR loop points (loopEnd -> loopStart wrap)
+    window.seamCheck = function (out, sr, margin) {
+      var M = Math.round(sr * (margin || 0));
+      var end = out.length - M, start = M;   // = in-game loopEnd / loopStart
+      var w = Math.round(sr * 0.01), a = 0, b = 0;
+      for (var i = 0; i < w; i++) { var x = out[end - w + i], y = out[start + i]; a += x * x; b += y * y; }
       a = Math.sqrt(a / w); b = Math.sqrt(b / w);
-      var jump = Math.abs(two[c] - two[c - 1]);
-      return { rmsBefore: a, rmsAfter: b, sampleJump: jump };
+      return { rmsBefore: a, rmsAfter: b, sampleJump: Math.abs(out[start] - out[end - 1]) };
     };
   });
 
@@ -153,7 +162,7 @@ var SPEC = JSON.parse(fs.readFileSync(path.join(__dirname, 'slices.json'), 'utf8
           var regRs = await resample(dec.d.subarray(rr0, rr1), dec.sr, arg.sp.rate);
           var L = cutLoop(regRs, arg.sp.rate, 0.3, regRs.length / arg.sp.rate, arg.sp.len);
           normTo(L.out, L.peak, arg.sp.norm);
-          var sc = seamCheck(L.out, arg.sp.rate);
+          var sc = seamCheck(L.out, arg.sp.rate, L.margin);
           outs.push({
             wav: wavB64(L.out, arg.sp.rate), dur: L.out.length / arg.sp.rate,
             peak: arg.sp.norm, seam: sc, seamErr: L.seamErr

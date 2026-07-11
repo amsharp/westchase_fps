@@ -319,22 +319,53 @@ All three FIXED@v1.66.63. mregjcuz + mreg8mld details are inline in Batch 8 / Ba
 - mrfzxd7v (-15,-126) invis wall — meta.cols shows nearest collider 11u away (house) — blocker not in top-3, needs walk probe
 - BARRIER REFINEMENT: mrg00upt (473,-394) cols=forest:tile — tree-backed tiles still block the full 5x5 cell when the tree is off-center; shrink collider to hug the trunk (2.2-2.6u) instead of the grid cell
 - mrg01b6n (473,-141) cols=3 house OBBs — probe the gap between them (OBB corners may pinch the visual alley)
-- Decal patches refile (east zone): mrfzxqma (-8,-120) square sidewalk patches, mrfzy2tl (67,-83) random dirt patch, mrg00iyj (549,-517) square shadows
+- Decal patches refile (east zone): mrfzxqma (-8,-120) square sidewalk patches, mrfzy2tl (67,-83) random dirt patch, mrg00iyj (549,-517) square shadows — FIXED@v1.66.99 as a class (fence+decal round): GKEY blend-key rework. The old bake gave every surface pixel a 0.10 alpha floor + only a 28px border vignette — the whole authored tile rendered as a faint pale wash, a visible hard square on any ground darker/greener than the tile. Now: surface alpha 0 (no wash at all), 36px border vignette, and ORGANIC stains/scatters (GKEY=2: oil/cracks/patch/slab/gum/mud/puddle/litter/leaves/skid) additionally dissolve radially from 55% of the half-size so a mark that bleeds to the tile edge never leaves a straight cut line; fixtures (GKEY=1: manhole/drain/plate) keep their footprint. asphalt_patch + skid_marks batches also get a darkening DTINT (their tiles are authored on much lighter asphalt than the game's). Dirt-type verge decals (mud/puddle/tuft) are now culled off-grass (footSurface + SURF-rect check — mud on clean paving read as a bug). Evidence: fencedecal_sidewalk_-8_-120_after.png, fencedecal_mudclose_after.png, fencedecal_patchclose_after.png, fencedecal_eastpatch_after.png (placement is RNG per load, so shots demonstrate the class at/near the reported spots)
 - mrfzyjtd (144,-76) 'gas station thing looks awful' — second gas station prop quality
 - mrfzz4s0 (140,-110) multicolor tree needs texture — FIXED@v1.66.95 (the crepe myrtle: per-BALL random flat pink/white/green lamb colors = the multicolor blob tree. gemini-3.1-flash-image blossom-canopy + leaf-canopy textures baked as gemfoliage.js (MYRTLE_TEX pink/white/leaf, white derived offline by hue-shifting the pink), crepeMyrtle() now picks ONE bloom hue per tree and textures every ball (leaf balls mixed in at ~20% on blooming trees); flat colors remain the no-file fallback. 68 textured myrtles map-wide. Evidence: gemprobe_tree_140_-110_a_before.png (flat blobs) vs gemprops_myrtle0/1_after.png)
 - mrfzzx7c (530,-446) no sidewalk on the right — east sidewalk gaps
 - mrg01xfw (459,-46) "ADD ROADS TO THIS NEIGHBORHOOD, MAKE IT LOOK NORMAL" — FIXED@v1.66.89 (northumberland_dr/mountbatten_dr/evanshire/tudor/gothic grid + driveways; see ROAD-NETWORK MAJOR ROUND)
 - mrfzvti9 swing set — FIXED@branch (frame static, seats swing; shipped with next deploy)
 
-## Blood-splat investigation (mrg0d0rw, v1.66.76) — findings so far (fable)
-Pale grey ~2u rectangles on night asphalt after shooting people. Ruled OUT: blooddecals.js art
-(alpha 73-85%, mean RGB dark red), decalMats (unchanged since v1.14), local repro on branch AND
-exact main76 worktree renders drips/puddles fine in day-lerp. LEAD THEORY: day-baked GKEY blend
-ground decals (v1.66.1 fix class) glow pale against NIGHT asphalt — the bake uses the daytime
-background colour. Next round: reproduce at TRUE night (full env lerp), check GKEY decals + fresh
-blood puddles side by side; fix = tint blend-key decals by the live env light factor (wcNightGlow)
-or key them properly. ALSO SEEN in the report shot: the new fp-arms (other agent, v1.66.74-76)
-render as a giant distorted polygon at some aim angles — flagging for round owner.
+## Blood-splat investigation (mrg0d0rw, v1.66.76) — CLOSED, FIXED@v1.66.99 (fence+decal round)
+Pale grey ~2u rectangles on night asphalt after shooting people. Ruled OUT earlier: blooddecals.js
+art, decalMats, day-lerp repro. CLOSED with a true-night repro (tools/_bloodnight.js: setClock 270,
+200 ticks of env lerp, lampsOn, 3 NPCs killed on ground): fresh blood puddles/drips render DARK
+red at night, immediately and settled (bloodnight_before_immediate/settled.png) — blood is fully
+exonerated. The lead theory CONFIRMED with the culprit narrowed to the GKEY blend bake, not night
+lighting: every blend-keyed tile's "surface" pixels kept a 0.10 alpha floor, so the whole authored
+tile rendered as a faint wash — by day it hid in the ambient, at night the tile (authored on much
+LIGHTER asphalt than the game's near-black night roads) read as a pale ~2u square. asphalt_patch
+was the worst (its mark IS a full pale square: bloodnight_before_asphalt_patch.png — an exact
+match for the report), oil_stain a fainter blotch; they pepper every road, so one always sat near
+a shooting. Fix (same GKEY rework as the decal cluster): alpha floor 0, wider vignette, radial
+dissolve for organic marks, dark DTINT for asphalt_patch/skid_marks. Night after:
+bloodnight_after2_asphalt_patch.png (subtle DARK patch, no glow) + bloodnight_after2_settled.png
+(blood still dark/correct). No live-light tinting needed — the wash is simply gone. (Round-prefixed
+copies of the key shots exist as fencedecal_bloodnight_*.png; all pairs md5-distinct.)
+(fp-arms deformation note from the original shot remains tracked under FP-ARMS REGRESSION below.)
+
+## FENCE + DECAL CLEANUP ROUND — SHIPPED@v1.66.99 (mrg49ri9 / mrg4k6e2 / mrg51b3u / decal refile / mrg0d0rw)
+Mechanism work behind the per-report entries above:
+- densityprops fenceRun strips: posts every ~2.5u + chainlink top rail (were bare floating
+  texture cards); strips self-clip around road asphalt, FENCE_RUNS lines and already-built
+  strips (X-crossings become T-joins; sub-strips <1.2u dropped). FENCE_RUNS table moved above
+  the densityLayer IIFE so the clipper can see it (var values don't hoist).
+- FENCE_RUNS builder: road rejection now PER PANEL (was per edge-midpoint — a long edge either
+  vanished whole or crossed asphalt its midpoint never sampled); boundary posts of skipped
+  panels remain as gateposts. Post batches keyed by colour (a shared batch key made every
+  chainlink post inherit the first run's dark Farnell tint).
+- Storage lot single-fenced (breakable diagonal ring replaces axis run + density rect);
+  Farnell E edge T-joins the breakable front run; Publix mid-lot retaining-wall row removed.
+- GKEY blend decal rework (also closes the blood-splat night investigation): zero surface
+  alpha, 36px vignette, radial dissolve for organic marks (GKEY=2) vs fixtures (GKEY=1),
+  DTINT darkening for asphalt_patch/skid_marks, skid_marks moved from lum-KEY to blend
+  (its lum-keying erased the marks and kept the background). Dirt-type verge decals culled
+  off-grass (footSurface + SURF-rect).
+- NEW GATE: tools/_fenceaudit.js — map-wide fence collider sweep (X-crossings / on-road /
+  degenerate / missing-post). Result: 321->324 segs, 0 crossings (was 3), 0 on-road (was 1),
+  0 degenerate, 305/305 panels posted; only intentionally post-free strips are the two
+  townhouse hedge rows + one hedge sub-strip. _barrierscan 0 orphans, _signaudit 0 offenders,
+  node --check clean. Evidence set: fencedecal_*.png (before/after, md5-distinct).
 
 ## FP-ARMS REGRESSION (round owner: main agent's v1.66.74-87 fp-arms feature)
 - mrg3wvhm (-129,-51, v1.66.87) SMG hand models 'beyond fucked' — CONFIRMS the deformation flagged in the blood investigation note (giant distorted arm polygon in mrg0d0rw's shot). fp-arms is the OTHER agent's active feature — please fix on your next round; if unclaimed by the next fable cycle, fable will take it.
@@ -389,7 +420,7 @@ those alignments where they exist, with real Westchase street names from the OSM
 - mrg46sb9 (295,-277) manager floating — OPEN (staff/vendor idle grounding — the adult gy bake covered Meshy civs; check staff builds)
 - mrg488m4 (-45,8) WEIRD CLIPPING ROAD TEXTURE — OPEN (z-fight or overlapping road strips near junction)
 - mrg48urv (-46,17) KEISHA arms look awful, owner: REGENERATE WITH MESHY — OPEN (asset-pipeline; Meshy authorized by owner; check balance/budget first, HECTOR-style clip fix does NOT apply to mesh/texture quality)
-- mrg49ri9 (18,85) weird fence without poles — OPEN (fence run missing posts)
+- mrg49ri9 (18,85) weird fence without poles — FIXED@v1.66.99 (fence+decal round). TWO defects at the spot: (1) the densityprops fenceRun path rendered bare texture-card strips with NO posts anywhere on the map — chainlink_fence/privacy_fence strips now bake a post every ~2.5u (+ top rail for chainlink), hedge/brick stay post-free; (2) the storage lot was DOUBLE-fenced: the axis-aligned FENCE_RUNS N+E run crossed the venue's rot-135 density fenceRect in an X at ~(23.6,84). Single fence now: one breakable FENCE_RUNS chainlink ring tracing the rect's exact corners, density rect dropped. Evidence: fencedecal_18_85_before.png (bare diagonal card + crossing run) vs fencedecal_18_85_after.png / _air_after.png (one ring, posts + rail)
 - mrg4b26g (-151,46) shot NPCs can be knocked INTO buildings (ragdoll clips through walls) — OPEN (ragdoll velocity ignores colliders; clamp ragdoll XZ vs colliders like player pushOut)
 - mrg4bexs (-149,63) no bullet holes when shooting the GROUND — FIXED@v1.66.90 (ground plane isn't in solidMeshes so ground shots produced no hit at all; hitscan now intersects the ray with the ground analytically on miss — flat hole + dust at the impact, interior floor handled)
 - mrg4brvw (-129,79) quest overlay covers the stars + new compass — FIXED@v1.66.93, see HUD RECONCILIATION ROUND below
@@ -404,7 +435,7 @@ Other new (logged, next rounds):
 - mrg4gw3o (-187,31) STILL way too much smoke — 2nd report of the lakeside ambient emitter (mrfzucre); find and shrink THAT emitter specifically
 - mrg4hbzx (-141,-9) kid glitched in the wall — kid steering/pushOut vs OBB
 - mrg4iels (-153,22) quest NPCs should FACE the player when near (design ask, small)
-- mrg4k6e2 (-53,-55) weird looking fence segment — OPEN (fence quality cluster w/ mrg49ri9 poleless fence)
+- mrg4k6e2 (-53,-55) weird looking fence segment — FIXED@v1.66.99 (fence+decal round). The Farnell density E edge used full half-depth d/2+7 while the breakable front run sits at d/2+4 — the E edge speared THROUGH the front fence and ended as a free 3u stub at (-58,-57). E edge now T-joins the front run exactly at z=-60; also the pale square visible in the report shot was a lum-keyed skid_marks decal (see mrg51b3u). Evidence: fencedecal_-53_-55_before/after.png; tools/_fenceaudit.js reports 0 fence X-crossings map-wide (was 3) and 0 fence-over-road samples (was 1 — this same Farnell E edge crossed an access road at (-58,-73); density strips now clip themselves around asphalt + other fence lines)
 - mrg4rouw (-106,-20) transparent hair refile (2nd report of mree59kf class) — queue for the CHARACTER-REGEN round: KEISHA arms (mrg48urv, Meshy authorized) + transparent-hair head (identify char from live_hair.jpg in scratchpad) + RAVEN run clips (mrfzod76; try the HECTOR world-delta bake first — bake script is character-generic per that round's notes)
 - mrg4sbrk (-112,-54) DON floating, legs angled back — character-regen round queue (DON = another Meshy clip/retarget defect; try the HECTOR world-delta bake — same class)
 
@@ -413,7 +444,7 @@ Other new (logged, next rounds):
 - mrg52tm7 (-92,31) STILL no hands on bike (refile mrftgle) — FIXED@v1.66.94 (see ANIM ROUND 7)
 - mrg53h5l (-85,39) umbrella hold off + FEATURE: many colored umbrellas when raining — FIXED@v1.66.94 (both parts; see ANIM ROUND 7)
 - mrg50mwe (-63,4) photomode shift-move should be faster — QUICK (other agent owns photomode?)
-- mrg51b3u (-63,4) weird fence placement + skid-mark decal needs transparency — fence cluster + decal key
+- mrg51b3u (-63,4) weird fence placement + skid-mark decal needs transparency — FIXED@v1.66.99 (fence+decal round), both parts. (a) The "fence" was the envprops retaining-wall "accent" run: it spanned lots[0] x +/- w/2 with NO depth offset — a dashed row of solid wall blocks straight through the MIDDLE of the Publix lot's drive aisle (each with a collider). Removed outright (pond-fence-arc/screen-wall precedent); the two park lamps stay. (b) skid_marks was in the lum<46 KEY list, but the tire streaks are the tile's DARKEST pixels — the keying erased the MARKS and kept the pale background: an opaque tan rectangle with streak-shaped holes. Moved to the GKEY blend path (+ 0x9a9a9a tint): only the streaks render now. Evidence: fencedecal_-63_4_before/after.png (+_air), fencedecal_skid_before/after.png
 - mrg52jt3 (-88,16) FEATURE: punch blood should be a cool sprite + balloons need string physics — fun-polish queue (owner directive: keep adding fun details)
 - mrg54993 (-46,86) huge AC unit looks awful (3rd AC complaint) — FIXED@v1.66.95 (two problems: the ac_condenser tex was a BEIGE residential mini-split that read as a cardboard crate, and the venue-side upsize was 2.4x = a 1.8m cube towering next to the small Dunkin. Retextured the whole prop family via gemini-3.1-flash-image — weathered galvanized commercial condenser face, twin fan guards + louver slats — baked into densityprops.js, and downsized the venue placement to 1.75x (~1.3m). Also covers the AC half of mrfzdzwh (4,91) and closes the mreds4nw class refile. Evidence: gemprobe_ac_-46_86_b_before.png vs gemprops_ac_after2.png / gemprops_ac_dunkin_after.png)
 

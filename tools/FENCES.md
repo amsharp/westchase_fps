@@ -4,6 +4,27 @@ Data-driven fences for the WC_REMAP world. Everything lives in **one section
 of `game.js`** ("REUSABLE FENCE SYSTEM"): a builder + a `FENCE_RUNS` table.
 No new files, no assets — textures are procedural or reuse `densityprops.js`.
 
+NOTE (fence cleanup round, v1.66.96): the `FENCE_RUNS` **table** now lives
+textually ABOVE the densityLayer IIFE (the density strips clip against it);
+the loader/builder section is unchanged further down. There are TWO fence
+systems and they now cooperate:
+
+- `FENCE_RUNS` (breakable panels + merged posts). Road rejection is now
+  **per panel** (was per edge-midpoint): panels over asphalt are skipped
+  individually and their boundary posts remain as gateposts. Post batches
+  are keyed by colour (a shared key used to paint every chainlink post with
+  the first run's tint).
+- densityprops `fenceRun`/`fenceRect` strips (solid, non-breakable). These
+  now drop **posts** every ~2.5u (+ a top rail for chainlink) so they no
+  longer read as floating texture cards (mrg49ri9), and they **clip
+  themselves**: cut where they'd cross road asphalt, a FENCE_RUNS line, or
+  an already-built strip — an X-crossing becomes two T-joins. hedge_row /
+  brick_low_wall stay post-free (self-supporting).
+
+Audit tooling: `tools/_fenceaudit.js` (headless) sweeps every fence collider
+for X-crossings / road overlap / degenerate segments / missing posts — keep
+it at zero findings when touching fences.
+
 ## Adding a fence = append ONE row
 
 Edit the `FENCE_RUNS` array in `game.js` and add:

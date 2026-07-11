@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.98';
+var GAME_VERSION = 'v1.66.99';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -4518,6 +4518,13 @@ function carHorn(c, angry) {
   if (dist > 62) return;                                    // too far to hear -> skip (saves audio nodes)
   lastHornT = T; c._hornT = T; carHornCount++;
   var g = 0.15 * (1 - dist / 62), f = angry ? 300 : 380 + (c._hornHz || 0);
+  // Lyria horn one-shot when the pack is decoded (per-car pitch via rate,
+  // angry = lower + double blast); synth beeps otherwise
+  var hr = (angry ? 0.84 : 1) + (c._hornHz || 0) / 800;
+  if (playHornBuf(hr, g * 1.8)) {
+    if (angry) setTimeout(function () { playHornBuf(hr, g * 1.8); }, 340);
+    return;
+  }
   beep(f, angry ? 0.5 : 0.26, g, 'sawtooth'); beep(f * 1.5, angry ? 0.5 : 0.26, g * 0.5, 'square');   // beep() self-guards when audio is off
   if (angry) setTimeout(function () { beep(f, 0.34, g, 'sawtooth'); beep(f * 1.5, 0.34, g * 0.5, 'square'); }, 240);
 }
@@ -4530,6 +4537,7 @@ function playerHorn() {
   if (!driving || T - lastPlayerHornT < 0.4) return;
   lastPlayerHornT = T; playerHornCount++;
   var f = 360 + (driving._hornHz || 0);
+  if (playHornBuf(1 + (driving._hornHz || 0) / 800, 0.3)) return;   // Lyria horn (pack)
   beep(f, 0.3, 0.17, 'sawtooth'); beep(f * 1.5, 0.3, 0.085, 'square');
 }
 // desired speed for a remap traffic car: the min of free-flow cruise, the gap
@@ -11790,6 +11798,23 @@ function engNoise() {   // one shared noise second for every exhaust layer
   }
   return engNoiseBuf;
 }
+// Lyria engine-loop classes (soundfx.js pack): a/b/c/d = four-banger / lazy
+// V8 / high-strung sports / diesel van. sfxEngReady gates the sample path;
+// until the pack decodes (or without soundfx.js) cars keep the synth stack.
+var ENG_CLASSES = ['a', 'b', 'c', 'd'];
+function sfxEngReady(cls) {
+  var i = sfxPackBufs['eng_idle_' + cls], h = sfxPackBufs['eng_high_' + cls];
+  return !!(i && i[0] && h && h[0]);
+}
+function stopEngine(c) {
+  var e = c.eng;
+  if (!e) return;
+  try { if (e.o) e.o.stop(); if (e.o2) e.o2.stop(); if (e.sub) e.sub.stop(); } catch (err) { }
+  try { if (e.si) e.si.stop(); if (e.sh) e.sh.stop(); } catch (err) { }
+  try { if (e.rich) { e.rich.ns.stop(); e.rich.lfo.stop(); } } catch (err) { }
+  try { e.g.disconnect(); } catch (err) { }
+  c.eng = null;
+}
 function ensureEngine(c) {
   if (c.eng || !ac) return;
   // per-car voice (report mrefsp85 'make them sound different from one
@@ -11801,8 +11826,28 @@ function ensureEngine(c) {
     pitch: 0.82 + r1 * 0.42,                 // small revvy hatch <-> lazy V8
     ratio: 1.9 + r2 * 0.7,                   // harmonic spacing = timbre
     bright: 0.78 + r3 * 0.55,                // muffler quality
-    o2t: ['sawtooth', 'square', 'sawtooth', 'triangle'][sd % 4]
+    o2t: ['sawtooth', 'square', 'sawtooth', 'triangle'][sd % 4],
+    cls: ENG_CLASSES[(sd >> 24) & 3]         // Lyria loop class (stable per car)
   };
+  // sample-based engine: idle + high-rev Lyria loops crossfaded by the same
+  // RPM model; per-car personality survives via playbackRate (chr.pitch)
+  if (sfxEngReady(chr.cls)) {
+    var g2 = ac.createGain(); g2.gain.value = 0; g2.connect(ac.destination);
+    // loops carry 100ms of margin context either side (see tools/sfxgen):
+    // loopStart/loopEnd sit interior so decode-resampling never clicks
+    var LM = 0.1;
+    var si = ac.createBufferSource(); si.buffer = sfxPackBufs['eng_idle_' + chr.cls][0]; si.loop = true;
+    si.loopStart = LM; si.loopEnd = Math.max(LM + 0.1, si.buffer.duration - LM);
+    var gi = ac.createGain(); gi.gain.value = 1; si.connect(gi); gi.connect(g2);
+    var sh = ac.createBufferSource(); sh.buffer = sfxPackBufs['eng_high_' + chr.cls][0]; sh.loop = true;
+    sh.loopStart = LM; sh.loopEnd = Math.max(LM + 0.1, sh.buffer.duration - LM);
+    var gh = ac.createGain(); gh.gain.value = 0; sh.connect(gh); gh.connect(g2);
+    // random loop-phase offsets so nearby cars never chorus in step
+    si.start(0, LM + Math.random() * (si.loopEnd - LM));
+    sh.start(0, LM + Math.random() * (sh.loopEnd - LM));
+    c.eng = { smp: true, si: si, sh: sh, gi: gi, gh: gh, g: g2, rpm: ENG_IDLE, chr: chr };
+    return;
+  }
   var o = ac.createOscillator(); o.type = 'sawtooth'; o.frequency.value = 40;
   var o2 = ac.createOscillator(); o2.type = chr.o2t; o2.frequency.value = 81;
   var sub = ac.createOscillator(); sub.type = 'sine'; sub.frequency.value = 20;   // body
@@ -11810,7 +11855,7 @@ function ensureEngine(c) {
   var g = ac.createGain(); g.gain.value = 0;
   o.connect(f); o2.connect(f); sub.connect(f); f.connect(g); g.connect(ac.destination);
   o.start(); o2.start(); sub.start();
-  c.eng = { o: o, o2: o2, sub: sub, f: f, g: g, rpm: ENG_IDLE, chr: chr };
+  c.eng = { syn: true, o: o, o2: o2, sub: sub, f: f, g: g, rpm: ENG_IDLE, chr: chr };
 }
 function ensureEngineRich(c) {
   // the player's car earns the full stack: band-passed combustion noise
@@ -11830,6 +11875,15 @@ function ensureEngineRich(c) {
 function engineTick(c, dt, sp, throttle, dist, drivenLoud) {
   if (!c.eng) return;
   var e = c.eng;
+  // late pack upgrade: this engine was built as synth before the SFX pack
+  // finished decoding — rebuild it on the sample loops (cheap, once per car)
+  if (e.syn && e.chr && sfxEngReady(e.chr.cls)) {
+    var wasRich = !!e.rich;
+    stopEngine(c); ensureEngine(c);
+    if (wasRich) ensureEngineRich(c);
+    e = c.eng;
+    if (!e) return;
+  }
   // revs chase the gear model; throttle blips them up, lift-off sags slower
   var target = engineRPM(sp) + (throttle > 0 ? 260 : 0);
   if (c.berserk) target = ENG_MAX * 0.92;
@@ -11838,12 +11892,22 @@ function engineTick(c, dt, sp, throttle, dist, drivenLoud) {
   // one doppler factor scales the whole layer stack
   var dop = dopplerShift(c, dist, dt);
   var chr = e.chr || { pitch: 1, ratio: 2.04, bright: 1 };
-  var f0 = Math.max(20, Math.min(400, (e.rpm / 22) * dop * chr.pitch));   // firing fundamental
-  e.o.frequency.value = f0;
-  e.o2.frequency.value = Math.min(820, f0 * chr.ratio);
-  e.sub.frequency.value = Math.max(14, f0 * 0.5);
-  e.f.frequency.value = Math.max(140, Math.min(1400, (150 + e.rpm * 0.16) * chr.bright));
-  // loudness: distance falloff x rev-dependent presence (all gains clamped)
+  var revClimb = Math.max(0, Math.min(1, (e.rpm - ENG_IDLE) / (ENG_MAX - ENG_IDLE)));
+  if (e.smp) {
+    // Lyria loops: pitch both beds up with revs, crossfade idle -> high
+    e.si.playbackRate.value = Math.max(0.25, (0.72 + 0.85 * revClimb) * chr.pitch * dop);
+    e.sh.playbackRate.value = Math.max(0.25, (0.55 + 0.6 * revClimb) * chr.pitch * dop);
+    e.gi.gain.value = 1 - revClimb * revClimb;
+    e.gh.gain.value = Math.sqrt(revClimb) * 1.1;
+  } else {
+    var f0 = Math.max(20, Math.min(400, (e.rpm / 22) * dop * chr.pitch));   // firing fundamental
+    e.o.frequency.value = f0;
+    e.o2.frequency.value = Math.min(820, f0 * chr.ratio);
+    e.sub.frequency.value = Math.max(14, f0 * 0.5);
+    e.f.frequency.value = Math.max(140, Math.min(1400, (150 + e.rpm * 0.16) * chr.bright));
+  }
+  // loudness: distance falloff x rev-dependent presence (all gains clamped).
+  // Sample loops are peak-normalized quieter than the raw saw stack -> boost.
   var revs = Math.min(1, (e.rpm - ENG_IDLE) / 2600);
   var base;
   if (drivenLoud) base = 0.05 + revs * 0.085 + (throttle > 0 ? 0.02 : 0);
@@ -11851,7 +11915,8 @@ function engineTick(c, dt, sp, throttle, dist, drivenLoud) {
     var vol = Math.max(0, 1 - dist / 80);
     base = vol * vol * (c.berserk ? 0.1 : 0.05) * (0.45 + 0.55 * revs);
   }
-  e.g.gain.value = Math.max(0, Math.min(0.16, base));
+  var emul = e.smp ? 2.4 : 1;
+  e.g.gain.value = Math.max(0, Math.min(0.16 * emul, base * emul));
   if (e.rich) {
     var on = drivenLoud ? 1 : 0;
     e.rich.ng.gain.value = Math.min(0.4, on * (0.1 + (throttle > 0 ? 0.18 : 0.05) * Math.min(1, e.rpm / 3000)));
@@ -12109,6 +12174,7 @@ function enterCar(c) {
   if (isClient()) netToHost({ t: 'steal', i: cars.indexOf(c) });
   setZoom(false);
   vm.visible = false;
+  sfx('cardoor');   // door slam (Lyria pack; synth fallback)
   // start the orbit camera behind the car
   var hh = g.rotation.y;
   yaw = Math.atan2(-Math.cos(hh), Math.sin(hh));
@@ -12131,6 +12197,7 @@ function exitCar(hijacked) {
   }
   driving = null;
   vm.visible = true;
+  sfx('cardoor');   // door slam on the way out too
   document.getElementById('crosshair').style.display = '';
   setEquipped(state.equipped);   // restores viewmodel + weapon HUD
 }
@@ -13683,7 +13750,7 @@ function damageNPC(n, dmg, kx, kz, silent) {
   }
   for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o === n || (o.state !== 'walk' && o.state !== 'chat')) continue; var dx = o.x - n.x, dz = o.z - n.z; if (dx * dx + dz * dz < 170) startFlee(o); }
 }
-function startFlee(n) { if (n.state === 'down') return; breakNpcChat(n); n.state = 'flee'; n.dodge = false; n.fleeT = 4 + Math.random() * 3; var dx = n.x - player.x, dz = n.z - player.z; var d = Math.sqrt(dx * dx + dz * dz) || 1; n.fleeDX = dx / d; n.fleeDZ = dz / d; }
+function startFlee(n) { if (n.state === 'down') return; breakNpcChat(n); n.state = 'flee'; n.dodge = false; n.fleeT = 4 + Math.random() * 3; var dx = n.x - player.x, dz = n.z - player.z; var d = Math.sqrt(dx * dx + dz * dz) || 1; n.fleeDX = dx / d; n.fleeDZ = dz / d; fleeScream(n, false); }
 function panicNear(x, z, r2) { var fled = null; for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o.state !== 'walk' && o.state !== 'chat') continue; var dx = o.x - x, dz = o.z - z; if (dx * dx + dz * dz < r2) { startFlee(o); if (!fled || o.vname) fled = o; } } if (fled && !playNpcVoice(fled.vname, 'gunscared', 0.65, 10, { x: fled.x, z: fled.z, yell: true, net: 1, ref: fled })) playVoiceAny(fled.fem ? ['pedf_gun'] : ['pedm_gun'], 0.6, 'pedGun', 16, { x: fled.x, z: fled.z, yell: true, net: 1, ref: fled }); fleeKidsNear(x, z, r2); }
 
 var npcSocialT = 0, npcBumpT = -99, meleeHit = false, npcAnimF = 0;
@@ -14376,6 +14443,7 @@ function fleeKidsNear(x, z, r2) {
       if (k.state === 'play_on' || k.state === 'play_go') endKidPlay(k);   // chaos breaks off the game
       if (k.game) leaveKidGame(k);
       k.state = 'flee'; k.stateT = 3 + Math.random() * 2.5; k.fleeDX = dx / d; k.fleeDZ = dz / d; k.fleeSpd = 5.6;
+      fleeScream(k, true);
     }
   }
 }
@@ -16277,7 +16345,7 @@ function tryAttack() {
       }
     }
     else if (atmHit) shootAtm(atmHit, h.point);   // streetprops: burst the ATM open
-    else { puff(h.point, 0xbbbbbb, 'impact'); bulletHole(h); }   // static surface: small dust + a hole
+    else { puff(h.point, 0xbbbbbb, 'impact'); bulletHole(h); if (Math.random() < 0.28) sfx('ricochet', { x: h.point.x, z: h.point.z, y: h.point.y, range: 60 }); }   // static surface: dust + hole + the odd ricochet zing
     // hitmarker on any damageable connect (a kill mark from damageNPC/Cop above
     // out-ranks this via hitMark's downgrade guard)
     if (npcHit || copHit || remoteHit || copMHit >= 0 || carHit || alienHit || ufoHit) hitMark(false);
@@ -16661,7 +16729,7 @@ function setupAudioBus() {
     applyAudioSettings();                  // push saved slider values onto the buses
   } catch (e) { audioReal = null; masterBus = sfxBus = voiceBus = null; }
 }
-function initAudio() { if (ac) return; try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { } setupAudioBus(); startAmbient(); }
+function initAudio() { if (ac) return; try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { } setupAudioBus(); decodeSfxPack(); startAmbient(); }
 function startAmbient() {
   if (!ac || ambientStarted) return;
   ambientStarted = true;
@@ -17141,7 +17209,8 @@ var SFX_MAP = {
   slap: { k: 'punch', g: 0.5, r: 1.35, j: 0.06 }, thud: { k: 'punch', g: 0.5, r: 0.65, j: 0.05 },
   ko: { k: 'punch', g: 0.55, r: 0.55 },
   cash: { k: 'cash', g: 0.3, j: 0.04 }, buy: { k: 'cash', g: 0.26, r: 1.18, j: 0.03 },
-  eat: { k: 'eat', g: 0.38, j: 0.06 }
+  eat: { k: 'eat', g: 0.38, j: 0.06 },
+  cardoor: { k: 'cardoor', g: 0.5, j: 0.05 }, ricochet: { k: 'ricochet', g: 0.32, j: 0.1 }
 };
 function sfxLogPush(kind, pack) {
   if (!window.__sfxLog) return;
@@ -17172,6 +17241,35 @@ function playHornBuf(rate, gain) {
   var g = ac.createGain(); g.gain.value = gain;
   src.connect(g); g.connect(ac.destination); src.start();
   return true;
+}
+// ---- flee screams (owner directive): Gemini-TTS terror screams/yells, PS1-
+// crunched offline (tools/sfxgen/screamgen.js) into the SFX pack. Played when
+// an NPC/kid ENTERS flee (startFlee / fleeKidsNear), sex-matched, spatial via
+// the voice path (voiceBus + panner + doppler). Per-NPC 8-15s cooldown + a
+// global ~2/s limiter so a massacre never becomes a wall of screams. Variant
+// + rate are DETERMINISTIC per character (vname/phase hash) so one person
+// always screams the same way. TTS dialogue voices are untouched.
+var lastScreamT = -99;
+function fleeScream(n, kid) {
+  if (!ac || !n) return;
+  var key = kid ? 'scream_kid' : (n.fem ? 'scream_f' : 'scream_m');
+  var arr = sfxPackBufs[key];
+  if (!arr || !arr.length) return;
+  if (T - lastScreamT < 0.5) return;                                   // global limiter
+  var h = 0, s = String(n.vname || n.persona || '') + ((n.phase || 0).toFixed(3));
+  for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  if (T - (n._screamT || -99) < 8 + (h % 8)) return;                   // per-NPC 8-15s
+  var at = { x: n.x, z: n.z, yell: 1, ref: n };
+  if (!voiceEarshot(at)) return;
+  var buf = arr[h % arr.length] || arr[0];
+  if (!buf) return;
+  lastScreamT = T; n._screamT = T;
+  var src = ac.createBufferSource(); src.buffer = buf;
+  src.playbackRate.value = 0.94 + ((h >> 6) % 100) / 100 * 0.12;
+  src.connect(voiceOut(0.6, at, voiceBus));
+  src.start();
+  trackVoice(src, at);
+  sfxLogPush(key, true);
 }
 // sfx(kind) is 2D (player-sourced / UI); sfx(kind, at) places the sound in
 // the world — everything that has a source in the world should pass one.
@@ -17211,6 +17309,8 @@ function sfx(kind, at) {
     case 'boom': nb(0.8, 320, 1.3); bp(60, 0.6, 0.6, 'sine', 24); setTimeout(function () { nb(0.4, 700, 0.4); }, 120); break;
     case 'tick': bp(1500, 0.03, 0.11, 'square', 0); break;   // crisp hitmarker blip
     case 'killtick': bp(1650, 0.035, 0.14, 'square', -260); setTimeout(function () { bp(1050, 0.05, 0.12, 'square', -180); }, 45); break;   // two-note kill confirm
+    case 'cardoor': bp(110, 0.09, 0.22, 'square', 55); nb(0.05, 900, 0.16); break;              // synth fallback (pack normally covers these)
+    case 'ricochet': bp(1900, 0.28, 0.1, 'sawtooth', 480); nb(0.05, 2600, 0.08); break;
   }
 }
 // ---- surface footsteps (#47): cheap per-surface noise blips synced to the
@@ -17221,6 +17321,16 @@ function footStep(surf, run) {
   footStepCount++;
   if (!ac) return;
   var g = run ? 1.35 : 1;   // heavier stomp at a run
+  // Lyria pack steps (asphalt reuses concrete pitched down); synth fallback
+  var fe = ({ water: ['step_water', 0.42, 1], grass: ['step_grass', 0.32, 1], interior: ['step_wood', 0.32, 1], concrete: ['step_concrete', 0.34, 1] })[surf] || ['step_concrete', 0.3, 0.85];
+  var fb = sfxPackBuf(fe[0]);
+  if (fb) {
+    var src = ac.createBufferSource(); src.buffer = fb;
+    src.playbackRate.value = fe[2] * (0.92 + Math.random() * 0.16);
+    var gg = ac.createGain(); gg.gain.value = fe[1] * g;
+    src.connect(gg); gg.connect(ac.destination); src.start();
+    return;
+  }
   switch (surf) {
     case 'water':                                     // wet splash
       noiseBurst(0.11, 2200, 0.16 * g); beep(520, 0.06, 0.05 * g, 'sine', 190);

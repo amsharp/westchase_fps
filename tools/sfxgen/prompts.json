@@ -1,18 +1,80 @@
 {
-  "pistol": { "prompt": "Sound effect: a single 9mm pistol gunshot, dry close-mic recording, sharp crack with a very short tail. Repeat the identical single shot eight times with two full seconds of total silence between each shot. No music, no melody, no drums, no reverb wash, no background ambience." },
-  "smg": { "prompt": "Sound effect: a single shot from a small 9mm submachine gun, tight snappy mechanical crack, dry close-mic, very short tail. Repeat the identical single shot eight times with two full seconds of total silence between each shot. No bursts, no music, no melody, no drums, no background ambience." },
-  "rifle": { "prompt": "Sound effect: a single powerful high-caliber sniper rifle gunshot, deep booming crack with a short echo tail. Repeat the identical single shot six times with three full seconds of total silence between each shot. No music, no melody, no drums, no background ambience." },
-  "ak": { "prompt": "Sound effect: a single AK-47 assault rifle gunshot, aggressive punchy metallic crack, dry close-mic, short tail. Repeat the identical single shot eight times with two full seconds of total silence between each shot. No bursts, no music, no melody, no drums, no background ambience." },
-  "rocket": { "prompt": "Sound effect: a shoulder-fired rocket launcher firing once: a percussive launch thump followed by a fast rocket whoosh flying away, about one second long. Repeat the identical launch five times with three full seconds of total silence between each launch. No explosion at the end, no music, no melody, no drums." },
-  "boom": { "prompt": "Sound effect: a single large explosion, deep concussive blast with debris and a rumbling decay, about two seconds long. Repeat the identical explosion four times with three full seconds of total silence between each explosion. No music, no melody, no drums, no background ambience." },
-  "crash": { "prompt": "Sound effect: a single violent car crash, crunching metal impact with a short debris rattle, about one second long. Repeat the identical crash five times with three full seconds of total silence between each crash. No glass, no horn, no music, no melody, no drums." },
-  "glass": { "prompt": "Sound effect: a single glass window shattering, bright brittle break with falling shards, about one second long. Repeat the identical shatter five times with three full seconds of total silence between each. No music, no melody, no drums, no background ambience." },
-  "punch": { "prompt": "Sound effect: a single heavy boxing punch impact hitting a body, meaty thud with a short smack, dry close-mic. Repeat the identical single punch eight times with two full seconds of total silence between each punch. No grunts, no voices, no music, no melody, no drums." },
-  "cash": { "prompt": "Sound effect: an old mechanical cash register: one short bright bell ding together with a coin clink, half a second long. Repeat the identical ding six times with two full seconds of total silence between each. No music, no melody, no drums, no background ambience." },
-  "horn": { "prompt": "Sound effect: a single car horn honk from a modern sedan, a plain steady dual-tone horn blast lasting half a second. Repeat the identical single honk six times with two full seconds of total silence between each honk. No traffic, no music, no melody, no drums." },
-  "eat": { "prompt": "Sound effect: a person taking one crunchy bite of a potato chip snack and chewing briefly, close-mic mouth crunch, one second long. Repeat the identical bite five times with two full seconds of total silence between each. No voices, no music, no melody, no drums." },
-  "engine_idle": { "prompt": "Sound effect: a four-cylinder car engine idling steadily at low RPM, constant even loop, recorded from outside near the exhaust, perfectly steady with no revving, no acceleration, no change for the whole duration. No music, no melody, no drums, no voices, no traffic." },
-  "engine_high": { "prompt": "Sound effect: a car engine held steady at high RPM, constant aggressive even drone, recorded from outside, perfectly steady sustained revving with no gear changes, no acceleration or deceleration, no change for the whole duration. No music, no melody, no drums, no voices." },
-  "engine_idle2": { "prompt": "Sound effect: a big lazy American V8 truck engine idling steadily at low RPM, deep loping rumble, constant even loop recorded near the exhaust, perfectly steady with no revving and no change for the whole duration. No music, no melody, no drums, no voices, no traffic." },
-  "engine_high2": { "prompt": "Sound effect: a big American V8 engine held steady at high RPM, deep roaring constant drone, recorded from outside, perfectly steady sustained revving with no gear changes and no change for the whole duration. No music, no melody, no drums, no voices." }
+ "pistol": {
+  "prompt": "Sound effect: a single 9mm pistol gunshot, dry close-mic recording, sharp crack with a very short tail. Repeat the identical single shot eight times with two full seconds of total silence between each shot. No music, no melody, no drums, no reverb wash, no background ambience."
+ },
+ "smg": {
+  "prompt": "Sound effect: a single shot from a small 9mm submachine gun, tight snappy mechanical crack, dry close-mic, very short tail. Repeat the identical single shot eight times with two full seconds of total silence between each shot. No bursts, no music, no melody, no drums, no background ambience."
+ },
+ "rifle": {
+  "prompt": "Sound effect: a single powerful high-caliber sniper rifle gunshot, deep booming crack with a short echo tail. Repeat the identical single shot six times with three full seconds of total silence between each shot. No music, no melody, no drums, no background ambience."
+ },
+ "ak": {
+  "prompt": "Sound effect: a single AK-47 assault rifle gunshot, aggressive punchy metallic crack, dry close-mic, short tail. Repeat the identical single shot eight times with two full seconds of total silence between each shot. No bursts, no music, no melody, no drums, no background ambience."
+ },
+ "rocket": {
+  "prompt": "Sound effect: a shoulder-fired rocket launcher firing once: a percussive launch thump followed by a fast rocket whoosh flying away, about one second long. Repeat the identical launch five times with three full seconds of total silence between each launch. No explosion at the end, no music, no melody, no drums."
+ },
+ "boom": {
+  "prompt": "Sound effect: a single large explosion, deep concussive blast with debris and a rumbling decay, about two seconds long. Repeat the identical explosion four times with three full seconds of total silence between each explosion. No music, no melody, no drums, no background ambience."
+ },
+ "crash": {
+  "prompt": "Sound effect: a single violent car crash, crunching metal impact with a short debris rattle, about one second long. Repeat the identical crash five times with three full seconds of total silence between each crash. No glass, no horn, no music, no melody, no drums."
+ },
+ "glass": {
+  "prompt": "Sound effect: a single glass window shattering, bright brittle break with falling shards, about one second long. Repeat the identical shatter five times with three full seconds of total silence between each. No music, no melody, no drums, no background ambience."
+ },
+ "punch": {
+  "prompt": "Sound effect: a single heavy boxing punch impact hitting a body, meaty thud with a short smack, dry close-mic. Repeat the identical single punch eight times with two full seconds of total silence between each punch. No grunts, no voices, no music, no melody, no drums."
+ },
+ "cash": {
+  "prompt": "Sound effect: an old mechanical cash register: one short bright bell ding together with a coin clink, half a second long. Repeat the identical ding six times with two full seconds of total silence between each. No music, no melody, no drums, no background ambience."
+ },
+ "horn": {
+  "prompt": "Sound effect: a single car horn honk from a modern sedan, a plain steady dual-tone horn blast lasting half a second. Repeat the identical single honk six times with two full seconds of total silence between each honk. No traffic, no music, no melody, no drums."
+ },
+ "eat": {
+  "prompt": "Sound effect: a person taking one crunchy bite of a potato chip snack and chewing briefly, close-mic mouth crunch, one second long. Repeat the identical bite five times with two full seconds of total silence between each. No voices, no music, no melody, no drums."
+ },
+ "engine_idle": {
+  "prompt": "Sound effect: a four-cylinder car engine idling steadily at low RPM, constant even loop, recorded from outside near the exhaust, perfectly steady with no revving, no acceleration, no change for the whole duration. No music, no melody, no drums, no voices, no traffic."
+ },
+ "engine_high": {
+  "prompt": "Sound effect: a car engine held steady at high RPM, constant aggressive even drone, recorded from outside, perfectly steady sustained revving with no gear changes, no acceleration or deceleration, no change for the whole duration. No music, no melody, no drums, no voices."
+ },
+ "engine_idle2": {
+  "prompt": "Sound effect: a big lazy American V8 truck engine idling steadily at low RPM, deep loping rumble, constant even loop recorded near the exhaust, perfectly steady with no revving and no change for the whole duration. No music, no melody, no drums, no voices, no traffic."
+ },
+ "engine_high2": {
+  "prompt": "Sound effect: a big American V8 engine held steady at high RPM, deep roaring constant drone, recorded from outside, perfectly steady sustained revving with no gear changes and no change for the whole duration. No music, no melody, no drums, no voices."
+ },
+ "step_concrete": {
+  "prompt": "Sound effect: a single footstep of a sneaker on a concrete sidewalk, dry close-mic, short scuff. Repeat the identical single footstep ten times with one and a half seconds of total silence between each step. No walking rhythm, no music, no melody, no drums, no ambience."
+ },
+ "step_grass": {
+  "prompt": "Sound effect: a single soft footstep on dry grass and dirt, muffled crunchy scuff, dry close-mic. Repeat the identical single footstep ten times with one and a half seconds of total silence between each step. No walking rhythm, no music, no melody, no drums, no ambience."
+ },
+ "step_water": {
+  "prompt": "Sound effect: a single footstep splashing in a shallow puddle of water, wet slosh, dry close-mic. Repeat the identical single splash step ten times with one and a half seconds of total silence between each. No stream, no rain, no music, no melody, no drums."
+ },
+ "step_wood": {
+  "prompt": "Sound effect: a single footstep of a shoe on a hollow interior wooden floor, short knock tap, dry close-mic. Repeat the identical single footstep ten times with one and a half seconds of total silence between each step. No walking rhythm, no music, no melody, no drums, no ambience."
+ },
+ "ricochet": {
+  "prompt": "Sound effect: a single bullet ricochet zinging off concrete, sharp metallic whine deflecting away, half a second long. Repeat the identical ricochet six times with two full seconds of total silence between each. No gunshot, no music, no melody, no drums."
+ },
+ "cardoor": {
+  "prompt": "Sound effect: a car door slamming shut once, solid metallic thunk with a latch click, dry close-mic. Repeat the identical single door slam eight times with two full seconds of total silence between each slam. No engine, no music, no melody, no drums, no ambience."
+ },
+ "engine_idle3": {
+  "prompt": "Sound effect: a small high-strung sports car engine idling steadily, smooth even purr at low RPM, constant loop recorded near the exhaust, perfectly steady with no revving and no change for the whole duration. No music, no melody, no drums, no voices, no traffic."
+ },
+ "engine_high3": {
+  "prompt": "Sound effect: a high-revving sports car engine held steady at very high RPM, smooth screaming constant drone, recorded from outside, perfectly steady sustained revving with no gear changes and no change for the whole duration. No music, no melody, no drums, no voices."
+ },
+ "engine_idle4": {
+  "prompt": "Sound effect: an old diesel delivery van engine idling steadily, rattling clattering low RPM loop, constant and even, recorded near the engine bay, perfectly steady with no revving and no change for the whole duration. No music, no melody, no drums, no voices, no traffic."
+ },
+ "engine_high4": {
+  "prompt": "Sound effect: an old diesel van engine held steady at high RPM, rough hammering constant drone, recorded from outside, perfectly steady sustained revving with no gear changes and no change for the whole duration. No music, no melody, no drums, no voices."
+ }
 }
