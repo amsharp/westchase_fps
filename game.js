@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.67.8';
+var GAME_VERSION = 'v1.67.9';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -18771,7 +18771,7 @@ function qActorMesh(look) {
     var m = qActorMesh(s.look);
     m.position.set(s.x, s.y || 0, s.z); m.rotation.y = s.yaw || 0;
     scene.add(m);
-    qActors.push({ id: s.id, name: s.name, mesh: m, x: s.x, z: s.z, quest: s.quest });
+    qActors.push({ id: s.id, name: s.name, mesh: m, x: s.x, z: s.z, quest: s.quest, yaw0: s.yaw || 0 });
   }
 })();
 function questActorNear() {
@@ -18947,8 +18947,13 @@ function updateQActors(dt) {
   for (var i = 0; i < qActors.length; i++) {
     var a = qActors[i]; if (!a.mesh) continue;
     if (a.phase === undefined) a.phase = Math.random() * 6.28;
-    var dx = a.x - player.x, dz = a.z - player.z; if (dx * dx + dz * dz > 130 * 130) continue;
+    var dx = a.x - player.x, dz = a.z - player.z; var d2 = dx * dx + dz * dz; if (d2 > 130 * 130) continue;
     a.phase += dt * 3.4;
+    // turn to face the player when they're close (mrg4iels), ease back to the
+    // authored home yaw once they leave — shortest-angle lerp, ~4 rad/s cap
+    var tgt = d2 < 49 ? Math.atan2(player.x - a.x, player.z - a.z) : (a.yaw0 || 0);
+    var cur = a.mesh.rotation.y, dyaw = Math.atan2(Math.sin(tgt - cur), Math.cos(tgt - cur));
+    a.mesh.rotation.y = cur + dyaw * Math.min(1, dt * 4);
     try { animPerson(a.mesh, 0, dt, a.phase); } catch (e) { }
   }
 }
