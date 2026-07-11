@@ -3920,7 +3920,7 @@ var houseFronts = [];      // final (post-nudge) house-front frames for the land
       registerDoor(dxl * ca + (d / 2) * sa + x, -dxl * sa + (d / 2) * ca + z, sa, ca, 2.2);
       // front-face frame for foundation plantings: centre on the front wall, with
       // outward normal (sa,ca) and along-wall right (ca,-sa). x,z are post-nudge.
-      houseFronts.push({ fcx: x + (d / 2) * sa, fcz: z + (d / 2) * ca, nx: sa, nz: ca, rgx: ca, rgz: -sa, w: w, doorX: dxl });
+      houseFronts.push({ fcx: x + (d / 2) * sa, fcz: z + (d / 2) * ca, nx: sa, nz: ca, rgx: ca, rgz: -sa, w: w, doorX: dxl, hx: x, hz: z });
     }
     if (cl.spec.canopy) {
       // hollow: collide the columns only (walk/drive under the slab)
@@ -4004,6 +4004,103 @@ var houseFronts = [];      // final (post-nudge) house-front frames for the land
     houseStats.meshes++;
   }
 })();
+// ---------------- residential driveways (road-network round) ----------------
+// Reports mrg01xfw / mrfzrxfl / mrfzfyyf / mrfthmf4: survey houses floated in
+// grass with no access. After the new REMAP_ROADS residential streets, every
+// house whose front faces a nearby local road (cls 1-3, never the arterials)
+// gets a straight asphalt driveway stub from its front wall to the curb.
+// Deterministic (no RNG -> identical on every MP peer), ONE merged mesh, and
+// each stub registers in mapDrives so the minimap draws it and later scatter/
+// pole passes dodge it. Runs AFTER buildSurveyHouses so houseFronts carries
+// the POST-nudge frames, and after buildRemapRoads (RM.roads has chainage).
+(function buildDriveways() {
+  if (!WC_REMAP || !houseFronts.length || typeof RM === 'undefined' || !RM || !RM.roads) return;
+  var DRV_MAX = 40;      // longest stub (deep FL lots get long straight drives)
+  var DRV_W = 3.0;       // slab width
+  var DRV_Y = 0.129;     // above sidewalk ribbons (<=0.1281), below road ribbons (0.134+)
+  var pos = [], nrm = [], uvs = [], made = 0;
+  var i, j, f;
+  // lazily-built house footprints (also used by the tree guard) for crossing tests
+  houseBlocksSpot(0, 0);
+  function pathBlocked(x0, z0, x1, z1, ownX, ownZ) {
+    var L = Math.hypot(x1 - x0, z1 - z0), n = Math.max(2, Math.ceil(L / 2));
+    for (var k = 1; k <= n; k++) {
+      var sx = x0 + (x1 - x0) * k / n, sz = z0 + (z1 - z0) * k / n;
+      if (inLake(sx, sz) || remapInClear(sx, sz, 0.5)) return true;
+      for (var fi = 0; fi < mapForest.length; fi++) {
+        var fr = mapForest[fi];
+        if (sx > fr.x0 && sx < fr.x1 && sz > fr.z0 && sz < fr.z1) return true;
+      }
+      if (houseFootprints) for (var hi = 0; hi < houseFootprints.length; hi++) {
+        var hf = houseFootprints[hi];
+        if (Math.abs(hf.x - ownX) < 6 && Math.abs(hf.z - ownZ) < 6) continue;   // own footprint
+        var dx = sx - hf.x, dz = sz - hf.z;
+        if (dx * dx + dz * dz > hf.r * hf.r) continue;
+        var u = dx * hf.c - dz * hf.s, v = dx * hf.s + dz * hf.c;
+        if (Math.abs(u) < hf.hw - 1.1 && Math.abs(v) < hf.hd - 1.1) return true;   // footprints carry +1.6 pad
+      }
+    }
+    return false;
+  }
+  for (i = 0; i < houseFronts.length; i++) {
+    f = houseFronts[i];
+    // garage-side start: offset along the front wall away from the door
+    var off = f.w >= 9 ? (f.doorX <= 0 ? 1 : -1) * Math.min(f.w * 0.24, f.w / 2 - 2.2) : 0;
+    var qx = f.fcx + f.rgx * off + f.nx * 0.6, qz = f.fcz + f.rgz * off + f.nz * 0.6;
+    // lot-served houses keep their authored parking apron as the "driveway"
+    var lotServed = false;
+    for (j = 0; j < mapParking.length; j++) {
+      var lp = mapParking[j];
+      if (Math.abs(qx - lp.x) < lp.w / 2 + 1 && Math.abs(qz - lp.z) < lp.d / 2 + 1) { lotServed = true; break; }
+    }
+    if (lotServed) continue;
+    // nearest local road the front actually faces
+    var best = null, bestD = 1e9;
+    for (j = 0; j < RM.roads.length; j++) {
+      var r = RM.roads[j];
+      if (r.cls < 1 || r.dirt) continue;   // no driveways onto the arterials
+      var pr = rmProject(r.pts, r.cum, qx, qz);
+      if (pr.d - r.hw > DRV_MAX || pr.d < r.hw + 1.5) continue;
+      var tp = rmAt(r.pts, r.cum, pr.s);
+      var ddx = tp.x - qx, ddz = tp.z - qz, dl = Math.hypot(ddx, ddz) || 1;
+      if ((ddx * f.nx + ddz * f.nz) / dl < 0.35) continue;   // not in front of the house
+      if (pr.d < bestD) { bestD = pr.d; best = { r: r, tp: tp, dl: dl, ux: ddx / dl, uz: ddz / dl }; }
+    }
+    if (!best) continue;
+    // end 1.6u past the curb so the slab tucks under the road ribbon
+    var ex = qx + best.ux * (best.dl - best.r.hw + 1.6), ez = qz + best.uz * (best.dl - best.r.hw + 1.6);
+    var sx2 = qx - f.nx * 1.2, sz2 = qz - f.nz * 1.2;   // tuck the other end under the wall
+    if (pathBlocked(qx, qz, ex, ez, f.hx, f.hz)) continue;
+    var px = -best.uz * (DRV_W / 2), pz = best.ux * (DRV_W / 2);
+    var len = Math.hypot(ex - sx2, ez - sz2);
+    var c4 = [[sx2 - px, sz2 - pz], [sx2 + px, sz2 + pz], [ex + px, ez + pz], [ex - px, ez - pz]];
+    var u4 = [[0, 0], [0, 0.3], [len / 10, 0.3], [len / 10, 0]];
+    var tri = [0, 1, 2, 0, 2, 3];
+    for (j = 0; j < 6; j++) {
+      var ci = tri[j];
+      pos.push(c4[ci][0], DRV_Y, c4[ci][1]);
+      nrm.push(0, 1, 0);
+      uvs.push(u4[ci][0], u4[ci][1]);
+    }
+    var bx0 = Math.min(sx2, ex) - DRV_W / 2, bx1 = Math.max(sx2, ex) + DRV_W / 2;
+    var bz0 = Math.min(sz2, ez) - DRV_W / 2, bz1 = Math.max(sz2, ez) + DRV_W / 2;
+    mapDrives.push({ x: (bx0 + bx1) / 2, z: (bz0 + bz1) / 2, w: bx1 - bx0, d: bz1 - bz0 });
+    made++;
+  }
+  if (!made) return;
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(nrm), 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uvs), 2));
+  var dm = lamb({ map: driveT.clone() });
+  dm.map.wrapS = dm.map.wrapT = THREE.RepeatWrapping;
+  dm.map.needsUpdate = true;
+  var mesh = new THREE.Mesh(geo, dm);
+  geo.computeBoundingSphere();
+  scene.add(mesh);
+  houseStats.driveways = made;
+})();
+
 // minimap: houses are pre-rendered once into an offscreen layer so drawMinimap
 // doesn't repaint ~600 rects every frame (entries carry .hs)
 var houseMMCanvas = null;
