@@ -213,8 +213,11 @@ ahead, and never stretches off across the block), pushing a **stroller** or a
 mobility **walker** out front, or carrying a **handheld** — an umbrella held
 overhead, a cane, a coffee cup, shopping bags, a skateboard, a balloon on a
 string. Wheeled things (a bike, a rolling suitcase) get walked alongside —
-and the little red **toy wagon** belongs to the kids: you'll only ever see a
-child towing one. Each prop rolls a colour/style variant so no two look alike.
+hands on the handlebar — and the little red **toy wagon** belongs to the kids:
+you'll only ever see a child towing one. Each prop rolls a colour/style
+variant so no two look alike. And when the rain rolls in, watch the sidewalks:
+about **half the adults raise umbrellas** in different canopy colours over the
+first half-minute of a shower, and fold them away again once it clears.
 
 Like the kids, the **dogs and stroller babies are off-limits** — they're
 decorations riding along with their owner, never targets, so bullets, fists,
