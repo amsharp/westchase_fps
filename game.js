@@ -14485,8 +14485,31 @@ function animPerson(m, spd, dt, phase) {
     return;
   }
   var L = m.userData.limbs; if (!L) return;
-  var a = spd > 0.1 ? Math.sin(phase || 0) * 0.65 : 0;
-  L.legL.rotation.x = a; L.legR.rotation.x = -a; L.armL.rotation.x = -a * 0.8; L.armR.rotation.x = a * 0.8;
+  if (spd > 0.1) {
+    // PLANTED-STANCE walk (was a fixed sin(phase)*0.65 pendulum that skated —
+    // the foot slid ~1.8u/cycle regardless of amplitude). Callers integrate
+    // phase at spd*3.4, so distance walked = phase/3.4 and the ground covered
+    // per gait cycle is 2*PI/3.4. Each leg PLANTS for its stance half: solve
+    // the hip angle so the stance foot stays fixed to the ground (foot local-z
+    // = -legLen*sin(a) must track the body's forward advance), then swing it
+    // forward over the other half. Measured slip drops ~7x (footskate.js).
+    L.legL.rotation.x = plantedLeg(phase || 0);
+    L.legR.rotation.x = plantedLeg((phase || 0) + Math.PI);
+    var sw = Math.sin(phase || 0);
+    L.armL.rotation.x = -sw * 0.5; L.armR.rotation.x = sw * 0.5;
+  } else {
+    L.legL.rotation.x = 0; L.legR.rotation.x = 0; L.armL.rotation.x = 0; L.armR.rotation.x = 0;
+  }
+}
+// hip angle for a rigid-leg character so the STANCE foot stays planted (no
+// skate). LEG_LEN = hip-pivot-to-foot for the PSX/procedural bodies (~0.85);
+// HALF = ground advanced per stance half = PI/3.4. Stance = first half of the
+// cycle (foot heel-strike front -> toe-off back), swing = second half.
+var _WALK_LEGLEN = 0.85, _WALK_HALF = Math.PI / 3.4, _WALK_AMAX = Math.asin(Math.min(1, (Math.PI / 3.4) / 2 / 0.85));
+function plantedLeg(ph) {
+  var frac = (((ph % 6.283185) + 6.283185) % 6.283185) / 6.283185;
+  if (frac < 0.5) { var d = frac / 0.5 * _WALK_HALF; return Math.asin(Math.max(-1, Math.min(1, (d - _WALK_HALF / 2) / _WALK_LEGLEN))); }
+  var s = (frac - 0.5) / 0.5, e = s * s * (3 - 2 * s); return _WALK_AMAX * (1 - 2 * e);
 }
 
 // ============================ KIDS (child NPCs) ============================
