@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.63';
+var GAME_VERSION = 'v1.66.64';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -678,16 +678,21 @@ var landColliders = null;   // colliders minus the lake block — the player may
 // returns the pushed collider object so callers (breakable props) can toggle
 // `.active` off/on when the prop topples/respawns — pushOut skips inactive
 // entries in place, so the reference stays valid inside landColliders too.
-function addCollider(cx, cz, w, d) { var o = { x0: cx - w / 2, x1: cx + w / 2, z0: cz - d / 2, z1: cz + d / 2 }; colliders.push(o); return o; }
+// `tag` (optional): short creator string ('forest', 'house', 'prop:bench'…)
+// stored on the collider — surfaced by the F9 overlay, the F8 bug-report
+// meta (3 nearest colliders) and tools/_barrierscan.js, so an "invisible
+// barrier" report names its own culprit. Near-zero cost.
+function addCollider(cx, cz, w, d, tag) { var o = { x0: cx - w / 2, x1: cx + w / 2, z0: cz - d / 2, z1: cz + d / 2 }; if (tag) o.tag = tag; colliders.push(o); return o; }
 // oriented-bounding-box collider (remap roadside furniture, rotated venue
 // footprints in R3/R4). Carries its world-space AABB bounds too, so every
 // legacy reader that iterates colliders (berserk cars, parked-slot rejection,
 // spawn checks) keeps working — conservatively — without changes; only
 // pushOut resolves the exact OBB. yaw follows THREE rotation.y convention.
-function addColliderOBB(cx, cz, hw, hd, yaw) {
+function addColliderOBB(cx, cz, hw, hd, yaw, tag) {
   var c = Math.cos(yaw), s = Math.sin(yaw);
   var bx = hw * Math.abs(c) + hd * Math.abs(s), bz = hw * Math.abs(s) + hd * Math.abs(c);
   var o = { obb: 1, x: cx, z: cz, hx: hw, hz: hd, c: c, s: s, x0: cx - bx, x1: cx + bx, z0: cz - bz, z1: cz + bz };
+  if (tag) o.tag = tag;
   colliders.push(o);
   return o;
 }
@@ -1326,7 +1331,7 @@ function getPackPropPink(name) {   // blossom recolor of a pack prop (crepe myrt
 // (breakProp) and reactivated on respawn (updateWorldFx), so a felled tree
 // doesn't leave a floating wall.
 function registerBreakable(g, x, z, r, type, light, collR) {
-  var col = collR ? addCollider(x, z, collR * 2, collR * 2) : null;
+  var col = collR ? addCollider(x, z, collR * 2, collR * 2, 'prop:' + type) : null;
   breakables.push({
     g: g, x: x, z: z, r: r, type: type, light: light || null,
     broken: false, fallT: 0, respawnT: 0, fx: 1, fz: 0, thudded: false,
@@ -1507,18 +1512,56 @@ function palm(x, z) {
 // lost its collider). Tile the leaf's road-CLEAR interior with small colliders
 // so those fill trees block, without ever walling off the pavement. The pad-5
 // clearance keeps each 2.5u half-extent cell well clear of the road edge.
+// v1.66.64 barrier scrub: the old version blanket-tiled every road-CLEAR cell
+// with a 5x5 collider whether or not a tree stood there — sparse fill left
+// whole grids of invisible walls on open-looking grass (855 of the 882 scan
+// orphans). The tiling now DEFERS until expForestFill has planted its
+// instanced trees (fill runs textually below this, so leaf rects are queued
+// here and processed by processForestTiles() right after the fill), and a
+// cell only gets a collider when at least one visible fill tree actually
+// stands inside it.
+var pendingForestTiles = [];
 function forestPatchClearTiles(x0, x1, z0, z1) {
   if (inLake((x0 + x1) / 2, (z0 + z1) / 2) && (x1 - x0) < 90 && (z1 - z0) < 90) return;
-  var cell = 5;
-  for (var cx = x0 + cell / 2; cx < x1 + cell / 2; cx += cell) {
-    var ccx = Math.min(cx, x1 - cell / 2);
-    for (var cz = z0 + cell / 2; cz < z1 + cell / 2; cz += cell) {
-      var ccz = Math.min(cz, z1 - cell / 2);
-      if (WC_REMAP && !remapPointClear(ccx, ccz, 5)) continue;
-      if (inLake(ccx, ccz)) continue;
-      addCollider(ccx, ccz, cell, cell);
+  pendingForestTiles.push([x0, x1, z0, z1]);
+}
+function processForestTiles(fillPts) {
+  var cell = 5, made = 0;
+  // coarse hash of fill-tree positions so each cell test is O(few)
+  var grid = {}, i;
+  for (i = 0; i < fillPts.length; i++) {
+    var fp = fillPts[i], key = ((fp[0] / cell) | 0) + '|' + ((fp[1] / cell) | 0);
+    (grid[key] || (grid[key] = [])).push(fp);
+  }
+  function treeIn(ax0, ax1, az0, az1) {
+    var gx0 = ((ax0 / cell) | 0) - 1, gx1 = ((ax1 / cell) | 0) + 1;
+    var gz0 = ((az0 / cell) | 0) - 1, gz1 = ((az1 / cell) | 0) + 1;
+    for (var gx = gx0; gx <= gx1; gx++) for (var gz = gz0; gz <= gz1; gz++) {
+      var lst = grid[gx + '|' + gz];
+      if (!lst) continue;
+      for (var j = 0; j < lst.length; j++) {
+        var p = lst[j];
+        if (p[0] >= ax0 && p[0] <= ax1 && p[1] >= az0 && p[1] <= az1) return true;
+      }
+    }
+    return false;
+  }
+  for (i = 0; i < pendingForestTiles.length; i++) {
+    var r = pendingForestTiles[i], x0 = r[0], x1 = r[1], z0 = r[2], z1 = r[3];
+    for (var cx = x0 + cell / 2; cx < x1 + cell / 2; cx += cell) {
+      var ccx = Math.min(cx, x1 - cell / 2);
+      for (var cz = z0 + cell / 2; cz < z1 + cell / 2; cz += cell) {
+        var ccz = Math.min(cz, z1 - cell / 2);
+        if (WC_REMAP && !remapPointClear(ccx, ccz, 5)) continue;
+        if (inLake(ccx, ccz)) continue;
+        if (!treeIn(ccx - cell / 2, ccx + cell / 2, ccz - cell / 2, ccz + cell / 2)) continue;   // no visible tree -> no wall
+        addCollider(ccx, ccz, cell, cell, 'forest:tile');
+        made++;
+      }
     }
   }
+  pendingForestTiles.length = 0;
+  return made;
 }
 function forestPatch(x0, x1, z0, z1, count) {
   // remap: forest rects were authored/pre-clipped against the AXIS roads —
@@ -1545,7 +1588,7 @@ function forestPatch(x0, x1, z0, z1, count) {
   // invisible plane out in the grass — and survey rects that graze a road or
   // sidewalk corridor no longer block the pavement itself.
   var inset = Math.min(2.5, (x1 - x0) / 4, (z1 - z0) / 4);
-  addCollider((x0 + x1) / 2, (z0 + z1) / 2, x1 - x0 - inset * 2, z1 - z0 - inset * 2);
+  addCollider((x0 + x1) / 2, (z0 + z1) / 2, x1 - x0 - inset * 2, z1 - z0 - inset * 2, 'forest');
   var area = (x1 - x0) * (z1 - z0);
   if (count === undefined) count = Math.min(60, Math.round(area / 260));
   for (var i = 0; i < count; i++) {
@@ -1569,7 +1612,7 @@ function forestWall(cx, cz, w, d) {
   if (horizontal && cz > 0) mesh.rotation.y = Math.PI;
   if (!horizontal && cx > 0) mesh.rotation.y = -Math.PI / 2;
   scene.add(mesh);
-  addCollider(cx, cz, w, d);
+  addCollider(cx, cz, w, d, 'perimeter:wall');
   // decorative oaks just inside
   var into = cz > 0 ? -1 : (cz < 0 ? 1 : 0), intox = cx > 0 ? -1 : (cx < 0 ? 1 : 0);
   var n = Math.round(Math.max(w, d) / 26);
@@ -1609,7 +1652,7 @@ function roadblock(x, z, w, d) {
     var b = box(horizontal ? 2.6 : 1, 1.1, horizontal ? 1 : 2.6, i % 2 ? stripe : bm, bx, 0.55, bz);
     scene.add(b);
   }
-  addCollider(x, z, w, d);
+  addCollider(x, z, w, d, 'roadblock');
   signPlane(x, 2.2, z + (horizontal ? (z < 0 ? 1.5 : -1.5) : 0), horizontal ? 0 : Math.PI / 2, 6, 1.6, ['ROAD', 'CLOSED'], '#b03018', '#ffffff', true);
 }
 (function roadblocks() {
@@ -2109,7 +2152,7 @@ var fountainDrops = [];
   scene.add(cyl(2.4, 2.8, 1.1, 14, stoneM, LAKE.x, -0.4, LAKE.z));
   scene.add(cyl(0.45, 0.6, 2.6, 10, stoneM, LAKE.x, 1.0, LAKE.z));
   scene.add(cyl(1.3, 1.05, 0.35, 14, stoneM, LAKE.x, 2.3, LAKE.z));
-  addCollider(LAKE.x, LAKE.z, 5.6, 5.6);   // can't swim through the fountain
+  addCollider(LAKE.x, LAKE.z, 5.6, 5.6, 'fountain');   // can't swim through the fountain
   var dropGeo = new THREE.SphereGeometry(0.14, 6, 5);
   var dropM = new THREE.MeshBasicMaterial({ color: 0xcfeaff, transparent: true, opacity: 0.85 });
   for (var di = 0; di < 42; di++) {

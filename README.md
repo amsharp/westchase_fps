@@ -260,6 +260,11 @@ pistol, a wider spread for the SMG and AK (it blooms open as you spray), a
 fine cross for the scoped rifle (which vanishes at the scope), corner
 brackets for the rocket launcher, and a boxed reticle for alien tech.
 
+Bullets land where they hit: people bleed a quick dark-red spray, walls
+and props kick out a small burst of dust and keep a **bullet hole** at the
+impact point for a minute — pock a facade up all you like, the newest 60
+holes stick around.
+
 Die and you drop every gun you own — run back within 2 minutes to grab
 them off the pavement. Picking up a gun you already own sells it for half
 its price. In multiplayer the pavement is shared: anyone can scoop up your
