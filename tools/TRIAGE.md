@@ -390,3 +390,5 @@ those alignments where they exist, with real Westchase street names from the OSM
 - mrg48urv (-46,17) KEISHA arms look awful, owner: REGENERATE WITH MESHY — OPEN (asset-pipeline; Meshy authorized by owner; check balance/budget first, HECTOR-style clip fix does NOT apply to mesh/texture quality)
 - mrg49ri9 (18,85) weird fence without poles — OPEN (fence run missing posts)
 - mrg4b26g (-151,46) shot NPCs can be knocked INTO buildings (ragdoll clips through walls) — OPEN (ragdoll velocity ignores colliders; clamp ragdoll XZ vs colliders like player pushOut)
+- mrg4bexs (-149,63) no bullet holes when shooting the GROUND — OPEN (bulletHole pool only stamps 'static surfaces' from the hitscan; the ground/road plane may not be in the raycast target set or gets filtered — extend to ground hits, orient flat)
+- mrg4brvw (-129,79) quest overlay covers the stars + new compass — OPEN (HUD layout collision: quest tracker vs top-center stars vs the other agent's v1.66.78 compass strip — needs a top-bar layout pass; coordinate with main agent who owns the compass)
