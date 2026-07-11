@@ -212,8 +212,9 @@ a leash (it trots along a step behind on a taut line, catches up when they get
 ahead, and never stretches off across the block), pushing a **stroller** or a
 mobility **walker** out front, or carrying a **handheld** — an umbrella held
 overhead, a cane, a coffee cup, shopping bags, a skateboard, a balloon on a
-string. Wheeled things (a bike, a rolling suitcase, a kid's wagon) get walked
-alongside. Each prop rolls a colour/style variant so no two look alike.
+string. Wheeled things (a bike, a rolling suitcase) get walked alongside —
+and the little red **toy wagon** belongs to the kids: you'll only ever see a
+child towing one. Each prop rolls a colour/style variant so no two look alike.
 
 Like the kids, the **dogs and stroller babies are off-limits** — they're
 decorations riding along with their owner, never targets, so bullets, fists,

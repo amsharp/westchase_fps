@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.69';
+var GAME_VERSION = 'v1.66.70';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -6012,7 +6012,7 @@ function corridorFree(x, z, tx, tz) {
 // the NPC came (that ground is known walkable).
 function npcBailTarget(n, fvx, fvz) {
   if (fvx !== undefined && (fvx || fvz)) { n.badDX = fvx; n.badDZ = fvz; n.badT = T + 8; }
-  // trapped backstop: 5+ bails inside ~25s means the NPC is boxed in a pocket
+  // trapped backstop: 4+ bails inside ~40s means the NPC is boxed in a pocket
   // no wander target leads out of. Duck through the nearest doorway (the
   // standard hidden-dwell flow killed NPCs already use) and re-emerge fresh,
   // instead of pacing the pocket forever. Returns null — caller skips the
