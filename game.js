@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.67.1';
+var GAME_VERSION = 'v1.67.2';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -21622,6 +21622,16 @@ window.__wc = {
   playOnline: playOnline, becomeHost: becomeHost,
   buildIceConfig: buildIceConfig, hmacSha1B64: hmacSha1B64,
   buildCharacter: buildCharacter, randomCharConfig: randomCharConfig, buildMeshySkinned: buildMeshySkinned,
+  // animqa NPC lineup: enumerate the visually-distinct civilian roster indexed
+  // by cfg.preset (0 = procedural PSX, 1..N = PSX_SKINS, N+1.. = MESHY_CIVS) so
+  // the lineup harness can force + label each model. Debug/tooling only.
+  charRoster: function () {
+    var names = ['PROC'];
+    for (var i = 0; i < PSX_SKINS.length; i++) names.push((PSX_SKINS[i] && PSX_SKINS[i].n) || ('SKIN' + i));
+    for (var j = 0; j < MESHY_CIVS.length; j++) names.push((MESHY_LIST[MESHY_CIVS[j]] && MESHY_LIST[MESHY_CIVS[j]].n) || ('CIV' + j));
+    return { presetMax: names.length, names: names, psx: PSX_SKINS.length, civ: MESHY_CIVS.length };
+  },
+  hideVM: function (on) { vm.visible = !on; },   // animqa lineup: hide the FP viewmodel so it doesn't block the NPC row
   // NPC accessories (#70) — local-only cosmetic props on a fraction of walkers
   listAccessories: listAccessories, accessories: function () { return accessories; }, accStats: function () { return accStats; },
   getAccessory: getAccessory, attachAccessory: attachAccessory,
