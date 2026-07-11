@@ -407,3 +407,12 @@ Other new (logged, next rounds):
 - mrg4k6e2 (-53,-55) weird looking fence segment — OPEN (fence quality cluster w/ mrg49ri9 poleless fence)
 - mrg4rouw (-106,-20) transparent hair refile (2nd report of mree59kf class) — queue for the CHARACTER-REGEN round: KEISHA arms (mrg48urv, Meshy authorized) + transparent-hair head (identify char from live_hair.jpg in scratchpad) + RAVEN run clips (mrfzod76; try the HECTOR world-delta bake first — bake script is character-generic per that round's notes)
 - mrg4sbrk (-112,-54) DON floating, legs angled back — character-regen round queue (DON = another Meshy clip/retarget defect; try the HECTOR world-delta bake — same class)
+
+## Live session batch 6 (Alex on v1.66.89) — logged through 302
+- mrg4vcjd (-5,-5) + mrg53rgl (-76,53) stroller NO HANDS while RUNNING — the .82 poseStrollerGrip likely only dispatches in walk state; extend to run/all moving states — NEXT ANIM ROUND
+- mrg52tm7 (-92,31) STILL no hands on bike (refile mrftgle) — NEXT ANIM ROUND
+- mrg53h5l (-85,39) umbrella hold off + FEATURE: many colored umbrellas when raining — NEXT ANIM ROUND (+rain umbrella rollout)
+- mrg50mwe (-63,4) photomode shift-move should be faster — QUICK (other agent owns photomode?)
+- mrg51b3u (-63,4) weird fence placement + skid-mark decal needs transparency — fence cluster + decal key
+- mrg52jt3 (-88,16) FEATURE: punch blood should be a cool sprite + balloons need string physics — fun-polish queue (owner directive: keep adding fun details)
+- mrg54993 (-46,86) huge AC unit looks awful (3rd AC complaint) — prop quality round
