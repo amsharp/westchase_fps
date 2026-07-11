@@ -281,3 +281,7 @@ All three FIXED@v1.66.63. mregjcuz + mreg8mld details are inline in Batch 8 / Ba
 - mrftyqsn (32,-328) invis barrier SOUTH zone — FIXED@v1.66.66 with the barrier cluster (walk test: 5/8 directions free, the rest stop against the VISIBLE survey house at (56,-350); the phantom blockers there were blanket forest tiles, now gone)
 - mrfthmf4 (575,-160) houses in the middle of grass look weird — refile of mredxzx6 no-road-homes class (DEFER round5-structure road-network pass; now user-confirmed twice)
 - mrftn1qd (351,201) no sidewalk here / mrftnnxa (245,329) grass sliver between road+sidewalk — OPEN (east-zone sidewalk-ribbon quality, same territory as round5-roads)
+
+## Live session batch 3 (Alex on v1.66.72)
+- mrfzble5 (-56,30) HECTOR walk still broken, owner: "FIX IT OR DELETE AND REGENERATE" — IN-AGENT (live3-hector, fable; Meshy clip regeneration authorized, fallback = remove HECTOR from rotation)
+- mrfzbvxk (-39,20) stroller pushed with no hands — IN-AGENT (live3-hector, fable; poseWalkerGrip class)
