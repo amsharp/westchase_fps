@@ -6,7 +6,9 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.82';
+var GAME_VERSION = 'v1.66.87';
+// QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
+var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -11858,7 +11860,7 @@ function updateCash(dt) {
       if (dx * dx + dz * dz < CASH_PICK_R2 && !c.pend) { c.pend = true; c.pendT = T; netToHost({ t: 'takeCash', x: c.mesh.position.x, z: c.mesh.position.z }); }
       continue;
     }
-    if (dx * dx + dz * dz < CASH_PICK_R2 || c.life <= 0) { if (c.life > 0) { state.money += c.val; popup('+$' + c.val); sfx('cash'); } scene.remove(c.mesh); cashes.splice(i, 1); }
+    if (dx * dx + dz * dz < CASH_PICK_R2 || c.life <= 0) { if (c.life > 0) { state.money += c.val; spawnMoneyFloat(c.mesh.position.x, 0.9, c.mesh.position.z, c.val); sfx('cash'); } scene.remove(c.mesh); cashes.splice(i, 1); }
   }
 }
 var puffs = [];
@@ -15030,10 +15032,10 @@ var SUPPORT_POSE = {
   // GRIP_TGT entry so solveSupportIK keeps this seed (no IK pull onto the gun).
   // The silenced pistol keeps the old two-hand hold.
   pistol: [[-2.2, 0.0, 0.2], [0.0, 0.0, 0.5], [0.6, 0.0, 0.0], [0.0, 0.0, 0.0]],
-  smg:    [[-1.59, -0.01, -1.16], [1.2, 0.4, -2.9], [2.1, -0.82, 0.3], [0.15, 0.3, -0.4]],
-  rifle:  [[-1.59, -0.01, -1.16], [0.98, 0.4, -2.6], [1.7, -0.82, 0.3], [0.1, 0.3, -0.4]],
-  auto:   [[-1.59, -0.01, -1.16], [0.98, 0.4, -2.7], [1.85, -0.82, 0.3], [0.1, 0.3, -0.4]],
-  rocket: [[-1.59, -0.01, -1.16], [1.1, 0.4, -2.6], [1.7, -0.82, 0.3], [0.1, 0.3, -0.4]],
+  smg:    [[-1.59, -0.01, -1.16], [1.2, 0.4, -2.9], [2.1, -0.82, 0.3], [1.55, 0.3, -0.4]],
+  rifle:  [[-1.59, -0.01, -1.16], [0.98, 0.4, -2.6], [1.7, -0.82, 0.3], [1.55, 0.3, -0.4]],
+  auto:   [[-1.59, -0.01, -1.16], [0.98, 0.4, -2.7], [1.85, -0.82, 0.3], [1.55, 0.3, -0.4]],
+  rocket: [[-1.59, -0.01, -1.16], [1.1, 0.4, -2.6], [1.7, -0.82, 0.3], [1.55, 0.3, -0.4]],
   silenced: [[-1.59, 0.5, -1.5], [1.2, 0.4, -3.2], [2.5, -0.82, 0.3], [0.2, 0.3, -0.4]]
 };
 // per-weapon forward anchor offset in the gun-group (camera) frame:
@@ -15096,9 +15098,9 @@ function seedRightArm(w) {
 var GRIP_TGT = {
   // (no pistol entry — one-handed, see SUPPORT_POSE)
   smg:    [0.28, -0.30, -0.56],
-  rifle:  [0.18, -0.42, -0.84],
-  auto:   [0.19, -0.42, -0.76],
-  rocket: [0.22, -0.44, -0.68],
+  rifle:  [0.18, -0.33, -0.82],
+  auto:   [0.19, -0.31, -0.71],
+  rocket: [0.22, -0.35, -0.66],
   silenced: [0.21, -0.40, -0.52]
 };
 // v1.66.74: RIGHT (trigger) hand grip target per weapon, in the gun-group local
@@ -15799,9 +15801,56 @@ function hitMark(kill) {
   sfx(kill ? 'killtick' : 'tick');
 }
 var killFeed = [];   // {txt, col, t} newest first, drawn+expired in drawHudCanvas
+// ---- QoL: world-anchored money floats ("+$N" rising from the pickup spot,
+// projected to screen each frame in drawHudCanvas). Reuses one Vector3 for the
+// projection so hot-path cash grabs allocate nothing. ----
+var moneyFloats = [];   // {x, y, z, val, t0}
+var _mfProj = new THREE.Vector3();
+function spawnMoneyFloat(x, y, z, val) {
+  if (moneyFloats.length > 20) moneyFloats.shift();
+  moneyFloats.push({ x: x, y: y, z: z, val: val, t0: T });
+}
+// ---- QoL: weapon quick-bar — slim bottom-center row of owned-weapon slots with
+// their number key, equipped slot lit. Mirrors selectWeaponSlot's ordered list
+// (fists + owned guns in GUN_LIST order + snack/soda). _qbList is reused so the
+// per-frame HUD draw allocates nothing. ----
+var _qbList = [];
+var QB_ABBR = { fists: 'FST', pistol: 'PST', smg: 'SMG', rifle: 'RIF', auto: 'AK', rocket: 'RPG', raygun: 'RAY', neon_blaster: 'NEO', silenced: 'SIL', snack: 'SNK', soda: 'SOD' };
+function drawQuickBar(W, H) {
+  var list = _qbList; list.length = 0;
+  list.push('fists');
+  for (var g = 0; g < GUN_LIST.length; g++) if (state.owned[GUN_LIST[g]]) list.push(GUN_LIST[g]);
+  if (state.snacks > 0) list.push('snack');
+  if (state.sodas > 0) list.push('soda');
+  var n = list.length;
+  if (n < 2) return;                          // just fists — nothing worth a bar
+  var gap = 5, sw = 40, maxW = W - 16;
+  var tot = n * sw + (n - 1) * gap;
+  if (tot > maxW) { sw = Math.max(22, Math.floor((maxW - (n - 1) * gap) / n)); tot = n * sw + (n - 1) * gap; }
+  var apx = sw >= 34 ? 2 : 1;
+  var x0 = Math.round(W / 2 - tot / 2), y0 = H - 37, bh = 30;
+  for (var i = 0; i < n; i++) {
+    var w = list[i], eq = (w === state.equipped), bx = x0 + i * (sw + gap);
+    hudCx.fillStyle = '#000'; hudCx.fillRect(bx - 1, y0 - 1, sw + 2, bh + 2);
+    hudCx.fillStyle = eq ? 'rgba(255,180,40,0.92)' : 'rgba(10,13,20,0.74)'; hudCx.fillRect(bx, y0, sw, bh);
+    if (eq) { hudCx.strokeStyle = '#ffe9a0'; hudCx.lineWidth = 2; hudCx.strokeRect(bx + 1, y0 + 1, sw - 2, bh - 2); }
+    hudText('' + ((i + 1) % 10), bx + sw / 2, y0 + 11, 10, eq ? '#3a2a06' : '#8fa0b8', 'center');
+    drawPix(QB_ABBR[w] || w.substr(0, 3), bx + sw / 2 + 1, y0 + 15, apx, eq ? '#20160a' : '#dfe6f0', 'center');
+  }
+}
 function pushKillFeed(txt, col) {
   killFeed.unshift({ txt: txt, col: col || '#ff5a3a', t: T });
   if (killFeed.length > 4) killFeed.pop();
+}
+// death/respawn (QoL): the WASTED overlay shows a live countdown + progress
+// bar, and a click gets you up early once a short grace has passed.
+var RESPAWN_MS = 2600, deadAt = 0, deadUntil = 0, deadTimer = null;
+function doRespawn() {
+  if (!state.dead) return;
+  if (deadTimer) { clearTimeout(deadTimer); deadTimer = null; }
+  player.x = spawnX; player.z = spawnZ; player.y = EYE; yaw = 0; pitch = 0; recoilPitch = 0;
+  state.hp = 100; state.dead = false;
+  document.getElementById('deadScreen').classList.add('hidden');
 }
 function hurtPlayer(d, sx, sz) {
   if (state.dead) return;
@@ -15826,6 +15875,7 @@ function hurtPlayer(d, sx, sz) {
     var lost = Math.floor(state.money * 0.25); state.money -= lost;
     document.getElementById('deadInfo').textContent = lost > 0 ? 'You dropped $' + lost + ' on the pavement.' : 'At least you were already broke.';
     document.getElementById('deadScreen').classList.remove('hidden');
+    deadAt = performance.now(); deadUntil = deadAt + RESPAWN_MS;   // drives the countdown UI
     state.wanted = 0; state.civKills = 0; state.copKills = 0; updateStarsHUD();
     // drop everything you were carrying
     var dropped = 0;
@@ -15839,9 +15889,27 @@ function hurtPlayer(d, sx, sz) {
       dropped++;
     });
     setEquipped('fists');
-    setTimeout(function () { player.x = spawnX; player.z = spawnZ; player.y = EYE; yaw = 0; pitch = 0; recoilPitch = 0; state.hp = 100; state.dead = false; document.getElementById('deadScreen').classList.add('hidden'); }, 2600);
+    if (deadTimer) clearTimeout(deadTimer);
+    deadTimer = setTimeout(doRespawn, RESPAWN_MS);
   }
 }
+// live WASTED-screen countdown + progress bar; click after a short grace to
+// respawn early. Cache last strings so we only touch the DOM on change.
+var _deadTxtLast = '', _deadBarLast = '';
+function updateDeadScreen() {
+  if (!state.dead) return;
+  var now = performance.now();
+  var rem = Math.max(0, deadUntil - now);
+  var frac = Math.max(0, Math.min(1, (now - deadAt) / RESPAWN_MS));
+  var txt = 'RESPAWNING IN ' + (Math.ceil(rem / 100) / 10).toFixed(1) + 's';
+  if (txt !== _deadTxtLast) { _deadTxtLast = txt; var dt2 = document.getElementById('deadTimer'); if (dt2) dt2.textContent = txt; }
+  var bw = Math.round(frac * 100) + '%';
+  if (bw !== _deadBarLast) { _deadBarLast = bw; var db = document.getElementById('deadBar'); if (db) db.style.width = bw; }
+}
+(function () {
+  var ds = document.getElementById('deadScreen');
+  if (ds) ds.addEventListener('click', function () { if (state.dead && performance.now() - deadAt > 600) doRespawn(); });
+})();
 
 // ---------------- audio ----------------
 // ---------------- character creator (main menu) ----------------
@@ -18490,7 +18558,7 @@ function handleNet(m, conn) {
       if (!ufoTriggered) { ufoTriggered = true; spawnUfo(); }
     }
   } else if (m.t === 'cash') {
-    state.money += m.val; popup('+$' + m.val); sfx('cash');
+    state.money += m.val; spawnMoneyFloat(player.x, 1.2, player.z, m.val); sfx('cash');
   } else if (m.t === 'kill') {
     if (m.kind === 'npc') { creditCivKill(); popup('KO!'); }
     else if (m.kind === 'cop') { creditCopKill(); popup('COP DOWN!'); }
@@ -19071,7 +19139,7 @@ function creditPvpKill() {
 // master+sfx+voice volume, draw-distance quality, CRT filter. Restored on
 // boot (applySettings() runs in the boot handoff, before the first frame).
 var SETTINGS_KEY = 'wc_settings';
-var SETTINGS_DEF = { sens: 1.0, invert: 0, fov: 72, volMaster: 1.0, volSfx: 1.0, volVoice: 1.0, quality: 2, crt: 1, crosshair: 1, minimap: 1, markers: 1, fps: 0, compass: 1 };
+var SETTINGS_DEF = { sens: 1.0, invert: 0, fov: 72, volMaster: 1.0, volSfx: 1.0, volVoice: 1.0, quality: 2, crt: 1, crosshair: 1, minimap: 1, markers: 1, fps: 0, compass: 1, quickbar: 1 };
 var QUALITY_NAMES = ['LOW', 'MEDIUM', 'HIGH'];
 var settings = null;
 function loadSettings() {
@@ -19088,6 +19156,7 @@ function loadSettings() {
   settings.markers = settings.markers ? 1 : 0;
   settings.fps = settings.fps ? 1 : 0;
   settings.compass = settings.compass ? 1 : 0;
+  settings.quickbar = settings.quickbar ? 1 : 0;
   settings.sens = Math.max(0.2, Math.min(3, +settings.sens || 1));
   settings.volMaster = Math.max(0, Math.min(1, +settings.volMaster));
   settings.volSfx = Math.max(0, Math.min(1, +settings.volSfx));
@@ -19189,6 +19258,7 @@ function buildSettingsRows() {
   toggle('MINIMAP', 'show the corner map', 'minimap');
   toggle('HIT MARKERS', 'hit ticks & kill feed', 'markers');
   toggle('COMPASS', 'heading strip up top', 'compass');
+  toggle('WEAPON BAR', 'owned-weapon slots along the bottom', 'quickbar');
   toggle('FPS COUNTER', 'live frame rate & draw stats', 'fps');
 }
 function openSettings() {
@@ -19284,7 +19354,7 @@ if (location.hash.indexOf('#join=') === 0) {
   document.getElementById('joinCode').value = location.hash.split('#join=').pop();
 }
 pauseScreen.addEventListener('click', function () { pauseScreen.classList.add('hidden'); lockPointer(); });
-document.addEventListener('pointerlockchange', function () { var locked = document.pointerLockElement === canvas; if (!locked && state.running && !state.menu && !chatOpen && !bugOpen) pauseScreen.classList.remove('hidden'); else if (locked) pauseScreen.classList.add('hidden'); });
+document.addEventListener('pointerlockchange', function () { var locked = document.pointerLockElement === canvas; if (!locked && photoMode) exitPhotoMode(); if (!locked && state.running && !state.menu && !chatOpen && !bugOpen) pauseScreen.classList.remove('hidden'); else if (locked) pauseScreen.classList.add('hidden'); });
 document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 document.addEventListener('mousemove', function (e) { if (document.pointerLockElement !== canvas || state.menu) return; var sens = 0.0022 * (zoomed ? 0.35 : 1) * lookSens; yaw -= e.movementX * sens; pitch -= (lookInvert ? -1 : 1) * e.movementY * sens; pitch = Math.max(-1.45, Math.min(1.45, pitch)); });
 document.addEventListener('mousedown', function (e) {
@@ -19703,7 +19773,14 @@ document.addEventListener('keydown', function (e) {
   if (e.code === 'F8' && state.running) { e.preventDefault(); openBug(); return; }
   if (e.code === 'F9') { e.preventDefault(); showColliders(); return; }   // barrier debug overlay (see buildColliderView)
   if (e.code === 'KeyV' && !e.repeat && state.running && !state.menu && netActive()) { voiceStart(); return; }
+  // QoL: photo mode toggle (P). While active it owns ESC (exit) and swallows keys
+  // below so number/weapon binds don't fire during a shoot.
+  if (photoMode) {
+    if (e.code === 'KeyP' || e.code === 'Escape') { e.preventDefault(); exitPhotoMode(); return; }
+    keys[e.code] = true; return;
+  }
   keys[e.code] = true;
+  if (e.code === 'KeyP' && !e.repeat && state.running && !state.menu && !state.dead && !chatOpen && !bugOpen) { e.preventDefault(); enterPhotoMode(); return; }
   if (e.code === 'KeyH' && driving && state.running && !state.menu && !state.dead) { playerHorn(); return; }
   // QoL: H (on foot) toggles the in-game controls/help overlay
   if (e.code === 'KeyH' && !e.repeat && !driving && state.running && !state.dead) {
@@ -20255,6 +20332,19 @@ function drawHudCanvas() {
   // ---- money: GTA-style counter, top-right under the minimap ----
   var my = hudMmB + 8;
   drawPix('$' + Math.max(0, state.money | 0), W - M, my, 3, '#46e05e', 'right');
+  // ---- QoL: world-anchored money floats — each "+$N" rises ~1.4 world units
+  // from where the cash was grabbed over its 1.1s life, fading out. Skips floats
+  // behind the camera (project z > 1). Drawn after the counter so they read on top. ----
+  for (var mf = moneyFloats.length - 1; mf >= 0; mf--) {
+    var mfe = moneyFloats[mf], mfAge = T - mfe.t0;
+    if (mfAge > 1.1) { moneyFloats.splice(mf, 1); continue; }
+    _mfProj.set(mfe.x, mfe.y + mfAge * 1.4, mfe.z); _mfProj.project(camera);
+    if (_mfProj.z > 1) continue;
+    var mfx = (_mfProj.x * 0.5 + 0.5) * W, mfy = (1 - (_mfProj.y * 0.5 + 0.5)) * H;
+    hudCx.globalAlpha = mfAge < 0.12 ? mfAge / 0.12 : Math.max(0, (1.1 - mfAge) / 0.55);
+    drawPix('+$' + mfe.val, mfx, mfy, 2, '#8ee87f', 'center');
+    hudCx.globalAlpha = 1;
+  }
   // ---- kill feed: recent takedowns, top-right under the money counter,
   // newest on top, each fading out over its ~3.6s life ----
   for (var kf = killFeed.length - 1; kf >= 0; kf--) {
@@ -20349,6 +20439,25 @@ function drawHudCanvas() {
     hudCx.restore();
     hudText(wdtxt, wmx2, wmy2 - 12, 12, '#bfefff', 'center');
   }
+  // ---- QoL: speedometer while driving — MPH readout + speed bar, bottom-center.
+  // driving.pspeed is world u/s (capped ~26); SPEEDO_MPH scales it to a believable
+  // top speed near 70 mph. Reverse shows an 'R' tag and the bar still fills. ----
+  if (driving && !inside) {
+    var absS = Math.abs(driving.pspeed || 0);
+    var mph = Math.round(absS * SPEEDO_MPH);
+    var sfrac = Math.max(0, Math.min(1, absS / 26));
+    var sbw = 128, scxs = Math.round(W / 2), sby = H - M - 4;
+    hudCx.fillStyle = '#000'; hudCx.fillRect(scxs - sbw / 2 - 2, sby - 44, sbw + 4, 48);
+    hudCx.fillStyle = 'rgba(10,13,20,0.82)'; hudCx.fillRect(scxs - sbw / 2, sby - 42, sbw, 44);
+    var scol = mph < 35 ? '#8ee87f' : (mph < 60 ? '#ffd200' : '#ff5a3a');
+    drawPix('' + mph, scxs + 4, sby - 34, 4, scol, 'right');
+    hudText('MPH', scxs + 12, sby - 12, 12, '#b9b19a', 'left');
+    if ((driving.pspeed || 0) < -0.5) drawPix('R', scxs - sbw / 2 + 8, sby - 34, 3, '#ff5a3a', 'left');
+    hudBar(scxs - sbw / 2 + 10, sby - 10, sbw - 20, 5, sfrac, scol, 0);
+  } else if (state.running && !state.dead && (!settings || settings.quickbar)) {
+    // on foot: weapon quick-bar occupies the same bottom-center strip as the speedo
+    drawQuickBar(W, H);
+  }
   // ---- FPS / perf readout (QoL, settings.fps): left edge, clear of the quest
   // tracker (top) and health (bottom). renderer.info reflects last frame. ----
   if (settings && settings.fps) {
@@ -20382,8 +20491,49 @@ function updateLowHpVig() {
   }
   if (op !== lowHpVigLast) { lowHpVigLast = op; lowHpVigEl.style.opacity = op; }
 }
-function updateHUD() { document.getElementById('money').textContent = '$' + state.money; document.getElementById('hpBar').style.width = Math.max(0, state.hp) + '%'; updateLowHpVig(); drawHudCanvas(); }
+function updateHUD() { document.getElementById('money').textContent = '$' + state.money; document.getElementById('hpBar').style.width = Math.max(0, state.hp) + '%'; updateLowHpVig(); if (state.dead) updateDeadScreen(); drawHudCanvas(); }
 
+// ---------------- QoL: photo mode ----------------
+// P toggles a free-fly camera for screenshots: HUD + first-person arms hidden,
+// the sim frozen (combat safe). Mouse looks (reuses yaw/pitch); WASD flies along
+// the view, Space/C climb & descend, hold Shift to boost. P or ESC exits.
+var photoMode = false;
+var photoPos = new THREE.Vector3();
+var _photoDir = new THREE.Vector3(), _photoRight = new THREE.Vector3();
+var _vmVisWas = true;
+function enterPhotoMode() {
+  if (photoMode || !state.running || state.menu || state.dead || chatOpen || bugOpen) return;
+  photoMode = true;
+  photoPos.copy(camera.position);
+  var hudEl = document.getElementById('hud'); if (hudEl) hudEl.style.opacity = '0';
+  _vmVisWas = vm.visible; vm.visible = false;
+  var hint = document.getElementById('photoHint'); if (hint) hint.classList.remove('hidden');
+}
+function exitPhotoMode() {
+  if (!photoMode) return;
+  photoMode = false;
+  var hudEl = document.getElementById('hud'); if (hudEl) hudEl.style.opacity = '';
+  vm.visible = _vmVisWas;
+  var hint = document.getElementById('photoHint'); if (hint) hint.classList.add('hidden');
+}
+function updatePhotoCam(dt) {
+  camera.rotation.y = yaw; camera.rotation.x = Math.max(-1.45, Math.min(1.45, pitch));
+  camera.getWorldDirection(_photoDir);
+  _photoRight.set(-_photoDir.z, 0, _photoDir.x);
+  var rl = Math.sqrt(_photoRight.x * _photoRight.x + _photoRight.z * _photoRight.z) || 1;
+  _photoRight.x /= rl; _photoRight.z /= rl;
+  var sp = ((keys['ShiftLeft'] || keys['ShiftRight']) ? 22 : 8) * dt;
+  if (keys['KeyW']) photoPos.addScaledVector(_photoDir, sp);
+  if (keys['KeyS']) photoPos.addScaledVector(_photoDir, -sp);
+  if (keys['KeyD']) photoPos.addScaledVector(_photoRight, sp);
+  if (keys['KeyA']) photoPos.addScaledVector(_photoRight, -sp);
+  if (keys['Space']) photoPos.y += sp;
+  if (keys['KeyC'] || keys['ControlLeft']) photoPos.y -= sp;
+  photoPos.x = Math.max(-HALF, Math.min(HALF, photoPos.x));
+  photoPos.z = Math.max(-HALF, Math.min(HALF, photoPos.z));
+  photoPos.y = Math.max(0.4, Math.min(140, photoPos.y));
+  camera.position.copy(photoPos);
+}
 // ---------------- main loop ----------------
 var last = performance.now();
 var lastRafMs = performance.now();   // bot mode watches this to detect RAF starvation
@@ -20397,6 +20547,9 @@ function loop(now) {
   _fpsFrames++; _fpsAcc += (dt > 0 ? dt : 0.0001);
   if (_fpsAcc >= 0.5) { fpsVal = _fpsFrames / _fpsAcc; _fpsAcc = 0; _fpsFrames = 0; }
   if (!state.running) { renderer.render(scene, camera); renderCreatorFrame(dt); return; }
+  // QoL: photo mode freezes the whole sim (combat paused, world held still) and
+  // flies a free camera for screenshots — no T advance, no update calls.
+  if (photoMode) { updatePhotoCam(dt); renderer.render(scene, camera); return; }
   T += dt;
   updateReflex(dt);                       // 8-Bit Reflexes: sets the slow-mo factor
   var sdt = dt * reflexScale();           // world sim dt (bullet-time scales it)
@@ -20537,6 +20690,8 @@ window.__wc = {
   creditCivKill: creditCivKill, creditCopKill: creditCopKill, dropWeapon: dropWeapon,
   copWeapon: copWeapon,
   openMenu: openMenu, closeMenus: closeMenus, spawnCashAt: spawnCash,
+  moneyFloats: function () { return moneyFloats; }, spawnMoneyFloat: spawnMoneyFloat,
+  enterPhotoMode: enterPhotoMode, exitPhotoMode: exitPhotoMode, isPhotoMode: function () { return photoMode; }, photoPos: function () { return photoPos; },
   renderer: renderer, scene: scene, camera: camera,
   listPowerlines: function () { return powerPoles; },
   powerlineStats: function () { return { poles: powerPoles.length, wires: powerWireCount, spans: powerSpanCount, serviceDrops: powerServiceDrops }; },

@@ -283,6 +283,10 @@ its price. In multiplayer the pavement is shared: anyone can scoop up your
 dropped arsenal before you get back, so dying near your killer is a
 donation.
 
+Grab a wad of loose cash and a green **"+$" floats up from the spot** it
+was lying and fades — a little hit of feedback anchored to the world, not
+just a number ticking up in the corner.
+
 ## Quests & the quest log
 
 Westchase has **stories to work through**. Quest-givers stand around town
@@ -537,7 +541,9 @@ any other: park it wherever, lose it, blow it up — a wrecked lot car gets
 
 Press **E** next to a passing car to carjack it — the driver bails and
 runs off screaming (and yes, that's a crime). Driving is third-person:
-WASD to drive, **E** to get out. You can't shoot from the driver's seat,
+WASD to drive, **E** to get out. A **speedometer** lights up on the HUD
+while you're behind the wheel — a big MPH readout and a speed bar that
+greens up at a cruise and reddens as you floor it. You can't shoot from the driver's seat,
 but the car itself is the weapon — mow down pedestrians and cops, and
 ram traffic to send it spinning out of control like you'd shot it up.
 Trees and street lights snap and topple if you plow through them, in a
@@ -686,7 +692,9 @@ the same quiet noise bed as before, and the SFX volume slider controls it.
 - **Left click** — punch / shoot
 - **Scroll wheel** — quick-swap to your next / previous weapon
 - **1 – 0** — jump straight to a weapon by number (its slot in your owned list —
-  1 is fists; keys for weapons you don't own are ignored)
+  1 is fists; keys for weapons you don't own are ignored). A **quick-bar** along
+  the bottom of the screen shows those slots with their number keys and lights up
+  the one you're holding (toggle it in Settings)
 - **`[` / `]`** — zoom the minimap out / in (WIDE / NORMAL / CLOSE); **Ctrl+scroll**
   does the same. Your choice is remembered between sessions.
 - **M** — drop a personal **waypoint** at whatever you're looking at (or click the
@@ -694,6 +702,11 @@ the same quiet noise bed as before, and the SFX volume slider controls it.
   live distance, and a minimap blip guide you there; it clears when you arrive
   or when you press **M** again.
 - **E** — talk to the dealer (when close)
+- **P** — **photo mode**: the HUD and your gun vanish and the world freezes so
+  you can line up a shot. Fly the camera with **WASD**, climb / descend with
+  **Space / C**, hold **Shift** to move faster, mouse to aim. **P** or **Esc**
+  drops you back where you were — nothing in the world moves while you're framing,
+  so it's safe to pop into mid-firefight.
 - **H** — on foot, open the in-game **controls / help overlay**; while driving,
   honk the horn (also reachable from the pause screen's **CONTROLS** button)
 - **Tab** — inventory: equip/unequip weapons + your 6×4 item grid (click an
@@ -743,6 +756,8 @@ to tune the game to your taste. Everything applies live and saves automatically
 - **Crosshair** — show or hide the aiming reticle.
 - **Minimap** — show or hide the corner map.
 - **Hit markers** — show or hide the hit ticks and the kill feed.
+- **Weapon bar** — show or hide the bottom-center quick-bar of owned-weapon
+  slots (each tagged with its number key, the equipped one lit).
 - **Reset to defaults** — puts everything back the way it shipped.
 
 ## Rumors

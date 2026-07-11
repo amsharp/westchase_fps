@@ -54,6 +54,10 @@
   #pauseScreen p { margin-top:14px; font-size:20px; letter-spacing:2px; text-shadow:2px 2px 0 #000; }
   #deadScreen h1 { font-size:70px; letter-spacing:14px; color:#e5533d; text-shadow:4px 4px 0 #400, 8px 8px 0 rgba(0,0,0,.5); }
   #deadScreen p { margin-top:18px; color:#d8ccb0; font-size:22px; letter-spacing:2px; text-shadow:2px 2px 0 #000; }
+  #deadTimer { margin-top:26px; font-size:17px; letter-spacing:3px; color:#ffcf6a; text-shadow:2px 2px 0 #000; }
+  #deadBarOuter { margin-top:12px; width:300px; max-width:70vw; height:14px; background:#1a0e10; border:2px solid #b48; box-shadow:0 0 0 2px #000; }
+  #deadBar { height:100%; width:0%; background:linear-gradient(90deg,#7a1410,#e5533d); }
+  #deadHint { margin-top:20px !important; font-size:14px !important; color:#8a8f9c !important; letter-spacing:2px; }
 
   /* ---------- HUD ----------
      PS1-on-a-TV pixelation mechanism: the money/hp/weapon/stars/prompt/rocket
@@ -85,6 +89,11 @@
     text-shadow:3px 3px 0 #000, -1px -1px 0 #000; animation:rise .9s forwards; }
   .pop.bad { color:#e5533d; }
   @keyframes rise { from { opacity:1; transform:translateY(0);} to { opacity:0; transform:translateY(-46px);} }
+  #photoHint { position:fixed; z-index:80; left:50%; bottom:22px; transform:translateX(-50%);
+    color:#eef4ff; background:rgba(8,11,18,.72); border:2px solid rgba(207,199,176,.6);
+    padding:7px 16px; font-size:14px; letter-spacing:1px; text-transform:uppercase;
+    text-shadow:1px 1px 0 #000; pointer-events:none; white-space:nowrap; }
+  #photoHint b { color:#ffd94a; }
   #chatWrap { position:absolute; left:14px; bottom:196px; width:400px; max-width:44vw; z-index:8;
     display:flex; flex-direction:column; gap:5px; pointer-events:none; }
   #chatLog { display:flex; flex-direction:column; gap:3px; align-items:flex-start; }
@@ -256,6 +265,7 @@
   <input id="chatInput" class="hidden" maxlength="140" autocomplete="off" spellcheck="false">
 </div>
 <div id="voiceInd" class="hidden">🎙 talking…</div>
+<div id="photoHint" class="hidden">📷 PHOTO MODE &middot; <b>WASD</b> fly &middot; <b>SPACE/C</b> up-down &middot; <b>SHIFT</b> boost &middot; <b>P/ESC</b> exit</div>
 <div id="bugPanel" class="hidden">
   <div class="bugCard">
     <h2>🐛 Report a bug</h2>
@@ -282,7 +292,7 @@
   <div class="controls">
     WASD — move &nbsp;&nbsp; MOUSE — look &nbsp;&nbsp; SHIFT — run &nbsp;&nbsp; SPACE — jump &nbsp;&nbsp; TAB — inventory<br>
     LEFT CLICK — punch / shoot &nbsp;&nbsp; 1-0 — pick weapon &nbsp;&nbsp; E — dealer / gas station / steal car &nbsp;&nbsp; M — waypoint<br>
-    <span style="color:#ffd94a">H — controls / help</span> &nbsp;&nbsp; <span style="color:#5ad6ff">MULTIPLAYER:</span> ENTER — chat &nbsp;&nbsp; HOLD V — voice &nbsp;&nbsp; F8 — report a bug
+    <span style="color:#ffd94a">H — controls / help</span> &nbsp;&nbsp; <span style="color:#5ad6ff">P — photo mode</span> &nbsp;&nbsp; <span style="color:#5ad6ff">MULTIPLAYER:</span> ENTER — chat &nbsp;&nbsp; HOLD V — voice &nbsp;&nbsp; F8 — report a bug
   </div>
   <div id="menuMain">
     <div class="joinRow"><input id="playerName" maxlength="12" placeholder="your display name (shown in multiplayer)"></div>
@@ -314,7 +324,7 @@
 </div>
 
 <div id="pauseScreen" class="overlay hidden"><h1>PAUSED</h1><p style="margin-top:10px">click to resume</p><button class="menuBtn" id="btnPauseHelp" style="width:320px; margin-top:22px">CONTROLS</button><button class="menuBtn" id="btnPauseSettings" style="width:320px; margin-top:13px">SETTINGS</button></div>
-<div id="deadScreen" class="overlay hidden"><h1>KNOCKED OUT</h1><p id="deadInfo"></p></div>
+<div id="deadScreen" class="overlay hidden"><h1>KNOCKED OUT</h1><p id="deadInfo"></p><div id="deadTimer"></div><div id="deadBarOuter"><div id="deadBar"></div></div><p id="deadHint">click to get up now</p></div>
 
 <div id="shopPanel" class="panel hidden">
   <h1>WESTCHASE GUNS &amp; AMMO</h1>
@@ -373,6 +383,7 @@
   <div class="row"><span class="desc">HORN&nbsp;<small>while driving</small></span><span>H</span></div>
   <div class="row"><span class="desc">MINIMAP ZOOM</span><span>[&nbsp;&nbsp;]&nbsp;&middot;&nbsp;CTRL+WHEEL</span></div>
   <div class="row"><span class="desc">WAYPOINT&nbsp;<small>mark / clear where you look</small></span><span>M</span></div>
+  <div class="row"><span class="desc">PHOTO MODE&nbsp;<small>free-fly camera for screenshots</small></span><span>P</span></div>
   <div class="row"><span class="desc">CHAT / VOICE&nbsp;<small>multiplayer</small></span><span>ENTER&nbsp;/&nbsp;HOLD V</span></div>
   <div class="row"><span class="desc">REPORT A BUG</span><span>F8</span></div>
   <div class="row"><span class="desc">THIS SCREEN</span><span>H</span></div>
