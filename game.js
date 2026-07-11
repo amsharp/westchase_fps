@@ -8539,15 +8539,25 @@ if (WC_REMAP) (function densityLayer() {
     return (poleSignMats[name] = lamb(mo));
   }
   function poleSign(name, x, z, ry, mountY, poleH, poleR) {
-    poleR = poleR || 0.11;
+    // sane sign-post radius: 0.11 read rope-thick next to the 0.4-0.6u
+    // placards (mrfto9qj "too thick")
+    poleR = poleR || 0.065;
     var a = dAsset[name];
     if (!a) { pole(x, z, poleH, poleR); return; }
+    // detached-sign cluster (mrfto9qj + friends): derive the post from the
+    // ACTUAL placard extents instead of trusting the caller's constants —
+    // the post top always ends just behind/below the placard's top edge
+    // (never below its bottom = floating, never poking past the top),
+    // whatever this asset's dims are.
+    var plBot = mountY - a.dims[1] / 2, plTop = mountY + a.dims[1] / 2;
+    poleH = Math.max(plBot + 0.08, Math.min(poleH || plTop, plTop - 0.04));
     var g = new THREE.Group();
     g.add(cyl(poleR, poleR, poleH, 8, poleSignPoleM, 0, poleH / 2, 0));
-    // seat the placard clear of the pole SURFACE — a 0.06 offset was inside the
-    // 0.11 pole radius, so the post speared through the sign face (mref48hy)
+    // seat the placard ON the post: just clear of the pole surface (0.02) —
+    // inside the radius the post spears the face (mref48hy), while the old
+    // poleR+0.1 left a visible air gap = "sign floating off pole" (mrfto9qj)
     var plGeo = new THREE.PlaneGeometry(a.dims[0], a.dims[1]);
-    var plOff = poleR + 0.1;
+    var plOff = poleR + 0.02;
     var pl = new THREE.Mesh(plGeo, poleSignMat(name));
     pl.position.set(0, mountY, plOff);
     g.add(pl);
@@ -8735,9 +8745,12 @@ if (WC_REMAP) (function densityLayer() {
     // gas pylon out at the RaceTrac frontage
     if (vv2.type === 'racetrac') {
       var px = vv2.x + f2.fx * (vv2.d / 2 + 7), pz = vv2.z + f2.fz * (vv2.d / 2 + 7);
-      pole(px, pz, 3.2, 0.14); dSign('gas_price_sign', px, 4.2, pz, f2.yaw);
+      // panel plane 0.02 clear of the pole surface — ON the axis the pole
+      // speared the lower 0.3 of the price panel face (sign-assembly audit)
+      var gpOff = 0.14 + 0.02;
+      pole(px, pz, 3.2, 0.14); dSign('gas_price_sign', px + f2.fx * gpOff, 4.2, pz + f2.fz * gpOff, f2.yaw);
       var gpa = dAsset['gas_price_sign'];
-      if (gpa) signAudit.push({ n: 'gas_price_sign', kind: 'pylon', x: px, z: pz, stakeTop: 3.2, stakeR: 0.14, plBot: 4.2 - gpa.dims[1] / 2, plTop: 4.2 + gpa.dims[1] / 2, plW: gpa.dims[0], latOff: 0 });
+      if (gpa) signAudit.push({ n: 'gas_price_sign', kind: 'pylon', x: px, z: pz, stakeTop: 3.2, stakeR: 0.14, plBot: 4.2 - gpa.dims[1] / 2, plTop: 4.2 + gpa.dims[1] / 2, plW: gpa.dims[0], latOff: gpOff });
     }
     // freestanding entrance clutter markers
   }
@@ -8745,9 +8758,12 @@ if (WC_REMAP) (function densityLayer() {
   for (var xi = 0; xi < EXITS.length && xi < 2; xi++) {
     var ex = EXITS[xi], bx = ex.x + ex.dx * 24, bz = ex.z + ex.dz * 24, byaw = Math.atan2(ex.dx, ex.dz) + Math.PI;
     pole(bx - ex.dz * 5, bz + ex.dx * 5, 6, 0.2); pole(bx + ex.dz * 5, bz - ex.dx * 5, 6, 0.2);
-    dSign('billboard_ad', bx, 6.6, bz, byaw);
+    // board plane 0.02 clear of the posts' front surface (posts hold it from
+    // BEHIND) — on the post axis the two legs speared the board face
+    var bbOff = 0.2 + 0.02, bnx = Math.sin(byaw), bnz = Math.cos(byaw);
+    dSign('billboard_ad', bx + bnx * bbOff, 6.6, bz + bnz * bbOff, byaw);
     var bba = dAsset['billboard_ad'];
-    if (bba) signAudit.push({ n: 'billboard_ad', kind: 'billboard', x: bx, z: bz, stakeTop: 6, stakeR: 0.2, plBot: 6.6 - bba.dims[1] / 2, plTop: 6.6 + bba.dims[1] / 2, plW: bba.dims[0], latOff: 0 });
+    if (bba) signAudit.push({ n: 'billboard_ad', kind: 'billboard', x: bx, z: bz, stakeTop: 6, stakeR: 0.2, plBot: 6.6 - bba.dims[1] / 2, plTop: 6.6 + bba.dims[1] / 2, plW: bba.dims[0], latOff: bbOff });
   }
   // roadside sign poles along arterials/collectors: stop at junction approaches,
   // speed/parking/bus elsewhere
@@ -8756,9 +8772,20 @@ if (WC_REMAP) (function densityLayer() {
       var rc = RM.roads[rs]; if (rc.cls > 1 || rc.dirt) continue;
       var lenS = rc.cum[rc.cum.length - 1], sd = 1;
       for (var sv = 40; sv < lenS - 30; sv += 78) {
-        var ps = rmAt(rc.pts, rc.cum, sv), of = rc.hw + 2.4;
-        var sx = ps.x - ps.uz * of * sd, sz = ps.z + ps.ux * of * sd; sd = -sd;
-        if (!spotClear(sx, sz) || remapInClear(sx, sz, 0)) continue;
+        // mrfto9qj "pole mid-sidewalk": hw+2.4 planted the post dead-centre of
+        // the flanking walk ribbon. Start just past the curb and nudge outward
+        // until the spot leaves the onSidewalk band (walk edge / verge), same
+        // clearance idea as the walkRibbonAt decal fix; skip if nothing clears.
+        var ps = rmAt(rc.pts, rc.cum, sv), swS = rc.cls === 0 ? 5 : 3.4;
+        var sx = 0, sz = 0, sOK = false;
+        for (var of = rc.hw + swS + 1.1; of <= rc.hw + swS + 2.7; of += 0.4) {
+          sx = ps.x - ps.uz * of * sd; sz = ps.z + ps.ux * of * sd;
+          if (onSidewalk(sx, sz)) continue;
+          if (!spotClear(sx, sz) || remapInClear(sx, sz, 0) || inLake(sx, sz)) continue;
+          sOK = true; break;
+        }
+        sd = -sd;
+        if (!sOK) continue;
         var facing = Math.atan2(-ps.ux, -ps.uz);   // face oncoming traffic
         var kind = pick(['speed_limit_sign', 'parking_sign', 'bus_route_sign', 'roadwork_sign']);
         poleSign(kind, sx, sz, facing, kind === 'bus_route_sign' ? 2.2 : 1.7, kind === 'bus_route_sign' ? 2.6 : 2.1);
@@ -8785,7 +8812,11 @@ if (WC_REMAP) (function densityLayer() {
           var ya = dAsset[yk];
           if (ya) {
             var ysc = 1.4, ymount = 1.02, yh = ya.dims[1] * ysc, yry = rnd(0, 6.28);
-            var ystkR = 0.05, ystkH = ymount - yh / 2 + 0.08, yoff = 0.14;
+            // placard bottom + stake top derived from THIS asset's dims: the
+            // stake enters the placard 0.08 and the placard plane sits just
+            // 0.02 clear of the stake surface (the old 0.14 shove left a
+            // visible air gap = "detached sign", mrfzidc6/mrfzjsdl/mrfzk1rq)
+            var ystkR = 0.05, ystkH = ymount - yh / 2 + 0.08, yoff = ystkR + 0.02;
             pole(yx, yz, ystkH, ystkR);
             dSign(yk, yx + Math.sin(yry) * yoff, ymount, yz + Math.cos(yry) * yoff, yry, ysc);   // placard in front of its stake, not speared
             signAudit.push({ n: yk, kind: 'yard', x: yx, z: yz, stakeTop: ystkH, stakeR: ystkR, plBot: ymount - yh / 2, plTop: ymount + yh / 2, plW: ya.dims[0] * ysc, latOff: yoff });
@@ -10060,7 +10091,22 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
       }
     } else if (a === 'sway') {
       if (rec.name === 'patio_umbrella') { var cy2 = d[1] * 0.62; var can = splitMesh(mesh, function (x, y, z) { return y > cy2; }, cy2); var up = new THREE.Group(); up.position.y = cy2; up.add(can); rec.g.add(up); rec.swayChild = up; rec.swayAxis = 'z'; rec.swayAmp = 0.05; rec.swaySpd = 1.1; }
-      else { var by = d[1] * 0.86; var seat = splitMesh(mesh, function (x, y, z) { return y < by * 0.82 && y > by * 0.14; }, by); var sw = new THREE.Group(); sw.position.y = by; sw.add(seat); rec.g.add(sw); rec.swayChild = sw; rec.swayAxis = 'x'; rec.swayAmp = 0.22; rec.swaySpd = 1.7; }   // swing_set seats
+      else {
+        // swing_set: only seats+chains swing. The old pure y-slab also caught the
+        // A-frame legs' mid-sections (whole frame appeared to swing - mrfzvti9);
+        // constrain to the inner span along the long (bar) axis via the real bbox.
+        var by = d[1] * 0.86;
+        if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+        var sbb = mesh.geometry.boundingBox;
+        var sxc = (sbb.min.x + sbb.max.x) / 2, szc = (sbb.min.z + sbb.max.z) / 2;
+        var sxh = Math.max(0.01, (sbb.max.x - sbb.min.x) / 2), szh = Math.max(0.01, (sbb.max.z - sbb.min.z) / 2);
+        var longX = sxh >= szh;
+        var seat = splitMesh(mesh, function (x, y, z) {
+          var lc = longX ? (x - sxc) / sxh : (z - szc) / szh;
+          return y < by * 0.82 && y > by * 0.14 && Math.abs(lc) < 0.62;
+        }, by);
+        var sw = new THREE.Group(); sw.position.y = by; sw.add(seat); rec.g.add(sw); rec.swayChild = sw; rec.swayAxis = 'x'; rec.swayAmp = 0.22; rec.swaySpd = 1.7;
+      }   // swing_set seats
     } else if (a === 'glow') {
       var GC = { soda_machine: 0xff3b3b, arcade_cabinet: 0x3aa0ff, jukebox: 0xffb020, claw_machine: 0xff5bd0 };
       mesh.material = mesh.material.clone(); mesh.material.emissive = new THREE.Color(GC[rec.name] || 0x66ccff); mesh.material.emissiveIntensity = 0.05; rec.glowMat = mesh.material;
