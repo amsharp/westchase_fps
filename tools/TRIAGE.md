@@ -402,3 +402,4 @@ Other new (logged, next rounds):
 - mrg4gw3o (-187,31) STILL way too much smoke — 2nd report of the lakeside ambient emitter (mrfzucre); find and shrink THAT emitter specifically
 - mrg4hbzx (-141,-9) kid glitched in the wall — kid steering/pushOut vs OBB
 - mrg4iels (-153,22) quest NPCs should FACE the player when near (design ask, small)
+- mrg4k6e2 (-53,-55) weird looking fence segment — OPEN (fence quality cluster w/ mrg49ri9 poleless fence)
