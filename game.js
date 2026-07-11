@@ -9731,6 +9731,27 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
     mesh.geometry = buildSub(kP, kU, kN, mesh.material).geometry;
     return buildSub(mP, mU, mN, mesh.material);
   }
+  // 1:4 midpoint triangle subdivision for flag cloth (bug mrft9s65) — the
+  // authored flags are a couple of stiff quads, too coarse to bend. Non-indexed
+  // input; shared edges get bitwise-identical midpoints, so no cracks open up.
+  function subdivideTris(geo) {
+    var p = geo.attributes.position, u = geo.attributes.uv, n = geo.attributes.normal;
+    var P = [], U = [], N = [];
+    function vert(i) { return [p.getX(i), p.getY(i), p.getZ(i), u.getX(i), u.getY(i), n.getX(i), n.getY(i), n.getZ(i)]; }
+    function mid(a, b) { var m = [], q; for (q = 0; q < 8; q++) m.push((a[q] + b[q]) / 2); return m; }
+    function push(v) { P.push(v[0], v[1], v[2]); U.push(v[3], v[4]); N.push(v[5], v[6], v[7]); }
+    function tri(a, b, c) { push(a); push(b); push(c); }
+    for (var t = 0; t < p.count; t += 3) {
+      var A = vert(t), B = vert(t + 1), C = vert(t + 2);
+      var AB = mid(A, B), BC = mid(B, C), CA = mid(C, A);
+      tri(A, AB, CA); tri(AB, B, BC); tri(CA, BC, C); tri(AB, BC, CA);
+    }
+    var g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(P), 3));
+    g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(U), 2));
+    g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(N), 3));
+    return g;
+  }
   function envAnimInit(rec, e) {
     var mesh = rec.g.children[0], d = e.dims, a = e.anim;
     rec.phase = Math.random() * 6.28;
@@ -9738,9 +9759,29 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
       if (rec.name === 'barber_pole') { rec.spinMesh = mesh; rec.spinSpd = 2.4; }
       else if (rec.name === 'pizza_sign') { var top = splitMesh(mesh, function (x, y, z) { return y > d[1] * 0.74; }, 0); top.geometry.computeBoundingBox(); var pcy = (top.geometry.boundingBox.min.y + top.geometry.boundingBox.max.y) / 2; top.geometry.translate(0, -pcy, 0); var ppv = new THREE.Group(); ppv.position.y = pcy; ppv.add(top); rec.g.add(ppv); rec.spinChild = ppv; rec.spinAxis = 'z'; rec.spinSpd = 1.6; }   // round disc faces +z: spin in-plane (about its face-normal) like a wheel, not edge-on around Y
       else { var hy = d[1] * 0.6; var bl = splitMesh(mesh, function (x, y, z) { return y > hy; }, hy); var piv = new THREE.Group(); piv.position.y = hy; piv.add(bl); rec.g.add(piv); rec.spinChild = piv; rec.spinAxis = 'x'; rec.spinSpd = 1.9; }   // windmill blades
-    } else if (a === 'wave') {   // flagpole cloth
+    } else if (a === 'wave') {   // flagpole cloth — per-vertex ripple (bug mrft9s65)
       var fl = splitMesh(mesh, function (x, y, z) { return y > d[1] * 0.62 && (Math.abs(x) > 0.25 || Math.abs(z) > 0.25); }, 0);
       rec.g.add(fl); rec.waveChild = fl;
+      // tessellate the cloth so a traveling sine can bend it, then precompute
+      // per-vertex hoist distance (u: 0 at the pole = pinned, 1 at the fly end)
+      // and the horizontal tangent each vertex ripples along. Displacement is
+      // horizontal-only, so stacked flags on one pole can never intersect.
+      var wg = fl.geometry, wguard = 0;
+      while (wg.attributes.position.count < 150 && wguard++ < 3) wg = subdivideTris(wg);
+      fl.geometry = wg;
+      var wp = wg.attributes.position, wn = wp.count;
+      var wbase = new Float32Array(wp.array.length); wbase.set(wp.array);
+      var wu = new Float32Array(wn), wdx = new Float32Array(wn), wdz = new Float32Array(wn);
+      var rMin = 1e9, rMax = 0, wi, wr;
+      for (wi = 0; wi < wn; wi++) { wr = Math.sqrt(wp.getX(wi) * wp.getX(wi) + wp.getZ(wi) * wp.getZ(wi)); if (wr < rMin) rMin = wr; if (wr > rMax) rMax = wr; }
+      var rSpan = Math.max(0.001, rMax - rMin);
+      for (wi = 0; wi < wn; wi++) {
+        var wx = wp.getX(wi), wz = wp.getZ(wi); wr = Math.sqrt(wx * wx + wz * wz) || 1;
+        wu[wi] = (wr - rMin) / rSpan;
+        wdx[wi] = -wz / wr; wdz[wi] = wx / wr;
+      }
+      rec.waveBase = wbase; rec.waveU = wu; rec.waveDX = wdx; rec.waveDZ = wdz;
+      rec.waveAmp = rSpan * 0.16;
     } else if (a === 'flail') {  // tube-man: 3 stacked sine-chain bands
       rec.bands = [];
       var cuts = [[d[1] * 0.16, d[1] * 0.45], [d[1] * 0.45, d[1] * 0.72], [d[1] * 0.72, d[1] * 1.05]];
@@ -10067,7 +10108,22 @@ function updateEnvProps(dt) {
       if (r.spinChild) r.spinChild.rotation[r.spinAxis] += dt * r.spinSpd;
       else if (r.spinMesh) r.spinMesh.rotation.y += dt * r.spinSpd;
     } else if (a === 'wave') {
-      if (r.waveChild) { r.waveChild.rotation.y = Math.sin(t * 2.3 + r.phase) * 0.3 + Math.sin(t * 5.3) * 0.07; r.waveChild.rotation.x = Math.sin(t * 3.1) * 0.05; }
+      if (r.waveBase) {
+        // cloth ripple: two traveling sines run hoist->fly along each flag,
+        // amplitude 0 at the pole (pinned) growing toward the free edge, all
+        // horizontal so the two flags sharing the pole never touch. A slow
+        // "gust" envelope keeps it from reading as a metronome.
+        var wpos = r.waveChild.geometry.attributes.position, warr = wpos.array, wb = r.waveBase;
+        var gust = 0.72 + 0.28 * Math.sin(t * 0.7 + r.phase);
+        for (var wv = 0; wv < wpos.count; wv++) {
+          var wuv = r.waveU[wv];
+          var woff = (Math.sin(wuv * 5.2 - t * 5.6 + r.phase) * 0.75 + Math.sin(wuv * 9.7 - t * 8.9 + r.phase * 2.1) * 0.25) * r.waveAmp * wuv * gust;
+          warr[wv * 3] = wb[wv * 3] + r.waveDX[wv] * woff;
+          warr[wv * 3 + 2] = wb[wv * 3 + 2] + r.waveDZ[wv] * woff;
+        }
+        wpos.needsUpdate = true;
+        r.waveChild.rotation.y = Math.sin(t * 0.9 + r.phase) * 0.05;   // gentle wind-shift sway about the pole
+      } else if (r.waveChild) { r.waveChild.rotation.y = Math.sin(t * 2.3 + r.phase) * 0.3 + Math.sin(t * 5.3) * 0.07; r.waveChild.rotation.x = Math.sin(t * 3.1) * 0.05; }
     } else if (a === 'flail') {
       for (var b = 0; b < r.bands.length; b++) { var bd = r.bands[b]; bd.pv.rotation.z = Math.sin(t * bd.spd + bd.ph + r.phase) * bd.amp; bd.pv.rotation.x = Math.cos(t * bd.spd * 0.7 + bd.ph) * bd.amp * 0.6; }
     } else if (a === 'sway') {
@@ -19459,6 +19515,7 @@ window.__wc = {
   listPowerlines: function () { return powerPoles; },
   powerlineStats: function () { return { poles: powerPoles.length, wires: powerWireCount, spans: powerSpanCount, serviceDrops: powerServiceDrops }; },
   cars: cars, boomAt: boomAt, killNpcRagdoll: killNpcRagdoll,
+  puffs: puffs, bHoles: bHoles, densityPlaced: densityPlaced,   // vfx debug (blood/impact routing + bullet holes + sign placement)
   // ---- social groups (#67) ----
   spawnSharpGroup: function (sons) { return grpSummary(spawnSharpGroup(sons)); },
   spawnXanderDerik: function () { return grpSummary(spawnXanderDerik()); },
