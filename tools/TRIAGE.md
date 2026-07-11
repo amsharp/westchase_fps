@@ -307,3 +307,5 @@ All three FIXED@v1.66.63. mregjcuz + mreg8mld details are inline in Batch 8 / Ba
 - mrfzqfam (-189,-209) 'nice asset, weird placement' — OPEN (fetch shot; placement)
 - mrfzqww7 (-233,-144) quest npcs in the middle of nowhere is weird — OPEN (quest giver spots on empty lakeside lawn read as random; consider anchoring givers near landmarks/props or giving them a stand/context prop — design tweak)
 - mrfzrxfl (-377,118) 'whole area weird, no roads to the houses, USE STREET VIEW to figure out what to do' — OWNER DIRECTIVE for the residential road-network pass (mredxzx6/mredfyyf class, now 4 reports): ground-truth the residential street grid against the real Westchase layout (satellite/street view) and build the missing local streets + driveways. MAJOR ROUND — needs dedicated claim
+- mrfzstns (-262,103) FEATURE: cars driving into the lake should sink + stall (currently blocked/frozen at water edge?) — OPEN (driving/water interaction; pairs with the swimmable-lake systems)
+- mrfztgle (-238,106) bike not touched by its NPC rider/pusher — OPEN (bike accessory grip class — same aimLimbAt/grip family as walker/stroller; also mregenli bike texture note still open)
