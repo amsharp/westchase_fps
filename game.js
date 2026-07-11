@@ -2993,7 +2993,14 @@ function buildRemapLanes(stitches) {
     best.legs.push(lg);
     lone.legs = [];   // node stays in the list but is empty/inert
   }
-  for (i = 0; i < RM.edges.length; i++) RM.laneLen += RM.edges[i].len;
+  // short ORPHAN fragments (both ends dead, e.g. the 28u sv_19_lynmar stub)
+  // trap a car in an endless 3-second U-turn shuttle — never seed traffic on
+  // them (they also can't be reached via node hops, so they stay empty).
+  for (i = 0; i < RM.edges.length; i++) {
+    var se = RM.edges[i];
+    se.stub = se.len < 60 && se.node[0].legs.length <= 1 && se.node[1].legs.length <= 1;
+  }
+  for (i = 0; i < RM.edges.length; i++) if (!RM.edges[i].stub) RM.laneLen += RM.edges[i].len;
 }
 
 // lane-frame sample: world pos/tangent for car c at chainage s on its edge.
@@ -3007,9 +3014,9 @@ function rmLanePos(c, s) {
 }
 function remapSeedCar(c, rng) {
   var rnd = rng || Math.random;
-  // length-weighted edge pick
+  // length-weighted edge pick (stub fragments excluded — see graph build)
   var pick = rnd() * RM.laneLen, e = RM.edges[0], ei = 0;
-  for (var i = 0; i < RM.edges.length; i++) { e = RM.edges[i]; ei = i; if (pick < e.len) break; pick -= e.len; }
+  for (var i = 0; i < RM.edges.length; i++) { if (RM.edges[i].stub) continue; e = RM.edges[i]; ei = i; if (pick < e.len) break; pick -= e.len; }
   c.rEdge = ei;
   c.rDir = rnd() < 0.5 ? 1 : -1;
   c.rLane = (rnd() * e.lanes.length) | 0;
@@ -3058,6 +3065,7 @@ function remapAdvance(c, dt) {
   } else {
     c.rDir = -c.rDir;   // dead end / ROAD CLOSED barrier: turn around
     c.rS = Math.max(lo, Math.min(hi, c.rS));
+    c.speed = Math.min(c.speed, 2.5);   // crawl through the turnaround — a cruise-speed pivot read as a snap 180 (mreft54h)
   }
 }
 // per-tick lane follower: chainage clock + pure-pursuit steer toward a
