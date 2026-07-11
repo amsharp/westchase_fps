@@ -5796,6 +5796,12 @@ var _legFixQ = null, _legFixAx = null;
 // so he no longer goes through the shared-clip post path for locomotion and
 // needs no legFix (walk fyMx 0.195, lat 0.394, crossed 0 — RYAN-class).
 var MESHY_LEG_FIX = { NIA: { y: 0.1, z: 0.05, px: -0.6 }, GARY: { y: 0.2, z: 0.25 } };
+// Scalp-cap defs (see buildMeshySkinned): model-space ellipsoid center + radii
+// + hair-shadow color, per character name. SKYLER fitted offline
+// (live4_capfit.js): largest ellipsoid inside his head shell covering all 25
+// hole-rim clusters left by the Meshy remesh.
+var MESHY_HAIR_CAP = { SKYLER: { x: 0, y: 1.64, z: -0.04, rx: 0.105, ry: 0.125, rz: 0.086, col: 0x8a6d28 } };
+var meshyCapGeo = null;
 // Stand-in idle for rigs that ship NO idle clip (kids): frame 0 of the walk is
 // a mid-stride passing pose — hips high on the Y track, both feet off the
 // ground — so a frame-0 "idle" visibly hovers (bug mreghm0l). Find the walk
@@ -5861,6 +5867,30 @@ function buildMeshySkinned(cfg, mi) {
   var sk = { d: d, bones: bones, rootBindY: bones[d.rootI].position.y };
   sk.legLi = bi.LeftUpLeg; sk.legRi = bi.RightUpLeg;
   sk.legFix = MESHY_LEG_FIX[MESHY_LIST[mi].n] || 0;   // leg-yaw retarget fix (see meshyPose)
+  // Scalp cap for AI heads whose Meshy remesh dropped hair triangles (report
+  // mree59kf / mrg4rouw: SKYLER's crown has ~30 small open holes — sky/shirt
+  // showed through the hair). A hair-shadow-colored ellipsoid inscribed inside
+  // the skull (fitted offline against every head surface vert + hole rim,
+  // scratchpad live4_capfit.js) backs all the gaps; the def is in MODEL space
+  // (bind pose), so it rides in a world-axis-aligned holder under the Head bone.
+  var capDef = MESHY_HAIR_CAP[MESHY_LIST[mi].n];
+  if (capDef && bones[bi.Head]) {
+    var hb = bones[bi.Head];
+    g.updateMatrixWorld(true);
+    var capHold = new THREE.Group();
+    hb.add(capHold);
+    hb.updateMatrixWorld(true);
+    var hwq = new THREE.Quaternion();
+    hb.getWorldQuaternion(hwq);
+    capHold.quaternion.copy(hwq).invert();   // world-axis-aligned at bind
+    var hwp = new THREE.Vector3(capDef.x, capDef.y, capDef.z);
+    hb.worldToLocal(hwp);
+    capHold.position.copy(hwp);
+    if (!meshyCapGeo) meshyCapGeo = new THREE.SphereGeometry(1, 8, 6);
+    var capMesh = new THREE.Mesh(meshyCapGeo, lamb({ color: capDef.col }));
+    capMesh.scale.set(capDef.rx, capDef.ry, capDef.rz);
+    capHold.add(capMesh);
+  }
   g.userData.skin = sk;
   meshyPose(sk, 'walk', 0);   // natural stance instead of T-pose
   g.userData.limbs = { armL: bones[bi.LeftArm], armR: bones[bi.RightArm], legL: bones[bi.LeftUpLeg], legR: bones[bi.RightUpLeg] };
@@ -8729,7 +8759,11 @@ if (WC_REMAP) (function densityLayer() {
   // handful of decals/clutter/fences read best keyed too (luminance < thr -> clear)
   var KEY = {};
   ['billboard_ad', 'storefront_sign', 'grand_opening_banner', 'flyer_sheet', 'for_sale_sign', 'menu_board', 'bus_route_sign', 'graffiti_panel', 'wall_mural', 'roadwork_sign', 'stop_sign', 'gas_price_sign', 'yard_sign', 'lost_pet_flyer', 'neon_bar_sign', 'parking_sign', 'speed_limit_sign', 'garage_sale_sign'].forEach(function (n) { KEY[n] = 40; });
-  ['grass_tuft', 'crosswalk', 'center_line', 'road_arrow', 'skid_marks', 'chainlink_fence', 'potted_plant'].forEach(function (n) { KEY[n] = 46; });
+  // (mrg51b3u) skid_marks moved OUT of this luminance list: the tire streaks
+  // are the DARKEST pixels of the tile, so lum<46 keyed the MARKS transparent
+  // and left the pale asphalt background opaque — an opaque tan rectangle with
+  // streak-shaped holes. It blend-keys below instead (background fades, marks stay).
+  ['grass_tuft', 'crosswalk', 'center_line', 'road_arrow', 'chainlink_fence', 'potted_plant'].forEach(function (n) { KEY[n] = 46; });
   // Ground stain/crack/fixture decals are authored on a full asphalt/concrete
   // tile: rendered as an opaque quad they show a hard rectangular "box/shadow
   // patch" (bug reports mree7hy2/mree84pq/mree8hw2). BLEND-key them: the tile's
@@ -8743,7 +8777,14 @@ if (WC_REMAP) (function densityLayer() {
   // solid sheet hovering over the ground (geometry verified flat at y=0.14;
   // map-wide scan found zero elevated/tilted decal quads). Blend-keying fades
   // the tile's own background to transparent so only the litter/leaves show.
-  ['oil_stain', 'asphalt_cracks', 'asphalt_patch', 'cracked_slab', 'sidewalk_gum', 'manhole', 'storm_drain', 'utility_plate', 'mud_patch', 'puddle', 'litter_scatter', 'leaves_scatter'].forEach(function (n) { GKEY[n] = 1; });
+  // GKEY value 1 = FIXTURE (manhole etc: keep the centre object intact, border
+  // vignette only). 2 = ORGANIC stain/scatter: additionally faded by a radial
+  // falloff so the mark dissolves toward the quad boundary — the flat 0.10
+  // surface wash + thin 28px vignette used to leave a visible pale/hard square
+  // on any ground darker or greener than the authored tile (mrfzxqma sidewalk
+  // patches, mrfzy2tl dirt patch, mrg00iyj square shadows, mrg0d0rw at night).
+  ['manhole', 'storm_drain', 'utility_plate'].forEach(function (n) { GKEY[n] = 1; });
+  ['oil_stain', 'asphalt_cracks', 'asphalt_patch', 'cracked_slab', 'sidewalk_gum', 'mud_patch', 'puddle', 'litter_scatter', 'leaves_scatter', 'skid_marks'].forEach(function (n) { GKEY[n] = 2; });
   var dTexCache = {};
   function dTex(name) {
     if (dTexCache[name] !== undefined) return dTexCache[name];
@@ -8771,11 +8812,24 @@ if (WC_REMAP) (function densityLayer() {
           o = (y * 256 + x) * 4;
           var dr = q[o] - br, dg = q[o + 1] - bgc, db = q[o + 2] - bb;
           var dist = Math.sqrt(dr * dr + dg * dg + db * db);
-          // surface (dist<18) barely visible, mark (dist>55) fully opaque
-          var al = dist < 18 ? 0.10 : (dist > 55 ? 1 : 0.10 + (dist - 18) / 37 * 0.90);
-          // soft edge vignette over the outer ~28px so the quad never reads as a box
-          var em = Math.min(Math.min(x, 255 - x), Math.min(y, 255 - y)) / 28;
+          // decal-quality pass (mrfzxqma/mrfzy2tl/mrg00iyj "pale/hard squares"):
+          // surface pixels go FULLY transparent — the old 0.10 floor painted the
+          // whole authored tile as a faint wash, a visible pale rectangle on any
+          // ground darker/greener than the tile (worst at night on asphalt)
+          var al = dist < 18 ? 0 : (dist > 55 ? 1 : (dist - 18) / 37);
+          // soft edge vignette over the outer ~36px so the quad never reads as a box
+          var em = Math.min(Math.min(x, 255 - x), Math.min(y, 255 - y)) / 36;
           if (em < 1) al *= em;
+          // ORGANIC stains/scatters (GKEY===2) also dissolve radially: grime is
+          // densest at the middle, so fade from 55% of the half-size outward —
+          // kills the straight cut-off a square crop leaves when the authored
+          // mark bleeds to the tile edge (the "square shadow" read). Fixtures
+          // (GKEY===1: manhole/drain/plate) keep their full footprint.
+          if (blend === 2) {
+            var rx = (x - 127.5) / 127.5, ryv = (y - 127.5) / 127.5;
+            var rad = Math.sqrt(rx * rx + ryv * ryv);
+            if (rad > 0.55) al *= Math.max(0, 1 - (rad - 0.55) / 0.45);
+          }
           q[o + 3] = Math.round(al * 255);
         }
         g.putImageData(d2, 0, 0);
@@ -8875,6 +8929,20 @@ if (WC_REMAP) (function densityLayer() {
     var ry = Math.atan2(-dz, dx);
     bake('d_' + name, { texName: name, double: true }, g, mtx((ax + bx) / 2, H / 2 + 0.02, (az + bz) / 2, ry, 1, 1, 1));
     if (solid) addColliderOBB((ax + bx) / 2, (az + bz) / 2, L / 2, 0.25, ry, 'fence');
+    // POSTS (mrg49ri9 "weird fence without poles"): this path used to render a
+    // bare texture card floating between nothing — real fence types now drop a
+    // post at every ~2.5u panel joint (both ends included), plus a top rail for
+    // chainlink, matching the FENCE_RUNS breakable system's look. Hedges and
+    // masonry walls (hedge_row / brick_low_wall) are self-supporting — no posts.
+    if (name === 'chainlink_fence' || name === 'privacy_fence') {
+      var ux = dx / L, uz = dz / L, np = Math.max(1, Math.round(L / 2.5));
+      for (var pj = 0; pj <= np; pj++) {
+        var pt = pj * (L / np), px = ax + ux * pt, pz = az + uz * pt;
+        if (name === 'chainlink_fence') bake('d_fence_clpost', { color: 0x565b5e }, UCYL, mtx(px, (H + 0.12) / 2, pz, 0, 0.1, H + 0.12, 0.1));
+        else bake('d_fence_pfpost', { color: 0x6e5636 }, UBOX, mtx(px, (H + 0.15) / 2, pz, ry, 0.12, H + 0.15, 0.12));
+      }
+      if (name === 'chainlink_fence') bake('d_fence_clrail', { color: 0x565b5e }, UBOX, mtx((ax + bx) / 2, H - 0.05, (az + bz) / 2, ry, L, 0.07, 0.07));
+    }
     densityStats.fence++;
   }
   function fenceRect(cx, cz, w, d, rot, name, solid) {
@@ -9314,7 +9382,9 @@ if (WC_REMAP) (function densityLayer() {
   // chainlink around the self-storage + school footprints
   for (var vh = 0; vh < VENUES.length; vh++) {
     var vv4 = VENUES[vh];
-    if (vv4.type === 'storage') fenceRect(vv4.x, vv4.z, vv4.w + 6, vv4.d + 6, vv4.rot || 0, 'chainlink_fence', true);
+    // (mrg49ri9) storage fenceRect DROPPED: it crossed the old axis-aligned
+    // FENCE_RUNS self-storage run in an X. The security ring is now a single
+    // breakable FENCE_RUNS chainlink polyline tracing this rect's exact corners.
     // Farnell school: the NEW per-panel breakable run FENCE_RUNS[0] (chainlink,
     // "W+front") sits directly on the W + front(N) edges of this old solid ring.
     // Building BOTH z-fought the diamond cards AND the old merged-solid OBB never
@@ -9327,7 +9397,12 @@ if (WC_REMAP) (function densityLayer() {
       // rect corners (mirror fenceRect's cp): p0=(-hw,-hd) p1=(hw,-hd) p2=(hw,hd)
       var q0x = vv4.x - fhw * fc - fhd * fs, q0z = vv4.z + fhw * fs - fhd * fc;
       var q1x = vv4.x + fhw * fc - fhd * fs, q1z = vv4.z - fhw * fs - fhd * fc;
-      var q2x = vv4.x + fhw * fc + fhd * fs, q2z = vv4.z - fhw * fs + fhd * fc;
+      // (mrg4k6e2) the E edge used the FULL half-depth (fhd = d/2+7), which is
+      // 3u DEEPER than the breakable front run's offset (d/2+4, z=-60) — the
+      // edge poked through the front fence in a +, ending as a free-floating
+      // 3u stub on the lot side. End the E edge exactly AT the front run (T-join).
+      var fhdF = (vv4.d + 8) / 2;
+      var q2x = vv4.x + fhw * fc + fhdF * fs, q2z = vv4.z - fhw * fs + fhdF * fc;
       fenceRun(q0x, q0z, q1x, q1z, 'chainlink_fence', true);   // S / back edge
       fenceRun(q1x, q1z, q2x, q2z, 'chainlink_fence', true);   // E edge
     }
@@ -9873,7 +9948,14 @@ if (WC_REMAP) (function landscapePass() {
 var FENCE_RUNS = [
   // --- chainlink ---
   { type: 'chainlink', h: 2.0, color: 0x2b2f31, pts: [[-150, -92], [-150, -60], [-40, -60]] }, // Farnell school field, W+front (dark)
-  { type: 'chainlink', h: 2.2,                  pts: [[8, 84], [54, 84], [54, 130]] },          // self-storage lot, N+E
+  // self-storage security ring (mrg49ri9): the old axis-aligned N+E run
+  // [[8,84],[54,84],[54,130]] CROSSED the storage venue's rot-135 densityprops
+  // fenceRect in an X at ~(23.6,84) — two chainlink layers, one with posts and
+  // one bare. ONE fence now: this run traces the old rect's exact corners
+  // (venue 26,106.9 w+6 x d+6 rot 135), breakable panels + posts, and the
+  // densityprops rect for 'storage' is dropped. noClip preserves the proven
+  // placement (the rect never touched a road).
+  { type: 'chainlink', h: 2.2, noClip: true, pts: [[22, 136.2], [-3.3, 110.9], [30, 77.6], [55.3, 102.9], [22, 136.2]] },
   { type: 'chainlink', h: 1.0, color: 0x2b2f31, pts: [[-330, -12], [-244, -12]] },              // retention-pond N bank (low, dark)
   // --- wood privacy (townhome back/side yards, SW cluster) ---
   { type: 'wood', h: 1.8, pts: [[-206, -90], [-158, -90]] },   // behind e281 row
@@ -10059,23 +10141,33 @@ if (WC_REMAP) (function fenceSystem() {
       var ax = pts[s][0], az = pts[s][1], bx = pts[s + 1][0], bz = pts[s + 1][1];
       var dx = bx - ax, dz = bz - az, L = Math.sqrt(dx * dx + dz * dz);
       if (L < 0.4) continue;
-      var mx = (ax + bx) / 2, mz = (az + bz) / 2;
-      // never wall off a road/driveway
-      if (!opts.noClip && !remapPointClear(mx, mz, guard)) continue;
       var ry = Math.atan2(-dz, dx);
       var ux = dx / L, uz = dz / L;
       var panels = Math.max(1, Math.round(L / spacing)), pl = L / panels;
+      // never wall off a road/driveway — checked PER PANEL (fence audit): the
+      // old single midpoint test either dropped a whole long edge or let its
+      // far ends cross asphalt the midpoint never saw. Panels over a road are
+      // skipped individually (their boundary posts read as gateposts).
+      var kept = [];
       for (var q = 0; q < panels; q++) {
         var t = (q + 0.5) * pl, pcx = ax + ux * t, pcz = az + uz * t;
-        buildFencePanel(type, pcx, pcz, ry, pl, h, postClr);
+        kept[q] = opts.noClip || remapPointClear(pcx, pcz, guard);
+        if (kept[q]) buildFencePanel(type, pcx, pcz, ry, pl, h, postClr);
       }
       // posts at every panel boundary (incl. both ends) — posts stay merged +
-      // static (they don't topple; they mark where a smashed panel used to be)
+      // static (they don't topple; they mark where a smashed panel used to be).
+      // Batch key includes the colour: fbatch captures its material meta from
+      // the FIRST caller, so sharing one 'fence_chainpost' key painted EVERY
+      // chainlink post with the first run's tint (the dark Farnell 0x2b2f31 —
+      // the default-galvanized storage/pond posts rendered near-black).
+      var pKey = '_' + postClr.toString(16);
       for (var b = 0; b <= panels; b++) {
+        // a post stands only if an adjacent panel was kept (no posts mid-road)
+        if (!(kept[b - 1] || kept[b])) continue;
         var pt2 = b * pl, px2 = ax + ux * pt2, pz2 = az + uz * pt2;
-        if (type === 'chainlink') postCyl('fence_chainpost', { color: postClr }, px2, pz2, h + 0.12, 0.05);
-        else if (type === 'wood') postBox('fence_woodpost', { color: postClr }, px2, pz2, h + 0.15, 0.06);
-        else postBox('fence_picketpost', { color: postClr }, px2, pz2, h + 0.14, 0.05);
+        if (type === 'chainlink') postCyl('fence_chainpost' + pKey, { color: postClr }, px2, pz2, h + 0.12, 0.05);
+        else if (type === 'wood') postBox('fence_woodpost' + pKey, { color: postClr }, px2, pz2, h + 0.15, 0.06);
+        else postBox('fence_picketpost' + pKey, { color: postClr }, px2, pz2, h + 0.14, 0.05);
       }
     }
   }
@@ -10766,8 +10858,14 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
   // there read as unidentifiable free-standing slabs. Removed; the back wall
   // is now clean (its service clutter is gated off above too).
 
-  // ---------- 10. PARK LAMPS + retaining-wall accents along a lot edge ----------
-  if (lots[0]) { var lo = lots[0], loc = Math.cos((lo.rot || 0) * deg), los = Math.sin((lo.rot || 0) * deg); var ex0 = lo.x - loc * (lo.w / 2 + 2), ez0 = lo.z + los * (lo.w / 2 + 2); place('park_lamp', ex0, ez0, 0); place('park_lamp', lo.x + loc * (lo.w / 2 + 2), lo.z - los * (lo.w / 2 + 2), 0); run(lo.x - lo.w / 2 * loc, lo.z + lo.w / 2 * los, lo.x + lo.w / 2 * loc, lo.z - lo.w / 2 * los, 'retaining_wall', 1); }
+  // ---------- 10. PARK LAMPS at the lot's side edges ----------
+  // (mrg51b3u "weird fence placement") The old retaining-wall "accent" run here
+  // spanned lo.x +/- w/2 with NO depth offset — a dashed row of solid wall
+  // blocks straight THROUGH THE MIDDLE of the Publix parking lot's drive aisle,
+  // reading as a broken fence (and every block carried a collider mid-lot).
+  // Removed outright, same precedent as the pond-fence arc (mreedozu) and the
+  // Regions screen walls (mregiwcv); the two park lamps at the lot ends stay.
+  if (lots[0]) { var lo = lots[0], loc = Math.cos((lo.rot || 0) * deg), los = Math.sin((lo.rot || 0) * deg); var ex0 = lo.x - loc * (lo.w / 2 + 2), ez0 = lo.z + los * (lo.w / 2 + 2); place('park_lamp', ex0, ez0, 0); place('park_lamp', lo.x + loc * (lo.w / 2 + 2), lo.z - los * (lo.w / 2 + 2), 0); }
 
   // ---- flush merged batches (one draw call per asset) ----
   for (var nm in EM) {
