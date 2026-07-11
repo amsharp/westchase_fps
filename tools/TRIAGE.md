@@ -311,3 +311,5 @@ All three FIXED@v1.66.63. mregjcuz + mreg8mld details are inline in Batch 8 / Ba
 - mrfztgle (-238,106) bike not touched by its NPC rider/pusher — OPEN (bike accessory grip class — same aimLimbAt/grip family as walker/stroller; also mregenli bike texture note still open)
 - mrfzucre (-193,41) 'smoke needs to be way more subtle' — OPEN (ambient smoke source at pos — chimney/bbq/vent? shrink+slow whatever emits here; note .72 predates the impact-size fix but this looks like an ambient emitter, check on .73)
 - mrfzulkp (-193,41) kids running into a fence — OPEN (kid wander lacks the adult whisker/bail logic? check kid steering vs fence colliders)
+- mrfzv2sb (-150,-34) 'wtf is this in the middle of the road' — OPEN (fetch shot; road obstruction)
+- mrfzvti9 (-109,-41) swing set: WHOLE frame swings, only seat+cables should — owner: 'FIX THIS TONIGHT' — HIGH PRIORITY (playground swing anim pivots the full prop group instead of the seat assembly)
