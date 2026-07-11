@@ -433,3 +433,8 @@ Verified working: imagen-4.0 (std/ultra/fast), gemini-3-pro-image, gemini-3.1-fl
 Use for image gen rounds alongside/instead of gpt-image-1 — first candidates: RaceTrac 7-seg price sign
 (mrfzmw9u, owner asked to 'leverage chat gpt' = AI-gen authorized), prop texture reworks (AC units, multicolor
 tree mrfzz4s0), character seed art. Same rule as always: bake data-URL JS files offline, never call APIs from game code.
+
+## Live batch 7 (Alex on v1.66.96)
+- mrgb92wa (-15,4) health HUD too big + quest plate covers screen — FIXED@v1.66.97 (HP numerals scale 6->4, heart 3->2, quest plate 46->38px w/ 30-char objective truncation + 200px width cap)
+- mrgb9qqd (23,-8) 'at night I can see all the colliders' — FIXED@v1.66.97 (he fat-fingered F9 next to F8; the toggle now announces COLLIDER DEBUG ON/OFF via popup2 so it self-explains)
+- mrgbe7vt (73,-35) business sign hard to see / not like the logo — OPEN (which venue at 73,-35? RaceTrac store fascia? next content round; Gemini authorized)

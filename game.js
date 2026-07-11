@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.95';
+var GAME_VERSION = 'v1.66.97';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -8738,6 +8738,42 @@ function breakablePoleNear(x, z, r) {
   }
   return false;
 }
+// ---- FENCE_RUNS: authored breakable-fence table (see the REUSABLE FENCE
+// SYSTEM section further down for docs + the loader). Defined HERE, above the
+// density layer, because densityLayer's fenceRun strips clip themselves
+// against these lines (fence audit: X-crossings between the two fence systems
+// read as broken double fences) and var values don't hoist.
+var FENCE_RUNS = [
+  // --- chainlink ---
+  { type: 'chainlink', h: 2.0, color: 0x2b2f31, pts: [[-150, -92], [-150, -60], [-40, -60]] }, // Farnell school field, W+front (dark)
+  // self-storage security ring (mrg49ri9): the old axis-aligned N+E run
+  // [[8,84],[54,84],[54,130]] CROSSED the storage venue's rot-135 densityprops
+  // fenceRect in an X at ~(23.6,84) — two chainlink layers, one with posts and
+  // one bare. ONE fence now: this run traces the old rect's exact corners
+  // (venue 26,106.9 w+6 x d+6 rot 135), breakable panels + posts, and the
+  // densityprops rect for 'storage' is dropped. noClip preserves the proven
+  // placement (the rect never touched a road).
+  { type: 'chainlink', h: 2.2, noClip: true, pts: [[22, 136.2], [-3.3, 110.9], [30, 77.6], [55.3, 102.9], [22, 136.2]] },
+  { type: 'chainlink', h: 1.0, color: 0x2b2f31, pts: [[-330, -12], [-244, -12]] },              // retention-pond N bank (low, dark)
+  // --- wood privacy (townhome back/side yards, SW cluster) ---
+  { type: 'wood', h: 1.8, pts: [[-206, -90], [-158, -90]] },   // behind e281 row
+  { type: 'wood', h: 1.8, pts: [[-182, -148], [-150, -148]] }, // NW of e285
+  // mrf7rss6: the two W-side yard runs used to overlap z -135..-140 (5u x-stagger),
+  // sealing the whole z -100..-165 span — the lakeside quest NPCs (Vlad/Thorne,
+  // open lawn at x<=-240) read as "behind a backyard fence" with a 60u+ detour.
+  // Trimmed to leave an 11u property-line opening at z -133..-144.
+  { type: 'wood', h: 1.8, pts: [[-220, -144], [-220, -165]] }, // W of e283/e285
+  { type: 'wood', h: 1.8, pts: [[-215, -100], [-215, -133]] }, // W of e281
+  { type: 'wood', h: 1.8, pts: [[-130, -210], [-75, -212]] },  // S of e287/e289
+  { type: 'wood', h: 1.8, pts: [[-150, -178], [-115, -182]] }, // between e285/e287
+  { type: 'wood', h: 1.8, pts: [[-180, -200], [-120, -205]] }, // S-far cluster edge
+  // --- picket (lakeside park lawns + single-family yard) ---
+  { type: 'picket', h: 1.1, pts: [[-188, 0], [-188, 60]] },      // lake E promenade
+  { type: 'picket', h: 1.1, pts: [[-268, 118], [-300, 120]] },   // lake SW lawn
+  { type: 'picket', h: 1.1, pts: [[-290, 120], [-290, 158]] },   // red-house W yard
+  { type: 'picket', h: 1.1, pts: [[-330, 122], [-296, 122]] }    // SW pond-lawn park edge
+];
+var FENCE_H = { picket: 1.1, chainlink: 2.0, wood: 1.8 };
 if (WC_REMAP) (function densityLayer() {
   var deg = Math.PI / 180;
   function rnd(a, b) { return a + Math.random() * (b - a); }
@@ -8909,8 +8945,61 @@ if (WC_REMAP) (function densityLayer() {
   // waist-high+ poles (roadside sign posts, billboard legs) block the player;
   // short yard-sign stakes (h < 1.5) stay pass-through
   function pole(x, z, h, r) { r = r || 0.11; bake('_pole', { color: 0x8a8f94 }, UCYL, mtx(x, h / 2, z, 0, r * 2, h, r * 2)); if (h >= 1.5) addCollider(x, z, Math.max(0.26, r * 2), Math.max(0.26, r * 2), 'pole'); }
-  // tileable fence/wall run A->B, height H, texture repeating along its length
+  // tileable fence/wall run A->B, height H, texture repeating along its length.
+  // fenceRun is now a CLIPPING wrapper (fence audit, mrg4k6e2 class): the strip
+  // is cut where it would cross (a) road asphalt — remapPointClear sweep, the
+  // Farnell E edge used to run straight over an access road — or (b) another
+  // fence line (an authored FENCE_RUNS polyline or an already-built strip
+  // collider): an X-crossing reads as a broken double fence, so the strip stops
+  // 0.6u short on each side and the X becomes two clean T-joins. Sub-strips
+  // shorter than 1.2u are dropped. fenceStrip below does the actual building.
   function fenceRun(ax, az, bx, bz, name, solid) {
+    if (!dAsset[name]) return;
+    var dx = bx - ax, dz = bz - az, L = Math.sqrt(dx * dx + dz * dz);
+    if (L < 0.6) return;
+    var ux = dx / L, uz = dz / L;
+    // collect cut params t (u along [0..L]) from fence-line crossings
+    var cuts = [];
+    function xseg(cx1, cz1, cx2, cz2) {
+      var ex = cx2 - cx1, ez = cz2 - cz1, den = dx * ez - dz * ex;
+      if (Math.abs(den) < 1e-6) return;   // parallel
+      var t = ((cx1 - ax) * ez - (cz1 - az) * ex) / den;
+      var u = ((cx1 - ax) * dz - (cz1 - az) * dx) / den;
+      var eL = Math.sqrt(ex * ex + ez * ez) || 1;
+      // interior crossings only — shared corners / T-joins at ends stay welded
+      if (t > 0.6 / L && t < 1 - 0.6 / L && u > 0.6 / eL && u < 1 - 0.6 / eL) cuts.push(t * L);
+    }
+    if (typeof FENCE_RUNS !== 'undefined') {
+      for (var fr2 = 0; fr2 < FENCE_RUNS.length; fr2++) {
+        var FP = FENCE_RUNS[fr2].pts;
+        for (var fe = 0; fe < FP.length - 1; fe++) xseg(FP[fe][0], FP[fe][1], FP[fe + 1][0], FP[fe + 1][1]);
+      }
+    }
+    for (var fc2 = 0; fc2 < colliders.length; fc2++) {
+      var co = colliders[fc2];
+      if (co.tag !== 'fence' || co.c === undefined) continue;   // OBB u axis -> world (c,-s)
+      xseg(co.x - co.c * co.hx, co.z + co.s * co.hx, co.x + co.c * co.hx, co.z - co.s * co.hx);
+    }
+    // sample keep-mask: 0.5u steps, blocked near roads or within 0.6u of a cut
+    var N = Math.max(2, Math.ceil(L / 0.5)), keep = [], si;
+    for (si = 0; si <= N; si++) {
+      var st = (si / N) * L, sx = ax + ux * st, sz = az + uz * st, ok = remapPointClear(sx, sz, 0.8);
+      if (ok) for (var kc = 0; kc < cuts.length; kc++) if (Math.abs(st - cuts[kc]) < 0.6) { ok = false; break; }
+      keep.push(ok);
+    }
+    // emit maximal kept intervals
+    var s0 = -1;
+    for (si = 0; si <= N + 1; si++) {
+      var on = si <= N && keep[si];
+      if (on && s0 < 0) s0 = si;
+      else if (!on && s0 >= 0) {
+        var t0 = (s0 / N) * L, t1 = ((si - 1) / N) * L;
+        if (t1 - t0 >= 1.2) fenceStrip(ax + ux * t0, az + uz * t0, ax + ux * t1, az + uz * t1, name, solid);
+        s0 = -1;
+      }
+    }
+  }
+  function fenceStrip(ax, az, bx, bz, name, solid) {
     var a = dAsset[name]; if (!a) return;
     var H = a.dims[0], dx = bx - ax, dz = bz - az, L = Math.sqrt(dx * dx + dz * dz);
     if (L < 0.6) return;
@@ -9945,37 +10034,9 @@ if (WC_REMAP) (function landscapePass() {
 //   * retention-pond banks get LOW dark chainlink
 //   * lakeside park lawns + single-family yards use white PICKET
 // Every segment was validated clear of roads / the lake / building footprints.
-var FENCE_RUNS = [
-  // --- chainlink ---
-  { type: 'chainlink', h: 2.0, color: 0x2b2f31, pts: [[-150, -92], [-150, -60], [-40, -60]] }, // Farnell school field, W+front (dark)
-  // self-storage security ring (mrg49ri9): the old axis-aligned N+E run
-  // [[8,84],[54,84],[54,130]] CROSSED the storage venue's rot-135 densityprops
-  // fenceRect in an X at ~(23.6,84) — two chainlink layers, one with posts and
-  // one bare. ONE fence now: this run traces the old rect's exact corners
-  // (venue 26,106.9 w+6 x d+6 rot 135), breakable panels + posts, and the
-  // densityprops rect for 'storage' is dropped. noClip preserves the proven
-  // placement (the rect never touched a road).
-  { type: 'chainlink', h: 2.2, noClip: true, pts: [[22, 136.2], [-3.3, 110.9], [30, 77.6], [55.3, 102.9], [22, 136.2]] },
-  { type: 'chainlink', h: 1.0, color: 0x2b2f31, pts: [[-330, -12], [-244, -12]] },              // retention-pond N bank (low, dark)
-  // --- wood privacy (townhome back/side yards, SW cluster) ---
-  { type: 'wood', h: 1.8, pts: [[-206, -90], [-158, -90]] },   // behind e281 row
-  { type: 'wood', h: 1.8, pts: [[-182, -148], [-150, -148]] }, // NW of e285
-  // mrf7rss6: the two W-side yard runs used to overlap z -135..-140 (5u x-stagger),
-  // sealing the whole z -100..-165 span — the lakeside quest NPCs (Vlad/Thorne,
-  // open lawn at x<=-240) read as "behind a backyard fence" with a 60u+ detour.
-  // Trimmed to leave an 11u property-line opening at z -133..-144.
-  { type: 'wood', h: 1.8, pts: [[-220, -144], [-220, -165]] }, // W of e283/e285
-  { type: 'wood', h: 1.8, pts: [[-215, -100], [-215, -133]] }, // W of e281
-  { type: 'wood', h: 1.8, pts: [[-130, -210], [-75, -212]] },  // S of e287/e289
-  { type: 'wood', h: 1.8, pts: [[-150, -178], [-115, -182]] }, // between e285/e287
-  { type: 'wood', h: 1.8, pts: [[-180, -200], [-120, -205]] }, // S-far cluster edge
-  // --- picket (lakeside park lawns + single-family yard) ---
-  { type: 'picket', h: 1.1, pts: [[-188, 0], [-188, 60]] },      // lake E promenade
-  { type: 'picket', h: 1.1, pts: [[-268, 118], [-300, 120]] },   // lake SW lawn
-  { type: 'picket', h: 1.1, pts: [[-290, 120], [-290, 158]] },   // red-house W yard
-  { type: 'picket', h: 1.1, pts: [[-330, 122], [-296, 122]] }    // SW pond-lawn park edge
-];
-var FENCE_H = { picket: 1.1, chainlink: 2.0, wood: 1.8 };
+// NOTE: the FENCE_RUNS table itself is defined ABOVE the densityLayer IIFE
+// (search "var FENCE_RUNS") — the density fenceRun strips clip themselves
+// against these authored lines, and `var` assignments don't hoist their values.
 function buildFenceRun() { return null; }   // replaced by the closure export below
 if (WC_REMAP) (function fenceSystem() {
   // ---- shared unit geometry (baked through a matrix into merged batches) ----
@@ -20818,9 +20879,10 @@ function drawHudCanvas() {
   var hp = Math.max(0, Math.min(100, Math.round(state.hp)));
   var hcol = hp > 60 ? '#46e05e' : (hp > 30 ? '#ffd200' : '#ff3b28');
   if (hp <= 30 && (T * 3) % 1 < 0.45) hcol = '#7e1410';   // low-hp pulse
-  var hy = H - M - 42;
-  drawSprite(SPR_HEART, M, hy + 8, 3, '#ff3b56');
-  drawPix('' + hp, M + 34, hy, 6, hcol, 'left');
+  // (mrgb92wa: was scale-6 numerals — ~12% of screen height; tightened)
+  var hy = H - M - 30;
+  drawSprite(SPR_HEART, M, hy + 5, 2, '#ff3b56');
+  drawPix('' + hp, M + 24, hy, 4, hcol, 'left');
   // ---- active-quest tracker (left edge, BELOW the top bar: the compass strip
   // sits topmost, wanted stars under it, and the tracker clears both — its old
   // M+10 anchor put the panel across the compass' left half and the star row
@@ -20828,16 +20890,17 @@ function drawHudCanvas() {
   var qo = questObjectiveText();
   if (qo) {
     var qy = starY + 34;   // stars end at starY+18; 8px gap above the panel plate
-    var otxt = (qo.text === 'COMPLETE') ? '✔ COMPLETE' : ('◆ ' + qo.text);
-    hudCx.font = 'bold 12px "Courier New",monospace';
+    var qtx = qo.text.length > 30 ? qo.text.slice(0, 29) + '\u2026' : qo.text;   // cap plate width (mrgb92wa)
+    var otxt = (qo.text === 'COMPLETE') ? '✔ COMPLETE' : ('◆ ' + qtx);
+    hudCx.font = 'bold 11px "Courier New",monospace';
     var qtw = hudCx.measureText(otxt).width;
     var qnw = qo.name.length * 12 - 2;                    // drawPix px=2 advance
-    var qpw = Math.max(qnw, qtw) + 22;
-    hudCx.fillStyle = '#000'; hudCx.fillRect(M - 8, qy - 8, qpw + 4, 46);
-    hudCx.fillStyle = 'rgba(10,13,20,0.85)'; hudCx.fillRect(M - 6, qy - 6, qpw, 42);
-    hudCx.fillStyle = '#ffb428'; hudCx.fillRect(M - 6, qy - 6, 4, 42);   // amber accent bar
-    drawPix(qo.name, M + 4, qy, 2, '#ffd98a', 'left');
-    hudText(otxt, M + 4, qy + 30, 12, (qo.text === 'COMPLETE') ? '#8ee87f' : '#cfe6ff', 'left');
+    var qpw = Math.min(200, Math.max(qnw, qtw) + 20);
+    hudCx.fillStyle = '#000'; hudCx.fillRect(M - 8, qy - 8, qpw + 4, 38);
+    hudCx.fillStyle = 'rgba(10,13,20,0.78)'; hudCx.fillRect(M - 6, qy - 6, qpw, 34);
+    hudCx.fillStyle = '#ffb428'; hudCx.fillRect(M - 6, qy - 6, 3, 34);   // amber accent bar
+    drawPix(qo.name, M + 4, qy - 1, 2, '#ffd98a', 'left');
+    hudText(otxt, M + 4, qy + 22, 11, (qo.text === 'COMPLETE') ? '#8ee87f' : '#cfe6ff', 'left');
   }
   // ---- weapon (bottom-right): bitmap name, small flavor line under it ----
   var wb = document.getElementById('weaponBox'), main = '', sub = '';
@@ -21081,6 +21144,9 @@ function showColliders(on) {
   colViewOn = on === undefined ? !colViewOn : !!on;
   if (colViewOn) buildColliderView();
   else if (colViewMesh) { scene.remove(colViewMesh); colViewMesh.geometry.dispose(); colViewMesh.material.dispose(); colViewMesh = null; }
+  // F9 sits next to F8 (bug reports) — players fat-finger it and think the
+  // red boxes are a glitch (mrgb9qqd). Always announce the toggle.
+  if (typeof popup2 === 'function') popup2(colViewOn ? 'COLLIDER DEBUG ON — F9 TO HIDE' : 'COLLIDER DEBUG OFF');
   return colViewOn;
 }
 
