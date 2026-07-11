@@ -236,3 +236,14 @@ Status: 6 FIXED@v1.66.58 (qa1-fx slice) + 4 FIXED@v1.66.59 (qa1-world slice) + 3
 ## qa2-misc (fable): mregjcuz night lighting + mreg8mld unbreakable post + facade close-up texture smear (mrf7rsy0 sub-note / mree84pq class)
 All three FIXED@v1.66.63. mregjcuz + mreg8mld details are inline in Batch 8 / Batch 7 above.
 - Facade close-up smear (mrf7rsy0 sub-note, mree84pq class) — FIXED@v1.66.63 (ROOT: low-res canvas wall textures magnified over huge wall spans. Worst offenders measured: stuccoTex 128px tiled 2x2 across the 82m school wall = ~3 px/m; thStuccoMat 64px across a whole 8m townhouse ground floor = 8 px/m; facadeTex 256px across a multi-story facade. Fix, same recipe as the v1.66.58 roadT fix — resolution + structure, style unchanged: (1) stuccoTex 128->512 with area-scaled grain + NEW subtle trowel-sweep arcs and sparse hairline cracks (school, strips, Publix beige, terracotta pilasters, Dunkin block — 7 materials); (2) shared stucco() helper's speck count now scales with canvas area (was fixed 700, tuned for 128px — 256px canvases were half-empty); (3) thStuccoMat 64->256; (4) facadeTex canvas 256->512 — grain painted at full res, window/door layout kept authored in 256-space via ctx.scale, night-emissive companion canvas intentionally left at 256 (soft glows need no res). Survey-house atlas walls (houses.js) deliberately NOT bumped: 55+ per-cluster-variant 512 atlases would cost ~170MB GPU at 1024, and their source tiles are only ~120x80 — no detail to gain; noted as accepted residual. Texture-memory delta measured in-engine (unique canvas-backed maps in scene): 92.3MB -> 110.3MB canvas RGBA (+18MB, +~24MB GPU with mips; 512px canvas count 55->74). Evidence: qa2misc_before_i3_school_close.png (blur blob) vs qa2misc_after_i3_school_close.png (grain), qa2misc_before/after_i3_townhouse_close.png + _mid.png)
+
+## Live session batch 2 (2026-07-11, reporter Alex on v1.66.63) — HIGH PRIORITY, user playing live
+- mrft7ja9 (-60,-154) shooting NPC shows FIRE burst — wants BLOOD (regression: warm-hue puff routing sends NPC-hit puffs to VFX_FIRE) — IN-AGENT (live2-vfx, fable)
+- mrft7zm5 (-43,-163) wall-impact smoke clouds way too big + wants bullet-hole decals — IN-AGENT (live2-vfx, fable)
+- (unfiled, seen in mrft7zm5 shot) yard-sign placards read mirrored from behind — IN-AGENT (live2-vfx, fable)
+- mrft8cw7 (-44,-152) cop still holding gun wrong (pistol flat on palm, misaligned) — IN-AGENT (live2-anim, fable)
+- mrft8ygx (15,-114) MP walking animations still laggy (remote walk-cycle phase stutter) — IN-AGENT (live2-anim, fable)
+- mrft9s65 (27,-92) flag waving animation whack (BoA flags stiff quads, odd pivot) — IN-AGENT (live2-anim, fable)
+- mrft9al8 (13,-87) NPCs walking back and forth on repeat — OPEN (wander ping-pong)
+- mrftbul8 (-102,-169) NPC aimlessly pacing — OPEN (same class)
+- mrftaqio (-34,-172) Xander clipped inside building — OPEN
