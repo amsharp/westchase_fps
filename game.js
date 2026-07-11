@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.100';
+var GAME_VERSION = 'v1.66.101';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -20728,8 +20728,8 @@ function updatePlayer(dt) {
   vmSwayY += (_sy - vmSwayY) * swK;
   vm.position.x = brX + vmSwayX * 0.16 + bobX;
   vm.position.z = recoil * 0.14;                 // snappier muzzle kick back toward the shoulder (kickback, not climb)
-  vm.position.y = bob * 0.5 + brY + vmSwayY * 0.10 + recoil * 0.006;   // small muzzle-rise lift
-  vm.rotation.x = recoil * 0.06 + brY * 0.7 + vmSwayY * 0.4;           // dampened barrel-climb so full-auto stays at/below center (SPEC: nothing above 52%); recoil READS via the z-kickback + settle bounce
+  vm.position.y = bob * 0.5 + brY + vmSwayY * 0.10 + recoil * 0.014;   // muzzle-rise lift
+  vm.rotation.x = recoil * 0.10 + brY * 0.7 + vmSwayY * 0.4;           // barrel-climb: visible kick that recovers via the settle spring, modest so full-auto doesn't park the muzzle above center
   vm.rotation.y = vmSwayX * 0.42;
   vm.rotation.z = brX * 0.5 - vmSwayX * 0.55 + bobX * 6;   // slight weight-shift roll coupled to the horizontal walk-bob
   gunBloom = Math.max(0, gunBloom - dt * 0.06);   // spread recovers ~0.7s after easing off
