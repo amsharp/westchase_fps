@@ -304,3 +304,5 @@ All three FIXED@v1.66.63. mregjcuz + mreg8mld details are inline in Batch 8 / Ba
 - mrfzn54t (77,-36) floating tree roots — OPEN (tree root flare above ground; probably the oak canopy-clamp scale lift raised roots off grade — check OAK_CANOPY_MIN interaction)
 - mrfznq53 (30,-93) + mrfzomq3 (20,-118) stuck/pacing — .72 PRE-pacing-fix, RE-VERIFY on .73
 - mrfzod76 (26,-90) RAVEN's run looks awful, 'fix for good or regenerate her' — OPEN (Meshy run-clip defect; same escalation ladder as HECTOR: absolute sweep -> clip-swap from known-good -> Meshy regen -> gate out; NEXT ROUND with HECTOR outcome as guide)
+- mrfzqfam (-189,-209) 'nice asset, weird placement' — OPEN (fetch shot; placement)
+- mrfzqww7 (-233,-144) quest npcs in the middle of nowhere is weird — OPEN (quest giver spots on empty lakeside lawn read as random; consider anchoring givers near landmarks/props or giving them a stand/context prop — design tweak)
