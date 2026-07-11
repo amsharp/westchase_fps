@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.63';
+var GAME_VERSION = 'v1.66.65';   // .64 taken by live2-vfx on the parallel branch
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -5738,7 +5738,19 @@ function sidewalkSpot() {
   var z = WALK.z0 + Math.random() * (WALK.z1 - WALK.z0);
   return [side * (CROSS_HW + 1.5 + Math.random() * 3), z];
 }
-function npcTarget() { return Math.random() < 0.85 ? sidewalkSpot() : randTarget(); }
+function npcTarget() {
+  // pacing cluster (live2-ai, mrft9al8 +6 refiles): validate the pick — core
+  // spots (remapCoreSpot/randTarget) were never collider-checked, so a wander
+  // target could sit INSIDE a prop/building/lake collider; arrival needs d<1
+  // but the whisker holds an NPC ~2.6-3.4u off a blocked point, so it orbited
+  // the prop forever. Expansion pickers already validate (expSpotOK).
+  var c = null;
+  for (var tr = 0; tr < 8; tr++) {
+    c = Math.random() < 0.85 ? sidewalkSpot() : randTarget();
+    if (spotClear(c[0], c[1])) return c;
+  }
+  return c;
+}
 // ---- expansion sidewalks: spawn/wander tables for the outer map ----
 // Built from mapRoads (every EXP_ROADS segment registers there at load, above
 // this section). Sidewalk strips flank each segment at hw+0.6 .. hw+0.6+sw
@@ -5890,10 +5902,64 @@ function setNpcTarget(n) {
   if (n.grp && !n.grpLead && n.grp.lead && n.grp.lead !== n) {
     var Ld = n.grp.lead;
     if (Ld.state !== 'down' && Ld.state !== 'ragdoll') {
-      var ga = Math.random() * 6.2832, gr = 1.8 + Math.random() * 1.8;
-      n.tx = Ld.x + Math.cos(ga) * gr; n.tz = Ld.z + Math.sin(ga) * gr;
+      // ring slots get the same validation as wander targets — a slot inside
+      // a planter/bench next to the leader made the follower orbit it forever
+      for (var gt = 0; gt < 4; gt++) {
+        var ga = Math.random() * 6.2832, gr = 1.8 + Math.random() * 1.8;
+        n.tx = Ld.x + Math.cos(ga) * gr; n.tz = Ld.z + Math.sin(ga) * gr;
+        if (spotClear(n.tx, n.tz)) break;
+      }
       n.wayX = undefined; n.wayZ = undefined; n.doorSeek = undefined;
     }
+  }
+}
+// ---- pacing-cluster give-up path (live2-ai; reports mrft9al8, mrftbul8,
+// mrftesnl, mrftf1th, mrftf7lk, mrftc5d4, mrfttu3a) ----
+// is any human (local player or remote peer) close enough to see this NPC?
+function anyPlayerNear(x, z, r) {
+  var r2 = r * r;
+  if (!state.dead) { var dx = player.x - x, dz = player.z - z; if (dx * dx + dz * dz < r2) return true; }
+  if (net && net.remotes) for (var id in net.remotes) { var rp = net.remotes[id]; if (rp && !rp.dead) { var rx = rp.x - x, rz = rp.z - z; if (rx * rx + rz * rz < r2) return true; } }
+  return false;
+}
+// is the first maxD units of the straight line (x,z)->(tx,tz) collider-free?
+function npcLineClear(x, z, tx, tz, maxD) {
+  var dx = tx - x, dz = tz - z, d = Math.sqrt(dx * dx + dz * dz);
+  if (d < 0.001) return true;
+  var lim = Math.min(d, maxD);
+  for (var s = 1.4; s <= lim; s += 1.4) if (!pointFree(x + dx / d * s, z + dz / d * s, 0.45)) return false;
+  return true;
+}
+// a movement watchdog tripped: abandon the current goal. Counts consecutive
+// give-ups (reset on any real arrival) and re-rolls with a reachability bias
+// — prefer a target whose first ~11u of straight line is walkable, so the
+// NPC doesn't ping-pong between two picks it can't start toward. After 3
+// straight failures the NPC is written off as trapped (concave pockets,
+// orphan colliders) and — only when no player is near enough to see the
+// swap — re-enters the world through a nearby door, the same walk-out
+// contract death respawns use (never pops in; MP wires it as 'hidden').
+function npcGiveUp(n) {
+  n.progKey = undefined; n.stuckT = 0; n.wallBaseD = undefined;
+  n.wayX = undefined; n.wayZ = undefined; n.doorSeek = undefined;
+  n.giveUps = (n.giveUps || 0) + 1;
+  if (n.giveUps >= 3 && !n.grp && n.state === 'walk' && npcDoors.length && !anyPlayerNear(n.x, n.z, 45)) {
+    n.giveUps = 0;
+    breakNpcChat(n); stopNpcVoice(n.vname);
+    var nearI = [], farI = null, farD = 1e9;
+    for (var di = 0; di < npcDoors.length; di++) {
+      var dd = (npcDoors[di].sx - n.x) * (npcDoors[di].sx - n.x) + (npcDoors[di].sz - n.z) * (npcDoors[di].sz - n.z);
+      if (dd < 130 * 130) nearI.push(di);
+      if (dd < farD) { farD = dd; farI = di; }
+    }
+    n.doorI = nearI.length ? nearI[(Math.random() * nearI.length) | 0] : farI;
+    n.state = 'hidden'; n.dwellT = 0.8 + Math.random() * 2;
+    n.mesh.visible = false; if (n.mesh.userData.shadow) n.mesh.userData.shadow.visible = false;
+    return;
+  }
+  for (var tr = 0; tr < 6; tr++) {
+    var c = npcTargetFor(n);
+    n.tx = c[0]; n.tz = c[1];
+    if (npcLineClear(n.x, n.z, c[0], c[1], 11)) break;
   }
 }
 // scan traffic for a car bearing down on this NPC; returns the unit
@@ -6047,7 +6113,10 @@ var ACC_HAND = {
 };
 // pick an accessory name for a spawning NPC by rolling a category first, so dogs
 // don't dominate; returns null when the rolled pool is empty.
-var ACC_POOL_WALK = ['dog', 'bicycle', 'suitcase', 'wagon'];
+// wagon pulled from the adult roll (mrftsrmg: a grown pedestrian dragging the
+// red toy wagon read as a bug) — the asset stays loaded for the __wc debug
+// hook; re-homing it onto parents walking their kids is a future nicety.
+var ACC_POOL_WALK = ['dog', 'bicycle', 'suitcase'];
 var ACC_POOL_HOLD = ['umbrella', 'shopping_bags', 'coffee_cup', 'cane', 'skateboard', 'boombox', 'balloon'];
 var ACC_POOL_PUSH = ['stroller', 'walker'];
 function rollAccessoryName() {
@@ -12777,7 +12846,7 @@ function updateNPCs(dt) {
           m.rotation.y = hd.yaw;
         } else { assignNpcHome(n); setNpcTarget(n); }
         n.wayX = undefined; n.wayZ = undefined; n.doorSeek = undefined;
-        n.state = 'walk'; n.hp = 100; n.stuckT = 0; n.roadT = 0;
+        n.state = 'walk'; n.hp = 100; n.stuckT = 0; n.roadT = 0; n.giveUps = 0; n.progKey = undefined;
         m.rotation.x = 0; m.visible = true;
         if (m.userData.shadow) m.userData.shadow.visible = true;
         m.position.set(n.x, 0, n.z);
@@ -12902,6 +12971,7 @@ function updateNPCs(dt) {
             continue;
           }
         }
+        n.giveUps = 0;   // real arrival: the pacing give-up streak is over
         setNpcTarget(n);
         // #67: group followers keep pace with the leader rather than randomly halting
         if (!(n.grp && !n.grpLead) && Math.random() < 0.3) { n.state = 'stand'; n.stateT = 2.5 + Math.random() * 6; n.animT = Math.random() * 3; n.idleVar = Math.random() < 0.4; }
@@ -12942,10 +13012,7 @@ function updateNPCs(dt) {
     if (spd > 0.2 && stepGot < spd * dt * 0.3) {
       n.stuckT = (n.stuckT || 0) + dt;
       if (n.stuckT > 1) {
-        n.stuckT = 0;
-        var back = npcTargetFor(n);
-        n.tx = back[0]; n.tz = back[1];
-        n.wayX = undefined; n.wayZ = undefined; n.doorSeek = undefined;   // give up on an unreachable doorway too
+        npcGiveUp(n);
         n.fleeDX = -vx; n.fleeDZ = -vz;   // fleeing NPCs bounce back the way they came
       }
     } else n.stuckT = 0;
@@ -12961,14 +13028,29 @@ function updateNPCs(dt) {
         if (n.wallBaseD === undefined) { n.wallBaseD = dtg; n.wallProgT = 0; }
         n.wallProgT += dt;
         if (n.wallProgT > 2.2) {
-          if (dtg > n.wallBaseD - 2.5) {
-            var bk = npcTargetFor(n);
-            n.tx = bk[0]; n.tz = bk[1]; n.wayX = undefined; n.wayZ = undefined; n.doorSeek = undefined;
-          }
+          if (dtg > n.wallBaseD - 2.5) npcGiveUp(n);
           n.wallBaseD = undefined;
         }
       } else n.wallBaseD = undefined;
     } else n.wallBaseD = undefined;
+    // no-net-progress watchdog (pacing cluster, live2-ai): the whisker can
+    // dance an NPC around a concave collider pocket FOREVER without touching
+    // a wall — stepGot stays high (the face-plant timer never fires) and
+    // pushOut never eats the step (the wall-slide watchdog never fires), so
+    // it paced in place until a player filed a bug (7 live reports). Track
+    // the best distance-to-goal reached for the CURRENT goal; 4s with no
+    // improvement = give up on that target.
+    if (n.state === 'walk' && spd > 0.2) {
+      var pgx = n.wayX !== undefined ? n.wayX : n.tx, pgz = n.wayX !== undefined ? n.wayZ : n.tz;
+      var pKey = ((pgx * 8) | 0) * 65536 + ((pgz * 8) | 0);   // goal identity — reset tracking when it changes
+      var pd2 = Math.sqrt((pgx - n.x) * (pgx - n.x) + (pgz - n.z) * (pgz - n.z));
+      if (n.progKey !== pKey) { n.progKey = pKey; n.progBest = pd2; n.progT = 0; }
+      else if (pd2 < n.progBest - 0.6) { n.progBest = pd2; n.progT = 0; }
+      else if (pd2 > 1.0) {   // >1.0, not higher: arrival is d<1 — a blocked point can hold an NPC at ~1.05 forever (dead zone found in testing)
+        n.progT += dt;
+        if (n.progT > 4) npcGiveUp(n);
+      }
+    } else n.progKey = undefined;
     // sidewalk discipline: loitering on road asphalt (off the intersection /
     // crosswalk area) for 2s steers the target to the nearest sidewalk band
     if (n.state === 'walk' && WC_REMAP && n.doorSeek === undefined) {
@@ -19560,6 +19642,9 @@ window.__wc = {
   wildlife: wildlife, wildlifeCounts: wildlifeCounts, updateWildlife: updateWildlife, initWildlife: initWildlife, nearestPetCat: nearestPetCat, petCat: petCat,
   tick: function (dt) { T += dt; updateReflex(dt); var sdt = dt * reflexScale(); updatePlayer(dt); updateNPCs(sdt); updateKids(sdt); updateWildlife(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); updateQuestCaps(dt); updateSecrets(sdt); renderer.render(scene, camera); }
 };
+// collision probes for headless QA scans (separate lines so parallel agent
+// edits to the export block above don't conflict)
+window.__wc.pointFree = pointFree; window.__wc.pushOut = pushOut; window.__wc.spotClear = spotClear;
 
 // ---------------- boot screen handoff + menu cover art ----------------
 // apply saved user settings before the first frame (after CRT_FX default is
