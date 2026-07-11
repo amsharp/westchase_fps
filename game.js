@@ -17100,11 +17100,86 @@ function updateVoiceAudio(dt) {
 }
 function noiseBurst(dur, freq, gain, out) { if (!ac) return; var n = ac.sampleRate * dur, buf = ac.createBuffer(1, n, ac.sampleRate), d = buf.getChannelData(0); for (var i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n); var src = ac.createBufferSource(); src.buffer = buf; var f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = freq; var g = ac.createGain(); g.gain.value = gain; src.connect(f); f.connect(g); g.connect(out || ac.destination); src.start(); }
 function beep(freq, dur, gain, type, slide, out) { if (!ac) return; var o = ac.createOscillator(), g = ac.createGain(); o.type = type || 'square'; o.frequency.setValueAtTime(freq, ac.currentTime); if (slide) o.frequency.exponentialRampToValueAtTime(slide, ac.currentTime + dur); g.gain.setValueAtTime(gain, ac.currentTime); g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + dur); o.connect(g); g.connect(out || ac.destination); o.start(); o.stop(ac.currentTime + dur); }
+// ---- Lyria SFX pack (sound overhaul) ----
+// soundfx.js (optional, typeof-guarded) ships AI-generated one-shots + engine
+// loops as data-URL WAVs (SFX_PACK). decodeSfxPack() runs once from initAudio;
+// until a buffer is decoded — or if the file/entry is missing — every caller
+// falls back to the original synth, so a build without soundfx.js still
+// sounds. Round-robin variants + a little playbackRate jitter keep repeated
+// shots from machine-gun sameness. Spatialization is unchanged: positional
+// one-shots route through voiceOut(gain, at) exactly like the synth did.
+var sfxPackBufs = {};   // pack key -> [AudioBuffer] (sparse while decoding)
+var sfxPackRR = {};     // pack key -> round-robin cursor
+function decodeSfxPack() {
+  if (!ac || decodeSfxPack.done || typeof SFX_PACK === 'undefined') return;
+  decodeSfxPack.done = true;
+  Object.keys(SFX_PACK).forEach(function (k) {
+    var arr = SFX_PACK[k];
+    sfxPackBufs[k] = [];
+    for (var i = 0; i < arr.length; i++) (function (i) {
+      var bytes = b64Bytes(arr[i].split(',')[1]);
+      ac.decodeAudioData(bytes.buffer, function (buf) { sfxPackBufs[k][i] = buf; }, function () { });
+    })(i);
+  });
+}
+function sfxPackBuf(key) {
+  var a = sfxPackBufs[key];
+  if (!a || !a.length) return null;
+  var i = (sfxPackRR[key] = ((sfxPackRR[key] || 0) + 1) % a.length);
+  return a[i] || a[0] || null;
+}
+// sfx kind -> pack entry: k = pack key, g = gain (matched to the old synth
+// loudness), r = base playbackRate, j = random rate jitter. Kinds NOT here
+// (raygun/laser zaps, UI ticks, deny/alarm, grunts, footsteps) stay synth.
+var SFX_MAP = {
+  pistol: { k: 'pistol', g: 0.6, j: 0.05 }, smg: { k: 'smg', g: 0.5, j: 0.06 },
+  rifle: { k: 'rifle', g: 0.85, j: 0.04 }, auto: { k: 'auto', g: 0.6, j: 0.06 },
+  copshot: { k: 'pistol', g: 0.38, r: 0.96, j: 0.05 }, copsmg: { k: 'smg', g: 0.3, r: 0.97, j: 0.06 },
+  rocketfire: { k: 'rocketfire', g: 0.8 }, boom: { k: 'boom', g: 1.2, j: 0.05 },
+  crash: { k: 'crash', g: 0.85, j: 0.07 }, glass: { k: 'glass', g: 0.6, j: 0.06 },
+  punchhit: { k: 'punch', g: 0.55, j: 0.08 }, hit: { k: 'punch', g: 0.42, r: 1.08, j: 0.08 },
+  slap: { k: 'punch', g: 0.5, r: 1.35, j: 0.06 }, thud: { k: 'punch', g: 0.5, r: 0.65, j: 0.05 },
+  ko: { k: 'punch', g: 0.55, r: 0.55 },
+  cash: { k: 'cash', g: 0.3, j: 0.04 }, buy: { k: 'cash', g: 0.26, r: 1.18, j: 0.03 },
+  eat: { k: 'eat', g: 0.38, j: 0.06 }
+};
+function sfxLogPush(kind, pack) {
+  if (!window.__sfxLog) return;
+  window.__sfxLog.push({ kind: kind, pack: pack });
+  if (window.__sfxLog.length > 400) window.__sfxLog.shift();
+}
+function sfxPackPlay(kind, at) {
+  var m = SFX_MAP[kind];
+  if (!m) return false;
+  var buf = sfxPackBuf(m.k);
+  if (!buf) return false;
+  var src = ac.createBufferSource(); src.buffer = buf;
+  var r = m.r || 1;
+  if (m.j) r *= 1 + (Math.random() * 2 - 1) * m.j;
+  src.playbackRate.value = r;
+  src.connect(voiceOut(m.g, at || null));   // at=null -> plain gain into sfxBus
+  src.start();
+  sfxLogPush(kind, true);
+  return true;
+}
+// horn one-shot from the pack (carHorn/playerHorn); false -> caller beeps
+function playHornBuf(rate, gain) {
+  if (!ac) return false;
+  var b = sfxPackBuf('horn');
+  if (!b) return false;
+  var src = ac.createBufferSource(); src.buffer = b;
+  src.playbackRate.value = rate;
+  var g = ac.createGain(); g.gain.value = gain;
+  src.connect(g); g.connect(ac.destination); src.start();
+  return true;
+}
 // sfx(kind) is 2D (player-sourced / UI); sfx(kind, at) places the sound in
 // the world — everything that has a source in the world should pass one.
 function sfx(kind, at) {
   if (!ac) return;
   if (at && !voiceEarshot(at)) return;
+  if (sfxPackPlay(kind, at)) return;
+  sfxLogPush(kind, false);
   function nb(dur, freq, gain) { noiseBurst(dur, freq, gain, at ? voiceOut(1, at) : null); }
   function bp(freq, dur, gain, type, slide) { beep(freq, dur, gain, type, slide, at ? voiceOut(1, at) : null); }
   switch (kind) {
