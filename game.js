@@ -15799,6 +15799,31 @@ function buildPSXArms(skinHex) {
   root.add(mesh);
   mesh.updateMatrixWorld(true); root.updateMatrixWorld(true);
   mesh.bind(new THREE.Skeleton(bones));
+  // --- fabric sleeves over the bare arm skin (v1.66.101) -------------------
+  // Every reviewer (flash + pro) flagged the FP forearm as a "large bare-arm
+  // mass dominating the lower screen". A dark rigid sleeve tube down each arm
+  // segment breaks up the skin and reads as a clothed arm (CS-style), leaving
+  // only the wrist/hand bare. The tubes are rigid CHILDREN of each segment's
+  // bone, so they follow the arm without needing skin weights.
+  var _slUp = new THREE.Vector3(0, 1, 0), _slV = new THREE.Vector3(), _slQ = new THREE.Quaternion();
+  var sleeveMat = lamb({ color: 0x3a3d42 });
+  function armSleeve(seg, end, r0, r1, cov, off) {
+    seg.updateMatrixWorld(true); end.updateMatrixWorld(true);
+    _slV.setFromMatrixPosition(end.matrixWorld); seg.worldToLocal(_slV);   // end joint in seg-local
+    var len = _slV.length(); if (len < 1e-4) return;
+    var g = new THREE.CylinderGeometry(r1, r0, len * cov, 10);
+    g.translate(0, len * (off || 0) + len * cov / 2, 0);                   // base at bone origin, extends +Y toward the end joint
+    var m = new THREE.Mesh(g, sleeveMat); m.frustumCulled = false;
+    _slQ.setFromUnitVectors(_slUp, _slV.clone().normalize());
+    m.quaternion.copy(_slQ);
+    seg.add(m);
+  }
+  // forearms (elbow->wrist): cover ~78%, leaving the wrist + hand bare
+  armSleeve(bones[26], bones[27], 0.060, 0.050, 0.78, 0.0);
+  armSleeve(bones[3], bones[4], 0.060, 0.050, 0.78, 0.0);
+  // upper arms (shoulder->elbow): full cover, slightly thicker
+  armSleeve(bones[25], bones[26], 0.066, 0.060, 1.02, 0.0);
+  armSleeve(bones[2], bones[3], 0.066, 0.060, 1.02, 0.0);
   // clips: frame-major Int16 quats (/16384) + translations (/1024 or clip.ts)
   var clips = {};
   for (var k in A.clips) {
