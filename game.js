@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.67.4';
+var GAME_VERSION = 'v1.67.5';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -15589,7 +15589,7 @@ var SUPPORT_POSE = {
 var ANCHOR_OFF = {
   fists:  [0.00, -0.04, -0.30],
   pistol: [0.06, -0.06, -0.32],
-  smg:    [0.09, -0.05, -0.36],
+  smg:    [0.22, -0.22, -0.36],   // v1.67.5: low+right shoulder (AK-style) so the support forearm enters from the bottom-right and the hand reaches the shroud (was central → hand floated off the gun)
   rifle:  [0.10, -0.05, -0.39],
   auto:   [0.24, -0.24, -0.39],   // v1.66.97: shoulder low + right so the support forearm enters near-vertically from the bottom-right edge (was a diagonal/central bare mass)
   rocket: [0.10, -0.05, -0.36],
@@ -15636,7 +15636,7 @@ function seedRightArm(w) {
 // quaternion into bone-local space, premultiply.
 var GRIP_TGT = {
   // (no pistol entry — one-handed, see SUPPORT_POSE)
-  smg:    [0.248, -0.15, -0.696],   // v1.66.87: diagonal composition
+  smg:    [0.19, 0.04, -0.62],   // v1.67.5: raised onto the shroud so the fingers drape over the top (was under → floating hand)
   rifle:  [0.079, -0.173, -0.741],  // v1.66.87: diagonal composition
   auto:   [0.18, 0.05, -0.66],    // v1.67.3: raised onto the handguard so the curled fingers DRAPE OVER the top of the wood (reads as a foregrip); verified FP+side+front that the palm contacts, not penetrates, the guard
   rocket: [0.159, -0.231, -0.598],  // v1.66.87: diagonal composition
@@ -16156,11 +16156,11 @@ Object.keys(vmMap).forEach(function (k) { vm.add(vmMap[k]); vmMap[k].visible = f
 // bottom of the frame (grip cut off at a level look). The equipped group's
 // position is rebased to this per-weapon lift each frame (see the draw block),
 // which moves gun AND arms together so the grip relationship is preserved.
-var VM_LIFT = { pistol: 0.24, smg: 0.12, rifle: 0.11, auto: -0.22, rocket: 0.11, silenced: 0.24 };   // auto dropped: Gemini-measured muzzle 42%->50%(-0.10)->~57%(-0.20) screen height
+var VM_LIFT = { pistol: 0.24, smg: -0.20, rifle: 0.11, auto: -0.22, rocket: 0.11, silenced: 0.24 };   // auto/smg dropped so the muzzle rests just below the crosshair and the gun fills the lower-right (was smg +0.12 = raised into the upper frame)
 // v1.66.97: per-weapon lateral shift of the whole equipped group (gun AND arms
 // together, so the grip is preserved) — nudges the AK from center toward the
 // SPEC lower-RIGHT anchor (muzzle target x=55; it was reading ~52 = "central").
-var VM_SHIFT = { auto: 0.055 };
+var VM_SHIFT = { auto: 0.055, smg: 0.06 };
 vmFists.visible = true;
 var zoomed = false;
 function setZoom(on) {
