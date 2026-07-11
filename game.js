@@ -8899,7 +8899,13 @@ if (WC_REMAP) (function densityLayer() {
       g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(e.norm), 3));
       g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(e.uv), 2));
       var o = e.meta, mo = {};
-      if (o.texName) { var t = dTex(o.texName); if (t) { mo.map = t.tex; if (t.keyed) { mo.transparent = true; mo.alphaTest = 0.5; mo.side = THREE.DoubleSide; } else if (t.blend) { mo.transparent = true; mo.depthWrite = false; mo.alphaTest = 0.02; } } }
+      // DTINT: a couple of blend-keyed tiles are authored on asphalt several
+      // shades LIGHTER than the game's — their surviving "mark" pixels read as
+      // a pale slab on the dark road (mrfzxqma/mrg00iyj/mrg0d0rw night squares).
+      // Multiply them down toward the in-game asphalt tone (a fresh repave/skid
+      // is darker than the surrounding lane in reality anyway).
+      var DTINT = { asphalt_patch: 0x6f6f6f, skid_marks: 0x9a9a9a };
+      if (o.texName) { var t = dTex(o.texName); if (t) { mo.map = t.tex; if (t.keyed) { mo.transparent = true; mo.alphaTest = 0.5; mo.side = THREE.DoubleSide; } else if (t.blend) { mo.transparent = true; mo.depthWrite = false; mo.alphaTest = 0.02; if (DTINT[o.texName]) mo.color = DTINT[o.texName]; } } }
       if (o.mapTex) mo.map = o.mapTex;   // pre-built canvas texture (e.g. tree wells)
       if (o.color !== undefined) mo.color = o.color;
       if (o.double) mo.side = THREE.DoubleSide;
@@ -9199,6 +9205,16 @@ if (WC_REMAP) (function densityLayer() {
       }
     }
   }
+  // point-in-SURF-rect test (paved plaza / parking pads) — inverse of rectPt
+  function inSurfRect(x, z) {
+    for (var si2 = 0; si2 < SURF.length; si2++) {
+      var s3 = SURF[si2], r3 = (s3.rot || 0) * deg, c3 = Math.cos(r3), sn3 = Math.sin(r3);
+      var dx3 = x - s3.x, dz3 = z - s3.z;
+      var u3 = dx3 * c3 - dz3 * sn3, v3 = dx3 * sn3 + dz3 * c3;
+      if (Math.abs(u3) < s3.w / 2 && Math.abs(v3) < s3.d / 2) return true;
+    }
+    return false;
+  }
   // parking-lot + pavement surface decals
   for (var sp2 = 0; sp2 < SURF.length; sp2++) {
     var sf = SURF[sp2], n2 = Math.min(28, Math.round(sf.w * sf.d / 60));
@@ -9233,10 +9249,18 @@ if (WC_REMAP) (function densityLayer() {
         var offW = w2.hw + 0.8 + Math.random() * (w2.sw - 1);
         var wx = w2.x + w2.ux * t2 - w2.uz * offW * sideS, wz = w2.z + w2.uz * t2 + w2.ux * offW * sideS;
         if (spotClear(wx, wz) && walkRibbonAt(wx, wz)) dDecal(pick(WALK_DEC), wx, wz, 0.14, rnd(0, 6.28), rnd(0.8, 1.1));
-        // verge decal a little further out onto the grass
+        // verge decal a little further out onto the grass. Ground-type decals
+        // (mud/puddle/grass tuft) must actually LAND on grass (mrfzy2tl "random
+        // dirt patch"): the raw offset can reach a plaza/pavement slab or a
+        // second sidewalk ribbon — a mud patch on clean paving reads as a
+        // rendering bug, so those picks are skipped off-grass.
         var offV = w2.hw + w2.sw + 1 + Math.random() * 4;
         var vx = w2.x + w2.ux * t2 - w2.uz * offV * sideS, vz = w2.z + w2.uz * t2 + w2.ux * offV * sideS;
-        if (Math.random() < 0.5 && spotClear(vx, vz) && !inLake(vx, vz) && !remapInClear(vx, vz, 0)) dDecal(pick(VERGE_DEC), vx, vz, 0.06, rnd(0, 6.28), rnd(0.8, 1.2));
+        if (Math.random() < 0.5 && spotClear(vx, vz) && !inLake(vx, vz) && !remapInClear(vx, vz, 0)) {
+          var vn2 = pick(VERGE_DEC);
+          var vDirt = vn2 === 'mud_patch' || vn2 === 'puddle' || vn2 === 'grass_tuft';
+          if (!vDirt || (footSurface(vx, vz) === 'grass' && !inSurfRect(vx, vz))) dDecal(vn2, vx, vz, 0.06, rnd(0, 6.28), rnd(0.8, 1.2));
+        }
       }
     }
   }
