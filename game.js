@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.67';
+var GAME_VERSION = 'v1.66.68';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -17335,6 +17335,7 @@ function questHatchUnlocked(id) {
 loadQuests();
 questRegisterItems();
 placeQuestSurfaceProps();   // #78: quest set-dressing props at the POI entrances
+loadLocalProgress();        // restore offline/guest money+guns+consumables (cloud login overrides later)
 
 // ================= #78 QUEST REWARD CAPABILITIES =================
 // The five stubbed rewards, made real. Each gated on its state.unlocks flag;
@@ -18948,6 +18949,36 @@ function acctApplySave(s) {
   }
   updateHUD();
 }
+// ---------------- offline/guest local save (localStorage 'wc_save') ----------------
+// The account system above only persists to the relay when signed in with a
+// PIN. For file:// / guest / offline play, money + owned guns + snacks/sodas +
+// bag would reset every reload — so we also mirror them to localStorage. Char,
+// settings and quests already persist under their own keys; this fills the gap.
+// Applied once at boot (a later cloud sign-in overrides via acctApplySave).
+// NOTE: the key is inlined as a literal, not a `var` — loadLocalProgress runs
+// at boot ABOVE this section, where a hoisted-but-unassigned var would be
+// undefined (the classic load-order gotcha in this file).
+function saveLocalProgress() {
+  try {
+    localStorage.setItem('wc_save', JSON.stringify({
+      money: state.money | 0, owned: state.owned,
+      snacks: state.snacks | 0, sodas: state.sodas | 0, bag: state.bag
+    }));
+  } catch (e) { }
+}
+function loadLocalProgress() {
+  var s = null;
+  try { s = JSON.parse(localStorage.getItem('wc_save') || 'null'); } catch (e) { s = null; }
+  if (!s) return;
+  if (typeof s.money === 'number') state.money = Math.max(0, s.money | 0);
+  if (s.owned) for (var k in state.owned) state.owned[k] = !!s.owned[k];
+  if (typeof s.snacks === 'number') state.snacks = Math.max(0, s.snacks | 0);
+  if (typeof s.sodas === 'number') state.sodas = Math.max(0, s.sodas | 0);
+  if (s.bag && s.bag.length === BAG_SLOTS) for (var i = 0; i < BAG_SLOTS; i++) {
+    var it = s.bag[i];
+    state.bag[i] = (it && it.id && itemDef(it.id) && (it.n | 0) > 0) ? { id: it.id, n: Math.min(99, it.n | 0) } : null;
+  }
+}
 function acctPost(payload, cb) {
   var base = bugServerUrl(); if (!base) { cb(new Error('no server')); return; }
   fetch(base + '/acct', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
@@ -19044,8 +19075,9 @@ function acctAutosave(force) {
     if (!err) acct.lastSaved = j;
   });
 }
-setInterval(function () { acctAutosave(false); }, 10000);
+setInterval(function () { acctAutosave(false); if (state.running) saveLocalProgress(); }, 10000);
 window.addEventListener('beforeunload', function () {
+  if (state.running) saveLocalProgress();   // guests + offline: keep a local mirror
   if (!acct.token) return;
   try {
     navigator.sendBeacon(bugServerUrl() + '/acct',

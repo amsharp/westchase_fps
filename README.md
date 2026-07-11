@@ -47,8 +47,13 @@ hijacked again for 15 seconds, so make your getaway count.
 pressing PLAY ONLINE and your progress — cash, guns, snacks, your item bag,
 your look, and your quest log — is saved to the server under that name+PIN
 and comes back on any browser or device. First sign-in creates the account;
-leave the PIN blank to play as a guest (nothing saved). Progress autosaves
-every few seconds while you play. Add an **email** and you can recover a
+leave the PIN blank to play as a guest — but even guests keep their progress
+**locally on this browser** now (cash, guns, snacks/sodas, and item bag are
+mirrored to local storage and restored on your next visit, so offline
+singleplayer no longer resets every reload; your look, settings, and quests
+already persisted). A PIN is what makes that progress follow you to *other*
+devices. Progress autosaves every few seconds while you play. Add an
+**email** and you can recover a
 forgotten PIN: a 6-digit code is mailed on sign-up to verify the address,
 and the **forgot PIN?** link on the menu emails a reset code that lets you
 pick a new PIN on the spot.
