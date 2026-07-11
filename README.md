@@ -213,8 +213,11 @@ ahead, and never stretches off across the block), pushing a **stroller** or a
 mobility **walker** out front, or carrying a **handheld** — an umbrella held
 overhead, a cane, a coffee cup, shopping bags, a skateboard, a balloon on a
 string. Wheeled things (a bike, a rolling suitcase) get walked alongside —
-and the little red **toy wagon** belongs to the kids: you'll only ever see a
-child towing one. Each prop rolls a colour/style variant so no two look alike.
+hands on the handlebar — and the little red **toy wagon** belongs to the kids:
+you'll only ever see a child towing one. Each prop rolls a colour/style
+variant so no two look alike. And when the rain rolls in, watch the sidewalks:
+about **half the adults raise umbrellas** in different canopy colours over the
+first half-minute of a shower, and fold them away again once it clears.
 
 Like the kids, the **dogs and stroller babies are off-limits** — they're
 decorations riding along with their owner, never targets, so bullets, fists,
@@ -634,7 +637,9 @@ Dunkin', Starbucks and the sushi bar; there's a full **playground** by
 Farnell school (climber, slide, swinging swings, a hoop) and a skate ramp in
 a cul-de-sac; a **lakeside picnic** spot with a stone fountain, a BBQ and a
 crackling fire pit; food trucks and an ice-cream van in the lots; a
-wacky-waving **tube man** and a hot-dog cart out at the RaceTrac; flamingos,
+wacky-waving **tube man** and a hot-dog cart out at the RaceTrac; a tall
+branded **RaceTrac price pylon** at the curb whose fuel prices glow in real
+7-segment LED digits after dark (and occasionally flicker); flamingos,
 gnomes, bird baths and a spinning windmill in the yards; and neon that spins
 (barber pole, pizza sign), flags that wave, and arcade/soda screens that glow.
 

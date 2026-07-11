@@ -413,7 +413,7 @@
   <div id="bootLabel">warming up the engine…</div>
 </div>
 <script>
-var wcBootDone = 0, WC_BOOT_TOTAL = 72.45;   // = SUM of the wcTick weights below — re-sum when adding scripts (grep wcTick | add)
+var wcBootDone = 0, WC_BOOT_TOTAL = 73.35;   // = SUM of the wcTick weights below — re-sum when adding scripts (grep wcTick | add)
 function wcTick(w, nextLabel) {
   wcBootDone += w;
   var b = document.getElementById('bootBar');
@@ -431,10 +431,13 @@ function wcTick(w, nextLabel) {
 <script src="ggbotvehs.js" onload="wcTick(0.4,'loading the saucer…')"></script>
 <script src="meshyufo.js" onload="wcTick(0.2,'loading guns…')"></script>
 <script src="meshyguns.js" onload="wcTick(0.3,'loading fx…')"></script>
-<script src="muzzleflash.js" onload="wcTick(0.1,'loading signage…')"></script>
+<script src="muzzleflash.js" onload="wcTick(0.1,'loading the sound pack…')"></script>
+<script src="soundfx.js" onload="wcTick(0.7,'loading signage…')"></script>
 <!-- AI storefront sign + VFX sprite sheets; game.js guards typeof PUBLIX_SIGN /
      VFX_SMOKE / VFX_FIRE so it still boots (canvas sign + flat puffs) if absent -->
 <script src="publixsign.js" onload="wcTick(0.1,'loading fx sheets…')"></script>
+<script src="racetracsign.js" onload="wcTick(0.05,'pricing the gas…')"></script>
+<script src="gemfoliage.js" onload="wcTick(0.15,'planting the myrtles…')"></script>
 <script src="vfxsheets.js" onload="wcTick(0.6,'loading street voices (the big one)…')"></script>
 <script src="npcvoices1.js" onload="wcTick(29.9,'loading characters…')"></script><!-- chunks 2+ are late-loaded by game.js (loadNpcVoiceChunks) -->
 <script src="meshychars.js" onload="wcTick(4.4,'loading dialogue…')"></script>

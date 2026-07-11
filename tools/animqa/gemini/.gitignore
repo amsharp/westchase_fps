@@ -1,0 +1,4 @@
+
+# Gemini review AVI clips + their reviews are large regenerable artifacts
+clips/*.avi
+clips/*.avi.review.json
