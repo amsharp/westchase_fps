@@ -17041,6 +17041,52 @@ function questSnapClear(x, z) {
   }
 })();
 
+// ---- NPC door clearance (self-QA sweep, with the pacing-cluster round) ----
+// 83/494 registered doors had a stoop waypoint inside a collider or a door
+// point no NPC could get within arrival range (d<1) of — props/fences placed
+// after registerDoor sat on the approach, so every errand to one of those
+// doors degenerated into the doorSeek orbit the pacing watchdog now has to
+// rescue, and killed-NPC respawns emerged inside props. Runs AFTER every
+// collider source (venues, houses, density/env props, fences, quest props).
+(function doorClearancePass() {
+  var fixedStoop = 0, pulledDoor = 0, removed = 0;
+  function freeAt(x, z) { return pointFree(x, z, 0.45); }
+  function ringOK(x, z) {
+    for (var a = 0; a < 6.283; a += 0.52) if (freeAt(x + Math.cos(a) * 0.85, z + Math.sin(a) * 0.85)) return true;
+    return false;
+  }
+  for (var i = npcDoors.length - 1; i >= 0; i--) {
+    var d = npcDoors[i];
+    if (!freeAt(d.sx, d.sz)) {
+      // slide the stoop outward along the door normal, fanning sideways along
+      // the wall, and take the first clear spot
+      var ok = false, tx = -d.nz, tz = d.nx;
+      outer:
+      for (var out = 0; out <= 4.5; out += 0.75) {
+        for (var lat = 0; lat <= 3.0; lat += 0.75) {
+          var sides = lat === 0 ? [0] : [lat, -lat];
+          for (var si = 0; si < sides.length; si++) {
+            var px = d.x + d.nx * (2.5 + out) + tx * sides[si];
+            var pz = d.z + d.nz * (2.5 + out) + tz * sides[si];
+            if (freeAt(px, pz)) { d.sx = px; d.sz = pz; ok = true; fixedStoop++; break outer; }
+          }
+        }
+      }
+      if (!ok) { npcDoors.splice(i, 1); removed++; continue; }
+    }
+    if (!ringOK(d.x, d.z)) {
+      // arrival needs a free point within ~0.85u of the door target: pull the
+      // vanish point off the facade until an NPC can actually reach it
+      var ok2 = false;
+      for (var p = 0.4; p <= 3.2; p += 0.4) {
+        if (ringOK(d.x + d.nx * p, d.z + d.nz * p)) { d.x += d.nx * p; d.z += d.nz * p; ok2 = true; pulledDoor++; break; }
+      }
+      if (!ok2) { npcDoors.splice(i, 1); removed++; }
+    }
+  }
+  npcDoors.qaFixedStoop = fixedStoop; npcDoors.qaPulledDoor = pulledDoor; npcDoors.qaRemovedDead = removed;
+})();
+
 // visible amber beacons at givers + the cellar hatch (so the framework is
 // eyeball-able before the real quest NPCs/props exist)
 (function questBeacons() {
