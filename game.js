@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.65';
+var GAME_VERSION = 'v1.66.66';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -5585,7 +5585,12 @@ function buildMeshySkinned(cfg, mi) {
   mesh.add(root);
   mesh.updateMatrixWorld(true);
   mesh.bind(new THREE.Skeleton(bones));
-  mesh.frustumCulled = false;
+  // Off-screen characters must not render (lets us carry a much larger crowd).
+  // Re-enable native frustum culling with a padded bind-pose sphere so swinging
+  // limbs / run lean never pop the character out at the screen edge.
+  mesh.geometry.computeBoundingSphere();
+  if (mesh.geometry.boundingSphere) mesh.geometry.boundingSphere.radius = Math.max(mesh.geometry.boundingSphere.radius + 0.5, 1.9);
+  mesh.frustumCulled = true;
   g.add(mesh);
   var names = MESHY_LIST[mi].skel.names, bi = {};
   for (i = 0; i < nj; i++) bi[names[i]] = i;
@@ -5827,7 +5832,7 @@ function buildPerson(shirtC, pantsC, skinC, opts) {
 }
 
 var npcs = [];
-var NPC_COUNT = 220;  // +60% density pass (was 138; report mrefogw8 asked 5x — hold at 220 until instancing/LOD, see TRIAGE)
+var NPC_COUNT = 440;  // doubled crowd — affordable now that off-screen skinned characters frustum-cull (see buildMeshySkinned) + distance anim-LOD (was 220)
 // home-zone weights: core intersection / residential neighborhoods / collectors+Lynmar
 var NPC_W_CORE = 0.60, NPC_W_RES = 0.32;   // remainder (~0.08) = collectors
 var WALK = WC_REMAP ? { x0: -240, x1: 120, z0: -180, z1: 170 }   // recentred on the true venue span
