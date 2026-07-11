@@ -338,3 +338,4 @@ render as a giant distorted polygon at some aim angles — flagging for round ow
 
 ## FP-ARMS REGRESSION (round owner: main agent's v1.66.74-87 fp-arms feature)
 - mrg3wvhm (-129,-51, v1.66.87) SMG hand models 'beyond fucked' — CONFIRMS the deformation flagged in the blood investigation note (giant distorted arm polygon in mrg0d0rw's shot). fp-arms is the OTHER agent's active feature — please fix on your next round; if unclaimed by the next fable cycle, fable will take it.
+- mrg3yaf0 (-58,48, .87) hitting ONE pedestrian with a car counts as 4 kills — OPEN (car-hit kill crediting: likely the collision fires multiple frames or counts ragdoll+death separately; check the wanted/kill-count path for car impacts + the new kill feed)
