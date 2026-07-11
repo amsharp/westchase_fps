@@ -296,5 +296,5 @@ All three FIXED@v1.66.63. mregjcuz + mreg8mld details are inline in Batch 8 / Ba
 - mrfzfyyf (0,165) no driveways for these houses — OPEN (driveway stub pass for street-adjacent survey houses; road-network territory, pairs with mredxzx6 class)
 - mrfzgznx (-5,181) road stub jutting into walkway — OPEN (roads/junction geometry, round5-roads territory)
 - mrfzhm8g (27,191) people walking in the road too much, want stronger sidewalk bias — OPEN (tune: 85% sidewalk bias + jaywalk frequency; possibly interacts with the new goal-side crossing fix)
-- mrfzidc6 (15,300) sign detached (floating off its pole) — OPEN (sign-assembly class, pairs with mrfto9qj)
+- SIGN-ASSEMBLY CLUSTER: mrfto9qj (253,335), mrfzidc6 (15,300), mrfzjsdl (76,133), mrfzk1rq (62,110) detached/floating signs — OPEN 4 reports (suspect: the v1.66.62 poleSign placard remount leaves placards floating off shorter/taller stake variants; audit stake-top vs placard-bottom per sign asset) — NEXT ROUND
 - mrfzj1oh (78,241) 'why does the sign have alpha' (sign face has holes/transparency) — OPEN (sign texture keying; possibly a GKEY/luminance-key casualty on a sign that shouldn't be keyed)
