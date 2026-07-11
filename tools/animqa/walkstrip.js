@@ -5,7 +5,8 @@ const { chromium } = require('playwright');
 const path = require('path'); const fs = require('fs');
 const GAME = 'file://' + path.resolve(__dirname, '../../index.html');
 const OUT = path.join(__dirname, 'arms');
-const PRESET = parseInt(process.argv[2] || '0', 10);
+var _pa = process.argv[2] || '0';
+const PRESET = _pa.indexOf('meshy:') === 0 ? _pa : parseInt(_pa, 10);
 fs.mkdirSync(OUT, { recursive: true });
 (async () => {
   const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', args: ['--use-gl=swiftshader', '--no-sandbox'] });
@@ -16,8 +17,14 @@ fs.mkdirSync(OUT, { recursive: true });
   await page.evaluate(() => { try { __wc.startGame(); } catch (e) { __wc.start(); } });
   const url = await page.evaluate(async (preset) => {
     var T = window.THREE;
-    var cfg = __wc.randomCharConfig ? __wc.randomCharConfig() : {}; cfg.preset = preset;
-    var m = __wc.buildCharacter(cfg); __wc.scene.add(m); m.position.set(0, 0, 0);
+    var m;
+    if (typeof preset === 'string' && preset.indexOf('meshy:') === 0) {
+      m = __wc.buildMeshySkinned(__wc.randomCharConfig(), parseInt(preset.slice(6), 10));
+    } else {
+      var cfg = __wc.randomCharConfig ? __wc.randomCharConfig() : {}; cfg.preset = preset;
+      m = __wc.buildCharacter(cfg);
+    }
+    __wc.scene.add(m); m.position.set(0, 0, 0);
     var NF = 8, CW = 150, CH = 400, sheet = document.createElement('canvas'); sheet.width = CW * NF; sheet.height = CH;
     var sx = sheet.getContext('2d'); var gl = __wc.renderer.domElement;
     var cam = new T.PerspectiveCamera(30, gl.width / gl.height, 0.01, 50);
