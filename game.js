@@ -6,7 +6,9 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.83';
+var GAME_VERSION = 'v1.66.84';
+// QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
+var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -20280,6 +20282,22 @@ function drawHudCanvas() {
     hudCx.fillStyle = '#36d6ff'; hudCx.beginPath(); hudCx.arc(0, 0, 2.2, 0, 7); hudCx.fill();
     hudCx.restore();
     hudText(wdtxt, wmx2, wmy2 - 12, 12, '#bfefff', 'center');
+  }
+  // ---- QoL: speedometer while driving — MPH readout + speed bar, bottom-center.
+  // driving.pspeed is world u/s (capped ~26); SPEEDO_MPH scales it to a believable
+  // top speed near 70 mph. Reverse shows an 'R' tag and the bar still fills. ----
+  if (driving && !inside) {
+    var absS = Math.abs(driving.pspeed || 0);
+    var mph = Math.round(absS * SPEEDO_MPH);
+    var sfrac = Math.max(0, Math.min(1, absS / 26));
+    var sbw = 128, scxs = Math.round(W / 2), sby = H - M - 4;
+    hudCx.fillStyle = '#000'; hudCx.fillRect(scxs - sbw / 2 - 2, sby - 44, sbw + 4, 48);
+    hudCx.fillStyle = 'rgba(10,13,20,0.82)'; hudCx.fillRect(scxs - sbw / 2, sby - 42, sbw, 44);
+    var scol = mph < 35 ? '#8ee87f' : (mph < 60 ? '#ffd200' : '#ff5a3a');
+    drawPix('' + mph, scxs + 4, sby - 34, 4, scol, 'right');
+    hudText('MPH', scxs + 12, sby - 12, 12, '#b9b19a', 'left');
+    if ((driving.pspeed || 0) < -0.5) drawPix('R', scxs - sbw / 2 + 8, sby - 34, 3, '#ff5a3a', 'left');
+    hudBar(scxs - sbw / 2 + 10, sby - 10, sbw - 20, 5, sfrac, scol, 0);
   }
   // ---- FPS / perf readout (QoL, settings.fps): left edge, clear of the quest
   // tracker (top) and health (bottom). renderer.info reflects last frame. ----

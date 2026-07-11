@@ -537,7 +537,9 @@ any other: park it wherever, lose it, blow it up — a wrecked lot car gets
 
 Press **E** next to a passing car to carjack it — the driver bails and
 runs off screaming (and yes, that's a crime). Driving is third-person:
-WASD to drive, **E** to get out. You can't shoot from the driver's seat,
+WASD to drive, **E** to get out. A **speedometer** lights up on the HUD
+while you're behind the wheel — a big MPH readout and a speed bar that
+greens up at a cruise and reddens as you floor it. You can't shoot from the driver's seat,
 but the car itself is the weapon — mow down pedestrians and cops, and
 ram traffic to send it spinning out of control like you'd shot it up.
 Trees and street lights snap and topple if you plow through them, in a
