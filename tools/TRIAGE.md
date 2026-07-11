@@ -55,7 +55,7 @@ now carries `cols:` = the 3 nearest colliders with tags.
 - mree8hw2 (-511,421) square shadow patches — FIXED@v1.66.1 (same — asphalt/mud_patch hard rectangle now blends); ALSO covers Batch4 mreewls4 (-467,332) dark square under trees
 - mree2yur (11,127)   porto-potty black mesh artifacts — FIXED@v1.66.6 (env-prop material was smooth-shaded; smooth-averaged corner normals on the low-poly boxy mesh smeared faces dark. flatShading:true on env-prop materials → clean facets. Residual dark top is the asset's baked roof-vent opening, not a bug)
 - mree3tg7 (-70,133)  two props glowing oddly — FIXED@v1.66.6 (the 'glow' anim strobed emissive 0.02-0.54 at FULL strength in daylight; now gated by wcNightGlow — faint ~0.05 daytime accent, ramps up after dark)
-- mree59kf (-108,158) hair has transparent chunks — DEFERRED→asset-pipeline (round4-render investigated exhaustively: EVERY character hair path is opaque or side:DoubleSide with NO transparent/alphaTest — verified across PSX presets, Meshy skinned civs, kids, staff, quest chars. So see-through hair is NOT a code material bug; it's a geometry GAP in one specific AI-generated head mesh (Meshy remesh can drop tris). Needs the offending character identified + hair mesh regenerated via tools/chargen. Not code-fixable surgically.)
+- mree59kf (-108,158) hair has transparent chunks — DEFERRED→asset-pipeline (round4-render investigated exhaustively: EVERY character hair path is opaque or side:DoubleSide with NO transparent/alphaTest — verified across PSX presets, Meshy skinned civs, kids, staff, quest chars. So see-through hair is NOT a code material bug; it's a geometry GAP in one specific AI-generated head mesh (Meshy remesh can drop tris). Needs the offending character identified + hair mesh regenerated via tools/chargen. Not code-fixable surgically. [UPDATE: FIXED@v1.67.2 — char=SKYLER, cheap in-game scalp-cap (MESHY_HAIR_CAP) plugged the gap, no regen needed. See VERIFICATION PASS round.])
 - mree0ii7 (79,1)     claw machine flashing red — FIXED@v1.66.6 (same glow-gating fix; the red 'flash' was the soda_machine's emissive strobing in daylight next to the claw. NOTE: the "prop jumble"/clustering at this cluster is a PLACEMENT issue — Round-2/5 territory, not touched here)
 
 ## Round 5 — OPEN: placement/content (larger passes)
@@ -303,7 +303,7 @@ All three FIXED@v1.66.63. mregjcuz + mreg8mld details are inline in Batch 8 / Ba
 - mrfzmw9u (72,-15) gas station price sign: bigger, on the curb, GLOWING 7-SEGMENT displays, 'leverage chat gpt here' — FIXED@v1.66.95 (AI round, Gemini this time: new raceTracPylon() — 10.7u branded pylon AT THE ROAD CURB (walks RM.roads for the nearest arterial, stands just outside the walk ribbon on the venue side, faces along the road so both directions read it; remapPointClear/onSidewalk/spotClear/breakablePoleNear-guarded, frontage fallback). Top: gemini-3-pro-image red RACETRAC cabinet face baked as racetracsign.js (RT_SIGN data-URL, typeof guard + canvas-text fallback, wcTick boot chain). Below: REGULAR 2.89 / MIDGRADE 3.19 / DIESEL 3.45 in RUNTIME-drawn 7-segment digits (rt7seg canvas: classic segment geometry, amber top row + red rows, dark ghost segments, shadowBlur glow) on MeshBasicMaterial so they burn at night; rare LED brown-out flicker (updateRtPylon @ updateWorldFx, one row dims ~0.12s every 6-16s, 2 canvas repaints). Two-plane faces (greenSign pattern), OBB collider tag sign:pylon, addSignGlow night halo both faces, signAudit-registered (audit passes). BOTH old awful signs removed: the density gas_price_sign mini-pylon AND the in-lot monument sign in gasStation(). Evidence: gemsign_day_faceA/faceB2/wide.png, gemsign_night_faceA/close/deep.png)
 - mrfzn54t (77,-36) floating tree roots — OPEN (tree root flare above ground; probably the oak canopy-clamp scale lift raised roots off grade — check OAK_CANOPY_MIN interaction)
 - mrfznq53 (30,-93) + mrfzomq3 (20,-118) stuck/pacing — .72 PRE-pacing-fix, RE-VERIFY on .73
-- mrfzod76 (26,-90) RAVEN's run looks awful, 'fix for good or regenerate her' — OPEN (Meshy run-clip defect; same escalation ladder as HECTOR: absolute sweep -> clip-swap from known-good -> Meshy regen -> gate out; NEXT ROUND with HECTOR outcome as guide)
+- mrfzod76 (26,-90) RAVEN's run looks awful, 'fix for good or regenerate her' — FIXED@v1.67.0 (HECTOR-style world-delta clip bake; Gemini clip review PASS. See CHARACTER-QUALITY ROUND below)
 - mrfzqfam (-189,-209) 'nice asset, weird placement' — OPEN (fetch shot; placement)
 - mrfzqww7 (-233,-144) quest npcs in the middle of nowhere is weird — OPEN (quest giver spots on empty lakeside lawn read as random; consider anchoring givers near landmarks/props or giving them a stand/context prop — design tweak)
 - mrfzrxfl (-377,118) 'whole area weird, no roads to the houses, USE STREET VIEW to figure out what to do' — FIXED@v1.66.89 (OSM-ground-truthed halbrook_dr/bassbrook_ln/stilton_st/stanwyck_cir + driveways; see ROAD-NETWORK MAJOR ROUND)
@@ -419,7 +419,7 @@ those alignments where they exist, with real Westchase street names from the OSM
 - mrg45yad (-36,46) car acceleration too fast + should vary by type (vans/trucks slower) — OPEN (driving feel tune, per-CARCOLS/type accel)
 - mrg46sb9 (295,-277) manager floating — OPEN (staff/vendor idle grounding — the adult gy bake covered Meshy civs; check staff builds)
 - mrg488m4 (-45,8) WEIRD CLIPPING ROAD TEXTURE — OPEN (z-fight or overlapping road strips near junction)
-- mrg48urv (-46,17) KEISHA arms look awful, owner: REGENERATE WITH MESHY — OPEN (asset-pipeline; Meshy authorized by owner; check balance/budget first, HECTOR-style clip fix does NOT apply to mesh/texture quality)
+- mrg48urv (-46,17) KEISHA arms look awful, owner: REGENERATE WITH MESHY — FIXED@v1.67.2 (owner-authorized Meshy regen; fused-bag arm gone, Gemini arm review PASS 10/10. See VERIFICATION PASS round below)
 - mrg49ri9 (18,85) weird fence without poles — FIXED@v1.66.99 (fence+decal round). TWO defects at the spot: (1) the densityprops fenceRun path rendered bare texture-card strips with NO posts anywhere on the map — chainlink_fence/privacy_fence strips now bake a post every ~2.5u (+ top rail for chainlink), hedge/brick stay post-free; (2) the storage lot was DOUBLE-fenced: the axis-aligned FENCE_RUNS N+E run crossed the venue's rot-135 density fenceRect in an X at ~(23.6,84). Single fence now: one breakable FENCE_RUNS chainlink ring tracing the rect's exact corners, density rect dropped. Evidence: fencedecal_18_85_before.png (bare diagonal card + crossing run) vs fencedecal_18_85_after.png / _air_after.png (one ring, posts + rail)
 - mrg4b26g (-151,46) shot NPCs can be knocked INTO buildings (ragdoll clips through walls) — OPEN (ragdoll velocity ignores colliders; clamp ragdoll XZ vs colliders like player pushOut)
 - mrg4bexs (-149,63) no bullet holes when shooting the GROUND — FIXED@v1.66.90 (ground plane isn't in solidMeshes so ground shots produced no hit at all; hitscan now intersects the ray with the ground analytically on miss — flat hole + dust at the impact, interior floor handled)
@@ -437,7 +437,7 @@ Other new (logged, next rounds):
 - mrg4iels (-153,22) quest NPCs should FACE the player when near (design ask, small)
 - mrg4k6e2 (-53,-55) weird looking fence segment — FIXED@v1.66.99 (fence+decal round). The Farnell density E edge used full half-depth d/2+7 while the breakable front run sits at d/2+4 — the E edge speared THROUGH the front fence and ended as a free 3u stub at (-58,-57). E edge now T-joins the front run exactly at z=-60; also the pale square visible in the report shot was a lum-keyed skid_marks decal (see mrg51b3u). Evidence: fencedecal_-53_-55_before/after.png; tools/_fenceaudit.js reports 0 fence X-crossings map-wide (was 3) and 0 fence-over-road samples (was 1 — this same Farnell E edge crossed an access road at (-58,-73); density strips now clip themselves around asphalt + other fence lines)
 - mrg4rouw (-106,-20) transparent hair refile (2nd report of mree59kf class) — queue for the CHARACTER-REGEN round: KEISHA arms (mrg48urv, Meshy authorized) + transparent-hair head (identify char from live_hair.jpg in scratchpad) + RAVEN run clips (mrfzod76; try the HECTOR world-delta bake first — bake script is character-generic per that round's notes)
-- mrg4sbrk (-112,-54) DON floating, legs angled back — character-regen round queue (DON = another Meshy clip/retarget defect; try the HECTOR world-delta bake — same class)
+- mrg4sbrk (-112,-54) DON floating, legs angled back — FIXED@v1.67.2 (shared idle-family path defect; own idle/idle2/chat/talk world-delta baked -> feet grounded fyMn 0.039, no backward splay. See VERIFICATION PASS round below)
 
 ## Live session batch 6 (Alex on v1.66.89) — logged through 302
 - mrg4vcjd (-5,-5) + mrg53rgl (-76,53) stroller NO HANDS while RUNNING — FIXED@v1.66.94 (see ANIM ROUND 7 below)
@@ -498,3 +498,33 @@ barrierscan 0 orphans, boots 0 page errors. Ear check is the owner's once live. 
   resume the char agent to confirm or redo cleanly.
 - mrg4rouw/mree59kf transparent hair — STILL OPEN (investigation only: scanned DOUG/ALEX/SUMMER/AISHA/SKYLER/
   DYLAN/GARY/PHUONG for the gap head; no fix applied. Needs the offending head's scalp-cap patch or regen next round.)
+
+## CHARACTER-QUALITY ROUND — VERIFICATION PASS @v1.67.2 (fable, credits restored; finished the 3 pending verifies)
+- mrg48urv KEISHA arms — FIXED@v1.67.2, ~35 Meshy credits (bal 544->509). Confirms the v1.67.0 regen. ROOT of
+  original: old mesh fused a satchel bag into her right arm + bag-color texture bleed. Regen: Gemini
+  (gemini-3-pro-image) T-pose seed style-anchored on chargen style_ref.png + her in-game look as identity ref ->
+  Meshy image-to-3d (lowpoly/t-pose/remesh1600) -> rigging -> genskin.js -> own walk/run; idle-family
+  world-delta baked for the new skeleton. Meshy remesh didn't hold (13.5k tris) — saved the +10cr remesh+re-rig by
+  decimating OFFLINE (meshoptimizer LockBorder, collapse onto existing verts so UV/skinIndex/skinWeight survive):
+  13564 -> 1650 tris @0.6% error (roster norm 1.4-1.7k). Look preserved (braids/lavender scrubs/badge). VERDICT:
+  Gemini arm-specific image review PASS 10/10 — 'fused satchel bag and corrupted geometry completely removed, both
+  arms clean, correct skin tone, short sleeves'; residual mild inner-upper-arm bleed = known acceptable Meshy
+  occlusion artifact. Evidence: scratchpad ks_Rshoulder/ks_Rprofile/k2_armR/k2_armL.jpg.
+- mrg4sbrk DON float/legs-back — FIXED@v1.67.2, 0 credits. Confirms the v1.67.0 data is a GOOD bake (not the
+  feared half-bake). ROOT: DON's own walk/run were fine; the SHARED idle/idle2/chat/talk path was the defect (Hips
+  bind 169° off source rig -> idle FK put feet 0.30u high, toes 0.18u BEHIND hips, 0.76u splay = 'floating, legs
+  angled back'). FIX: world-delta bake of own idle/idle2/chat/talk + per-clip gy (live4_bake.js). After: idle feet
+  grounded fyMn 0.039 fyMx 0.072, toeZ +0.054 (in front), lat 0.23 — RYAN-class. Objective slide: DON walk 0.14
+  (BETTER than known-good baseline RYAN 0.20, ~YUKI 0.13). Gemini gait clip FAILs on generic run foot-slide (the
+  universal nitpick it applies to every char incl. RYAN — not DON's defect); the reported float/legs-back is
+  objectively gone. Evidence: live4_don_fk metrics, clips_don.webm, live4_slide2 across DON/RAVEN/RYAN/YUKI.
+- mrg4rouw/mree59kf transparent hair — FIXED@v1.67.2, 0 credits (cheap in-game patch, no regen). Offending head
+  IDENTIFIED = SKYLER (blonde spiky hair, black tee, teal pants — matches live_hair.jpg). Welded-edge analysis of
+  his geo: ~30 small open hole rims across the crown/back/sides (Meshy remesh dropped hair tris). FIX (stage a):
+  MESHY_HAIR_CAP in game.js — a dark-blonde ellipsoid (x0 y1.64 z-0.04, r 0.105/0.125/0.086) inscribed inside the
+  skull, fitted OFFLINE against every head-surface triangle sample (live4_capfit2.js, 0.6% margin) so it never
+  poke through; rides a world-axis-aligned holder under the Head bone, built at BIND before the first meshyPose.
+  Holes now show opaque scalp instead of sky/collar. VERDICT: Gemini before/after image review PASS 10/10 —
+  'transparent gaps filled, background/sky/neck no longer visible through the hair; scalp-cap reads as continuous
+  volume'. Evidence: scratchpad skr_report/skr_report2/skr_report3.jpg vs live_hair.jpg. Both refiles closed.
+  (Generic mechanism: add more MESHY_HAIR_CAP entries if other AI heads show the same gap.)
