@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.85';
+var GAME_VERSION = 'v1.66.86';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -19227,7 +19227,7 @@ if (location.hash.indexOf('#join=') === 0) {
   document.getElementById('joinCode').value = location.hash.split('#join=').pop();
 }
 pauseScreen.addEventListener('click', function () { pauseScreen.classList.add('hidden'); lockPointer(); });
-document.addEventListener('pointerlockchange', function () { var locked = document.pointerLockElement === canvas; if (!locked && state.running && !state.menu && !chatOpen && !bugOpen) pauseScreen.classList.remove('hidden'); else if (locked) pauseScreen.classList.add('hidden'); });
+document.addEventListener('pointerlockchange', function () { var locked = document.pointerLockElement === canvas; if (!locked && photoMode) exitPhotoMode(); if (!locked && state.running && !state.menu && !chatOpen && !bugOpen) pauseScreen.classList.remove('hidden'); else if (locked) pauseScreen.classList.add('hidden'); });
 document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 document.addEventListener('mousemove', function (e) { if (document.pointerLockElement !== canvas || state.menu) return; var sens = 0.0022 * (zoomed ? 0.35 : 1) * lookSens; yaw -= e.movementX * sens; pitch -= (lookInvert ? -1 : 1) * e.movementY * sens; pitch = Math.max(-1.45, Math.min(1.45, pitch)); });
 document.addEventListener('mousedown', function (e) {
@@ -19646,7 +19646,14 @@ document.addEventListener('keydown', function (e) {
   if (e.code === 'F8' && state.running) { e.preventDefault(); openBug(); return; }
   if (e.code === 'F9') { e.preventDefault(); showColliders(); return; }   // barrier debug overlay (see buildColliderView)
   if (e.code === 'KeyV' && !e.repeat && state.running && !state.menu && netActive()) { voiceStart(); return; }
+  // QoL: photo mode toggle (P). While active it owns ESC (exit) and swallows keys
+  // below so number/weapon binds don't fire during a shoot.
+  if (photoMode) {
+    if (e.code === 'KeyP' || e.code === 'Escape') { e.preventDefault(); exitPhotoMode(); return; }
+    keys[e.code] = true; return;
+  }
   keys[e.code] = true;
+  if (e.code === 'KeyP' && !e.repeat && state.running && !state.menu && !state.dead && !chatOpen && !bugOpen) { e.preventDefault(); enterPhotoMode(); return; }
   if (e.code === 'KeyH' && driving && state.running && !state.menu && !state.dead) { playerHorn(); return; }
   // QoL: H (on foot) toggles the in-game controls/help overlay
   if (e.code === 'KeyH' && !e.repeat && !driving && state.running && !state.dead) {
@@ -20356,6 +20363,47 @@ function updateLowHpVig() {
 }
 function updateHUD() { document.getElementById('money').textContent = '$' + state.money; document.getElementById('hpBar').style.width = Math.max(0, state.hp) + '%'; updateLowHpVig(); if (state.dead) updateDeadScreen(); drawHudCanvas(); }
 
+// ---------------- QoL: photo mode ----------------
+// P toggles a free-fly camera for screenshots: HUD + first-person arms hidden,
+// the sim frozen (combat safe). Mouse looks (reuses yaw/pitch); WASD flies along
+// the view, Space/C climb & descend, hold Shift to boost. P or ESC exits.
+var photoMode = false;
+var photoPos = new THREE.Vector3();
+var _photoDir = new THREE.Vector3(), _photoRight = new THREE.Vector3();
+var _vmVisWas = true;
+function enterPhotoMode() {
+  if (photoMode || !state.running || state.menu || state.dead || chatOpen || bugOpen) return;
+  photoMode = true;
+  photoPos.copy(camera.position);
+  var hudEl = document.getElementById('hud'); if (hudEl) hudEl.style.opacity = '0';
+  _vmVisWas = vm.visible; vm.visible = false;
+  var hint = document.getElementById('photoHint'); if (hint) hint.classList.remove('hidden');
+}
+function exitPhotoMode() {
+  if (!photoMode) return;
+  photoMode = false;
+  var hudEl = document.getElementById('hud'); if (hudEl) hudEl.style.opacity = '';
+  vm.visible = _vmVisWas;
+  var hint = document.getElementById('photoHint'); if (hint) hint.classList.add('hidden');
+}
+function updatePhotoCam(dt) {
+  camera.rotation.y = yaw; camera.rotation.x = Math.max(-1.45, Math.min(1.45, pitch));
+  camera.getWorldDirection(_photoDir);
+  _photoRight.set(-_photoDir.z, 0, _photoDir.x);
+  var rl = Math.sqrt(_photoRight.x * _photoRight.x + _photoRight.z * _photoRight.z) || 1;
+  _photoRight.x /= rl; _photoRight.z /= rl;
+  var sp = ((keys['ShiftLeft'] || keys['ShiftRight']) ? 22 : 8) * dt;
+  if (keys['KeyW']) photoPos.addScaledVector(_photoDir, sp);
+  if (keys['KeyS']) photoPos.addScaledVector(_photoDir, -sp);
+  if (keys['KeyD']) photoPos.addScaledVector(_photoRight, sp);
+  if (keys['KeyA']) photoPos.addScaledVector(_photoRight, -sp);
+  if (keys['Space']) photoPos.y += sp;
+  if (keys['KeyC'] || keys['ControlLeft']) photoPos.y -= sp;
+  photoPos.x = Math.max(-HALF, Math.min(HALF, photoPos.x));
+  photoPos.z = Math.max(-HALF, Math.min(HALF, photoPos.z));
+  photoPos.y = Math.max(0.4, Math.min(140, photoPos.y));
+  camera.position.copy(photoPos);
+}
 // ---------------- main loop ----------------
 var last = performance.now();
 var lastRafMs = performance.now();   // bot mode watches this to detect RAF starvation
@@ -20369,6 +20417,9 @@ function loop(now) {
   _fpsFrames++; _fpsAcc += (dt > 0 ? dt : 0.0001);
   if (_fpsAcc >= 0.5) { fpsVal = _fpsFrames / _fpsAcc; _fpsAcc = 0; _fpsFrames = 0; }
   if (!state.running) { renderer.render(scene, camera); renderCreatorFrame(dt); return; }
+  // QoL: photo mode freezes the whole sim (combat paused, world held still) and
+  // flies a free camera for screenshots — no T advance, no update calls.
+  if (photoMode) { updatePhotoCam(dt); renderer.render(scene, camera); return; }
   T += dt;
   updateReflex(dt);                       // 8-Bit Reflexes: sets the slow-mo factor
   var sdt = dt * reflexScale();           // world sim dt (bullet-time scales it)
@@ -20510,6 +20561,7 @@ window.__wc = {
   copWeapon: copWeapon,
   openMenu: openMenu, closeMenus: closeMenus, spawnCashAt: spawnCash,
   moneyFloats: function () { return moneyFloats; }, spawnMoneyFloat: spawnMoneyFloat,
+  enterPhotoMode: enterPhotoMode, exitPhotoMode: exitPhotoMode, isPhotoMode: function () { return photoMode; }, photoPos: function () { return photoPos; },
   renderer: renderer, scene: scene, camera: camera,
   listPowerlines: function () { return powerPoles; },
   powerlineStats: function () { return { poles: powerPoles.length, wires: powerWireCount, spans: powerSpanCount, serviceDrops: powerServiceDrops }; },

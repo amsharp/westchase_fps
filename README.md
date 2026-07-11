@@ -700,6 +700,11 @@ the same quiet noise bed as before, and the SFX volume slider controls it.
   live distance, and a minimap blip guide you there; it clears when you arrive
   or when you press **M** again.
 - **E** — talk to the dealer (when close)
+- **P** — **photo mode**: the HUD and your gun vanish and the world freezes so
+  you can line up a shot. Fly the camera with **WASD**, climb / descend with
+  **Space / C**, hold **Shift** to move faster, mouse to aim. **P** or **Esc**
+  drops you back where you were — nothing in the world moves while you're framing,
+  so it's safe to pop into mid-firefight.
 - **H** — on foot, open the in-game **controls / help overlay**; while driving,
   honk the horn (also reachable from the pause screen's **CONTROLS** button)
 - **Tab** — inventory: equip/unequip weapons + your 6×4 item grid (click an

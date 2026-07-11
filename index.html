@@ -89,6 +89,11 @@
     text-shadow:3px 3px 0 #000, -1px -1px 0 #000; animation:rise .9s forwards; }
   .pop.bad { color:#e5533d; }
   @keyframes rise { from { opacity:1; transform:translateY(0);} to { opacity:0; transform:translateY(-46px);} }
+  #photoHint { position:fixed; z-index:80; left:50%; bottom:22px; transform:translateX(-50%);
+    color:#eef4ff; background:rgba(8,11,18,.72); border:2px solid rgba(207,199,176,.6);
+    padding:7px 16px; font-size:14px; letter-spacing:1px; text-transform:uppercase;
+    text-shadow:1px 1px 0 #000; pointer-events:none; white-space:nowrap; }
+  #photoHint b { color:#ffd94a; }
   #chatWrap { position:absolute; left:14px; bottom:196px; width:400px; max-width:44vw; z-index:8;
     display:flex; flex-direction:column; gap:5px; pointer-events:none; }
   #chatLog { display:flex; flex-direction:column; gap:3px; align-items:flex-start; }
@@ -260,6 +265,7 @@
   <input id="chatInput" class="hidden" maxlength="140" autocomplete="off" spellcheck="false">
 </div>
 <div id="voiceInd" class="hidden">🎙 talking…</div>
+<div id="photoHint" class="hidden">📷 PHOTO MODE &middot; <b>WASD</b> fly &middot; <b>SPACE/C</b> up-down &middot; <b>SHIFT</b> boost &middot; <b>P/ESC</b> exit</div>
 <div id="bugPanel" class="hidden">
   <div class="bugCard">
     <h2>🐛 Report a bug</h2>
@@ -286,7 +292,7 @@
   <div class="controls">
     WASD — move &nbsp;&nbsp; MOUSE — look &nbsp;&nbsp; SHIFT — run &nbsp;&nbsp; SPACE — jump &nbsp;&nbsp; TAB — inventory<br>
     LEFT CLICK — punch / shoot &nbsp;&nbsp; 1-0 — pick weapon &nbsp;&nbsp; E — dealer / gas station / steal car &nbsp;&nbsp; M — waypoint<br>
-    <span style="color:#ffd94a">H — controls / help</span> &nbsp;&nbsp; <span style="color:#5ad6ff">MULTIPLAYER:</span> ENTER — chat &nbsp;&nbsp; HOLD V — voice &nbsp;&nbsp; F8 — report a bug
+    <span style="color:#ffd94a">H — controls / help</span> &nbsp;&nbsp; <span style="color:#5ad6ff">P — photo mode</span> &nbsp;&nbsp; <span style="color:#5ad6ff">MULTIPLAYER:</span> ENTER — chat &nbsp;&nbsp; HOLD V — voice &nbsp;&nbsp; F8 — report a bug
   </div>
   <div id="menuMain">
     <div class="joinRow"><input id="playerName" maxlength="12" placeholder="your display name (shown in multiplayer)"></div>
@@ -377,6 +383,7 @@
   <div class="row"><span class="desc">HORN&nbsp;<small>while driving</small></span><span>H</span></div>
   <div class="row"><span class="desc">MINIMAP ZOOM</span><span>[&nbsp;&nbsp;]&nbsp;&middot;&nbsp;CTRL+WHEEL</span></div>
   <div class="row"><span class="desc">WAYPOINT&nbsp;<small>mark / clear where you look</small></span><span>M</span></div>
+  <div class="row"><span class="desc">PHOTO MODE&nbsp;<small>free-fly camera for screenshots</small></span><span>P</span></div>
   <div class="row"><span class="desc">CHAT / VOICE&nbsp;<small>multiplayer</small></span><span>ENTER&nbsp;/&nbsp;HOLD V</span></div>
   <div class="row"><span class="desc">REPORT A BUG</span><span>F8</span></div>
   <div class="row"><span class="desc">THIS SCREEN</span><span>H</span></div>
