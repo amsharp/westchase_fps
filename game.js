@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.77';
+var GAME_VERSION = 'v1.66.78';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -19874,10 +19874,56 @@ function drawCrosshair(W, H) {
   bar(cx + gap, cy - th / 2, len, th);         // right
   if (showDot) dot(1.5);
 }
+// compass ribbon (QoL): reusable dir vector so the per-frame heading read
+// allocates nothing on the hot path.
+var _cmpDir = new THREE.Vector3();
+var CMP_CARD = { 0: 'N', 45: 'NE', 90: 'E', 135: 'SE', 180: 'S', 225: 'SW', 270: 'W', 315: 'NW' };
+function drawCompass(W, H) {
+  camera.getWorldDirection(_cmpDir);
+  var bearing = Math.atan2(_cmpDir.x, -_cmpDir.z) * 180 / Math.PI;
+  if (bearing < 0) bearing += 360;
+  var cw = Math.min(W * 0.62, 420), cx = W / 2, y0 = 4, ch = 20;
+  var span = 70, pxDeg = cw / (span * 2);   // show +/-70 degrees
+  var x0 = cx - cw / 2;
+  // plate
+  hudCx.fillStyle = 'rgba(8,12,20,0.62)'; hudCx.fillRect(x0 - 2, y0 - 2, cw + 4, ch + 4);
+  hudCx.strokeStyle = 'rgba(180,190,210,0.5)'; hudCx.lineWidth = 1; hudCx.strokeRect(x0 - 1.5, y0 - 1.5, cw + 3, ch + 3);
+  hudCx.save();
+  hudCx.beginPath(); hudCx.rect(x0, y0, cw, ch); hudCx.clip();
+  hudCx.textBaseline = 'middle';
+  for (var m = 0; m < 360; m += 15) {
+    var delta = ((m - bearing + 540) % 360) - 180;
+    if (delta < -span || delta > span) continue;
+    var tx = cx + delta * pxDeg;
+    var card = CMP_CARD[m];
+    if (m % 90 === 0) {          // cardinal: tall tick + letter
+      hudCx.strokeStyle = 'rgba(255,255,255,0.85)'; hudCx.lineWidth = 1.5;
+      hudCx.beginPath(); hudCx.moveTo(tx, y0 + 2); hudCx.lineTo(tx, y0 + ch - 8); hudCx.stroke();
+      hudCx.font = 'bold 11px "Courier New",monospace'; hudCx.textAlign = 'center';
+      hudCx.fillStyle = '#000'; hudCx.fillText(card, tx + 1, y0 + ch - 4 + 1);
+      hudCx.fillStyle = (m === 0) ? '#ff5a4a' : '#ffe08a'; hudCx.fillText(card, tx, y0 + ch - 4);
+    } else if (m % 45 === 0) {   // intercardinal: short tick + small label
+      hudCx.strokeStyle = 'rgba(210,220,235,0.7)'; hudCx.lineWidth = 1;
+      hudCx.beginPath(); hudCx.moveTo(tx, y0 + 3); hudCx.lineTo(tx, y0 + ch - 9); hudCx.stroke();
+      hudCx.font = 'bold 8px "Courier New",monospace'; hudCx.textAlign = 'center';
+      hudCx.fillStyle = '#aeb8c8'; hudCx.fillText(card, tx, y0 + ch - 4);
+    } else {                     // minor: short tick only
+      hudCx.strokeStyle = 'rgba(160,170,190,0.55)'; hudCx.lineWidth = 1;
+      hudCx.beginPath(); hudCx.moveTo(tx, y0 + 4); hudCx.lineTo(tx, y0 + 10); hudCx.stroke();
+    }
+  }
+  hudCx.restore();
+  // fixed center pointer + numeric heading
+  hudCx.fillStyle = '#ffd200'; hudCx.beginPath();
+  hudCx.moveTo(cx, y0 + ch + 3); hudCx.lineTo(cx - 4, y0 + ch - 3); hudCx.lineTo(cx + 4, y0 + ch - 3); hudCx.closePath(); hudCx.fill();
+  var hd = ('00' + Math.round(bearing % 360)).slice(-3) + '°';
+  hudText(hd, cx, y0 + ch + 15, 11, '#eaf0ff', 'center');
+}
 function drawHudCanvas() {
   var W = hudW, H = hudH, M = 14;
   hudCx.clearRect(0, 0, W, H);
   drawCrosshair(W, H);
+  if (settings && settings.compass && state.running) drawCompass(W, H);
   // ---- hitmarker: four short diagonal ticks that flick out from the reticle
   // and fade (white on a hit, red on a kill) ----
   var hmAge = T - hitMarkerT;
@@ -19937,8 +19983,9 @@ function drawHudCanvas() {
   }
   // ---- wanted stars: top-center (lit gold, unlit dark silhouettes) ----
   var sw = state.wanted | 0, spx = 2, sgap = 9 * spx + 6;
+  var starY = (settings && settings.compass) ? M + 30 : M;   // clear the compass ribbon
   for (var i = 0; i < 5; i++)
-    drawSprite(SPR_STAR, W / 2 + (i - 2.5) * sgap + 3, M, spx, i < sw ? '#ffd200' : '#242b38');
+    drawSprite(SPR_STAR, W / 2 + (i - 2.5) * sgap + 3, starY, spx, i < sw ? '#ffd200' : '#242b38');
   // ---- health: big retro numerals + heart, bottom-left ----
   var hp = Math.max(0, Math.min(100, Math.round(state.hp)));
   var hcol = hp > 60 ? '#46e05e' : (hp > 30 ? '#ffd200' : '#ff3b28');
