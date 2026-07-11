@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.67';   // .64 taken by live2-vfx on the parallel branch
+var GAME_VERSION = 'v1.66.68';   // .64 taken by live2-vfx on the parallel branch
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -15375,8 +15375,49 @@ function carShellPush(cx2, cz2, ry2) {
   }
 }
 var fallAxis = new THREE.Vector3(), fallQ = new THREE.Quaternion();
+// ---- dusk fireflies at the lake (polish marathon phase 2): ONE additive
+// Points cloud on the lake banks, lit only after dark (wcNightGlow) and
+// only while the player is near enough to see them; per-point slow drift +
+// short warm blink pulses via vertex colors. Local ambience — never on the
+// MP wire, no colliders, one draw call. Built lazily on the first dusk visit.
+var fireflies = null, FIREFLY_N = 64;
+function updateFireflies(dt) {
+  if (typeof LAKE === 'undefined') return;
+  var dxp = player.x - LAKE.x, dzp = player.z - LAKE.z;
+  var on = wcNightGlow > 0.45 && !raining && !inside && dxp * dxp + dzp * dzp < 220 * 220;
+  if (!fireflies) {
+    if (!on) return;
+    var g = new THREE.BufferGeometry();
+    var pos = new Float32Array(FIREFLY_N * 3), col = new Float32Array(FIREFLY_N * 3);
+    var meta = [];
+    for (var i = 0; i < FIREFLY_N; i++) {
+      var a = Math.random() * 6.2832, r = LAKE.r * (0.62 + Math.random() * 0.55);
+      var bx = LAKE.x + Math.cos(a) * r * 1.25, bz = LAKE.z + Math.sin(a) * r * 0.85;
+      var by = 0.4 + Math.random() * 1.3;
+      pos[i * 3] = bx; pos[i * 3 + 1] = by; pos[i * 3 + 2] = bz;
+      meta.push({ bx: bx, by: by, bz: bz, ph: Math.random() * 6.2832, sp: 0.5 + Math.random() * 0.8, blink: 2 + Math.random() * 3 });
+    }
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    fireflies = new THREE.Points(g, new THREE.PointsMaterial({ size: 0.85, map: lampGlowT, vertexColors: true, transparent: true, opacity: 0.95, depthWrite: false, blending: THREE.AdditiveBlending }));
+    fireflies.userData.meta = meta;
+    scene.add(fireflies);
+  }
+  fireflies.visible = on;
+  if (!on) return;
+  var meta2 = fireflies.userData.meta, p2 = fireflies.geometry.attributes.position, c2 = fireflies.geometry.attributes.color;
+  for (var j = 0; j < FIREFLY_N; j++) {
+    var f = meta2[j], t = T * f.sp + f.ph;
+    p2.setXYZ(j, f.bx + Math.sin(t * 0.9) * 1.6 + Math.sin(t * 0.31) * 2.4, f.by + Math.sin(t * 0.7) * 0.5, f.bz + Math.cos(t * 0.77) * 1.6 + Math.cos(t * 0.23) * 2.4);
+    var b = Math.max(0, Math.sin(T * (6.2832 / f.blink) + f.ph * 2.7));
+    b = b * b * b;   // short warm pulses, mostly dark between blinks
+    c2.setXYZ(j, 0.85 * b, 1.0 * b, 0.45 * b);
+  }
+  p2.needsUpdate = true; c2.needsUpdate = true;
+}
 function updateWorldFx(dt) {
   updateSignals(dt);   // traffic-signal cycle (corridor details section)
+  updateFireflies(dt);
   // cars snap trees & street lights (works on host and on mirrored client cars)
   for (var i = 0; i < cars.length; i++) {
     var c = cars[i];
