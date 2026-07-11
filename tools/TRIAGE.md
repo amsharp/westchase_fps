@@ -528,3 +528,7 @@ barrierscan 0 orphans, boots 0 page errors. Ear check is the owner's once live. 
   'transparent gaps filled, background/sky/neck no longer visible through the hair; scalp-cap reads as continuous
   volume'. Evidence: scratchpad skr_report/skr_report2/skr_report3.jpg vs live_hair.jpg. Both refiles closed.
   (Generic mechanism: add more MESHY_HAIR_CAP entries if other AI heads show the same gap.)
+
+## FUN-POLISH ROUND 1 — IN-AGENT (funpolish, fable). Owner standing directive: "keep adding fun details".
+- mrfzstns (-262,103) cars should sink+stall in the lake (currently blocked at shore) — IN-AGENT
+- mrg52jt3 (-88,16) balloon prop needs string physics when it moves + punch should spawn a cool blood sprite — IN-AGENT
