@@ -254,5 +254,8 @@ All three FIXED@v1.66.63. mregjcuz + mreg8mld details are inline in Batch 8 / Ba
 - mrfto9qj (253,335) sign floating off pole + pole mid-sidewalk + too thick — OPEN
 - mrftcjh1 (-99,-122) 'horrible animations on her' — OPEN (identify NPC look at pos)
 - mrftc5d4 (-121,-143) stuck pacing — folds into the pacing cluster (now 6 reports)
+- mrftsrmg (9,167) adult NPC using the kids' wagon — OPEN (restrict wagon accessory to kids)
+- mrftt0x4 (7,133) backward text (mirrored sign at pos) — OPEN (another single-plane sign face)
+- mrfttd8s (2,123) chainlink texture too thick here + aimless walking — OPEN (a fence type missed by the v1.66.12 retile?)
 - mrfthmf4 (575,-160) houses in the middle of grass look weird — refile of mredxzx6 no-road-homes class (DEFER round5-structure road-network pass; now user-confirmed twice)
 - mrftn1qd (351,201) no sidewalk here / mrftnnxa (245,329) grass sliver between road+sidewalk — OPEN (east-zone sidewalk-ribbon quality, same territory as round5-roads)
