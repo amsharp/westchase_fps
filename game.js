@@ -11343,7 +11343,31 @@ function sliceVfxSheet(dataurl, pixelated) {
 if (typeof VFX_SMOKE !== 'undefined') smokeFrames = sliceVfxSheet(VFX_SMOKE, false);
 if (typeof VFX_FIRE !== 'undefined') fireFrames = sliceVfxSheet(VFX_FIRE, true);
 function vfxIsFire(col) { if (col === undefined) return false; var r = (col >> 16) & 255, b = col & 255; return r > 140 && r > b + 60; }
-function puff(p, col) {
+// kind (optional): explicit routing that bypasses the hue heuristic.
+//  'blood'  — bullet/melee hits on PEOPLE: small dark-red droplets, gravity,
+//             quick fade (mrft7ja9: the warm-red hit tint was routing to the
+//             FIRE sheet — shot NPCs looked like they caught fire).
+//  'impact' — bullet hits on walls/props: tiny brief dust puff (mrft7zm5:
+//             wall hits spawned the full-size explosion smoke billboard).
+// No kind → legacy hue routing (explosions/burning cars keep big fire/smoke).
+function puff(p, col, kind) {
+  if (kind === 'blood') {
+    for (var bi = 0; bi < 3; bi++) {
+      var bm = new THREE.Mesh(puffGeo, new THREE.MeshBasicMaterial({ color: bi === 0 ? 0x8f1512 : 0x66100d, transparent: true, opacity: 0.92, depthWrite: false }));
+      bm.position.set(p.x + (Math.random() - 0.5) * 0.24, p.y + (Math.random() - 0.5) * 0.24, p.z + (Math.random() - 0.5) * 0.24);
+      bm.scale.setScalar(0.5 + Math.random() * 0.45);
+      scene.add(bm);
+      puffs.push({ mesh: bm, life: 0.3 + Math.random() * 0.12, max: 0.36, blood: true, bvx: (Math.random() - 0.5) * 1.6, bvy: 0.4 + Math.random() * 0.9, bvz: (Math.random() - 0.5) * 1.6 });
+    }
+    return;
+  }
+  if (kind === 'impact' && smokeFrames) {
+    var im = new THREE.Mesh(puffGeo, new THREE.MeshBasicMaterial({ map: smokeFrames[0], transparent: true, depthWrite: false, opacity: 0.7 }));
+    im.material.color.setHex(col || 0xbfb9ae);
+    im.position.copy(p); im.scale.setScalar(0.85 + Math.random() * 0.4); scene.add(im);
+    puffs.push({ mesh: im, life: 0.34, max: 0.34, fire: false, frames: smokeFrames, grow: 1.3, omax: 0.7 });
+    return;
+  }
   var fire = vfxIsFire(col);
   if (fire && fireFrames) {
     // depthTest:false (like the muzzle flash) so flames read as engulfing the
@@ -11368,10 +11392,15 @@ function updatePuffs(dt) {
   for (var i = puffs.length - 1; i >= 0; i--) {
     var p = puffs[i]; p.life -= dt; var t = 1 - p.life / p.max;
     p.mesh.lookAt(camera.position);
-    if (p.frames) {
+    if (p.blood) {
+      // droplet ballistics: slight toss, gravity pulls the spray down
+      p.bvy -= 7.5 * dt;
+      p.mesh.position.x += p.bvx * dt; p.mesh.position.y += p.bvy * dt; p.mesh.position.z += p.bvz * dt;
+      p.mesh.material.opacity = Math.max(0, 0.92 * (p.life / p.max));
+    } else if (p.frames) {
       var fr;
       if (p.fire) { fr = (p.start + Math.floor(t * 10)) % VFX_NF; p.mesh.scale.multiplyScalar(1 + dt * 1.6); p.mesh.material.opacity = Math.max(0, 1 - t); }
-      else { fr = Math.min(11, Math.floor(t * 12)); p.mesh.scale.multiplyScalar(1 + dt * 3.2); p.mesh.material.opacity = Math.max(0, 0.9 * (1 - t * t)); }
+      else { fr = Math.min(11, Math.floor(t * 12)); p.mesh.scale.multiplyScalar(1 + dt * (p.grow || 3.2)); p.mesh.material.opacity = Math.max(0, (p.omax || 0.9) * (1 - t * t)); }
       if (p.mesh.material.map !== p.frames[fr]) p.mesh.material.map = p.frames[fr];
     } else {
       p.mesh.scale.multiplyScalar(1 + dt * 6); p.mesh.material.opacity = Math.max(0, p.life / p.max);
@@ -15015,21 +15044,21 @@ function tryAttack() {
       else damageAlien(w.dmg, dir.x, dir.z);
     }
     else if (npcHit) {
-      puff(h.point, 0xd93a2a);
+      puff(h.point, 0xd93a2a, 'blood');
       meleeHit = state.equipped === 'fists';
       if (isClient()) netToHost({ t: 'dmgNpc', i: npcs.indexOf(npcHit), dmg: w.dmg, kx: dir.x, kz: dir.z });
       else damageNPC(npcHit, w.dmg, dir.x, dir.z, ghostActive());   // #78 Ghost: silenced kills stay silent (no star)
     }
-    else if (remoteHit) { netSendHit(remoteHit, w.dmg, true); puff(h.point, 0xd93a2a); }
+    else if (remoteHit) { netSendHit(remoteHit, w.dmg, true); puff(h.point, 0xd93a2a, 'blood'); }
     else if (copMHit >= 0) {
-      puff(h.point, 0xd93a2a);
+      puff(h.point, 0xd93a2a, 'blood');
       netToHost({ t: 'dmgCop', id: copsM[copMHit] ? copsM[copMHit].nid : undefined, dmg: w.dmg, kx: dir.x, kz: dir.z });
       if (copsM[copMHit] && !copsM[copMHit].down) {
         if (state.wanted < 1) setWanted(1);   // hurting a cop is star #1, even a host-simmed one
         lastCrimeT = T;
       }
     }
-    else if (copHit) { damageCop(copHit, w.dmg, dir.x, dir.z); puff(h.point, 0xd93a2a); }
+    else if (copHit) { damageCop(copHit, w.dmg, dir.x, dir.z); puff(h.point, 0xd93a2a, 'blood'); }
     else if (carHit) {
       puff(h.point, 0xd8c860);
       if (carHit.playerDriven && carHit !== driving) {
@@ -15050,7 +15079,7 @@ function tryAttack() {
       }
     }
     else if (atmHit) shootAtm(atmHit, h.point);   // streetprops: burst the ATM open
-    else puff(h.point, 0xbbbbbb);
+    else { puff(h.point, 0xbbbbbb, 'impact'); bulletHole(h); }   // static surface: small dust + a hole
   }
   recoilPitch += 0.012 + Math.random() * 0.008;
 }
