@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.64';
+var GAME_VERSION = 'v1.66.65';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -915,7 +915,7 @@ function bldg(x, z, w, d, h, color, o) {
   var topM = o.hip ? fac : flatRoofM;
   var b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [fac, fac, topM, topM, fac, fac]);
   b.position.set(x, h / 2 + 0.1, z);
-  scene.add(b); solidMeshes.push(b); addCollider(x, z, w, d);
+  scene.add(b); solidMeshes.push(b); addCollider(x, z, w, d, 'bldg');
   if (o.hip) {
     var rt = roofTileT.clone(); rt.repeat.set(Math.max(2, w / 8), 2); rt.needsUpdate = true;
     var roof = new THREE.Mesh(hipGeo, lamb2(rt));
@@ -938,7 +938,7 @@ function shop(x, z, w, d, h, color, lines, bg, fg, o) {
   var wallM = o.wallMat || stuccoMat(color);
   var b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [wallM, wallM, flatRoofM, flatRoofM, wallM, wallM]);
   b.position.set(x, h / 2 + 0.1, z);
-  scene.add(b); solidMeshes.push(b); addCollider(x, z, w, d);
+  scene.add(b); solidMeshes.push(b); addCollider(x, z, w, d, 'bldg');
   if (o.roofType === 'hip') {
     var rh = o.roofH || 2.6, rf = new THREE.Mesh(hipGeo, o.roofMat || grayHipM);
     rf.scale.set(w + 1.6, rh, d + 1.6); rf.position.set(x, h + 0.1 + rh / 2, z); scene.add(rf);
@@ -976,7 +976,7 @@ function awningTex(c1, c2) {
 function stripMall(x, z, w, names) {
   var d = 20, h = 5, dir = -1, fz = z + dir * d / 2;
   var b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [stuccoTanM, stuccoTanM, flatRoofM, flatRoofM, stuccoTanM, stuccoTanM]);
-  b.position.set(x, h / 2 + 0.1, z); scene.add(b); solidMeshes.push(b); addCollider(x, z, w, d);
+  b.position.set(x, h / 2 + 0.1, z); scene.add(b); solidMeshes.push(b); addCollider(x, z, w, d, 'bldg');
   mapBuildings.push({ x: x, z: z, w: w, d: d, h: h, c: '#c9c3b4', pad: true });
   vParapet(x, z, w, d, h + 0.1, venCapM);
   var n = names.length, seg = w / n;
@@ -1057,7 +1057,7 @@ function gasStation(x, z) {
     dispenser(ix, z - 1.4, 0); dispenser(ix, z + 1.4, Math.PI);
     scene.add(cyl(0.12, 0.14, 0.85, 8, boltM, ix, 0.42, z - 2.5)); // end bollards
     scene.add(cyl(0.12, 0.14, 0.85, 8, boltM, ix, 0.42, z + 2.5));
-    addCollider(ix, z, 1.8, 5.0);                                 // solid pump island
+    addCollider(ix, z, 1.8, 5.0, 'gas:pump');                     // solid pump island
   });
   // monument price sign at the road corner (pole + red brand cabinet + prices)
   var sx = cx - cw / 2 - 3, sz = z + cd / 2 + 1;
@@ -1068,7 +1068,7 @@ function gasStation(x, z) {
   scene.add(box(3.4, 2.5, 0.5, lamb({ color: 0x14243a }), sx, 4.2, sz));  // price panel body
   signPlane(sx, 4.2, sz + 0.28, 0, 3.0, 2.2, ['REG 3.29', 'PLUS 3.59', 'PREM 3.89'], '#14243a', '#ffd94a');
   signPlane(sx, 4.2, sz - 0.28, Math.PI, 3.0, 2.2, ['REG 3.29', 'PLUS 3.59', 'PREM 3.89'], '#14243a', '#ffd94a');
-  addCollider(sx, sz, 1.2, 1.2);
+  addCollider(sx, sz, 1.2, 1.2, 'gas:sign');
   // forecourt amenities against the store front: air/water, ice box, trash, propane
   var afx = x + 6, afz = z - 7.2;                                 // store front line
   var airM = lamb({ color: 0xe23b2e }), iceM = lamb({ color: 0xf2f2f2 }), binM = lamb({ color: 0x2e6b3a });
@@ -1076,7 +1076,7 @@ function gasStation(x, z) {
   var iceB = box(1.6, 1.3, 1.0, iceM, afx - 3.6, 0.65, afz); scene.add(iceB); signPlane(afx - 3.6, 0.75, afz - 0.51, Math.PI, 1.3, 0.6, ['ICE'], '#2f6fb0', '#ffffff'); // ice merchandiser
   scene.add(box(0.7, 0.9, 0.7, binM, afx + 3.6, 0.5, afz));       // trash can
   scene.add(cyl(0.5, 0.5, 1.3, 8, lamb({ color: 0xd8b23a }), afx + 5.4, 0.75, afz)); // propane exchange cage
-  addCollider(afx - 6, afz, 1.0, 1.0); addCollider(afx - 3.6, afz, 1.8, 1.2);
+  addCollider(afx - 6, afz, 1.0, 1.0, 'gas:air'); addCollider(afx - 3.6, afz, 1.8, 1.2, 'gas:air');
 }
 
 // self-storage: rows of roll-up doors under low gray standing-seam metal gable
@@ -1085,7 +1085,7 @@ function storage(x, z) {
   for (var r = 0; r < 3; r++) {
     var rz = z - 14 + r * 14;
     var b = box(46, 4, 8, storageDoorM, x, 2.1, rz);
-    scene.add(b); solidMeshes.push(b); addCollider(x, rz, 46, 8);
+    scene.add(b); solidMeshes.push(b); addCollider(x, rz, 46, 8, 'bldg');
     var peak = 1.0, sl = Math.sqrt(16 + peak * peak), ang = Math.atan2(peak, 4);
     var p1 = box(47, 0.2, sl, grayHipM, x, 4.2 + peak / 2, rz - 2); p1.rotation.x = ang; scene.add(p1);
     var p2 = box(47, 0.2, sl, grayHipM, x, 4.2 + peak / 2, rz + 2); p2.rotation.x = -ang; scene.add(p2);
@@ -1104,7 +1104,7 @@ function storage(x, z) {
 function supermarket(x, z) {
   var w = 74, d = 44, h = 9, fz = z + d / 2;
   var b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [stuccoBeigeM, stuccoBeigeM, flatRoofM, flatRoofM, stuccoBeigeM, stuccoBeigeM]);
-  b.position.set(x, h / 2 + 0.1, z); scene.add(b); solidMeshes.push(b); addCollider(x, z, w, d);
+  b.position.set(x, h / 2 + 0.1, z); scene.add(b); solidMeshes.push(b); addCollider(x, z, w, d, 'bldg');
   mapBuildings.push({ x: x, z: z, w: w, d: d, h: h, c: '#3f8a4a', pad: true });
   vParapet(x, z, w, d, h + 0.1, venCapM);
   // green metal awning band across the storefront (the ALDI/Publix green line)
@@ -1135,7 +1135,7 @@ function school(x, z) {
   var w = 82, d = 32, h = 8, fz = z + d / 2;
   var wallM = stuccoMat('#e4d8c0'), pierM = stuccoMat('#d8c9a8');
   var b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [wallM, wallM, flatRoofM, flatRoofM, wallM, wallM]);
-  b.position.set(x, h / 2 + 0.1, z); scene.add(b); solidMeshes.push(b); addCollider(x, z, w, d);
+  b.position.set(x, h / 2 + 0.1, z); scene.add(b); solidMeshes.push(b); addCollider(x, z, w, d, 'bldg');
   mapBuildings.push({ x: x, z: z, w: w, d: d, h: h, c: '#c8a24a', pad: true });
   vParapet(x, z, w, d, h + 0.1, venCapM);
   var bays = 10, seg = w / bays;
@@ -1164,7 +1164,7 @@ function school(x, z) {
 function bankBldg(x, z, name) {
   var w = 26, d = 20, h = 7, fz = z + d / 2, boa = name.indexOf('AMERICA') >= 0;
   var b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [brickBankM, brickBankM, flatRoofM, flatRoofM, brickBankM, brickBankM]);
-  b.position.set(x, h / 2 + 0.1, z); scene.add(b); solidMeshes.push(b); addCollider(x, z, w, d);
+  b.position.set(x, h / 2 + 0.1, z); scene.add(b); solidMeshes.push(b); addCollider(x, z, w, d, 'bldg');
   mapBuildings.push({ x: x, z: z, w: w, d: d, h: h, c: '#3f6f9c', pad: true });
   if (boa) {
     var roof = new THREE.Mesh(hipGeo, grayHipM); roof.scale.set(w + 1.8, 3.0, d + 1.8); roof.position.set(x, h + 0.1 + 1.5, z); scene.add(roof);
@@ -1217,7 +1217,7 @@ function townhouseRow(x, z, units, ry) {
   scene.add(g);
   // collider (approx, axis-aligned)
   var W = uw * units, D = 10;
-  if (ry === 0) addCollider(x, z, W, D); else addCollider(x, z, D, W);
+  if (ry === 0) addCollider(x, z, W, D, 'bldg'); else addCollider(x, z, D, W, 'bldg');
   solidMeshes.push(g);
   mapBuildings.push({ x: x, z: z, w: ry === 0 ? W : D, d: ry === 0 ? D : W, h: 9, c: '#c7b48a', pad: false });
 }
@@ -2250,7 +2250,7 @@ function placeVenueData(v) {
   realAdd(vg); vg.updateMatrixWorld(true);
   var cy = Math.cos(yaw), sy = Math.sin(yaw), k, w;
   function toW(lx, lz) { var ax = lx * sx, az = lz * sz; return [ax * cy + az * sy + v.x, -ax * sy + az * cy + v.z]; }
-  for (k = 0; k < cols.length; k++) { var c = cols[k]; w = toW(c[0], c[1]); addColliderOBB(w[0], w[1], c[2] * sx, c[3] * sz, yaw + c[4]); }
+  for (k = 0; k < cols.length; k++) { var c = cols[k]; w = toW(c[0], c[1]); addColliderOBB(w[0], w[1], c[2] * sx, c[3] * sz, yaw + c[4], 'venue'); }
   for (k = 0; k < mbs.length; k++) {
     var e = mbs[k]; w = toW(e.x, e.z); var ew = e.w * sx, ed = e.d * sz;
     mapBuildings.push({ x: w[0], z: w[1], w: Math.abs(ew * cy) + Math.abs(ed * sy), d: Math.abs(ew * sy) + Math.abs(ed * cy), h: e.h, c: e.c, pad: e.pad });
@@ -3213,6 +3213,53 @@ function remapPerimeter() {
   }
   // rotated ROAD CLOSED barriers ~14u inside each exit, square to the road
   for (i = 0; i < REMAP_EXITS.length; i++) remapBarrier(REMAP_EXITS[i]);
+  // v1.66.64 barrier scrub: the hard world clamp (±HALF-1.2) was REACHABLE
+  // through every exit gap — the ROAD CLOSED barrier sits 14u inside and is
+  // narrower than the wall gap, and since the horizonSkirt shipped the edge
+  // looks like open hazy distance, so players walked past the barrier and hit
+  // an invisible stop at the map edge (reports @599,599 / 599,593 / 587,-599).
+  // Close each gap with a VISIBLE highway guardrail right at the bound (the
+  // clamp itself is unchanged) plus flanking oaks, so the stop reads as a
+  // closed road end, not a bug.
+  for (i = 0; i < REMAP_EXITS.length; i++) {
+    var ex2 = REMAP_EXITS[i];
+    var hz2 = ex2.edge === 'N' || ex2.edge === 'S';
+    var ci2 = Math.abs(hz2 ? ex2.dz : ex2.dx);
+    var gg = ex2.hw / Math.max(0.35, ci2) + 8;
+    var at2 = hz2 ? ex2.x : ex2.z;
+    var lo = Math.max(-HALF + 1, at2 - gg - 2), hi = Math.min(HALF - 1, at2 + gg + 2);
+    var edgeC = (ex2.edge === 'N' || ex2.edge === 'W') ? -HALF : HALF;
+    perimeterRail(hz2, edgeC + (edgeC > 0 ? -2.4 : 2.4), lo, hi, edgeC > 0 ? -1 : 1);
+  }
+}
+// galvanized W-beam guardrail spanning [lo,hi] along the map edge at line c
+// (horiz: rail runs in x at z=c; else in z at x=c). inw = inward sign along
+// the edge normal. Registers a matching collider — visible mesh + collider
+// always as a pair.
+var perimRailBeamM = null, perimRailPostM = null;
+function perimeterRail(horiz, c, lo, hi, inw) {
+  if (hi - lo < 4) return;
+  if (!perimRailBeamM) { perimRailBeamM = lamb({ color: 0xb9bfc5 }); perimRailPostM = lamb({ color: 0x6e6a60 }); }
+  var span = hi - lo, mid = (lo + hi) / 2, i;
+  // twin beams (top + mid) — chunky enough to read at 480p from 30u out
+  for (var by = 0; by < 2; by++) {
+    var beam = box(horiz ? span : 0.12, 0.3, horiz ? 0.12 : span, perimRailBeamM,
+      horiz ? mid : c, by ? 0.78 : 0.42, horiz ? c : mid);
+    scene.add(beam);
+  }
+  var n = Math.max(2, Math.round(span / 3.5));
+  for (i = 0; i < n; i++) {
+    var o = lo + (i + 0.5) / n * span;
+    scene.add(box(0.16, 0.82, 0.16, perimRailPostM, horiz ? o : c, 0.41, horiz ? c : o));
+  }
+  addCollider(horiz ? mid : c, horiz ? c : mid, horiz ? span : 1.0, horiz ? 1.0 : span, 'perimeter:rail');
+  // flanking oaks just inside, where the ground is clear of the exit road —
+  // they thicken the treeline so the closed end doesn't read as open horizon
+  for (var s = lo + 3; s < hi - 2; s += 7) {
+    var tx = horiz ? s + (Math.random() - 0.5) * 2 : c + inw * (3 + Math.random() * 6);
+    var tz = horiz ? c + inw * (3 + Math.random() * 6) : s + (Math.random() - 0.5) * 2;
+    if (remapPointClear(tx, tz, 2.5)) oak(tx, tz);
+  }
 }
 function remapBarrier(e) {
   var bx = e.x + e.dx * 14, bz = e.z + e.dz * 14;
@@ -3227,7 +3274,7 @@ function remapBarrier(e) {
     b.rotation.y = yaw;
     scene.add(b);
   }
-  addColliderOBB(bx, bz, half, 0.8, yaw);
+  addColliderOBB(bx, bz, half, 0.8, yaw, 'roadblock');
   signPlane(bx + e.dx * 1.2, 2.2, bz + e.dz * 1.2, Math.atan2(e.dx, e.dz), 6, 1.6, ['ROAD', 'CLOSED'], '#b03018', '#ffffff', true);
 }
 
@@ -3881,7 +3928,10 @@ var houseFronts = [];      // final (post-nudge) house-front frames for the land
       // axis-aligned AABB swallowed the driveway/side-yard corners on diagonal
       // streets — players hit "invisible walls" in front of their own garage
       // (bug reports mree5z0n, mreealh2)
-      addColliderOBB(x, z, w / 2 + 0.2, d / 2 + 0.2, rot, 'house');
+      // v1.66.64: pass yaw in RADIANS (`a`), not degrees — `rot` fed straight
+      // into cos/sin misoriented every diagonal house's collider (an invisible
+      // wall jutting into the yard while a house corner stayed walk-through)
+      addColliderOBB(x, z, w / 2 + 0.2, d / 2 + 0.2, a, 'house');
       houseStats.colliders++;
     } else {
       addCollider(x, z, w + 0.4, d + 0.4, 'house');
@@ -4093,7 +4143,7 @@ function mastArm(px, pz, ax, az, len, nHeads, fx, fz, sign, signRy) {
   var g = new THREE.Group(); g.position.set(px, 0, pz);
   var poleH = 7.8, armY = poleH - 0.5;
   g.add(cyl(0.28, 0.34, poleH, 10, poleMetal, 0, poleH / 2, 0));
-  addCollider(px, pz, 0.68, 0.68);   // signal pole base — static, not breakable
+  addCollider(px, pz, 0.68, 0.68, 'signal');   // signal pole base — static, not breakable
   g.add(box(Math.abs(ax) * len + 0.25, 0.22, Math.abs(az) * len + 0.25, poleMetal, ax * len / 2, armY, az * len / 2));
   for (var i = 0; i < nHeads; i++) {
     var t = (i + 1) / (nHeads + 1) * len;
@@ -4432,7 +4482,7 @@ if (WC_REMAP) (function r3Junction() {
     g.rotation.y = perpYaw;                     // local +x -> across the road (toward centerline)
     var poleH = 7.8, armY = poleH - 0.5, len = hw * 1.5;
     g.add(cyl(0.28, 0.34, poleH, 10, poleMetal, 0, poleH / 2, 0));
-    addCollider(pp[0], pp[1], 0.68, 0.68);      // signal pole base
+    addCollider(pp[0], pp[1], 0.68, 0.68, 'signal');      // signal pole base
     g.add(box(len, 0.22, 0.25, poleMetal, -len / 2, armY, 0));
     var nHeads = hw >= 13 ? 3 : 2;
     for (var hi = 0; hi < nHeads; hi++) {
@@ -8114,7 +8164,7 @@ function spOverlapsBuilding(x, z, hx, hz) {
     g.rotation.y = ry;
     scene.add(g);
     if (SP_SOLID[name]) {
-      addCollider(x, z, hx * 2, hz * 2);
+      addCollider(x, z, hx * 2, hz * 2, 'prop:' + name);
       solidMeshes.push(g);   // bullets stop on the big stuff
     }
     if (SP_SNAP[name]) {
@@ -8316,7 +8366,7 @@ if (WC_REMAP) (function densityLayer() {
   function dCylAsset(name, x, y, z) { if (!dAsset[name]) return; var a = dAsset[name]; bake('d_' + name, { texName: name }, UCYL, mtx(x, y, z, 0, a.dims[0], a.dims[1], a.dims[0])); densityStats.clutter++; densityPlaced.push({ n: name, x: x, z: z }); }
   // waist-high+ poles (roadside sign posts, billboard legs) block the player;
   // short yard-sign stakes (h < 1.5) stay pass-through
-  function pole(x, z, h, r) { r = r || 0.11; bake('_pole', { color: 0x8a8f94 }, UCYL, mtx(x, h / 2, z, 0, r * 2, h, r * 2)); if (h >= 1.5) addCollider(x, z, Math.max(0.26, r * 2), Math.max(0.26, r * 2)); }
+  function pole(x, z, h, r) { r = r || 0.11; bake('_pole', { color: 0x8a8f94 }, UCYL, mtx(x, h / 2, z, 0, r * 2, h, r * 2)); if (h >= 1.5) addCollider(x, z, Math.max(0.26, r * 2), Math.max(0.26, r * 2), 'pole'); }
   // tileable fence/wall run A->B, height H, texture repeating along its length
   function fenceRun(ax, az, bx, bz, name, solid) {
     var a = dAsset[name]; if (!a) return;
@@ -8327,7 +8377,7 @@ if (WC_REMAP) (function densityLayer() {
     for (var i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * rep);
     var ry = Math.atan2(-dz, dx);
     bake('d_' + name, { texName: name, double: true }, g, mtx((ax + bx) / 2, H / 2 + 0.02, (az + bz) / 2, ry, 1, 1, 1));
-    if (solid) addColliderOBB((ax + bx) / 2, (az + bz) / 2, L / 2, 0.25, ry);
+    if (solid) addColliderOBB((ax + bx) / 2, (az + bz) / 2, L / 2, 0.25, ry, 'fence');
     densityStats.fence++;
   }
   function fenceRect(cx, cz, w, d, rot, name, solid) {
@@ -8737,7 +8787,7 @@ if (WC_REMAP) (function densityLayer() {
     var hx = (dims[0] * c + dims[2] * s) / 2, hz = (dims[0] * s + dims[2] * c) / 2;
     if (spOverlapsBuilding(x, z, hx, hz)) return;
     g.position.set(x, y === undefined ? 0.13 : y, z); g.rotation.y = ry; scene.add(g);
-    if (SP_SOLID[name]) { addCollider(x, z, hx * 2, hz * 2); solidMeshes.push(g); }
+    if (SP_SOLID[name]) { addCollider(x, z, hx * 2, hz * 2, 'prop:' + name); solidMeshes.push(g); }
     if (SP_SNAP[name]) { registerBreakable(g, x, z, Math.max(hx, hz) + 0.15, SP_SNAP[name], null, SP_BLOCKR[name] || 0); var bb = breakables[breakables.length - 1]; if (name === 'parkingmeter') bb.kind = 'meter'; if (name === 'hydrant') bb.kind = 'hydrant'; if (name === 'trashcan' || name === 'wheeliebin') bb.kind = 'trash'; }
     if (SP_INTERACT[name]) { var it = { kind: SP_INTERACT[name], x: x, z: z, fx: -Math.cos(ry), fz: Math.sin(ry), g: g, cd: -99, robbed: false }; if (it.kind === 'atm') { g.userData.atm = it; if (!SP_SOLID[name]) solidMeshes.push(g); } if (it.kind === 'kick' && SP_SNAP[name]) it.bb = breakables[breakables.length - 1]; streetPropInteractables.push(it); }
     densityStats.props++;
@@ -8777,12 +8827,25 @@ if (WC_REMAP) (function densityLayer() {
         }
         // one bus shelter per long arterial
         if (hr.cls === 0 && lenH > 120) {
-          var pbs = rmAt(hr.pts, hr.cum, lenH * 0.5), ofb = hr.hw + 3.4;
-          var bsx = pbs.x - pbs.uz * ofb, bsz = pbs.z + pbs.ux * ofb;
-          // shelter sits on the LEFT sidewalk (offset by (-uz,+ux)); its opening
-          // (front = (-cos,sin)) must face BACK toward the road, so add PI —
-          // Math.atan2(ux,uz) alone points the opening away from the street.
-          if (spotClear(bsx, bsz)) spFull('busshelter', bsx, bsz, Math.atan2(pbs.ux, pbs.uz) + Math.PI);
+          // v1.66.64 (report mrftfuy6 @17,13): the mid-polyline spot can land in
+          // the JUNCTION THROAT — clear of this road's own centerline offset but
+          // sitting on ANOTHER road's asphalt ("random bus stop in the middle of
+          // the road"). Demand clearance from the WHOLE network (own-road offset
+          // is 3.4u past the curb, so pad 2 never rejects the home road) and
+          // slide along the polyline until a clear shoulder is found.
+          for (var bo = 0; bo < 7; bo++) {
+            var bs2 = lenH * 0.5 + (bo % 2 ? -1 : 1) * Math.ceil(bo / 2) * 18;
+            if (bs2 < 30 || bs2 > lenH - 30) continue;
+            var pbs = rmAt(hr.pts, hr.cum, bs2), ofb = hr.hw + 3.4;
+            var bsx = pbs.x - pbs.uz * ofb, bsz = pbs.z + pbs.ux * ofb;
+            // shelter sits on the LEFT sidewalk (offset by (-uz,+ux)); its opening
+            // (front = (-cos,sin)) must face BACK toward the road, so add PI —
+            // Math.atan2(ux,uz) alone points the opening away from the street.
+            if (spotClear(bsx, bsz) && remapPointClear(bsx, bsz, 2) && !remapInClear(bsx, bsz, 0)) {
+              spFull('busshelter', bsx, bsz, Math.atan2(pbs.ux, pbs.uz) + Math.PI);
+              break;
+            }
+          }
         }
       }
     }
@@ -9403,7 +9466,7 @@ if (WC_REMAP) (function fenceSystem() {
     g.add(body); g.position.set(pcx, 0, pcz); g.rotation.y = ry; scene.add(g);
     registerBreakable(g, pcx, pcz, Math.max(1.3, pl / 2), 'fence', null, 0);
     var bk = breakables[breakables.length - 1];
-    bk.col = addColliderOBB(pcx, pcz, pl / 2, 0.14, ry);   // thin wall the player leans on; car-snap frees it
+    bk.col = addColliderOBB(pcx, pcz, pl / 2, 0.14, ry, 'fence');   // thin wall the player leans on; car-snap frees it
     bk.fenceType = type;
   }
 
@@ -9878,7 +9941,7 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
       if (e.anim) envAnimInit(rec, e);   // STEP 2: rig up spin/wave/flail/sway/glow/flow
       if (e.solid && !opts.noCol) solidMeshes.push(g);   // bullets stop on solid instances
     }
-    if (e.solid && !opts.noCol) { addColliderOBB(x, z, dims[0] / 2, dims[2] / 2, ry); envStats.colliders++; }
+    if (e.solid && !opts.noCol) { addColliderOBB(x, z, dims[0] / 2, dims[2] / 2, ry, 'env:' + name); envStats.colliders++; }
     if (opts.mapB || BIGMAP[name]) {
       var c = Math.abs(Math.cos(ry)), s = Math.abs(Math.sin(ry));
       mapBuildings.push({ x: x, z: z, w: dims[0] * c + dims[2] * s, d: dims[0] * s + dims[2] * c, c: 0x8a8f94, pad: 0, h: dims[1] });
@@ -9974,7 +10037,7 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
     // a bike rack (street prop — no env equivalent) near the wall edge
     if (typeof getStreetProp === 'function') {
       var br = getStreetProp('bikerack'), w = P(7.5, 3.0);
-      if (br) { br.position.set(w[0], 0, w[1]); br.rotation.y = faceOut; scene.add(br); addCollider(w[0], w[1], 1.8, 0.6); if (typeof propClutterReg === 'function') propClutterReg(w[0], w[1]); }
+      if (br) { br.position.set(w[0], 0, w[1]); br.rotation.y = faceOut; scene.add(br); addCollider(w[0], w[1], 1.8, 0.6, 'env:barrier'); if (typeof propClutterReg === 'function') propClutterReg(w[0], w[1]); }
     }
   })();
 
@@ -18988,6 +19051,27 @@ function submitBug() {
   document.getElementById('bugSend').disabled = true;
   st.className = ''; st.textContent = 'Sending…';
   var meta = { ver: GAME_VERSION, name: getPlayerName(), mode: net.mode, room: net.room || null, pos: [Math.round(player.x), Math.round(player.z)], inside: !!inside, driving: !!driving, wanted: state.wanted, ua: navigator.userAgent.slice(0, 140) };
+  // self-diagnosing barrier reports: attach the 3 nearest colliders (center
+  // distance) with their source tags, so an "invisible barrier" report names
+  // its own culprit without a repro session.
+  try {
+    var nc = [];
+    for (var nci = 0; nci < colliders.length; nci++) {
+      var nco = colliders[nci];
+      if (nco.active === false) continue;
+      var ncx = (nco.x0 + nco.x1) / 2, ncz = (nco.z0 + nco.z1) / 2;
+      var ndx = ncx - player.x, ndz = ncz - player.z;
+      nc.push([ndx * ndx + ndz * ndz, nco]);
+    }
+    nc.sort(function (a2, b2) { return a2[0] - b2[0]; });
+    meta.cols = nc.slice(0, 3).map(function (e2) {
+      var c2 = e2[1];
+      var o2 = { x: Math.round((c2.x0 + c2.x1) / 2 * 10) / 10, z: Math.round((c2.z0 + c2.z1) / 2 * 10) / 10, w: Math.round((c2.x1 - c2.x0) * 10) / 10, d: Math.round((c2.z1 - c2.z0) * 10) / 10, dist: Math.round(Math.sqrt(e2[0]) * 10) / 10, tag: c2.tag || '?' };
+      if (c2.obb) o2.obb = 1;
+      if (c2.lake) o2.lake = 1;
+      return o2;
+    });
+  } catch (e3) { }
   fetch(base + '/bug', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: text, img: shot, meta: meta }) })
     .then(function (r) { return r.json(); })
     .then(function (j) {
@@ -19006,6 +19090,7 @@ document.addEventListener('keydown', function (e) {
   if (bugOpen) { if (e.code === 'F8' || e.code === 'Escape') { e.preventDefault(); closeBug(); } return; }
   if (chatOpen) return;   // the chat input owns the keyboard while open
   if (e.code === 'F8' && state.running) { e.preventDefault(); openBug(); return; }
+  if (e.code === 'F9') { e.preventDefault(); showColliders(); return; }   // barrier debug overlay (see buildColliderView)
   if (e.code === 'KeyV' && !e.repeat && state.running && !state.menu && netActive()) { voiceStart(); return; }
   keys[e.code] = true;
   if (e.code === 'KeyH' && driving && state.running && !state.menu && !state.dead) { playerHorn(); return; }
@@ -19573,7 +19658,53 @@ function loadNpcVoiceChunks() {
 setTimeout(loadNpcVoiceChunks, 800);
 
 // debug hook
+// ---------------- collider debug overlay (F9 / __wc.showColliders) ----------------
+// Translucent red outline boxes over every ACTIVE collider so players and
+// testers can SEE the barriers (part of the invisible-barrier prevention
+// layer). One LineSegments = one draw call; rebuilt on every enable so
+// toppled props (.active=false) drop out and late colliders appear.
+// Colors: red = AABB, orange = OBB (drawn rotated), cyan = lake/pond wade.
+var colViewMesh = null, colViewOn = false;
+function buildColliderView() {
+  if (colViewMesh) { scene.remove(colViewMesh); colViewMesh.geometry.dispose(); colViewMesh.material.dispose(); colViewMesh = null; }
+  var pos = [], col = [], CH = 2.2, i, k;
+  function seg(ax, az, bx, bz, r2, g2, b2) {
+    pos.push(ax, 0.08, az, bx, 0.08, bz,  ax, CH, az, bx, CH, bz,  ax, 0.08, az, ax, CH, az,  bx, 0.08, bz, bx, CH, bz);
+    for (k = 0; k < 8; k++) col.push(r2, g2, b2);
+  }
+  for (i = 0; i < colliders.length; i++) {
+    var c = colliders[i];
+    if (c.active === false) continue;
+    var r2 = 1, g2 = 0.12, b2 = 0.12, pts;
+    if (c.lake) { r2 = 0.15; g2 = 0.7; b2 = 1; }
+    else if (c.obb) { r2 = 1; g2 = 0.55; b2 = 0.05; }
+    if (c.obb) {
+      // world = (u*c + v*s + x, -u*s + v*c + z) — same frame as pushOut
+      pts = [];
+      var cor = [[-c.hx, -c.hz], [c.hx, -c.hz], [c.hx, c.hz], [-c.hx, c.hz]];
+      for (k = 0; k < 4; k++) pts.push([cor[k][0] * c.c + cor[k][1] * c.s + c.x, -cor[k][0] * c.s + cor[k][1] * c.c + c.z]);
+    } else {
+      pts = [[c.x0, c.z0], [c.x1, c.z0], [c.x1, c.z1], [c.x0, c.z1]];
+    }
+    for (var e = 0; e < 4; e++) { var p1 = pts[e], p2 = pts[(e + 1) % 4]; seg(p1[0], p1[1], p2[0], p2[1], r2, g2, b2); }
+  }
+  var g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+  g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(col), 3));
+  var m = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.55, fog: false, depthTest: true });
+  colViewMesh = new THREE.LineSegments(g, m);
+  colViewMesh.frustumCulled = false;
+  scene.add(colViewMesh);
+}
+function showColliders(on) {
+  colViewOn = on === undefined ? !colViewOn : !!on;
+  if (colViewOn) buildColliderView();
+  else if (colViewMesh) { scene.remove(colViewMesh); colViewMesh.geometry.dispose(); colViewMesh.material.dispose(); colViewMesh = null; }
+  return colViewOn;
+}
+
 window.__wc = {
+  showColliders: showColliders, colliderView: function () { return colViewOn; },
   state: state, player: player, npcs: npcs, cashes: cashes, cops: cops,
   kids: kids, adultRace: adultRace, spawnKids: spawnKids, updateKids: updateKids, playKidVoice: playKidVoice, kidVoiceDbg: function () { return kidVoiceDbg; },
   getKidPlaysets: getKidPlaysets, nearestPlayset: nearestPlayset, startKidPlay: startKidPlay,
