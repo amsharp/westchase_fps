@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.67.14';   // merge: live2-ai netcode/engine + main v1.67.13
+var GAME_VERSION = 'v1.67.15';   // quest givers cleared of street-furniture colliders
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -18955,6 +18955,16 @@ function questSpotClear(x, z) {
   if (typeof inLake === 'function' && inLake(x, z)) return false;
   if (typeof remapInClear === 'function' && remapInClear(x, z, 0.4)) return false;
   if (typeof houseBlocksSpot === 'function' && houseBlocksSpot(x, z)) return false;
+  // street furniture / props: a giver you must TALK to must not stand INSIDE a
+  // mailbox/fence/light/sign collider (quest scan caught q6 Xander in a
+  // mailbox_cluster, q9 Dylan in a fence). Buildings/venues stay governed by
+  // the checks above so "at the door" placements aren't pushed off the stoop.
+  for (var i = 0; i < colliders.length; i++) {
+    var b = colliders[i];
+    if (!b.tag || !/^(env:|prop:|fence|light|signal|gas:|roadblock)/.test(b.tag)) continue;
+    if (b.obb) { var dx = x - b.x, dz = z - b.z, u = dx * b.c - dz * b.s, v = dx * b.s + dz * b.c; if (Math.abs(u) < b.hx + 0.45 && Math.abs(v) < b.hz + 0.45) return false; }
+    else if (x > b.x0 - 0.45 && x < b.x1 + 0.45 && z > b.z0 - 0.45 && z < b.z1 + 0.45) return false;
+  }
   return true;
 }
 function questSnapClear(x, z) {
