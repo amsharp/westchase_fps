@@ -730,3 +730,18 @@ sim-sec. 3 seeds (1234567 / 42 / 999983): 0 NaN in any player/npc/car/cop
 position, sim stays running, 0 real pageerrors (only a harmless file://
 relay-fetch ERR_CONNECTION_RESET). The SP engine holds up under adversarial
 input. Reusable — re-run with SECS=/SEED= env after risky engine changes.
+
+## S9 QUEST SMOKE (opus, cycle 5): giver-in-prop fixed, waypoints documented
+New tool questscan.js (audits all 10 quests' givers + beat waypoints vs the live
+world; drives startQuest for each). Results:
+- ALL 10 quests start clean (activate + coherent first beat + waypoint, 0 throws).
+- FIXED@v1.67.15: 2 givers stood inside street-furniture colliders (q6 Xander in a
+  mailbox_cluster, q9 Dylan in a fence). questSpotClear didn't check env/prop/fence
+  colliders — added that test; re-scan 0 giver issues, quests still start.
+- OPEN for quest-author (NOT my lane to blindly move): several beat waypoints land
+  inside solid survey-house shells — q1 dinner-party "search body/dining room"
+  (-191,-211), q6 arcade level beats (-150,22), q8 hollow-oak/contract spots,
+  q9 Dylan-return (-72,-97, same as the giver, now cleared). If these beats rely on
+  a POI interior room (registerQuestPOI/enterPOI) the "blocked" tag is expected and
+  fine; if they qDrop a fetch item INSIDE a solid shell it's unreachable. Needs the
+  quest author to confirm which beats use interiors vs open-world drops.
