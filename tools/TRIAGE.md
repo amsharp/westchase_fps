@@ -745,3 +745,10 @@ world; drives startQuest for each). Results:
   a POI interior room (registerQuestPOI/enterPOI) the "blocked" tag is expected and
   fine; if they qDrop a fetch item INSIDE a solid shell it's unreachable. Needs the
   quest author to confirm which beats use interiors vs open-world drops.
+
+## S12 AUDIO SMOKE (opus, cycle 5) — PASS
+New tool audiosmoke.js: initAudio() + fire all 31 sfx kinds + voice/footstep/scream
++ positional path, post-Lyria-overhaul. Result: AudioContext running, 0 throws,
+20 kinds use Lyria pack samples / 11 synth fallback (by design — pack doesn't cover
+every kind), npc voice + footstep + flee-scream + positional all fire clean, 0
+pageerrors. Sound system robust after the v1.67.0 overhaul. Reusable regression tool.
