@@ -752,3 +752,14 @@ New tool audiosmoke.js: initAudio() + fire all 31 sfx kinds + voice/footstep/scr
 20 kinds use Lyria pack samples / 11 synth fallback (by design — pack doesn't cover
 every kind), npc voice + footstep + flee-scream + positional all fire clean, 0
 pageerrors. Sound system robust after the v1.67.0 overhaul. Reusable regression tool.
+
+## S9 FOLLOW-UP (opus): quest waypoint-in-shell flags were FALSE POSITIVES
+Investigated the flagged beat waypoints. Conclusion: NOT blockers, no fix needed.
+- Interior-heavy quests (q3/q4/q6/q7/q8/q9/q10) correctly use under-map QPOI rooms
+  entered via a surface hatch; the "blocked" tag at the hatch surface coord is expected.
+- q1 (the one quest using RAW coords, not QPOI): reachability walk-test — the fetch/
+  body spot (-191,-211) is NOT in a house (houseBlocksSpot=false; blocked only by the
+  body/party props) and the player reaches within 1.55u; the seating spot is fully free;
+  the Vivian giver spot is walkable, talk-reachable within 2.4u. Interact/fetch radii
+  (~2.6u pickup) exceed those gaps, so q1 completes. Only the giver-in-prop cases were
+  real (fixed v1.67.15). Quest author: no action needed on waypoints.
