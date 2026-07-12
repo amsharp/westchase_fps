@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.67.13';
+var GAME_VERSION = 'v1.67.14';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -15960,11 +15960,12 @@ var GF_R = { index: [6, 7, 8], middle: [13, 14, 15], ring: [17, 18, 19], pinky: 
 var GF_L = { index: [29, 30, 31], middle: [36, 37, 38], ring: [40, 41, 42], pinky: [44, 45, 46], thumb: [32, 33, 34] };
 var GRIP_FINGERS = null;                 // {boneIdx: Quaternion}
 var _flexAxis = new THREE.Vector3(1, 0, 0), _flexQ = new THREE.Quaternion();
-var LGRIP_CURL = [0.5, 1.0, 0.6];   // v1.67.10: support hand DRAPES over the foregrip (was a tight clench 0.68/1.38/0.74 that balled up beside the gun instead of wrapping it)
+var LGRIP_CURL = [0.3, 0.58, 0.38];   // v1.67.14: RELAXED support hand — fingers gently rest/drape over the foregrip instead of a tight clench (was 0.5/1.0/0.6, orig 0.68/1.38/0.74)
+var RGRIP_CURL = [0.4, 0.78, 0.44];   // v1.67.14: RELAXED trigger hand — softer curl around the pistol grip (was a full 0.68/1.38/0.74 clench). Debug-tunable via __wc.setRCurl
 function buildGripFingers(restQ) {
   var g = {};
   function set(idx, ang) { var q = restQ[idx].clone(); _flexQ.setFromAxisAngle(_flexAxis, ang); q.multiply(_flexQ); g[idx] = q; }
-  function wrap(ids) { set(ids[0], 0.68); set(ids[1], 1.38); set(ids[2], 0.74); }   // full curl: MCP/PIP/DIP — tight clench onto the grip
+  function wrap(ids) { set(ids[0], RGRIP_CURL[0]); set(ids[1], RGRIP_CURL[1]); set(ids[2], RGRIP_CURL[2]); }   // trigger hand: tunable curl
   function wrapL(ids) { set(ids[0], LGRIP_CURL[0]); set(ids[1], LGRIP_CURL[1]); set(ids[2], LGRIP_CURL[2]); }   // support hand: tunable drape
   function trig(ids) { set(ids[0], 0.16); set(ids[1], 0.30); set(ids[2], 0.20); }   // index resting on the trigger
   function thumb(ids) { set(ids[0], 0.30); set(ids[1], 0.64); set(ids[2], 0.50); }  // thumb wrapped over the top
@@ -21734,6 +21735,7 @@ window.__wc = {
   setRGrip: function (w, arr) { RIGHT_GRIP[w] = arr; },   // debug: tune per-weapon trigger-hand IK grip target
   getRGrip: function (w) { return RIGHT_GRIP[w]; },
   setLCurl: function (a, b, c) { LGRIP_CURL = [a, b, c]; if (psxArms) GRIP_FINGERS = buildGripFingers(psxArms.restQ); },   // debug: tune support-hand finger drape
+  setRCurl: function (a, b, c) { RGRIP_CURL = [a, b, c]; if (psxArms) GRIP_FINGERS = buildGripFingers(psxArms.restQ); },   // debug: tune trigger-hand finger curl
   setSupPose: function (w, arr) { SUPPORT_POSE[w] = arr; },   // debug: tune support-arm seed eulers (bones 24-27)
   getSupPose: function (w) { return SUPPORT_POSE[w]; },
   getBoneQ: function (i) { return psxArms ? psxArms.bones[i].quaternion.toArray().map(function (v) { return Math.round(v * 1000) / 1000; }) : null; },
