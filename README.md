@@ -559,6 +559,11 @@ puff of splinters, leaving a driveable gap while the rest stays standing
 Your stolen ride isn't bulletproof: police fire chews through it. When
 it catches **fire you have ~5 seconds to bail** before it explodes.
 
+Drive into the **lake** and the engine floods and stalls — the car sinks
+to the bottom with a splash and settles on the bed, so **get out (E)**
+before it goes under; you'll surface into the swimmable water while the
+sunken wreck stays put until it's towed.
+
 Cars have some life to them: bodies bounce on their suspension (slam a
 curb or a wall and feel it), the front wheels visibly steer, and after
 dark every car projects real headlight pools onto the asphalt.

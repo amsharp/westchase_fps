@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.66.102';   // merge + netcode fuzz hardening
+var GAME_VERSION = 'v1.67.14';   // merge: live2-ai netcode/engine + main v1.67.13
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -808,9 +808,21 @@ function sidewalk(cx, cz, w, d, raise) {
   var m = lamb({ map: walkT.clone() }); m.map.repeat.set(w / 8, d / 8); m.map.needsUpdate = true;
   var mesh = new THREE.Mesh(geo, m); mesh.position.set(cx, raise ? 0.125 : 0.12, cz); scene.add(mesh);
 }
+// Parking/pavement lots share the ~0.1 ground band and their painted stripes
+// are baked INTO the texture, so two overlapping lots (or a lot over the merged
+// house apron) at the same y z-fight — stripes flicker in/out with the camera
+// (report mrgn7ixv @ -82,5). A per-surface depth bias (like the road-paint
+// polygonOffset) gives every lot a distinct, camera-independent depth so
+// coplanar lots never fight. Cheap, no visible y change. Cycled + combined with
+// the small y-ladder so the bias stays modest and bounded.
+var _parkSeq = 0;
+function parkDepthBias(m) {
+  m.polygonOffset = true; m.polygonOffsetFactor = -1; m.polygonOffsetUnits = -1 - (_parkSeq++ % 14);
+  return m;
+}
 function parkingLot(cx, cz, w, d) {
   var geo = new THREE.PlaneGeometry(w, d); geo.rotateX(-Math.PI / 2);
-  var m = lamb({ map: parkingT.clone() }); m.map.repeat.set(w / 22, d / 22); m.map.needsUpdate = true;
+  var m = parkDepthBias(lamb({ map: parkingT.clone() })); m.map.repeat.set(w / 22, d / 22); m.map.needsUpdate = true;
   var mesh = new THREE.Mesh(geo, m); mesh.position.set(cx, 0.1, cz); scene.add(mesh);
   mapParking.push({ x: cx, z: cz, w: w, d: d });
 }
@@ -891,8 +903,8 @@ function addSignGlow(x, y, z, ry, w, h) {
 }
 function signPlane(x, y, z, ry, w, h, lines, bg, fg, noGlow) {
   // TWO front-facing planes back-to-back, not one DoubleSide plane: the
-  // backface rendered the text MIRRORED (mrftt0x4 — the SELF STORAGE banner
-  // read backwards from the street). Same recipe as the dSign/poleSign fix.
+  // backface rendered the text MIRRORED (mrftt0x4/mrgmtcce — the SELF STORAGE
+  // banner read backwards from the street). Same recipe as dSign/poleSign.
   var mat = new THREE.MeshBasicMaterial({ map: signTex(lines, bg, fg) });
   var g = new THREE.Group();
   var f = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat); f.position.z = 0.012;
@@ -914,8 +926,12 @@ function publixSign(x, y, z, ry, w, h) {
   tx.repeat.set(Math.max(1, Math.round((w / h) / aspect)), 1);
   im.onload = function () { tx.needsUpdate = true; };
   im.src = PUBLIX_SIGN;
-  var m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: tx, side: THREE.DoubleSide }));
+  // two front-side planes back-to-back (DoubleSide mirrors the wordmark from behind)
+  var pgeo = new THREE.PlaneGeometry(w, h), pmat = new THREE.MeshBasicMaterial({ map: tx });
+  var m = new THREE.Mesh(pgeo, pmat);
   m.position.set(x, y, z); m.rotation.y = ry; m.name = 'publixSign'; scene.add(m);
+  var pb = new THREE.Mesh(pgeo, pmat);
+  pb.position.set(x, y, z); pb.rotation.y = ry + Math.PI; pb.name = 'publixSign'; scene.add(pb);
   addSignGlow(x, y, z, ry, w, h);
   return m;
 }
@@ -1621,6 +1637,29 @@ var PALM_VARIANTS = [
   { c: 2, hMin: 4.2, hMax: 5.5, lean: 0 },
   { c: 3, hMin: 5.4, hMax: 7.4, lean: 0.13 }
 ];
+// Coconut cluster seated at the crown base (report mrgmu0ai: owner saw a
+// "floating coconut cluster" — palms had NO coconut mesh at all and the crown
+// is rigidly parented to the trunk top, so nothing could actually detach). We
+// add a real drupe cluster, tucked right under the frond crown as a CHILD of
+// the palm group so it leans/spins with the trunk and can never float off.
+// One shared merged geometry keeps it to a single extra draw per palm.
+var cocoMat = lamb({ color: 0x6b4a2b });
+var PALM_COCOS = (function () {
+  var base = new THREE.SphereGeometry(0.15, 7, 6);
+  var offs = [[0.02, 0.02, 0.0], [0.17, -0.05, 0.06], [-0.15, -0.04, 0.11], [0.06, -0.03, -0.17], [-0.09, -0.09, -0.07]];
+  var P = [], N = [];
+  for (var k = 0; k < offs.length; k++) {
+    var gg = base.clone();
+    gg.scale(0.72 + 0.4 * (k % 2), 0.88, 0.72 + 0.32 * (k % 3 ? 1 : 0));
+    gg.translate(offs[k][0], offs[k][1], offs[k][2]);
+    var pos = gg.attributes.position, nm = gg.attributes.normal, idx = gg.index, cnt = idx ? idx.count : pos.count;
+    for (var i = 0; i < cnt; i++) { var vi = idx ? idx.getX(i) : i; P.push(pos.getX(vi), pos.getY(vi), pos.getZ(vi)); N.push(nm.getX(vi), nm.getY(vi), nm.getZ(vi)); }
+  }
+  var g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(P), 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(N), 3));
+  return g;
+})();
 function palm(x, z) {
   if (typeof WC_REMAP !== 'undefined' && WC_REMAP && onRemapLotStatic(x, z, 0.8)) return;   // lots: same rule as oak()
   // v1.65.5 prop-placement fix: same building-clearance guard as oak().
@@ -1630,7 +1669,14 @@ function palm(x, z) {
   g.add(cyl(0.17, 0.26, h, 7, lamb2(barkT2), 0, h / 2, 0));
   var crownMesh = new THREE.Mesh(PALM_CROWNS[pv.c], frondMat);
   crownMesh.position.y = h; crownMesh.rotation.y = Math.random() * Math.PI * 2;
-  g.add(crownMesh); g.add(blobShadow(1.1, 1.1, 0.05));
+  g.add(crownMesh);
+  // ~55% of palms fruit; cluster sits just under the crown base at the trunk top
+  if (Math.random() < 0.55) {
+    var coco = new THREE.Mesh(PALM_COCOS, cocoMat);
+    coco.position.y = h - 0.2; coco.rotation.y = Math.random() * Math.PI * 2;
+    g.add(coco);
+  }
+  g.add(blobShadow(1.1, 1.1, 0.05));
   g.position.set(x, 0, z); g.rotation.y = Math.random() * Math.PI;
   if (pv.lean) g.rotation.z = (Math.random() < 0.5 ? 1 : -1) * pv.lean * (0.7 + Math.random() * 0.5);   // some palms lean
   scene.add(g);
@@ -2395,7 +2441,7 @@ function remapSurfaces() {
   for (var i = 0; i < REMAP_SURFACES.length; i++) {
     var s = REMAP_SURFACES[i], park = s.kind === 'parking';
     var geo = new THREE.PlaneGeometry(s.w, s.d); geo.rotateX(-Math.PI / 2);
-    var m = lamb({ map: (park ? parkingT : concreteT).clone() });
+    var m = parkDepthBias(lamb({ map: (park ? parkingT : concreteT).clone() }));
     m.map.repeat.set(Math.max(1, s.w / (park ? 22 : 6)), Math.max(1, s.d / (park ? 22 : 6))); m.map.needsUpdate = true;
     var mesh = new THREE.Mesh(geo, m);
     // per-surface y ladder so overlapping same-kind lots don't sit coplanar and
@@ -4155,7 +4201,7 @@ var houseFronts = [];      // final (post-nudge) house-front frames for the land
     lgeo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(luv), 2));
     var lt = parkingT.clone(); lt.needsUpdate = true;
     lt.wrapS = lt.wrapT = THREE.RepeatWrapping;
-    var lmesh = new THREE.Mesh(lgeo, lamb({ map: lt }));
+    var lmesh = new THREE.Mesh(lgeo, parkDepthBias(lamb({ map: lt })));
     scene.add(lmesh);
     houseStats.meshes++;
   }
@@ -6182,7 +6228,7 @@ function buildPerson(shirtC, pantsC, skinC, opts) {
 }
 
 var npcs = [];
-var NPC_COUNT = 440;  // doubled crowd — affordable now that off-screen skinned characters frustum-cull (see buildMeshySkinned) + distance anim-LOD (was 220)
+var NPC_COUNT = 250;  // frustum-cull + anim-LOD only cut RENDER cost; the HOST bot sims ALL npcs every sub-step (CPU-bound headless), so 440 spiralled its fixed-timestep loop into slow-motion for every client (mrgmuf3y/mrgmusra). 250 holds real-time; raising it needs host-side sim-distance culling (perf round).
 // home-zone weights: core intersection / residential neighborhoods / collectors+Lynmar
 var NPC_W_CORE = 0.60, NPC_W_RES = 0.32;   // remainder (~0.08) = collectors
 var WALK = WC_REMAP ? { x0: -240, x1: 120, z0: -180, z1: 170 }   // recentred on the true venue span
@@ -6649,7 +6695,13 @@ function attachAccessory(n, name, variant) {
     // orientation is overwritten each frame by updateHandAcc (world-upright)
     if (g.children[0]) g.children[0].position.set(h.grip[0], h.grip[1], h.grip[2]);
     g.position.set(0, 0, 0);
-    if (name === 'balloon') { var str = new THREE.Mesh(accLeashGeo(), accStringMat()); str.userData.isStr = 1; g.add(str); rec.str = str; }
+    if (name === 'balloon') {
+      // 3-segment verlet string: swings & lags behind the balloon's motion
+      // instead of sitting rigid (mrg52jt3). Segment meshes ride g's frame;
+      // the rope points are simulated in world space by updateBalloonString.
+      rec.strSegs = [];
+      for (var bsi = 0; bsi < BAL_SEG; bsi++) { var seg = new THREE.Mesh(accLeashGeo(), accStringMat()); seg.userData.isStr = 1; g.add(seg); rec.strSegs.push(seg); }
+    }
     hand.add(g);
   } else {
     // push / side: ride the owner group at a fixed local offset (auto-follows)
@@ -6946,12 +6998,71 @@ function updateHandAcc(a, n, dt) {
   _accEuler.set(t[0], n.mesh.rotation.y + (t[1] || 0), t[2]);
   _accHandQ.invert();
   g.quaternion.copy(_accHandQ).multiply(_accQ.setFromEuler(_accEuler));   // localQ = inv(handWorld) * desiredWorld
-  // balloon string: a thin line from the hand (group origin) up to the balloon
-  if (a.str) {
-    var by = (a.mesh.children[0] ? a.mesh.children[0].position.y : 0.6);
-    a.str.position.set(0, by * 0.5, 0);
-    a.str.scale.set(1, by, 1);
-    a.str.quaternion.identity();
+  if (a.strSegs) updateBalloonString(a, g, n);   // pendulum string + trailing balloon (mrg52jt3)
+}
+// ---- balloon string physics (mrg52jt3) --------------------------------------
+// A helium balloon rides a light string that stays taut (buoyancy pulls up) but
+// swings and lags when the owner walks/turns. Cheap verlet rope: BAL_SEG links,
+// bottom point pinned to the hand, top point (the balloon) pulled UP by buoyancy;
+// each intermediate point is nudged up too so the string reads taut, with air
+// drag for the lag. Simulated in world space, drawn in g's local frame. Skipped
+// (kept straight) when the owner is far from the camera.
+var BAL_SEG = 3, BAL_LEN = 0.66;   // total string length ~ the grip float height
+var _balA = new THREE.Vector3(), _balT = new THREE.Vector3(), _balD = new THREE.Vector3(), _balL = new THREE.Vector3();
+function updateBalloonString(a, g, n) {
+  var hand = a.hand; if (!hand) return;
+  hand.getWorldPosition(_balA);   // rope anchor = the hand, in world space
+  var seg = BAL_LEN / BAL_SEG;
+  // lazy init: lay the rope straight up from the hand
+  if (!a.rope) {
+    a.rope = []; a.ropePrev = [];
+    for (var k = 0; k <= BAL_SEG; k++) {
+      a.rope.push(new THREE.Vector3(_balA.x, _balA.y + seg * k, _balA.z));
+      a.ropePrev.push(new THREE.Vector3(_balA.x, _balA.y + seg * k, _balA.z));
+    }
+  }
+  var rope = a.rope, prev = a.ropePrev;
+  var dx = n.x - player.x, dz = n.z - player.z;
+  var near = (dx * dx + dz * dz) < 4900;   // ~70m: only sim near the camera
+  if (near) {
+    var dt2 = 0.016 * 0.016;
+    for (var i = 1; i <= BAL_SEG; i++) {
+      var pt = rope[i], pv = prev[i];
+      // verlet integrate: carry velocity (with air drag) + buoyancy up
+      var vx = (pt.x - pv.x) * 0.9, vy = (pt.y - pv.y) * 0.9, vz = (pt.z - pv.z) * 0.9;
+      var buoy = (i === BAL_SEG) ? 26 : 10;   // the balloon floats hardest (keeps the string taut)
+      pv.copy(pt);
+      pt.x += vx; pt.y += vy + buoy * dt2; pt.z += vz;
+    }
+    // constraint passes: pin the bottom to the hand, hold each link at rest length
+    for (var it = 0; it < 3; it++) {
+      rope[0].copy(_balA);
+      for (var j = 0; j < BAL_SEG; j++) {
+        var p0 = rope[j], p1 = rope[j + 1];
+        _balD.subVectors(p1, p0);
+        var d = _balD.length() || 1e-4, diff = (d - seg) / d;
+        if (j === 0) { p1.addScaledVector(_balD, -diff); }   // p0 pinned: move only p1
+        else { p0.addScaledVector(_balD, diff * 0.5); p1.addScaledVector(_balD, -diff * 0.5); }
+      }
+    }
+    rope[0].copy(_balA);
+  } else {
+    // far away: snap the rope straight up so it re-appears sane when approached
+    for (var m = 0; m <= BAL_SEG; m++) { rope[m].set(_balA.x, _balA.y + seg * m, _balA.z); prev[m].copy(rope[m]); }
+  }
+  // draw: balloon body follows the top point; each segment mesh bridges two nodes
+  g.updateMatrixWorld();
+  var top = g.worldToLocal(_balT.copy(rope[BAL_SEG]));
+  if (a.mesh.children[0]) a.mesh.children[0].position.copy(top);
+  var segs = a.strSegs;
+  for (var s = 0; s < BAL_SEG; s++) {
+    var la = g.worldToLocal(_balT.copy(rope[s]));       // local start
+    var lb = g.worldToLocal(_balL.copy(rope[s + 1]));   // local end
+    var mm = segs[s];
+    mm.position.set((la.x + lb.x) / 2, (la.y + lb.y) / 2, (la.z + lb.z) / 2);
+    _balD.subVectors(lb, la); var ll = _balD.length() || 1e-4;
+    mm.scale.set(1, ll, 1);
+    mm.quaternion.setFromUnitVectors(Y_UP, _balD.multiplyScalar(1 / ll));
   }
 }
 function updateLeashDog(a, n, dt) {
@@ -12064,7 +12175,7 @@ function updateCars(dt) {
   if (isClient()) return;   // world traffic is mirrored from the host snapshot
   for (var i = 0; i < cars.length; i++) {
     var c = cars[i];
-    if (!c.parked) ensureEngine(c);   // parked cars never even build audio nodes
+    if (!c.parked && !c.flooding && !c.sunk) ensureEngine(c);   // parked/swamped cars never even build audio nodes
     // on fire: about to blow
     if (c.burning && !c.exploded) {
       c.burnT -= dt;
@@ -12120,6 +12231,25 @@ function updateCars(dt) {
     }
     // stolen cars are player-controlled (or parked) — no traffic AI
     if (c.stolen) {
+      // swamped in the lake: keep finishing the sink even after the driver bails,
+      // then tow the sunken husk via the standard respawn machinery (~30 s).
+      if (c.flooding || c.sunk) {
+        var gs = c.car.group;
+        if (!c.sunk) {
+          var bedS = lakeBedY(gs.position.x, gs.position.z), tgtS = bedS + 0.15;
+          c.sinkY = (c.sinkY || 0) + (tgtS - (c.sinkY || 0)) * Math.min(1, dt * 0.9);
+          gs.position.y = c.sinkY;
+          if (c.sinkY <= tgtS + 0.08) { c.sunk = true; c.sunkT = T; }
+        } else {
+          gs.position.y = c.sinkY || gs.position.y;
+          if (c !== driving && T - c.sunkT > 30) {
+            gs.visible = false; c.exploded = true; c.respawnT = 4;
+            c.flooding = false; c.sunk = false; c.sinkY = 0; c.sinkPitch = 0; c.sinkRoll = 0;
+            gs.rotation.x = 0; gs.rotation.z = 0;
+          }
+        }
+        continue;
+      }
       // a remote player is driving it: mirror their position for everyone
       if (c.drivenBy && net.remotes[c.drivenBy]) {
         var drv = net.remotes[c.drivenBy];
@@ -12261,6 +12391,7 @@ function kickDriver(c) {
   sfx('grunt', { x: g.position.x, z: g.position.z, range: 40 });
 }
 function enterCar(c) {
+  if (c.sunk || c.flooding) return;    // a swamped car is dead — no re-entry
   var victim = carDrivenByPlayer(c);   // hijacking another player, not an NPC
   driving = c;
   if (victim) {
@@ -12306,7 +12437,12 @@ function exitCar(hijacked) {
   var h = g.rotation.y;
   var px = g.position.x + Math.cos(h + Math.PI / 2) * 2.6;
   var pz = g.position.z - Math.sin(h + Math.PI / 2) * 2.6;
-  var p = pushOut(px, pz, 0.55);
+  // bailing out of a swamped car drops you INTO the lake (the swim/underwater
+  // system takes over) — use the lake-filtered list so pushOut doesn't shove you
+  // back to shore. Normal exits keep the full collider list.
+  var swamped = driving.sunk || driving.flooding;
+  if (swamped && !landColliders) landColliders = colliders.filter(function (cc) { return !cc.lake; });
+  var p = pushOut(px, pz, 0.55, swamped ? landColliders : undefined);
   player.x = p.x; player.z = p.z; player.y = EYE; player.vy = 0;
   // when we got hijacked the car belongs to the thief now — don't park it
   if (!hijacked) {
@@ -12322,7 +12458,7 @@ function exitCar(hijacked) {
 // ---- breaking into parked cars: E starts a 0.9s window-jimmy, then you're in ----
 var breakIn = null;   // {c, t}
 function startBreakIn(c) {
-  if (breakIn || driving || !c.parked || c.exploded) return;
+  if (breakIn || driving || !c.parked || c.exploded || c.sunk) return;
   var g = c.car.group.position;
   // Lockpick Set (q4) / Bait-Car hotwire (q5): skip the jimmy timer.
   var fast = (typeof hasUnlock === 'function' && (hasUnlock('lockpick') || hasUnlock('hotwire')));
@@ -12352,16 +12488,65 @@ function updateBreakIn(dt) {
     enterCar(c);
   }
 }
+// ---- lake car sink (mrfzstns) ------------------------------------------------
+// Drive a car into deep lake water and it floods: engine stalls, throttle dies,
+// the body settles onto the sandy bed with a slight random tilt and the driver
+// is prompted to bail out (they surface into the swimmable lake on exit). The
+// stalled car becomes an inert sunken husk — it never re-drives — and is towed
+// (reuses the standard explode/respawn machinery) ~30 s later. All handled here
+// so it works while driving for BOTH host and pure client (the local driver owns
+// its car's position; applyWorldSnap skips c===driving so the sink isn't yanked
+// back to y=0). MP caveat: once a client bails, the host — which doesn't model
+// the lake — reasserts authority and may resurface/redrive the car for peers.
+function lakeCarPhysics(c, dt) {
+  var g = c.car.group, px = g.position.x, pz = g.position.z;
+  var bedY = lakeBedY(px, pz);
+  if (!c.sunk && !c.flooding && inLake(px, pz) && bedY < -0.6) {
+    c.flooding = true; c.sinkY = 0;
+    c.sinkTP = (Math.random() - 0.5) * 0.3; c.sinkTR = (Math.random() - 0.5) * 0.38;
+    if (c.eng) stopEngine(c);
+    popup2('ENGINE FLOODED'); sfx('splash', { x: px, z: pz, range: 70 });
+    var wb = document.getElementById('weaponBox');
+    if (wb) wb.innerHTML = 'ENGINE FLOODED<br><small>[E] get out before it sinks!</small>';
+  }
+  if (c.flooding && !c.sunk) {
+    c.pspeed *= Math.max(0, 1 - 3.5 * dt);           // heavy water drag (engine already dead)
+    var tgt = bedY + 0.15;
+    c.sinkY += (tgt - c.sinkY) * Math.min(1, dt * 0.9);   // ~1.5-2.5 s to settle
+    c.sinkPitch = (c.sinkPitch || 0) + (c.sinkTP - (c.sinkPitch || 0)) * Math.min(1, dt * 0.9);
+    c.sinkRoll = (c.sinkRoll || 0) + (c.sinkTR - (c.sinkRoll || 0)) * Math.min(1, dt * 0.9);
+    if (Math.random() < dt * 7) puff(new THREE.Vector3(px + (Math.random() - 0.5) * 2, WATER_Y + 0.1, pz + (Math.random() - 0.5) * 1.4), 0xbfe0ee);  // rising bubbles/spray
+    if (c.sinkY <= tgt + 0.08) { c.sunk = true; c.sunkT = T; }
+  }
+  if (c.flooding || c.sunk) {
+    g.position.y = c.sinkY || 0;
+    g.rotation.x = c.sinkPitch || 0;
+    g.rotation.z = c.sinkRoll || 0;
+  }
+}
+// per-vehicle-body driving feel (mrg45yad). Step vans / wagons are heavier:
+// slower to build speed and a lower top end than the nimble sedans/taxis.
+function carHandling(vname) {
+  if (vname === 'GG_STEPVAN') return { acc: 0.62, top: 0.80 };
+  if (vname === 'GG_WAGON') return { acc: 0.85, top: 0.92 };
+  if (vname === 'GG_WRECK') return { acc: 0.75, top: 0.86 };
+  return { acc: 1, top: 1 };
+}
 function updateDriving(dt) {
   var c = driving, g = c.car.group;
   var h = g.rotation.y;
   var accel = 0;
-  if (keys['KeyW']) accel = 15;
-  else if (keys['KeyS']) accel = -18;
+  // per-body handling (mrg45yad: base accel was arcadey-fast + every car
+  // identical). Heavier bodies pull away slower and top out lower.
+  if (c.handling === undefined) c.handling = carHandling(c.car && c.car.vname);
+  var hd = c.handling;
+  if (keys['KeyW']) accel = 12 * hd.acc;
+  else if (keys['KeyS']) accel = -15 * hd.acc;
+  if (c.flooding || c.sunk) accel = 0;   // swamped: no throttle authority (lakeCarPhysics decays pspeed)
   c.pspeed = c.pspeed || 0;
   c.pspeed += accel * dt;
   if (!accel) c.pspeed *= Math.max(0, 1 - 1.4 * dt);
-  c.pspeed = Math.max(-9, Math.min(26, c.pspeed));
+  c.pspeed = Math.max(-9 * hd.top, Math.min(26 * hd.top, c.pspeed));
   // brake-light input: S/Space against forward motion, or a hard one-frame
   // speed drop (wall/car impact) — consumed by updateCarLights via updateWorldFx
   c.brakeIn = ((keys['KeyS'] || keys['Space']) && c.pspeed > 0.5) || (c._lps !== undefined && c._lps - c.pspeed > 5);
@@ -12373,7 +12558,11 @@ function updateDriving(dt) {
   var nz = g.position.z + fz * c.pspeed * dt;
   nx = Math.max(-HALF + 3, Math.min(HALF - 3, nx));
   nz = Math.max(-HALF + 3, Math.min(HALF - 3, nz));
-  var p = pushOut(nx, nz, 1.7);
+  // the DRIVEN car may cross the shoreline into the water — use the lake-filtered
+  // collider list (same one the on-foot player wades with). The fountain and
+  // every non-lake collider still block; only NPC/traffic pushOut keeps the wall.
+  if (!landColliders) landColliders = colliders.filter(function (cc) { return !cc.lake; });
+  var p = pushOut(nx, nz, 1.7, landColliders);
   if (Math.abs(p.x - nx) > 0.01 || Math.abs(p.z - nz) > 0.01) {
     if (Math.abs(c.pspeed) > 8) sfx('crash');
     c.svy = (c.svy || 0) - Math.min(1.4, Math.abs(c.pspeed) * 0.09);   // suspension slam
@@ -12381,13 +12570,17 @@ function updateDriving(dt) {
   }
   g.position.set(p.x, 0, p.z);
   g.rotation.y = h;
+  lakeCarPhysics(c, dt);   // flood / sink / stall once the car drives into deep water
   var spin = (c.pspeed * dt) / 0.34;
   for (var wi = 0; wi < 4; wi++) c.car.wheels[wi].rotation.y -= spin;
   updateCarFeel(c, dt, c.pspeed, accel, steer);
   // the driver's seat gets the full engine: idle rumble when stopped,
-  // throttle swell on W, gear steps on the way up, exhaust noise on top
-  ensureEngineRich(c);
-  if (c.eng) engineTick(c, dt, c.pspeed, keys['KeyW'] ? 1 : 0, 0, true);
+  // throttle swell on W, gear steps on the way up, exhaust noise on top.
+  // A flooded/sunk car is dead: engine cut, no throttle audio.
+  if (!c.flooding && !c.sunk) {
+    ensureEngineRich(c);
+    if (c.eng) engineTick(c, dt, c.pspeed, keys['KeyW'] ? 1 : 0, 0, true);
+  }
   var moving = Math.abs(c.pspeed) > 3;
   if (moving) {
     var sgn = c.pspeed > 0 ? 1 : -1;
@@ -12605,7 +12798,11 @@ function updatePuffs(dt) {
   for (var i = puffs.length - 1; i >= 0; i--) {
     var p = puffs[i]; p.life -= dt; var t = 1 - p.life / p.max;
     p.mesh.lookAt(camera.position);
-    if (p.blood) {
+    if (p.spark) {
+      // melee impact star: pops big, fades fast (mrg52jt3)
+      p.mesh.scale.setScalar(0.45 + t * 1.7);
+      p.mesh.material.opacity = Math.max(0, 0.95 * (1 - t));
+    } else if (p.blood) {
       // droplet ballistics: slight toss, gravity pulls the spray down
       p.bvy -= 7.5 * dt;
       p.mesh.position.x += p.bvx * dt; p.mesh.position.y += p.bvy * dt; p.mesh.position.z += p.bvz * dt;
@@ -12624,6 +12821,37 @@ function updatePuffs(dt) {
     }
     if (p.life <= 0) { scene.remove(p.mesh); if (p.mesh.material && p.mesh.material.dispose) p.mesh.material.dispose(); puffs.splice(i, 1); }
   }
+}
+// ---- melee blood burst (mrg52jt3): a punchier version of the 'blood' puff for
+// FIST hits — a fuller spray of fast droplets plus a brief additive 2D impact
+// star at the contact point. Reuses the existing puff/decal system (no new asset
+// pipeline): the star rides puffs[] with a `spark` flag handled in updatePuffs.
+var impactStarTex = null, starGeo = new THREE.PlaneGeometry(1, 1);
+function getImpactStar() {
+  if (impactStarTex) return impactStarTex;
+  var c = document.createElement('canvas'); c.width = c.height = 64; var x = c.getContext('2d');
+  x.translate(32, 32);
+  var rg = x.createRadialGradient(0, 0, 0, 0, 0, 30);
+  rg.addColorStop(0, 'rgba(255,244,232,0.98)'); rg.addColorStop(0.32, 'rgba(255,120,90,0.6)'); rg.addColorStop(1, 'rgba(255,60,40,0)');
+  x.fillStyle = rg; x.beginPath(); x.arc(0, 0, 30, 0, 6.2832); x.fill();
+  x.strokeStyle = 'rgba(255,236,222,0.95)'; x.lineWidth = 3; x.lineCap = 'round';
+  for (var i = 0; i < 6; i++) { var a = i * Math.PI / 3; x.beginPath(); x.moveTo(0, 0); x.lineTo(Math.cos(a) * 30, Math.sin(a) * 30); x.stroke(); }
+  impactStarTex = new THREE.CanvasTexture(c); impactStarTex.magFilter = THREE.LinearFilter; return impactStarTex;
+}
+function bloodPunch(x, y, z) {
+  var p = new THREE.Vector3(x, y, z);
+  puff(p, 0x8f1512, 'blood'); puff(p, 0x8f1512, 'blood');   // double the standard 3-droplet spray
+  // extra faster fling droplets for the extra 'pop'
+  for (var i = 0; i < 4; i++) {
+    var bm = new THREE.Mesh(puffGeo, new THREE.MeshBasicMaterial({ color: (i & 1) ? 0x66100d : 0xa81a16, transparent: true, opacity: 0.95, depthWrite: false }));
+    bm.position.set(x + (Math.random() - 0.5) * 0.2, y + (Math.random() - 0.5) * 0.2, z + (Math.random() - 0.5) * 0.2);
+    bm.scale.setScalar(0.35 + Math.random() * 0.4); scene.add(bm);
+    puffs.push({ mesh: bm, life: 0.34 + Math.random() * 0.14, max: 0.48, blood: true, bvx: (Math.random() - 0.5) * 3.4, bvy: 1.2 + Math.random() * 1.7, bvz: (Math.random() - 0.5) * 3.4 });
+  }
+  // brief 2D impact star at the contact point
+  var sm = new THREE.Mesh(starGeo, new THREE.MeshBasicMaterial({ map: getImpactStar(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, opacity: 0.95 }));
+  sm.position.copy(p); sm.scale.setScalar(0.45); scene.add(sm);
+  puffs.push({ mesh: sm, life: 0.16, max: 0.16, spark: true });
 }
 // Fountain/spray droplets (lake fountain + env plaza/drinking fountains) reuse
 // the smoke sheet, tinted white-blue, as soft billboards instead of hard little
@@ -14392,8 +14620,31 @@ function animPerson(m, spd, dt, phase) {
     return;
   }
   var L = m.userData.limbs; if (!L) return;
-  var a = spd > 0.1 ? Math.sin(phase || 0) * 0.65 : 0;
-  L.legL.rotation.x = a; L.legR.rotation.x = -a; L.armL.rotation.x = -a * 0.8; L.armR.rotation.x = a * 0.8;
+  if (spd > 0.1) {
+    // PLANTED-STANCE walk (was a fixed sin(phase)*0.65 pendulum that skated —
+    // the foot slid ~1.8u/cycle regardless of amplitude). Callers integrate
+    // phase at spd*3.4, so distance walked = phase/3.4 and the ground covered
+    // per gait cycle is 2*PI/3.4. Each leg PLANTS for its stance half: solve
+    // the hip angle so the stance foot stays fixed to the ground (foot local-z
+    // = -legLen*sin(a) must track the body's forward advance), then swing it
+    // forward over the other half. Measured slip drops ~7x (footskate.js).
+    L.legL.rotation.x = plantedLeg(phase || 0);
+    L.legR.rotation.x = plantedLeg((phase || 0) + Math.PI);
+    var sw = Math.sin(phase || 0);
+    L.armL.rotation.x = -sw * 0.5; L.armR.rotation.x = sw * 0.5;
+  } else {
+    L.legL.rotation.x = 0; L.legR.rotation.x = 0; L.armL.rotation.x = 0; L.armR.rotation.x = 0;
+  }
+}
+// hip angle for a rigid-leg character so the STANCE foot stays planted (no
+// skate). LEG_LEN = hip-pivot-to-foot for the PSX/procedural bodies (~0.85);
+// HALF = ground advanced per stance half = PI/3.4. Stance = first half of the
+// cycle (foot heel-strike front -> toe-off back), swing = second half.
+var _WALK_LEGLEN = 0.85, _WALK_HALF = Math.PI / 3.4, _WALK_AMAX = Math.asin(Math.min(1, (Math.PI / 3.4) / 2 / 0.85));
+function plantedLeg(ph) {
+  var frac = (((ph % 6.283185) + 6.283185) % 6.283185) / 6.283185;
+  if (frac < 0.5) { var d = frac / 0.5 * _WALK_HALF; return Math.asin(Math.max(-1, Math.min(1, (d - _WALK_HALF / 2) / _WALK_LEGLEN))); }
+  var s = (frac - 0.5) / 0.5, e = s * s * (3 - 2 * s); return _WALK_AMAX * (1 - 2 * e);
 }
 
 // ============================ KIDS (child NPCs) ============================
@@ -15712,10 +15963,10 @@ var SUPPORT_POSE = {
   // GRIP_TGT entry so solveSupportIK keeps this seed (no IK pull onto the gun).
   // The silenced pistol keeps the old two-hand hold.
   pistol: [[-2.2, 0.0, 0.2], [0.0, 0.0, 0.5], [0.6, 0.0, 0.0], [0.0, 0.0, 0.0]],
-  smg:    [[-1.59, -0.01, -1.16], [1.2, 0.4, -2.9], [2.1, -0.82, 0.3], [1.55, 0.3, -0.4]],
-  rifle:  [[-1.59, -0.01, -1.16], [0.98, 0.4, -2.6], [1.7, -0.82, 0.3], [1.55, 0.3, -0.4]],
-  auto:   [[-1.59, -0.01, -1.16], [0.98, 0.4, -2.7], [1.85, -0.82, 0.3], [1.55, 0.3, -0.4]],
-  rocket: [[-1.59, -0.01, -1.16], [1.1, 0.4, -2.6], [1.7, -0.82, 0.3], [1.55, 0.3, -0.4]],
+  smg:    [[-1.59, -0.01, -1.16], [1.2, 0.4, -2.9], [2.1, -0.82, 0.3], [1.9, 0.6, -0.6]],
+  rifle:  [[-1.59, -0.01, -1.16], [0.98, 0.4, -2.6], [1.7, -0.82, 0.3], [1.9, 0.6, -0.6]],
+  auto:   [[-1.59, -0.01, -1.16], [0.98, 0.4, -2.7], [1.85, -0.82, 0.3], [1.9, 0.6, -0.6]],
+  rocket: [[-1.59, -0.01, -1.16], [1.1, 0.4, -2.6], [1.7, -0.82, 0.3], [1.9, 0.6, -0.6]],
   silenced: [[-1.59, 0.5, -1.5], [1.2, 0.4, -3.2], [2.5, -0.82, 0.3], [0.2, 0.3, -0.4]]
 };
 // per-weapon forward anchor offset in the gun-group (camera) frame:
@@ -15730,10 +15981,10 @@ var SUPPORT_POSE = {
 var ANCHOR_OFF = {
   fists:  [0.00, -0.04, -0.30],
   pistol: [0.06, -0.06, -0.32],
-  smg:    [0.09, -0.05, -0.36],
-  rifle:  [0.10, -0.05, -0.39],
+  smg:    [0.22, -0.22, -0.36],   // v1.67.5: low+right shoulder (AK-style) so the support forearm enters from the bottom-right and the hand reaches the shroud (was central → hand floated off the gun)
+  rifle:  [0.22, -0.22, -0.40],   // v1.67.6: low+right shoulder (AK-style) so the forestock hand reaches the wood from the bottom-right (hip view; vm is hidden while scoped)
   auto:   [0.24, -0.24, -0.39],   // v1.66.97: shoulder low + right so the support forearm enters near-vertically from the bottom-right edge (was a diagonal/central bare mass)
-  rocket: [0.10, -0.05, -0.36],
+  rocket: [0.20, -0.18, -0.36],   // v1.67.7: low+right shoulder so the support hand rides the tube and the launcher stops crossing the frame as a central bare-arm mass
   silenced: [0.06, -0.06, -0.32]
 };
 var dbgArmOv = null;                 // debug override for SUPPORT_POSE (via __wc.dbgArm)
@@ -15777,10 +16028,10 @@ function seedRightArm(w) {
 // quaternion into bone-local space, premultiply.
 var GRIP_TGT = {
   // (no pistol entry — one-handed, see SUPPORT_POSE)
-  smg:    [0.248, -0.15, -0.696],   // v1.66.87: diagonal composition
-  rifle:  [0.079, -0.173, -0.741],  // v1.66.87: diagonal composition
-  auto:   [0.22, -0.08, -0.72],   // v1.66.100: wrist BELOW the handguard (CS-style under-grip) so the curled fingers wrap UP onto the wood instead of the wrist sitting inside the receiver (clipping)
-  rocket: [0.159, -0.231, -0.598],  // v1.66.87: diagonal composition
+  smg:    [0.19, 0.04, -0.62],   // v1.67.5: raised onto the shroud so the fingers drape over the top (was under → floating hand)
+  rifle:  [0.13, 0.05, -0.64],   // v1.67.6: raised onto the forestock so the fingers drape over the wood (was under → floating hand)
+  auto:   [0.15, -0.02, -0.72],   // v1.67.10: palm laid on the handguard with a light drape curl + palm-down wrist (bone27=[1.9,0.6,-0.6]) so the fingers fold over the front of the wood instead of a clenched fist hovering beside it
+  rocket: [0.16, -0.05, -0.64],   // v1.67.7: support hand raised onto the tube grip (forward on the launcher) so it reads as holding the tube, not floating beside it
   silenced: [0.21, -0.40, -0.52]
 };
 // v1.66.74: RIGHT (trigger) hand grip target per weapon, in the gun-group local
@@ -15844,16 +16095,18 @@ var GF_R = { index: [6, 7, 8], middle: [13, 14, 15], ring: [17, 18, 19], pinky: 
 var GF_L = { index: [29, 30, 31], middle: [36, 37, 38], ring: [40, 41, 42], pinky: [44, 45, 46], thumb: [32, 33, 34] };
 var GRIP_FINGERS = null;                 // {boneIdx: Quaternion}
 var _flexAxis = new THREE.Vector3(1, 0, 0), _flexQ = new THREE.Quaternion();
+var LGRIP_CURL = [0.5, 1.0, 0.6];   // v1.67.10: support hand DRAPES over the foregrip (was a tight clench 0.68/1.38/0.74 that balled up beside the gun instead of wrapping it)
 function buildGripFingers(restQ) {
   var g = {};
   function set(idx, ang) { var q = restQ[idx].clone(); _flexQ.setFromAxisAngle(_flexAxis, ang); q.multiply(_flexQ); g[idx] = q; }
   function wrap(ids) { set(ids[0], 0.68); set(ids[1], 1.38); set(ids[2], 0.74); }   // full curl: MCP/PIP/DIP — tight clench onto the grip
+  function wrapL(ids) { set(ids[0], LGRIP_CURL[0]); set(ids[1], LGRIP_CURL[1]); set(ids[2], LGRIP_CURL[2]); }   // support hand: tunable drape
   function trig(ids) { set(ids[0], 0.16); set(ids[1], 0.30); set(ids[2], 0.20); }   // index resting on the trigger
   function thumb(ids) { set(ids[0], 0.30); set(ids[1], 0.64); set(ids[2], 0.50); }  // thumb wrapped over the top
   // RIGHT (trigger) hand: index on the trigger, everything else wraps the grip
   trig(GF_R.index); wrap(GF_R.middle); wrap(GF_R.ring); wrap(GF_R.pinky); thumb(GF_R.thumb);
   // LEFT (support) hand: all four fingers wrap the foregrip / support the pistol
-  wrap(GF_L.index); wrap(GF_L.middle); wrap(GF_L.ring); wrap(GF_L.pinky); thumb(GF_L.thumb);
+  wrapL(GF_L.index); wrapL(GF_L.middle); wrapL(GF_L.ring); wrapL(GF_L.pinky); thumb(GF_L.thumb);
   return g;
 }
 function gripFingers() {
@@ -15940,6 +16193,31 @@ function buildPSXArms(skinHex) {
   root.add(mesh);
   mesh.updateMatrixWorld(true); root.updateMatrixWorld(true);
   mesh.bind(new THREE.Skeleton(bones));
+  // --- fabric sleeves over the bare arm skin (v1.66.101) -------------------
+  // Every reviewer (flash + pro) flagged the FP forearm as a "large bare-arm
+  // mass dominating the lower screen". A dark rigid sleeve tube down each arm
+  // segment breaks up the skin and reads as a clothed arm (CS-style), leaving
+  // only the wrist/hand bare. The tubes are rigid CHILDREN of each segment's
+  // bone, so they follow the arm without needing skin weights.
+  var _slUp = new THREE.Vector3(0, 1, 0), _slV = new THREE.Vector3(), _slQ = new THREE.Quaternion();
+  var sleeveMat = lamb({ color: 0x3a3d42 });
+  function armSleeve(seg, end, r0, r1, cov, off) {
+    seg.updateMatrixWorld(true); end.updateMatrixWorld(true);
+    _slV.setFromMatrixPosition(end.matrixWorld); seg.worldToLocal(_slV);   // end joint in seg-local
+    var len = _slV.length(); if (len < 1e-4) return;
+    var g = new THREE.CylinderGeometry(r1, r0, len * cov, 10);
+    g.translate(0, len * (off || 0) + len * cov / 2, 0);                   // base at bone origin, extends +Y toward the end joint
+    var m = new THREE.Mesh(g, sleeveMat); m.frustumCulled = false;
+    _slQ.setFromUnitVectors(_slUp, _slV.clone().normalize());
+    m.quaternion.copy(_slQ);
+    seg.add(m);
+  }
+  // forearms (elbow->wrist): cover ~78%, leaving the wrist + hand bare
+  armSleeve(bones[26], bones[27], 0.060, 0.050, 0.78, 0.0);
+  armSleeve(bones[3], bones[4], 0.060, 0.050, 0.78, 0.0);
+  // upper arms (shoulder->elbow): full cover, slightly thicker
+  armSleeve(bones[25], bones[26], 0.066, 0.060, 1.02, 0.0);
+  armSleeve(bones[2], bones[3], 0.066, 0.060, 1.02, 0.0);
   // clips: frame-major Int16 quats (/16384) + translations (/1024 or clip.ts)
   var clips = {};
   for (var k in A.clips) {
@@ -16272,11 +16550,11 @@ Object.keys(vmMap).forEach(function (k) { vm.add(vmMap[k]); vmMap[k].visible = f
 // bottom of the frame (grip cut off at a level look). The equipped group's
 // position is rebased to this per-weapon lift each frame (see the draw block),
 // which moves gun AND arms together so the grip relationship is preserved.
-var VM_LIFT = { pistol: 0.24, smg: 0.12, rifle: 0.11, auto: -0.22, rocket: 0.11, silenced: 0.24 };   // auto dropped: Gemini-measured muzzle 42%->50%(-0.10)->~57%(-0.20) screen height
+var VM_LIFT = { pistol: 0.24, smg: -0.20, rifle: -0.22, auto: -0.22, rocket: -0.12, silenced: 0.24 };   // auto/smg/rifle/rocket dropped so the weapon sits in the lower-right instead of crossing the frame (rifle hip view; vm hidden while scoped)
 // v1.66.97: per-weapon lateral shift of the whole equipped group (gun AND arms
 // together, so the grip is preserved) — nudges the AK from center toward the
 // SPEC lower-RIGHT anchor (muzzle target x=55; it was reading ~52 = "central").
-var VM_SHIFT = { auto: 0.055 };
+var VM_SHIFT = { auto: 0.055, smg: 0.06, rifle: 0.06, rocket: 0.05 };
 vmFists.visible = true;
 var zoomed = false;
 function setZoom(on) {
@@ -16354,16 +16632,16 @@ function tryAttack() {
       if (rd < w.range && (rdx * fx + rdz * fz) / (rd || 1) > 0.55 && rd < bestD) { bestRemote = rm; best = null; bestCop = null; bestCopM = -1; bestD = rd; }
     }
     if (best) {
-      puff(new THREE.Vector3(best.x, 1.3, best.z), 0xd96a4f, 'blood');
+      bloodPunch(best.x - fx * 0.45, 1.35, best.z - fz * 0.45);   // punchy fist-hit spray + impact star (mrg52jt3)
       // clients predict hp locally so the overhead tag bar moves on hit
       // (mrg4gnea: host resolves the damage but never snapshots NPC hp, so
       // online bars sat at full forever); host confirms kills via 'kill'+state
       if (isClient()) { netToHost({ t: 'dmgNpc', i: npcs.indexOf(best), dmg: w.dmg, kx: fx, kz: fz }); best.hp = Math.max(0, (best.hp || 100) - w.dmg); }
       else damageNPC(best, w.dmg, fx, fz);
     }
-    else if (bestCop) { damageCop(bestCop, w.dmg, fx, fz); puff(new THREE.Vector3(bestCop.x, 1.3, bestCop.z), 0xd96a4f, 'blood'); }
+    else if (bestCop) { damageCop(bestCop, w.dmg, fx, fz); bloodPunch(bestCop.x - fx * 0.45, 1.35, bestCop.z - fz * 0.45); }
     else if (bestCopM >= 0) {
-      puff(new THREE.Vector3(copsM[bestCopM].x, 1.3, copsM[bestCopM].z), 0xd96a4f, 'blood');
+      bloodPunch(copsM[bestCopM].x - fx * 0.45, 1.35, copsM[bestCopM].z - fz * 0.45);
       netToHost({ t: 'dmgCop', id: copsM[bestCopM].nid, dmg: w.dmg, kx: fx, kz: fz });
       copsM[bestCopM].hpM = Math.max(0, (copsM[bestCopM].hpM !== undefined ? copsM[bestCopM].hpM : 100) - w.dmg);   // tag-bar prediction (mrg4gnea)
       if (!copsM[bestCopM].down) {
@@ -16371,7 +16649,7 @@ function tryAttack() {
         lastCrimeT = T;
       }
     }
-    else if (bestRemote) { netSendHit(bestRemote.id, w.dmg, true); puff(new THREE.Vector3(bestRemote.x, 1.3, bestRemote.z), 0xd96a4f, 'blood'); }
+    else if (bestRemote) { netSendHit(bestRemote.id, w.dmg, true); bloodPunch(bestRemote.x - fx * 0.45, 1.35, bestRemote.z - fz * 0.45); }
     // connecting sounds different from swinging — and a slap CRACKS
     var meleeAt = best ? best : (bestCop ? bestCop : (bestCopM >= 0 ? copsM[bestCopM] : bestRemote));
     if (meleeAt) { sfx(punchSlap ? 'slap' : 'punchhit', { x: meleeAt.x, z: meleeAt.z, range: 45 }); hitMark(false); }
@@ -17501,6 +17779,7 @@ function sfx(kind, at) {
     case 'eat': nb(0.09, 2500, 0.2); setTimeout(function () { nb(0.09, 2200, 0.18); }, 140); setTimeout(function () { nb(0.09, 2400, 0.15); }, 280); break;
     case 'rocketfire': nb(0.5, 800, 0.7); bp(220, 0.4, 0.3, 'sawtooth', 50); break;
     case 'crash': nb(0.3, 900, 0.8); bp(85, 0.18, 0.35, 'square', 45); break;
+    case 'splash': nb(0.22, 1900, 0.5); bp(360, 0.1, 0.09, 'sine', 150); setTimeout(function () { nb(0.16, 1200, 0.3); }, 60); setTimeout(function () { nb(0.13, 800, 0.2); }, 150); break;   // car hits the water
     case 'glass': nb(0.07, 3400, 0.5); bp(190, 0.09, 0.14, 'square', 70); setTimeout(function () { nb(0.1, 2700, 0.38); }, 70); setTimeout(function () { nb(0.14, 2100, 0.28); }, 160); break;
     case 'boom': nb(0.8, 320, 1.3); bp(60, 0.6, 0.6, 'sine', 24); setTimeout(function () { nb(0.4, 700, 0.4); }, 120); break;
     case 'tick': bp(1500, 0.03, 0.11, 'square', 0); break;   // crisp hitmarker blip
@@ -18803,7 +19082,7 @@ function qActorMesh(look) {
     var m = qActorMesh(s.look);
     m.position.set(s.x, s.y || 0, s.z); m.rotation.y = s.yaw || 0;
     scene.add(m);
-    qActors.push({ id: s.id, name: s.name, mesh: m, x: s.x, z: s.z, quest: s.quest });
+    qActors.push({ id: s.id, name: s.name, mesh: m, x: s.x, z: s.z, quest: s.quest, yaw0: s.yaw || 0 });
   }
 })();
 function questActorNear() {
@@ -18979,8 +19258,13 @@ function updateQActors(dt) {
   for (var i = 0; i < qActors.length; i++) {
     var a = qActors[i]; if (!a.mesh) continue;
     if (a.phase === undefined) a.phase = Math.random() * 6.28;
-    var dx = a.x - player.x, dz = a.z - player.z; if (dx * dx + dz * dz > 130 * 130) continue;
+    var dx = a.x - player.x, dz = a.z - player.z; var d2 = dx * dx + dz * dz; if (d2 > 130 * 130) continue;
     a.phase += dt * 3.4;
+    // turn to face the player when they're close (mrg4iels), ease back to the
+    // authored home yaw once they leave — shortest-angle lerp, ~4 rad/s cap
+    var tgt = d2 < 49 ? Math.atan2(player.x - a.x, player.z - a.z) : (a.yaw0 || 0);
+    var cur = a.mesh.rotation.y, dyaw = Math.atan2(Math.sin(tgt - cur), Math.cos(tgt - cur));
+    a.mesh.rotation.y = cur + dyaw * Math.min(1, dt * 4);
     try { animPerson(a.mesh, 0, dt, a.phase); } catch (e) { }
   }
 }
@@ -20962,8 +21246,8 @@ function updatePlayer(dt) {
   vmSwayY += (_sy - vmSwayY) * swK;
   vm.position.x = brX + vmSwayX * 0.16 + bobX;
   vm.position.z = recoil * 0.14;                 // snappier muzzle kick back toward the shoulder (kickback, not climb)
-  vm.position.y = bob * 0.5 + brY + vmSwayY * 0.10 + recoil * 0.006;   // small muzzle-rise lift
-  vm.rotation.x = recoil * 0.06 + brY * 0.7 + vmSwayY * 0.4;           // dampened barrel-climb so full-auto stays at/below center (SPEC: nothing above 52%); recoil READS via the z-kickback + settle bounce
+  vm.position.y = bob * 0.5 + brY + vmSwayY * 0.10 + recoil * 0.014;   // muzzle-rise lift
+  vm.rotation.x = recoil * 0.10 + brY * 0.7 + vmSwayY * 0.4;           // barrel-climb: visible kick that recovers via the settle spring, modest so full-auto doesn't park the muzzle above center
   vm.rotation.y = vmSwayX * 0.42;
   vm.rotation.z = brX * 0.5 - vmSwayX * 0.55 + bobX * 6;   // slight weight-shift roll coupled to the horizontal walk-bob
   gunBloom = Math.max(0, gunBloom - dt * 0.06);   // spread recovers ~0.7s after easing off
@@ -21538,7 +21822,7 @@ function loop(now) {
   if (WC_BOT) return;   // bot sims on its own real-time interval, never renders
   requestAnimationFrame(loop);
   lastRafMs = performance.now();
-  var dt = Math.min(0.05, (now - last) / 1000); last = now;
+  var dt = Math.min(0.083, (now - last) / 1000); last = now;   // 12fps floor before slow-mo (was 0.05=20fps; heavy scenes dipped under it -> whole game ran slow, mrgmuf3y)
   _fpsFrames++; _fpsAcc += (dt > 0 ? dt : 0.0001);
   if (_fpsAcc >= 0.5) { fpsVal = _fpsFrames / _fpsAcc; _fpsAcc = 0; _fpsFrames = 0; }
   if (!state.running) { renderer.render(scene, camera); renderCreatorFrame(dt); return; }
@@ -21662,6 +21946,8 @@ window.__wc = {
   voiceDbg: function () { return { local: dbgVoiceLocal, net: dbgVoiceNet, bcast: dbgVoiceBcast }; },
   playNetVoice: playNetVoice, panicNear: panicNear, npcChatLine: npcChatLine,
   engineRPM: engineRPM, ensureEngineRich: ensureEngineRich,
+  sfx: sfx, footStep: footStep, fleeScream: fleeScream, initAudio: initAudio,
+  sfxPackInfo: function () { var o = {}; Object.keys(sfxPackBufs).forEach(function (k) { var n = 0; for (var i = 0; i < sfxPackBufs[k].length; i++) if (sfxPackBufs[k][i]) n++; o[k] = n; }); return o; },
   armsInfo: function () { return psxArms ? { clips: Object.keys(psxArms.clips), np: psxArms.np, anchor: psxArms.root.position.toArray().map(function (v) { return Math.round(v * 100) / 100; }) } : null; },
   isInside: function () { return inside; },
   storeState: function () { return { robbed: robbedVisit, copsCalled: copsCalledVisit, closedUntil: gasClosedUntil, now: T }; },
@@ -21675,10 +21961,13 @@ window.__wc = {
   getGrip: function (w) { return GRIP_TGT[w]; },
   setRGrip: function (w, arr) { RIGHT_GRIP[w] = arr; },   // debug: tune per-weapon trigger-hand IK grip target
   getRGrip: function (w) { return RIGHT_GRIP[w]; },
+  setLCurl: function (a, b, c) { LGRIP_CURL = [a, b, c]; if (psxArms) GRIP_FINGERS = buildGripFingers(psxArms.restQ); },   // debug: tune support-hand finger drape
   setSupPose: function (w, arr) { SUPPORT_POSE[w] = arr; },   // debug: tune support-arm seed eulers (bones 24-27)
   getSupPose: function (w) { return SUPPORT_POSE[w]; },
   getBoneQ: function (i) { return psxArms ? psxArms.bones[i].quaternion.toArray().map(function (v) { return Math.round(v * 1000) / 1000; }) : null; },
-  poseArmsNow: function () { if (psxArms && GUNHOLD_GROUPS[state.equipped]) { armsPose(psxArms, gunHold.clip, gunHold.t, true); solveSupportIK(state.equipped); gripFingers(); } },
+  poseArmsNow: function () { if (psxArms && GUNHOLD_GROUPS[state.equipped]) { var g = vmMap[state.equipped]; if (g) g.position.set(VM_SHIFT[state.equipped] || 0, VM_LIFT[state.equipped] || 0, 0); armsPose(psxArms, gunHold.clip, gunHold.t, true); solveSupportIK(state.equipped); gripFingers(); } },
+  setLift: function (w, v) { VM_LIFT[w] = v; }, getLift: function (w) { return VM_LIFT[w]; },
+  setShift: function (w, v) { VM_SHIFT[w] = v; }, getShift: function (w) { return VM_SHIFT[w]; },
   dbgBone: function (i, ov) { if (psxArms) { if (ov) { var e = new THREE.Euler(ov[0], ov[1], ov[2]); psxArms.bones[i].quaternion.setFromEuler(e); } psxArms.mesh.updateMatrixWorld(true); } },   // debug: set one bone's local euler
   gripDbg: function () { if (!psxArms) return null; var g = vmMap[state.equipped]; if (!g) return null; g.updateMatrixWorld(true); psxArms.mesh.updateMatrixWorld(true); function loc(bi) { var v = new THREE.Vector3(); psxArms.bones[bi].getWorldPosition(v); g.worldToLocal(v); return v.toArray().map(function (n) { return Math.round(n * 1000) / 1000; }); } return { rHand: loc(4), lHand: loc(27), rPalm: loc(5), rShoul: loc(1), rElbow: loc(3) }; },   // debug: hand positions in gun-group local frame
   handPos: function () { if (!psxArms) return null; psxArms.mesh.updateMatrixWorld(true); var pl = new THREE.Vector3(), pr = new THREE.Vector3(); psxArms.bones[27].getWorldPosition(pl); psxArms.bones[4].getWorldPosition(pr); return { L: pl.toArray().map(function (v) { return Math.round(v * 100) / 100; }), R: pr.toArray().map(function (v) { return Math.round(v * 100) / 100; }) }; },
@@ -21829,6 +22118,16 @@ window.__wc = {
   playOnline: playOnline, becomeHost: becomeHost,
   buildIceConfig: buildIceConfig, hmacSha1B64: hmacSha1B64,
   buildCharacter: buildCharacter, randomCharConfig: randomCharConfig, buildMeshySkinned: buildMeshySkinned,
+  // animqa NPC lineup: enumerate the visually-distinct civilian roster indexed
+  // by cfg.preset (0 = procedural PSX, 1..N = PSX_SKINS, N+1.. = MESHY_CIVS) so
+  // the lineup harness can force + label each model. Debug/tooling only.
+  charRoster: function () {
+    var names = ['PROC'];
+    for (var i = 0; i < PSX_SKINS.length; i++) names.push((PSX_SKINS[i] && PSX_SKINS[i].n) || ('SKIN' + i));
+    for (var j = 0; j < MESHY_CIVS.length; j++) names.push((MESHY_LIST[MESHY_CIVS[j]] && MESHY_LIST[MESHY_CIVS[j]].n) || ('CIV' + j));
+    return { presetMax: names.length, names: names, psx: PSX_SKINS.length, civ: MESHY_CIVS.length };
+  },
+  hideVM: function (on) { vm.visible = !on; },   // animqa lineup: hide the FP viewmodel so it doesn't block the NPC row
   // NPC accessories (#70) — local-only cosmetic props on a fraction of walkers
   listAccessories: listAccessories, accessories: function () { return accessories; }, accStats: function () { return accStats; },
   getAccessory: getAccessory, attachAccessory: attachAccessory,

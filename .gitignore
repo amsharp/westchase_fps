@@ -6,3 +6,14 @@ capture.jpg
 .claude/worktrees/
 _diag.html
 capture.jpg
+
+# agent verification captures (evidence, not game assets)
+funpolish_*.png
+*_verify.png
+gen*.png
+qa*.png
+anim*.png
+signs_*.png
+scrub_*.png
+fencedecal_*.png
+hudfix_*.png
