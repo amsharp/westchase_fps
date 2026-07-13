@@ -1,0 +1,30 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>html,body{margin:0;background:#8fb3d9}</style></head>
+<body>
+<script src="../../three.min.js"></script>
+<script src="../../plane.js"></script>
+<script>
+window.__ready = false;
+window.__scene = new THREE.Scene();
+window.__scene.background = new THREE.Color(0x9fc0e0);
+window.__renderer = new THREE.WebGLRenderer({ antialias: true });
+window.__renderer.setSize(480, 480);
+document.body.appendChild(window.__renderer.domElement);
+// lighting
+var amb = new THREE.AmbientLight(0xffffff, 0.7); window.__scene.add(amb);
+var sun = new THREE.DirectionalLight(0xffffff, 1.0); sun.position.set(4, 8, 6); window.__scene.add(sun);
+var sun2 = new THREE.DirectionalLight(0xbcd0e8, 0.4); sun2.position.set(-5, 3, -4); window.__scene.add(sun2);
+window.__built = WC_PLANE.build();
+window.__scene.add(window.__built.group);
+window.__ready = true;
+
+window.renderView = function (px, py, pz, tx, ty, tz, fov) {
+  var cam = new THREE.PerspectiveCamera(fov || 32, 1, 0.1, 200);
+  cam.position.set(px, py, pz);
+  cam.lookAt(tx || 0, ty || 0, tz || 0);
+  window.__built.group.updateMatrixWorld(true);
+  window.__renderer.render(window.__scene, cam);
+  return window.__renderer.domElement.toDataURL('image/png');
+};
+</script>
+</body></html>
