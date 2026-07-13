@@ -568,6 +568,36 @@ Cars have some life to them: bodies bounce on their suspension (slam a
 curb or a wall and feel it), the front wheels visibly steer, and after
 dark every car projects real headlight pools onto the asphalt.
 
+## Flying (Learjet)
+
+Press **J** to spawn a **Learjet 35** on the ground in front of you and
+drop straight into the pilot's seat. Flying is third-person, chase-cam,
+and deliberately arcade — forgiving and fun, not a study sim:
+
+- **W / S** — throttle up / down (you need speed for lift).
+- **A / D** — rudder: yaw left / right.
+- **Mouse** — the yoke: push the mouse **DOWN to climb** and up to descend
+  (yoke-style, intentionally inverted from the on-foot look), and **left /
+  right to roll**. Bank into a turn and the plane carves around.
+- **E** — get out.
+
+Hold the runway with the throttle open; once you're past takeoff speed and
+pull the nose up, the jet **rotates and lifts off**. Below takeoff speed
+there's not enough lift and you'll just sink back down — so build speed
+first. The **landing gear retracts** on its own once you're well clear of
+the ground and **drops back down** as you come in to land. Set it down
+gently, wheels-down and slow, and it's a clean landing; come in too fast,
+too steep, or slam a building and the jet **crashes** — a fireball, ten
+tumbling chunks of wreckage, and a scorched patch burned into the ground
+(the debris and scorch clear after about a minute). Crash while you're in
+the cockpit and you die with it.
+
+Don't try to **bail out** to cheat a doomed plane: stepping out up high or
+at speed throws you clear and the fall does the rest. Falling from any real
+height now hurts — a big drop is lethal — so a safe exit means slow and low.
+The plane is a **local, single-player toy** for now; it isn't shared in
+multiplayer.
+
 ## Trees
 
 The oaks and bushes are real PS1-style assets — flat textured branch
@@ -721,8 +751,9 @@ the same quiet noise bed as before, and the SFX volume slider controls it.
   honk the horn (also reachable from the pause screen's **CONTROLS** button)
 - **Tab** — inventory: equip/unequip weapons + your 6×4 item grid (click an
   item to use it, right-click or **Q** to drop one)
-- **J** — quest log (see your active quest, all beats, and set which quest
-  you're tracking)
+- **J** — spawn the **Learjet** in front of you and hop in as pilot (see
+  **Flying**). *(This test build binds the plane to J; the quest log button on
+  the pause/menu still opens the journal.)*
 - **L / G / B** — toggle earned quest gear (Detective's Loupe / Spirit Lantern /
   whistle Biscuit), once you've unlocked them
 - **1 / 2 / 3** — pick your ending at the Q10 finale (Expose / Burn / Inherit)
