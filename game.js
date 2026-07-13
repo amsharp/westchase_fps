@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.67.14';
+var GAME_VERSION = 'v1.67.14-plane';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -12560,6 +12560,412 @@ function updateDriving(dt) {
   camera.lookAt(p.x + cfx * 2, 1.2, p.z + cfz * 2);
 }
 
+// ============================================================================
+// FLYABLE AIRPLANE (Learjet 35) — arcade flight sim. LOCAL/SINGLEPLAYER ONLY:
+// the plane is never added to the net `world` snapshot nor mirrored on clients,
+// so multiplayer is completely unaffected (see the isClient()-free spawn below).
+// Model comes from plane.js (global WC_PLANE); an inline fallback keeps the game
+// runnable when plane.js is absent. All game logic lives here.
+// ============================================================================
+// --- inline fallback model so flight is testable without plane.js -----------
+if (typeof WC_PLANE === 'undefined') {
+  window.WC_PLANE = (function () {
+    var M = new THREE.MeshLambertMaterial({ color: 0xdfe4ea });
+    var Mc = new THREE.MeshLambertMaterial({ color: 0x3a4657 });
+    var Mg = new THREE.MeshLambertMaterial({ color: 0x111318 });
+    function bx(w, h, d, mat, x, y, z) { var m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); m.position.set(x || 0, y || 0, z || 0); return m; }
+    return {
+      LENGTH: 15, SPAN: 12, GROUND_CLEARANCE: 1.4,
+      build: function () {
+        var g = new THREE.Group(); var parts = {};
+        g.add(bx(1.7, 1.7, 13, M, 0, 0, 0));          // fuselage (+Z nose)
+        g.add(bx(12, 0.4, 2.6, M, 0, -0.1, -0.5));     // main wing (X span)
+        g.add(bx(4.6, 0.35, 1.6, M, 0, 1.4, -5.6));    // horizontal stab
+        parts.aileronL = new THREE.Group(); parts.aileronL.position.set(-4.6, -0.1, -1.4); parts.aileronL.add(bx(2.6, 0.3, 0.9, Mc)); g.add(parts.aileronL);
+        parts.aileronR = new THREE.Group(); parts.aileronR.position.set(4.6, -0.1, -1.4); parts.aileronR.add(bx(2.6, 0.3, 0.9, Mc)); g.add(parts.aileronR);
+        parts.elevL = new THREE.Group(); parts.elevL.position.set(-1.8, 1.4, -6.3); parts.elevL.add(bx(1.9, 0.28, 0.7, Mc)); g.add(parts.elevL);
+        parts.elevR = new THREE.Group(); parts.elevR.position.set(1.8, 1.4, -6.3); parts.elevR.add(bx(1.9, 0.28, 0.7, Mc)); g.add(parts.elevR);
+        parts.rudder = new THREE.Group(); parts.rudder.position.set(0, 2.6, -6.1); parts.rudder.add(bx(0.3, 2.4, 1.3, Mc)); g.add(parts.rudder);
+        g.add(bx(0.3, 2.6, 1.6, M, 0, 1.4, -5.8));     // vertical fin
+        parts.gearNose = new THREE.Group(); parts.gearNose.position.set(0, -0.85, 4.2); parts.gearNose.add(bx(0.3, 1.2, 0.3, Mg, 0, -0.6, 0)); parts.gearNose.add(bx(0.6, 0.6, 0.6, Mg, 0, -1.2, 0)); g.add(parts.gearNose);
+        parts.gearL = new THREE.Group(); parts.gearL.position.set(-2.0, -0.85, -1.5); parts.gearL.add(bx(0.3, 1.2, 0.3, Mg, 0, -0.6, 0)); parts.gearL.add(bx(0.7, 0.7, 0.7, Mg, 0, -1.2, 0)); g.add(parts.gearL);
+        parts.gearR = new THREE.Group(); parts.gearR.position.set(2.0, -0.85, -1.5); parts.gearR.add(bx(0.3, 1.2, 0.3, Mg, 0, -0.6, 0)); parts.gearR.add(bx(0.7, 0.7, 0.7, Mg, 0, -1.2, 0)); g.add(parts.gearR);
+        return { group: g, parts: parts };
+      },
+      setControls: function (parts, ail, elev, rud) {
+        if (parts.aileronL) parts.aileronL.rotation.x = -ail * 0.5;
+        if (parts.aileronR) parts.aileronR.rotation.x = ail * 0.5;
+        if (parts.elevL) parts.elevL.rotation.x = -elev * 0.5;
+        if (parts.elevR) parts.elevR.rotation.x = -elev * 0.5;
+        if (parts.rudder) parts.rudder.rotation.y = -rud * 0.5;
+      },
+      setGear: function (parts, t) {
+        // t: 0 down .. 1 retracted — fold up into the belly + hide when stowed
+        var vis = t < 0.98;
+        ['gearNose', 'gearL', 'gearR'].forEach(function (k) {
+          if (!parts[k]) return; parts[k].rotation.z = t * 1.4; parts[k].visible = vis;
+        });
+      },
+      buildDebris: function () {
+        var d = [], cols = [0xdfe4ea, 0x3a4657, 0x8a929c, 0x222428];
+        for (var i = 0; i < 10; i++) {
+          var s = 0.5 + Math.random() * 1.3;
+          d.push(new THREE.Mesh(new THREE.BoxGeometry(s, s * (0.3 + Math.random() * 0.7), s * (0.4 + Math.random())), new THREE.MeshLambertMaterial({ color: cols[i % cols.length] })));
+        }
+        return d;
+      },
+      scorchTexture: function () {
+        var cv = document.createElement('canvas'); cv.width = cv.height = 128; var g = cv.getContext('2d');
+        var rg = g.createRadialGradient(64, 64, 4, 64, 64, 64);
+        rg.addColorStop(0, 'rgba(8,8,8,0.95)'); rg.addColorStop(0.5, 'rgba(24,20,16,0.8)'); rg.addColorStop(1, 'rgba(30,26,20,0)');
+        g.fillStyle = rg; g.fillRect(0, 0, 128, 128);
+        return new THREE.CanvasTexture(cv);
+      }
+    };
+  })();
+}
+// --- flight tuning constants (arcade, forgiving) ----------------------------
+var PLANE_THRUST = 34;        // fwd accel (u/s^2) at full throttle along nose
+var PLANE_THROTTLE_RATE = 0.8;  // throttle units per second (W/S) — near-full by liftoff
+var PLANE_GRAV = 15;          // gravity pulling the plane down (u/s^2)
+var PLANE_LIFT_K = 0.7;       // lift accel per unit speed, along local up (>grav at takeoff spd => climbs)
+var PLANE_LIFT_CAP = 34;      // speed cap feeding lift (prevents runaway)
+var PLANE_TAKEOFF = 24;       // speed at liftoff — above the ~21 u/s lift/gravity balance, so it climbs
+var PLANE_DRAG_PAR = 0.3;     // parallel drag rate (low so a climb sustains speed)
+var PLANE_MAX_SPD = 62;       // hard top speed clamp (arcade)
+var PLANE_DRAG_PERP = 2.5;    // perpendicular drag => velocity realigns to the nose (wings)
+var PLANE_ROLL_RATE = 2.4;    // rad/s at full aileron
+var PLANE_PITCH_RATE = 1.2;   // rad/s at full elevator
+var PLANE_YAW_RATE = 0.95;    // rad/s at full rudder
+var PLANE_BANK_TURN = 0.95;   // banked lift curves the flight path (world-Y yaw)
+var PLANE_AUTO_LEVEL = 0.7;   // gentle roll-to-level when hands off the stick
+var PLANE_GROUND_STEER = 1.3; // nose-wheel/rudder yaw on the ground
+var PLANE_CRASH_VSPEED = 9;   // downward impact speed that wrecks a ground contact
+var PLANE_CRASH_SPEED = 22;   // speed at which slamming a solid/building wrecks
+var PLANE_MOUSE_SENS = 0.010; // pointer delta -> control-command accumulation
+var PLANE_GEAR_UP_ALT = 15;   // altitude above which gear auto-retracts
+var PLANE_GEAR_DN_ALT = 12;   // altitude below which gear auto-deploys
+var PLANE_BAIL_SPD = 12;      // exit is only safe below this speed AND alt
+var PLANE_BAIL_ALT = 6;
+var FALL_SAFE_VSPEED = 12;    // land harder than this (downward) and you take damage
+var FALL_DMG_K = 6;           // hp per (u/s) of impact over the safe threshold
+var PLANE_DEBRIS_LIFE = 60;   // seconds before crash props (debris + scorch) despawn
+// --- plane module state -----------------------------------------------------
+var plane = null;             // the single live plane object, or null
+var planeDebris = [];         // [{mesh, vx,vy,vz, spinx,spiny,spinz, life, y0}]
+var planeScorch = [];         // [{mesh, life, max}]
+var _planeTmpV = new THREE.Vector3(), _planeTmpV2 = new THREE.Vector3(), _planeTmpQ = new THREE.Quaternion();
+var _planeWorldUp = new THREE.Vector3(0, 1, 0);
+function planeGroundY(x, z) { return 0; }   // land sits at y=0 (lake edge ignored — arcade)
+// Spawn the Learjet ~22u in front of the player, on the ground, nose away from
+// the player, and immediately board them as pilot (instant flight test).
+function spawnPlane() {
+  if (plane) removePlane();
+  var built = WC_PLANE.build();
+  var fx = -Math.sin(yaw), fz = -Math.cos(yaw);          // player forward (nose points here)
+  var px = player.x + fx * 22, pz = player.z + fz * 22;
+  var theta = Math.atan2(fx, fz);                        // heading so local +Z -> (fx,fz)
+  var clr = (WC_PLANE.GROUND_CLEARANCE !== undefined ? WC_PLANE.GROUND_CLEARANCE : 1.4);
+  built.group.position.set(px, planeGroundY(px, pz) + clr, pz);
+  built.group.quaternion.setFromEuler(new THREE.Euler(0, theta, 0, 'YXZ'));
+  scene.add(built.group);
+  plane = {
+    group: built.group, parts: built.parts, vel: new THREE.Vector3(),
+    throttle: 0, gearT: 0, onGround: true, groundPitch: 0, alive: true, piloting: false,
+    ail: 0, elev: 0, rud: 0,            // smoothed control positions
+    mAil: 0, mElev: 0,                  // mouse-driven command accumulators
+    clr: clr, camPos: new THREE.Vector3(), camInit: false
+  };
+  WC_PLANE.setGear(plane.parts, 0);
+  WC_PLANE.setControls(plane.parts, 0, 0, 0);
+  boardPlane();
+  return plane;
+}
+function boardPlane() {
+  if (!plane) return;
+  if (driving) exitCar();
+  plane.piloting = true;
+  setZoom(false);
+  vm.visible = false;                                    // hide FP arms/viewmodel like driving
+  plane.mAil = 0; plane.mElev = 0;
+  document.getElementById('crosshair').style.display = 'none';
+  var wb = document.getElementById('weaponBox');
+  if (wb) wb.innerHTML = 'FLYING<br><small>[E] exit &middot; W/S throttle &middot; A/D rudder &middot; mouse: down=climb, L/R=roll</small>';
+}
+// exit / bail. Safe only when slow AND low; otherwise the pilot is thrown clear
+// carrying the plane's velocity and takes (usually lethal) fall damage.
+function exitPlane() {
+  if (!plane) return;
+  var g = plane.group, alt = g.position.y - planeGroundY(g.position.x, g.position.z);
+  var spd = plane.vel.length();
+  var safe = (spd < PLANE_BAIL_SPD && alt < PLANE_BAIL_ALT && plane.onGround);
+  plane.piloting = false;
+  vm.visible = true;
+  document.getElementById('crosshair').style.display = '';
+  setEquipped(state.equipped);
+  if (safe) {
+    // step out onto the pavement beside the nose
+    var side = _planeTmpV.set(1, 0, 0).applyQuaternion(g.quaternion);
+    var px = g.position.x + side.x * 3.2, pz = g.position.z + side.z * 3.2;
+    var pp = pushOut(px, pz, 0.55, landColliders || colliders);
+    player.x = pp.x; player.z = pp.z; player.y = EYE; player.vy = 0; player.grounded = true;
+    popup('PARKED');
+    sfx('cardoor');
+    // plane stays where it is, engine off — leave it parked (physics idles it)
+    plane.throttle = 0;
+  } else {
+    // BAILING at speed/altitude: you fall. Carry the plane's velocity + drop.
+    popup2('BAILING OUT!');
+    player.x = g.position.x; player.z = g.position.z;
+    player.y = Math.max(EYE, g.position.y);
+    player.vy = Math.min(plane.vel.y, -6) - Math.min(28, spd) * 0.4;  // thrown downward, faster if the plane was fast
+    player.grounded = false;
+    player._fallV = player.vy;
+    sfx('grunt');
+    // the doomed plane keeps flying pilotless until it augers in
+  }
+}
+function removePlane() {
+  if (!plane) return;
+  scene.remove(plane.group);
+  plane = null;
+}
+// per-frame plane simulation (physics + controls + gear + camera + crash).
+// Runs on REAL dt (arcade; not scaled by bullet-time). Called from the main loop
+// and from __wc.tick so headless tests drive it.
+function updatePlaneWorld(dt) {
+  updatePlaneDebris(dt);
+  updatePlaneScorch(dt);
+  if (!plane || !plane.alive) return;
+  var g = plane.group;
+  // ---- controls: gather target commands ----
+  var tAil = 0, tElev = 0, tRud = 0, tThrottle = plane.throttle;
+  if (plane.piloting) {
+    // mouse accumulators drive aileron (X) + elevator (Y); they decay so the
+    // controls re-center when the mouse stops. mouse-DOWN => climb (elevator +).
+    plane.mAil *= Math.max(0, 1 - 7 * dt);
+    plane.mElev *= Math.max(0, 1 - 7 * dt);
+    tAil = Math.max(-1, Math.min(1, plane.mAil));
+    tElev = Math.max(-1, Math.min(1, plane.mElev));
+    tRud = (keys['KeyD'] ? 1 : 0) - (keys['KeyA'] ? 1 : 0);
+    if (keys['KeyW']) tThrottle += PLANE_THROTTLE_RATE * dt;
+    if (keys['KeyS']) tThrottle -= PLANE_THROTTLE_RATE * dt;
+    plane.throttle = Math.max(0, Math.min(1, tThrottle));
+  }
+  // smooth the visible/effective control positions
+  plane.ail += (tAil - plane.ail) * Math.min(1, dt * 8);
+  plane.elev += (tElev - plane.elev) * Math.min(1, dt * 8);
+  plane.rud += (tRud - plane.rud) * Math.min(1, dt * 8);
+  WC_PLANE.setControls(plane.parts, plane.ail, plane.elev, plane.rud);
+  // ---- orientation basis (each its OWN vector — never alias a shared temp) ----
+  var noseV = new THREE.Vector3(0, 0, 1).applyQuaternion(g.quaternion);   // forward
+  var upV = new THREE.Vector3(0, 1, 0).applyQuaternion(g.quaternion);     // local up
+  var rightV = new THREE.Vector3(1, 0, 0).applyQuaternion(g.quaternion);  // right wing
+  var gy = planeGroundY(g.position.x, g.position.z);
+  if (plane.onGround) {
+    // ---------- GROUND HANDLING (taxi / takeoff roll) ----------
+    var heading = Math.atan2(noseV.x, noseV.z);
+    var fwdSpd = plane.vel.dot(noseV);
+    // throttle accelerates the roll; idle rolls off with rolling friction
+    fwdSpd += plane.throttle * PLANE_THRUST * dt;
+    fwdSpd *= Math.max(0, 1 - 0.35 * dt);
+    fwdSpd = Math.max(-6, Math.min(72, fwdSpd));
+    // nose-wheel steering (A/D), scaled by how fast we're rolling
+    heading += plane.rud * PLANE_GROUND_STEER * dt * Math.max(0, Math.min(1, fwdSpd / 10));
+    // rotate for takeoff: elevator-up past ~rotate speed lifts the nose
+    var wantRotate = plane.elev > 0.15 && fwdSpd > PLANE_TAKEOFF * 0.7;
+    var tgtPitch = wantRotate ? 0.18 : 0;
+    plane.groundPitch += (tgtPitch - plane.groundPitch) * Math.min(1, dt * 2.5);
+    // negative X-euler = nose UP (matches the airborne pitch convention); a
+    // positive value here pitched the nose into the dirt and killed every takeoff.
+    g.quaternion.setFromEuler(new THREE.Euler(-plane.groundPitch, heading, 0, 'YXZ'));
+    noseV.set(0, 0, 1).applyQuaternion(g.quaternion);          // re-derive after leveling
+    plane.vel.copy(noseV).multiplyScalar(fwdSpd);
+    // advance along the ground; keep pinned to runway height
+    g.position.x += plane.vel.x * dt; g.position.z += plane.vel.z * dt;
+    g.position.y = gy + plane.clr;
+    // LIFTOFF once we have takeoff speed AND the nose is rotated up
+    if (fwdSpd > PLANE_TAKEOFF && plane.groundPitch > 0.08) {
+      plane.onGround = false;
+      plane.vel.copy(noseV).multiplyScalar(fwdSpd);            // carry momentum (nose pitched up => climbs)
+    }
+    planeBounds(g);
+    if (Math.abs(fwdSpd) > PLANE_CRASH_SPEED && planeHitBuilding(g.position.x, g.position.y, g.position.z)) { crashPlane(); return; }
+  } else {
+    // ---------- AIRBORNE FLIGHT ----------
+    // integrate angular rates in the plane's local frame (plane.js owns surface
+    // deflection signs; these are the physical rotation signs).
+    var rollA = -plane.ail * PLANE_ROLL_RATE * dt;         // ail +1 => roll right
+    var pitchA = -plane.elev * PLANE_PITCH_RATE * dt;      // elev +1 => nose up
+    var yawA = plane.rud * PLANE_YAW_RATE * dt;            // rud +1 => yaw right
+    // gentle auto-level on roll when the stick is centered (keeps it flyable)
+    var bank = Math.atan2(rightV.y, upV.y);
+    if (Math.abs(plane.ail) < 0.08) rollA += -Math.sin(bank) * PLANE_AUTO_LEVEL * dt;
+    _planeTmpQ.setFromEuler(new THREE.Euler(pitchA, yawA, rollA, 'XYZ'));
+    g.quaternion.multiply(_planeTmpQ);
+    // banked lift curves the flight path — yaw about WORLD up proportional to bank
+    rightV.set(1, 0, 0).applyQuaternion(g.quaternion);
+    upV.set(0, 1, 0).applyQuaternion(g.quaternion);
+    bank = Math.atan2(rightV.y, upV.y);
+    _planeTmpQ.setFromAxisAngle(_planeWorldUp, -Math.sin(bank) * PLANE_BANK_TURN * dt);
+    g.quaternion.premultiply(_planeTmpQ);
+    g.quaternion.normalize();
+    // refresh basis after all rotation
+    noseV.set(0, 0, 1).applyQuaternion(g.quaternion);
+    upV.set(0, 1, 0).applyQuaternion(g.quaternion);
+    var vel = plane.vel;
+    var fwd = vel.dot(noseV);
+    // perpendicular drag: wings bite, velocity realigns toward the nose
+    var latV = new THREE.Vector3().copy(vel).addScaledVector(noseV, -fwd);
+    vel.addScaledVector(latV, -Math.min(1, PLANE_DRAG_PERP * dt));
+    // overall drag (sets terminal speed with thrust)
+    vel.multiplyScalar(Math.max(0, 1 - PLANE_DRAG_PAR * dt));
+    // thrust along the nose
+    vel.addScaledVector(noseV, plane.throttle * PLANE_THRUST * dt);
+    // lift along local up, driven by SPEED (not just fwd) so pitching the nose up
+    // to climb doesn't instantly stall — you only lose lift when you actually
+    // slow below takeoff speed. Below takeoff, gravity wins and the plane sinks.
+    var spd = vel.length();
+    var liftF = Math.max(0, Math.min(PLANE_LIFT_CAP, spd));
+    vel.addScaledVector(upV, PLANE_LIFT_K * liftF * dt);
+    // gravity
+    vel.y -= PLANE_GRAV * dt;
+    // arcade top-speed clamp (also a NaN/runaway safety net)
+    if (vel.lengthSq() > PLANE_MAX_SPD * PLANE_MAX_SPD) vel.setLength(PLANE_MAX_SPD);
+    // integrate position
+    g.position.addScaledVector(vel, dt);
+    planeBounds(g);
+    // ---- ground contact ----
+    if (g.position.y <= gy + plane.clr) {
+      var impactV = -vel.y;                                // downward speed at contact
+      var bankC = Math.abs(Math.atan2(rightV.y, upV.y));
+      var pitchDown = -Math.asin(Math.max(-1, Math.min(1, noseV.y)));  // >0 = nose down
+      var hardCrash = impactV > PLANE_CRASH_VSPEED || bankC > 0.7 || pitchDown > 0.6 || plane.gearT > 0.4;
+      if (hardCrash) { g.position.y = gy + plane.clr; crashPlane(); return; }
+      // safe touchdown -> resume ground roll
+      g.position.y = gy + plane.clr;
+      plane.onGround = true;
+      plane.groundPitch = 0;
+      plane.vel.copy(noseV).multiplyScalar(Math.max(0, vel.dot(noseV)));
+      if (impactV > 3) sfx('crash');
+    } else if (planeHitBuilding(g.position.x, g.position.y, g.position.z) && vel.length() > PLANE_CRASH_SPEED) {
+      crashPlane(); return;
+    }
+  }
+  // ---- landing gear automation ----
+  var altNow = g.position.y - gy - plane.clr;
+  var gearTarget = plane.onGround ? 0 : (altNow > PLANE_GEAR_UP_ALT ? 1 : (altNow < PLANE_GEAR_DN_ALT ? 0 : plane.gearT));
+  plane.gearT += (gearTarget - plane.gearT) * Math.min(1, dt * 2);
+  WC_PLANE.setGear(plane.parts, plane.gearT);
+  // ---- pilot rides along; chase camera ----
+  if (plane.piloting) {
+    player.x = g.position.x; player.z = g.position.z; player.y = g.position.y;
+    updatePlaneCam(dt);
+    updatePlaneHud();
+  }
+}
+function planeBounds(g) {
+  g.position.x = Math.max(-HALF + 4, Math.min(HALF - 4, g.position.x));
+  g.position.z = Math.max(-HALF + 4, Math.min(HALF - 4, g.position.z));
+  if (g.position.y > 400) g.position.y = 400;
+}
+// building crash test: inside any mapBuildings footprint AND below its roof
+function planeHitBuilding(x, y, z) {
+  for (var i = 0; i < mapBuildings.length; i++) {
+    var b = mapBuildings[i];
+    if (Math.abs(x - b.x) < b.w / 2 + 1 && Math.abs(z - b.z) < b.d / 2 + 1 && y < (b.h || 6) + 0.5) return true;
+  }
+  return false;
+}
+// third-person chase cam, behind + above, following the plane's orientation
+function updatePlaneCam(dt) {
+  var g = plane.group;
+  var back = _planeTmpV.set(0, 0, 1).applyQuaternion(g.quaternion);   // nose fwd
+  var up = _planeTmpV2.set(0, 1, 0).applyQuaternion(g.quaternion);
+  var want = g.position.clone().addScaledVector(back, -13).addScaledVector(up, 4.5);
+  if (want.y < 1.2) want.y = 1.2;
+  if (!plane.camInit) { plane.camPos.copy(want); plane.camInit = true; }
+  else plane.camPos.lerp(want, Math.min(1, dt * 4));
+  camera.position.copy(plane.camPos);
+  var look = g.position.clone().addScaledVector(back, 6);
+  camera.lookAt(look);
+}
+function updatePlaneHud() {
+  var g = plane.group, alt = Math.round(g.position.y - planeGroundY(g.position.x, g.position.z));
+  var spd = Math.round(plane.vel.length());
+  var wb = document.getElementById('weaponBox');
+  if (wb) wb.innerHTML = 'FLYING &middot; ALT ' + alt + ' &middot; SPD ' + spd + ' &middot; THR ' + Math.round(plane.throttle * 100) + '%<br><small>[E] exit &middot; W/S throttle &middot; A/D rudder &middot; mouse: down=climb, L/R=roll</small>';
+}
+// ---- crash: explosion, debris scatter, scorch decal, remove plane, kill pilot
+function crashPlane() {
+  if (!plane) return;
+  var g = plane.group, x = g.position.x, y = g.position.y, z = g.position.z;
+  var wasPiloting = plane.piloting;
+  plane.alive = false;
+  boomAt(x, z);
+  // extra fireball
+  for (var i = 0; i < 14; i++) puff(new THREE.Vector3(x + (Math.random() - 0.5) * 6, 0.8 + Math.random() * 4, z + (Math.random() - 0.5) * 6), i % 2 ? 0x333333 : 0xff7a1e);
+  sfx('boom', { x: x, z: z, range: 300 });
+  spawnPlaneDebris(x, Math.max(0.5, y), z);
+  layPlaneScorch(x, z);
+  removePlane();
+  if (wasPiloting) {
+    plane = null;
+    if (!state.dead) { player.piloting = false; hurtPlayer(999, x, z); }   // instant death inside a wreck
+  }
+}
+function spawnPlaneDebris(x, y, z) {
+  var parts = WC_PLANE.buildDebris ? WC_PLANE.buildDebris() : [];
+  for (var i = 0; i < parts.length; i++) {
+    var m = parts[i];
+    m.position.set(x + (Math.random() - 0.5) * 2, y + 0.5 + Math.random() * 1.5, z + (Math.random() - 0.5) * 2);
+    m.rotation.set(Math.random() * 6.28, Math.random() * 6.28, Math.random() * 6.28);
+    scene.add(m);
+    var ang = Math.random() * 6.28, sp = 4 + Math.random() * 9;
+    planeDebris.push({
+      mesh: m, vx: Math.cos(ang) * sp, vz: Math.sin(ang) * sp, vy: 4 + Math.random() * 7,
+      spinx: (Math.random() - 0.5) * 12, spiny: (Math.random() - 0.5) * 12, spinz: (Math.random() - 0.5) * 12,
+      life: PLANE_DEBRIS_LIFE, rest: 0.25 + Math.random() * 0.5
+    });
+  }
+}
+function updatePlaneDebris(dt) {
+  for (var i = planeDebris.length - 1; i >= 0; i--) {
+    var d = planeDebris[i]; d.life -= dt;
+    if (d.life <= 0) { scene.remove(d.mesh); planeDebris.splice(i, 1); continue; }
+    if (d.mesh.position.y > d.rest) {
+      d.vy -= 20 * dt;
+      d.mesh.position.x += d.vx * dt; d.mesh.position.y += d.vy * dt; d.mesh.position.z += d.vz * dt;
+      d.mesh.rotation.x += d.spinx * dt; d.mesh.rotation.y += d.spiny * dt; d.mesh.rotation.z += d.spinz * dt;
+      if (d.mesh.position.y <= d.rest) { d.mesh.position.y = d.rest; d.vx *= 0.3; d.vz *= 0.3; d.vy = 0; d.spinx = d.spiny = d.spinz = 0; }
+    } else if (d.life < 5) {
+      // fade out near the end (share material only if unique; safe to set opacity)
+      if (d.mesh.material && !d.mesh.material.transparent) { d.mesh.material.transparent = true; }
+      if (d.mesh.material) d.mesh.material.opacity = Math.max(0, d.life / 5);
+    }
+  }
+}
+var _planeScorchGeo = null;
+function layPlaneScorch(x, z) {
+  if (!_planeScorchGeo) { _planeScorchGeo = new THREE.PlaneGeometry(1, 1); _planeScorchGeo.rotateX(-Math.PI / 2); }
+  var tex = WC_PLANE.scorchTexture ? WC_PLANE.scorchTexture() : null;
+  var mat = tex ? new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.92, depthWrite: false })
+                : new THREE.MeshBasicMaterial({ color: 0x111111, transparent: true, opacity: 0.85, depthWrite: false });
+  var m = new THREE.Mesh(_planeScorchGeo, mat);
+  m.scale.setScalar(14);
+  m.position.set(x, 0.17, z);
+  m.rotation.y = Math.random() * 6.28;
+  scene.add(m);
+  planeScorch.push({ mesh: m, life: PLANE_DEBRIS_LIFE, max: PLANE_DEBRIS_LIFE });
+}
+function updatePlaneScorch(dt) {
+  for (var i = planeScorch.length - 1; i >= 0; i--) {
+    var s = planeScorch[i]; s.life -= dt;
+    if (s.life < 5) s.mesh.material.opacity = Math.max(0, s.life / 5 * 0.9);
+    if (s.life <= 0) { scene.remove(s.mesh); planeScorch.splice(i, 1); }
+  }
+}
+
 // ---------------- cash / puffs (unchanged) ----------------
 var cashes = [];
 var cashGeo = new THREE.BoxGeometry(0.55, 0.14, 0.34);
@@ -20367,7 +20773,16 @@ if (location.hash.indexOf('#join=') === 0) {
 pauseScreen.addEventListener('click', function () { lockPointer(); });
 document.addEventListener('pointerlockchange', function () { var locked = document.pointerLockElement === canvas; if (!locked && photoMode) exitPhotoMode(); if (!locked && state.running && !state.menu && !chatOpen && !bugOpen) pauseScreen.classList.remove('hidden'); else if (locked) pauseScreen.classList.add('hidden'); });
 document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
-document.addEventListener('mousemove', function (e) { if (document.pointerLockElement !== canvas || state.menu) return; var sens = 0.0022 * (zoomed ? 0.35 : 1) * lookSens; yaw -= e.movementX * sens; pitch -= (lookInvert ? -1 : 1) * e.movementY * sens; pitch = Math.max(-1.45, Math.min(1.45, pitch)); });
+document.addEventListener('mousemove', function (e) {
+  if (document.pointerLockElement !== canvas || state.menu) return;
+  if (plane && plane.piloting) {
+    // yoke-style: mouse DOWN (movementY+) => climb (elevator +); mouse RIGHT (movementX+) => roll right (aileron +).
+    plane.mElev = Math.max(-1.4, Math.min(1.4, plane.mElev + e.movementY * PLANE_MOUSE_SENS));
+    plane.mAil = Math.max(-1.4, Math.min(1.4, plane.mAil + e.movementX * PLANE_MOUSE_SENS));
+    return;                                   // intercept: don't drive the FPS look
+  }
+  var sens = 0.0022 * (zoomed ? 0.35 : 1) * lookSens; yaw -= e.movementX * sens; pitch -= (lookInvert ? -1 : 1) * e.movementY * sens; pitch = Math.max(-1.45, Math.min(1.45, pitch));
+});
 document.addEventListener('mousedown', function (e) {
   if (document.pointerLockElement !== canvas || state.menu) return;
   if (e.button === 0) { mouseDown = true; tryAttack(); }
@@ -20800,7 +21215,11 @@ document.addEventListener('keydown', function (e) {
   }
   if ((e.code === 'Enter' || e.code === 'NumpadEnter') && state.running && !state.menu && netActive()) { e.preventDefault(); openChat(); return; }
   if (e.code === 'Tab') { e.preventDefault(); if (!state.running || state.dead) return; if (state.menu === 'inv') closeMenus(); else { closeMenus(false); openMenu('inv'); } }
-  if (e.code === 'KeyJ' && !e.repeat) { e.preventDefault(); if (!state.running || state.dead) return; if (state.menu === 'quest') closeMenus(); else if (!state.menu) openMenu('quest'); return; }
+  // PLANE TEST HARNESS: J spawns the Learjet in front of the player + boards as
+  // pilot (single plane — re-spawns/replaces any existing one). NOTE: this key
+  // previously opened the quest journal (openMenu('quest')); the integrator can
+  // rebind the journal — the quest log is still reachable via __wc.openQuestLog.
+  if (e.code === 'KeyJ' && !e.repeat) { e.preventDefault(); if (!state.running || state.dead || state.menu) return; spawnPlane(); return; }
   if (e.code === 'KeyQ' && state.menu === 'inv') { e.preventDefault(); if (bagSel >= 0 && state.bag[bagSel]) bagDrop(bagSel); return; }
   // #46 minimap zoom: [ zooms out (wider), ] zooms in (closer)
   if (!e.repeat && state.running && !state.menu) {
@@ -20833,6 +21252,7 @@ document.addEventListener('keydown', function (e) {
     if (!state.running || state.dead) return;
     if (state.menu === 'shop' || state.menu === 'clerk') { closeMenus(); return; }
     if (state.menu) return;
+    if (plane && plane.piloting) { exitPlane(); return; }
     if (driving) { exitCar(); return; }
     if (qLoc && qRoom) { exitPOI(); return; }   // inside a quest sub-space — E climbs back out
     if (inside) {
@@ -20894,6 +21314,11 @@ function updatePlayer(dt) {
     rocketCdEl.classList.add('hidden');   // the vm/reload block below is skipped while driving — don't leave the bar stuck
     return;
   }
+  if (plane && plane.piloting) {          // the flight sim (updatePlaneWorld) owns the frame while airborne
+    document.getElementById('prompt').textContent = '[E] EXIT PLANE';
+    rocketCdEl.classList.add('hidden');
+    return;
+  }
   updateBreakIn(dt);
   var f = 0, s = 0;
   if (keys['KeyW']) f += 1; if (keys['KeyS']) f -= 1; if (keys['KeyD']) s += 1; if (keys['KeyA']) s -= 1;
@@ -20925,9 +21350,18 @@ function updatePlayer(dt) {
   var spaceDown = !!keys['Space'], spaceEdge = spaceDown && !player._spaceWas; player._spaceWas = spaceDown;
   if (spaceDown && player.grounded) { player.vy = 5.6; player.grounded = false; player._jumps = 1; }
   else if (sprintOn && spaceEdge && !player.grounded && (player._jumps || 0) < 2) { player.vy = 5.2; player._jumps = 2; }
+  var wasAirborne = !player.grounded;
   player.vy -= GRAV * dt; player.y += player.vy * dt;
   var eyeFloor = (inside ? (curInterior ? curInterior.box.y : INT.y) : (qRoom ? qRoom.y : lakeBedY(player.x, player.z))) + EYE;
-  if (player.y <= eyeFloor) { player.y = eyeFloor; player.vy = 0; player.grounded = true; }
+  if (player.y <= eyeFloor) {
+    // fall damage: a hard downward landing hurts, scaled by impact; a big drop
+    // (e.g. bailing out of the plane at altitude) is lethal. Small hops are safe.
+    if (wasAirborne && player.vy < -FALL_SAFE_VSPEED && !state.dead) {
+      hurtPlayer(Math.round((-player.vy - FALL_SAFE_VSPEED) * FALL_DMG_K));
+      if (!state.dead) sfx('grunt');
+    }
+    player.y = eyeFloor; player.vy = 0; player.grounded = true;
+  }
   player.x = Math.max(-HALF + 1.2, Math.min(HALF - 1.2, player.x)); player.z = Math.max(-HALF + 1.2, Math.min(HALF - 1.2, player.z));
   if (!landColliders) landColliders = colliders.filter(function (cc) { return !cc.lake; });
   var p = pushOut(player.x, player.z, 0.55, inside ? (curInterior ? curInterior.colliders : intColliders) : (qRoom ? qRoom.colliders : landColliders)); player.x = p.x; player.z = p.z;
@@ -21605,7 +22039,7 @@ function loop(now) {
   T += dt;
   updateReflex(dt);                       // 8-Bit Reflexes: sets the slow-mo factor
   var sdt = dt * reflexScale();           // world sim dt (bullet-time scales it)
-  updatePlayer(dt); updateNPCs(sdt); updateKids(sdt); updateWildlife(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); updateQuestCaps(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
+  updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateWildlife(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); updateQuestCaps(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
   renderer.render(scene, camera);
 }
 setEquipped('fists');
@@ -21965,7 +22399,32 @@ window.__wc = {
   questRegisterItems: questRegisterItems, itemDef: itemDef, itemTex: itemTex, bagAdd: bagAdd, bagCount: bagCount,
   questAssets: function () { return { chars: Object.keys(QUEST_IDX), reskins: Object.keys(QUEST_RESKIN_IDX), props: (typeof QUEST_PROPS !== 'undefined') ? QUEST_PROPS.map(function (p) { return p.n; }) : [], items: (typeof QUEST_ITEM_DEFS !== 'undefined') ? QUEST_ITEM_DEFS.length : 0, voices: (typeof QUEST_VOICES !== 'undefined') ? Object.keys(QUEST_VOICES).length : 0 }; },
   wildlife: wildlife, wildlifeCounts: wildlifeCounts, updateWildlife: updateWildlife, initWildlife: initWildlife, nearestPetCat: nearestPetCat, petCat: petCat,
-  tick: function (dt) { T += dt; updateReflex(dt); var sdt = dt * reflexScale(); updatePlayer(dt); updateNPCs(sdt); updateKids(sdt); updateWildlife(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); updateQuestCaps(dt); updateSecrets(sdt); renderer.render(scene, camera); }
+  // --- flyable plane (Learjet) — local/singleplayer test hooks ---
+  spawnPlane: function () { return spawnPlane(); },
+  plane: function () { return plane; },
+  boardPlane: boardPlane, exitPlane: exitPlane, removePlane: removePlane,
+  crashPlane: function () { crashPlane(); },
+  planeState: function () {
+    if (!plane) return null;
+    var g = plane.group;
+    return {
+      alt: Math.round((g.position.y - planeGroundY(g.position.x, g.position.z)) * 10) / 10,
+      spd: Math.round(plane.vel.length() * 10) / 10,
+      throttle: Math.round(plane.throttle * 100) / 100,
+      gearT: Math.round(plane.gearT * 100) / 100,
+      onGround: plane.onGround, piloting: plane.piloting, alive: plane.alive,
+      x: Math.round(g.position.x * 10) / 10, y: Math.round(g.position.y * 10) / 10, z: Math.round(g.position.z * 10) / 10,
+      controls: { aileron: Math.round(plane.ail * 100) / 100, elevator: Math.round(plane.elev * 100) / 100, rudder: Math.round(plane.rud * 100) / 100 },
+      debris: planeDebris.length, scorch: planeScorch.length
+    };
+  },
+  planeMouse: function (dx, dy) { if (plane && plane.piloting) { plane.mElev = Math.max(-1.4, Math.min(1.4, plane.mElev + dy * PLANE_MOUSE_SENS)); plane.mAil = Math.max(-1.4, Math.min(1.4, plane.mAil + dx * PLANE_MOUSE_SENS)); } },
+  planeProps: function () { return { debris: planeDebris.length, scorch: planeScorch.length }; },
+  updatePlaneWorld: updatePlaneWorld,
+  // lightweight physics step (no render, no NPC/cop/car sim) — fast headless
+  // stepping for plane/fall tests. Renders only when you call renderer yourself.
+  stepLite: function (dt) { T += dt; updatePlayer(dt); updatePlaneWorld(dt); },
+  tick: function (dt) { T += dt; updateReflex(dt); var sdt = dt * reflexScale(); updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateWildlife(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); updateQuestCaps(dt); updateSecrets(sdt); renderer.render(scene, camera); }
 };
 
 // ---------------- boot screen handoff + menu cover art ----------------
