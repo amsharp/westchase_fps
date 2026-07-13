@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.68.0';
+var GAME_VERSION = 'v1.68.1';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -21215,11 +21215,12 @@ document.addEventListener('keydown', function (e) {
   }
   if ((e.code === 'Enter' || e.code === 'NumpadEnter') && state.running && !state.menu && netActive()) { e.preventDefault(); openChat(); return; }
   if (e.code === 'Tab') { e.preventDefault(); if (!state.running || state.dead) return; if (state.menu === 'inv') closeMenus(); else { closeMenus(false); openMenu('inv'); } }
-  // PLANE TEST HARNESS: J spawns the Learjet in front of the player + boards as
-  // pilot (single plane — re-spawns/replaces any existing one). NOTE: this key
-  // previously opened the quest journal (openMenu('quest')); the integrator can
-  // rebind the journal — the quest log is still reachable via __wc.openQuestLog.
-  if (e.code === 'KeyJ' && !e.repeat) { e.preventDefault(); if (!state.running || state.dead || state.menu) return; spawnPlane(); return; }
+  // J: quest journal toggle (restored — was temporarily taken by the plane test).
+  if (e.code === 'KeyJ' && !e.repeat) { e.preventDefault(); if (!state.running || state.dead) return; if (state.menu === 'quest') closeMenus(); else if (!state.menu) openMenu('quest'); return; }
+  // PLANE TEST HARNESS: K spawns the Learjet in front of the player + boards as
+  // pilot (single plane — re-spawns/replaces any existing one). Temporary test
+  // key — this whole spawn-on-keypress goes away once airports exist.
+  if (e.code === 'KeyK' && !e.repeat) { e.preventDefault(); if (!state.running || state.dead || state.menu) return; spawnPlane(); return; }
   if (e.code === 'KeyQ' && state.menu === 'inv') { e.preventDefault(); if (bagSel >= 0 && state.bag[bagSel]) bagDrop(bagSel); return; }
   // #46 minimap zoom: [ zooms out (wider), ] zooms in (closer)
   if (!e.repeat && state.running && !state.menu) {

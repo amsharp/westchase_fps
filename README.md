@@ -570,7 +570,7 @@ dark every car projects real headlight pools onto the asphalt.
 
 ## Flying (Learjet)
 
-Press **J** to spawn a **Learjet 35** on the ground in front of you and
+Press **K** to spawn a **Learjet 35** on the ground in front of you and
 drop straight into the pilot's seat. Flying is third-person, chase-cam,
 and deliberately arcade — forgiving and fun, not a study sim:
 
@@ -751,7 +751,7 @@ the same quiet noise bed as before, and the SFX volume slider controls it.
   honk the horn (also reachable from the pause screen's **CONTROLS** button)
 - **Tab** — inventory: equip/unequip weapons + your 6×4 item grid (click an
   item to use it, right-click or **Q** to drop one)
-- **J** — spawn the **Learjet** in front of you and hop in as pilot (see
+- **K** — spawn the **Learjet** in front of you and hop in as pilot (see
   **Flying**). *(This test build binds the plane to J; the quest log button on
   the pause/menu still opens the journal.)*
 - **L / G / B** — toggle earned quest gear (Detective's Loupe / Spirit Lantern /
