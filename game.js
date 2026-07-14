@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.70.0';
+var GAME_VERSION = 'v1.70.1';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -19879,6 +19879,7 @@ function updatePlayer(dt) {
     }
   }
   var spd = (keys['ShiftLeft'] || keys['ShiftRight'] ? 8.4 : 5.2);
+  var _preMvX = player.x, _preMvZ = player.z;   // horizontal start-of-frame position (for swept collision below)
   if (f || s) { var inv = spd / Math.sqrt(f * f + s * s); var fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw); player.x += (fx * f + rx * s) * inv * dt; player.z += (fz * f + rz * s) * inv * dt; }
   var spaceDown = !!keys['Space']; player._spaceWas = spaceDown;
   if (spaceDown && player.grounded) { player.vy = 5.6; player.grounded = false; }
@@ -19899,7 +19900,24 @@ function updatePlayer(dt) {
   // confine the player; clamping inside chopped off the far half of those rooms.
   if (!inside) { player.x = Math.max(-HALF + 1.2, Math.min(HALF - 1.2, player.x)); player.z = Math.max(-HALF + 1.2, Math.min(HALF - 1.2, player.z)); }
   if (!landColliders) landColliders = colliders.filter(function (cc) { return !cc.lake; });
-  var p = pushOut(player.x, player.z, 0.55, inside ? (curInterior ? curInterior.colliders : intColliders) : landColliders); player.x = p.x; player.z = p.z;
+  // swept, sub-stepped collision: resolve from the start-of-frame position toward
+  // the target in chunks no bigger than ~0.4·radius, so a large per-frame step (low
+  // framerate, sprinting) can't tunnel through a collider and strand you on the far
+  // side — that tunneling was the one-way "invisible barrier" in the shop interiors.
+  var _colList = inside ? (curInterior ? curInterior.colliders : intColliders) : landColliders;
+  var _mvx = player.x - _preMvX, _mvz = player.z - _preMvZ, _mdist = Math.sqrt(_mvx * _mvx + _mvz * _mvz);
+  if (_mdist > 0.22) {
+    // advance from the RESOLVED position each sub-step (true sweep) so hitting a
+    // collider stops/slides you at its face instead of sampling past it.
+    var _nsub = Math.ceil(_mdist / 0.22), _sx = _mvx / _nsub, _sz = _mvz / _nsub, _cx = _preMvX, _cz = _preMvZ;
+    for (var _ss = 0; _ss < _nsub; _ss++) {
+      var _q = pushOut(_cx + _sx, _cz + _sz, 0.55, _colList);
+      _cx = _q.x; _cz = _q.z;
+    }
+    player.x = _cx; player.z = _cz;
+  } else {
+    var p = pushOut(player.x, player.z, 0.55, _colList); player.x = p.x; player.z = p.z;
+  }
   // pedestrians are solid-ish: you shoulder past them, not through them
   if (!inside && !state.dead) for (var pci = 0; pci < npcs.length; pci++) {
     var pcn = npcs[pci];
