@@ -13058,10 +13058,13 @@ function puff(p, col, kind) {
     return;
   }
   if (kind === 'impact' && smokeFrames) {
-    var im = new THREE.Mesh(puffGeo, new THREE.MeshBasicMaterial({ map: smokeFrames[0], transparent: true, depthWrite: false, opacity: 0.7 }));
+    // very subtle dust wisp for a bullet strike on a wall/prop/car: tiny + faint,
+    // never a flame. small scale + low opacity so it reads as a puff of dust that
+    // is gone almost immediately (mrft7zm5 asked for smoke, user wants it subtle).
+    var im = new THREE.Mesh(puffGeo, new THREE.MeshBasicMaterial({ map: smokeFrames[0], transparent: true, depthWrite: false, opacity: 0.26 }));
     im.material.color.setHex(col || 0xbfb9ae);
-    im.position.copy(p); im.scale.setScalar(0.85 + Math.random() * 0.4); scene.add(im);
-    puffs.push({ mesh: im, life: 0.34, max: 0.34, fire: false, frames: smokeFrames, grow: 1.3, omax: 0.7 });
+    im.position.copy(p); im.scale.setScalar(0.3 + Math.random() * 0.14); scene.add(im);
+    puffs.push({ mesh: im, life: 0.28, max: 0.28, fire: false, frames: smokeFrames, grow: 0.9, omax: 0.26 });
     return;
   }
   var fire = vfxIsFire(col);
@@ -17037,7 +17040,7 @@ function tryAttack() {
     }
     else if (copHit) { damageCop(copHit, w.dmg, dir.x, dir.z); puff(h.point, 0xd93a2a, 'blood'); }
     else if (carHit) {
-      puff(h.point, 0xd8c860);
+      puff(h.point, 0xbbbbbb, 'impact');   // bullet strike on a car body: subtle dust, NOT a flame (the old warm 0xd8c860 puff routed to the fire sheet)
       if (carHit.playerDriven && carHit !== driving) {
         // ANOTHER player is driving this car — route the shot so the host
         // forwards the damage to the real driver (their client applies carHP,
