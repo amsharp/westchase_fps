@@ -11898,7 +11898,7 @@ function ensureEngine(c) {
   };
   // sample-based engine: idle + high-rev Lyria loops crossfaded by the same
   // RPM model; per-car personality survives via playbackRate (chr.pitch)
-  if (sfxEngReady(chr.cls)) {
+  if (false && sfxEngReady(chr.cls)) {   // v1.70: AI sample loops disabled — they read as music; use the plain synth
     var g2 = ac.createGain(); g2.gain.value = 0; g2.connect(ac.destination);
     // loops carry 100ms of margin context either side (see tools/sfxgen):
     // loopStart/loopEnd sit interior so decode-resampling never clicks
@@ -11915,14 +11915,16 @@ function ensureEngine(c) {
     c.eng = { smp: true, si: si, sh: sh, gi: gi, gh: gh, g: g2, rpm: ENG_IDLE, chr: chr };
     return;
   }
+  // simplified engine (v1.70): a single low sawtooth + a sub-sine for body,
+  // through a dull lowpass. The old detuned second oscillator beat against the
+  // first at a near-octave ratio, which read as a musical drone — dropped.
   var o = ac.createOscillator(); o.type = 'sawtooth'; o.frequency.value = 40;
-  var o2 = ac.createOscillator(); o2.type = chr.o2t; o2.frequency.value = 81;
-  var sub = ac.createOscillator(); sub.type = 'sine'; sub.frequency.value = 20;   // body
-  var f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 280; f.Q.value = 1.2;
+  var sub = ac.createOscillator(); sub.type = 'sine'; sub.frequency.value = 20;   // low-end body
+  var f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 240; f.Q.value = 0.7;
   var g = ac.createGain(); g.gain.value = 0;
-  o.connect(f); o2.connect(f); sub.connect(f); f.connect(g); g.connect(ac.destination);
-  o.start(); o2.start(); sub.start();
-  c.eng = { syn: true, o: o, o2: o2, sub: sub, f: f, g: g, rpm: ENG_IDLE, chr: chr };
+  o.connect(f); sub.connect(f); f.connect(g); g.connect(ac.destination);
+  o.start(); sub.start();
+  c.eng = { syn: true, o: o, sub: sub, f: f, g: g, rpm: ENG_IDLE, chr: chr };
 }
 function ensureEngineRich(c) {
   // the player's car earns the full stack: band-passed combustion noise
@@ -11944,7 +11946,7 @@ function engineTick(c, dt, sp, throttle, dist, drivenLoud) {
   var e = c.eng;
   // late pack upgrade: this engine was built as synth before the SFX pack
   // finished decoding — rebuild it on the sample loops (cheap, once per car)
-  if (e.syn && e.chr && sfxEngReady(e.chr.cls)) {
+  if (false && e.syn && e.chr && sfxEngReady(e.chr.cls)) {   // v1.70: never upgrade to sample loops (forced simple synth)
     var wasRich = !!e.rich;
     stopEngine(c); ensureEngine(c);
     if (wasRich) ensureEngineRich(c);
@@ -11967,11 +11969,10 @@ function engineTick(c, dt, sp, throttle, dist, drivenLoud) {
     e.gi.gain.value = 1 - revClimb * revClimb;
     e.gh.gain.value = Math.sqrt(revClimb) * 1.1;
   } else {
-    var f0 = Math.max(20, Math.min(400, (e.rpm / 22) * dop * chr.pitch));   // firing fundamental
+    var f0 = Math.max(20, Math.min(360, (e.rpm / 22) * dop * chr.pitch));   // firing fundamental
     e.o.frequency.value = f0;
-    e.o2.frequency.value = Math.min(820, f0 * chr.ratio);
     e.sub.frequency.value = Math.max(14, f0 * 0.5);
-    e.f.frequency.value = Math.max(140, Math.min(1400, (150 + e.rpm * 0.16) * chr.bright));
+    e.f.frequency.value = Math.max(120, Math.min(1000, (130 + e.rpm * 0.13) * chr.bright));
   }
   // loudness: distance falloff x rev-dependent presence (all gains clamped).
   // Sample loops are peak-normalized quieter than the raw saw stack -> boost.
@@ -12267,10 +12268,12 @@ function enterCar(c) {
   yaw = Math.atan2(-Math.cos(hh), Math.sin(hh));
   pitch = 0;
   document.getElementById('crosshair').style.display = 'none';
-  document.getElementById('weaponBox').innerHTML = 'DRIVING<br><small>[E] get out &middot; WASD drive &middot; mouse looks around</small>';
+  document.getElementById('weaponBox').innerHTML = 'DRIVING<br><small>[E] get out &middot; WASD drive &middot; mouse looks around &middot; [R] radio</small>';
+  radioResume();   // resume the selected radio station (music stopped when you last got out)
 }
 function exitCar(hijacked) {
   if (!driving) return;
+  radioStop();   // music stops the moment you leave the car
   var g = driving.car.group;
   var h = g.rotation.y;
   var px = g.position.x + Math.cos(h + Math.PI / 2) * 2.6;
@@ -13517,6 +13520,7 @@ function explodeCar(c) {
   if (driving === c) {
     // blown out of your own ride
     driving = null;
+    radioStop();   // the radio dies with the car
     document.getElementById('crosshair').style.display = '';
     setEquipped(state.equipped);
   }
@@ -16896,6 +16900,82 @@ function setupAudioBus() {
   } catch (e) { audioReal = null; masterBus = sfxBus = voiceBus = null; }
 }
 function initAudio() { if (ac) return; try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { } setupAudioBus(); decodeSfxPack(); startAmbient(); }
+
+// ---------------- car radio (player-only) ----------------
+// Four stations, three tracks each, played in sequence and looping (last -> first).
+// Only the player's own driven car has a radio; NPC/traffic cars never play music.
+// Tracks are plain local MP3s under music/ (user-supplied) — the system no-ops
+// gracefully until the files exist. Playback stops on car exit or destruction.
+// Uses an HTMLAudioElement (not the WebAudio graph) so it streams a normal MP3
+// straight off disk from file:// as well as over http — its volume tracks the
+// master-volume setting manually.
+var RADIO_VOL = 0.75;   // radio loudness relative to the master volume
+var RADIO_STATIONS = [
+  { id: 'electronic', name: 'ELECTRONIC', tracks: ['music/electronic_1.mp3', 'music/electronic_2.mp3', 'music/electronic_3.mp3'] },
+  { id: 'rap',        name: 'RAP',        tracks: ['music/rap_1.mp3', 'music/rap_2.mp3', 'music/rap_3.mp3'] },
+  { id: 'chill',      name: 'CHILL',      tracks: ['music/chill_1.mp3', 'music/chill_2.mp3', 'music/chill_3.mp3'] },
+  { id: 'rock',       name: 'ROCK',       tracks: ['music/rock_1.mp3', 'music/rock_2.mp3', 'music/rock_3.mp3'] }
+];
+var radioStation = -1;    // -1 = OFF; 0..3 = station index (persists across cars)
+var radioTrack = 0;       // 0..2 track within the current station
+var radioEl = null;       // the HTMLAudioElement doing playback
+var radioWantPlay = false; // are we supposed to be playing right now (in-car + station on)
+function radioInit() {
+  if (radioEl) return radioEl;
+  try {
+    radioEl = new Audio();
+    radioEl.preload = 'auto';
+    radioEl.addEventListener('ended', radioNext);      // song finished -> next in station
+    radioEl.addEventListener('error', function () { });  // missing/undecodable file: stay silent
+  } catch (e) { radioEl = null; }
+  return radioEl;
+}
+function radioApplyVolume() {
+  if (!radioEl) return;
+  var mv = (masterBus && masterBus.gain) ? masterBus.gain.value : 1;
+  radioEl.volume = Math.max(0, Math.min(1, mv * RADIO_VOL));
+}
+function radioLoadAndPlay() {
+  if (!radioInit() || radioStation < 0) return;
+  var st = RADIO_STATIONS[radioStation];
+  if (!st) return;
+  radioEl.src = st.tracks[radioTrack % st.tracks.length];
+  radioApplyVolume();
+  radioWantPlay = true;
+  try { var p = radioEl.play(); if (p && p.catch) p.catch(function () { }); } catch (e) { }
+}
+function radioNext() {
+  if (radioStation < 0) return;
+  var st = RADIO_STATIONS[radioStation];
+  radioTrack = (radioTrack + 1) % st.tracks.length;   // wrap last -> first (looped)
+  radioLoadAndPlay();
+}
+function radioSetStation(idx) {
+  radioInit();
+  radioStation = idx;
+  if (idx < 0) { radioStop(); popup('RADIO OFF'); return; }
+  radioTrack = 0;                                      // each station starts on its first song
+  radioLoadAndPlay();
+  popup('♪ ' + RADIO_STATIONS[idx].name);
+}
+function radioCycle() {
+  // OFF -> Electronic -> Rap -> Chill -> Rock -> OFF
+  var next = radioStation + 1;
+  if (next >= RADIO_STATIONS.length) next = -1;
+  radioSetStation(next);
+}
+function radioStop() {
+  radioWantPlay = false;
+  if (radioEl) { try { radioEl.pause(); } catch (e) { } }
+}
+function radioResume() {
+  // re-entering a car resumes the selected station where it left off
+  if (radioStation >= 0) radioLoadAndPlay();
+}
+function radioTick() {
+  // keep the level in sync with the master-volume setting while driving
+  if (radioWantPlay) radioApplyVolume();
+}
 function startAmbient() {
   if (!ac || ambientStarted) return;
   ambientStarted = true;
@@ -19692,6 +19772,8 @@ document.addEventListener('keydown', function (e) {
   }
   // QoL: M drops/clears a personal waypoint at whatever you're looking at
   if (e.code === 'KeyM' && !e.repeat && state.running && !state.menu && !state.dead) { e.preventDefault(); toggleWaypointAtLook(); return; }
+  // R: cycle the car radio (OFF -> Electronic -> Rap -> Chill -> Rock -> OFF) — only while driving.
+  if (e.code === 'KeyR' && !e.repeat && state.running && !state.menu && !state.dead && driving) { e.preventDefault(); radioCycle(); return; }
   // QoL: number-key direct weapon select (1..9, 0 = slot 10).
   if (!e.repeat && state.running && !state.menu && !state.dead) {
     var wslot = -1;
@@ -19760,6 +19842,7 @@ function updatePlayer(dt) {
   if (state.menu || state.dead) return;
   if (driving) {
     updateDriving(dt);
+    radioTick();   // keep the radio level synced to the master volume while driving
     if (state.hp < 100 && T - state.lastHurt > 5) state.hp = Math.min(100, state.hp + 5 * dt);
     if (flashT > 0) { flashT -= dt; if (flashT <= 0) flash.visible = false; }
     document.getElementById('prompt').textContent = '[E] EXIT CAR';
@@ -20814,6 +20897,12 @@ window.__wc = {
   // jet-engine audio debug: gain rises with throttle (headless verification hook)
   jetInfo: function () { return jetNodes ? { running: jetRunning, gain: jetNodes.master.gain.value, cutoff: jetNodes.lp.frequency.value, whine: jetNodes.w1.frequency.value, spool: jetSpool } : { running: false, gain: 0, cutoff: 0, whine: 0, spool: 0 }; },
   updateCars: function (dt) { updateCars(dt); },
+  // car radio (player-only) test hooks
+  initAudio: function () { initAudio(); },
+  enterCar: function (c) { enterCar(c); }, exitCar: function (h) { exitCar(h); }, explodeCar: function (c) { explodeCar(c); },
+  radioCycle: radioCycle, radioSetStation: radioSetStation, radioStop: radioStop, radioNext: radioNext,
+  radioFireEnded: function () { if (radioEl) radioEl.dispatchEvent(new Event('ended')); },
+  radioState: function () { return { station: radioStation, stationName: radioStation >= 0 ? RADIO_STATIONS[radioStation].name : 'OFF', track: radioTrack, src: radioEl ? radioEl.src : '', playing: radioWantPlay, paused: radioEl ? radioEl.paused : true, stations: RADIO_STATIONS.length }; },
   // lightweight physics step (no render, no NPC/cop/car sim) — fast headless
   // stepping for plane/fall tests. Renders only when you call renderer yourself.
   stepLite: function (dt) { T += dt; updatePlayer(dt); updatePlaneWorld(dt); },
