@@ -18,6 +18,7 @@ var WC_PLANE = (function () {
   var GROUND_CLEARANCE = 1.6; // origin(CG) -> wheel contact point, gear down
   var LENGTH = 14.6;          // nose tip (+Z) to tail tip (-Z)
   var SPAN = 11.8;            // tip-tank to tip-tank across X
+  var SCALE = 1.3;            // v1.68.2: whole model +30% (user: "a bit too small")
 
   // ---- deflection / retract constants (the sign convention lives here) ----
   var AIL_MAX = 0.4;   // rad, aileron
@@ -248,6 +249,7 @@ var WC_PLANE = (function () {
     setControls(parts, 0, 0, 0);
     setGear(parts, 0);
 
+    group.scale.setScalar(SCALE);   // +30% overall (hinges/gear are children -> unaffected by uniform scale)
     return { group: group, parts: parts };
   }
 
@@ -389,9 +391,9 @@ var WC_PLANE = (function () {
     setGear: setGear,
     buildDebris: buildDebris,
     scorchTexture: scorchTexture,
-    GROUND_CLEARANCE: GROUND_CLEARANCE,
-    LENGTH: LENGTH,
-    SPAN: SPAN
+    GROUND_CLEARANCE: GROUND_CLEARANCE * SCALE,
+    LENGTH: LENGTH * SCALE,
+    SPAN: SPAN * SCALE
   };
 })();
 

@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.68.1';
+var GAME_VERSION = 'v1.68.2';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -12238,7 +12238,7 @@ function updateCars(dt) {
     }
 
     // shove / hurt player (not while you're inside your own car)
-    if (Math.abs(edx) < 2.6 && Math.abs(edz) < 2.6 && !state.dead && !driving) {
+    if (Math.abs(edx) < 2.6 && Math.abs(edz) < 2.6 && !state.dead && !driving && !(plane && plane.piloting)) {
       var d = ed || 1;
       player.x += (edx / d) * 2.4; player.z += (edz / d) * 2.4;
       if (T - state.lastCarHit > 0.8) { state.lastCarHit = T; hurtPlayer(12, m.position.x, m.position.z); sfx('thud'); }
@@ -12625,8 +12625,8 @@ if (typeof WC_PLANE === 'undefined') {
   })();
 }
 // --- flight tuning constants (arcade, forgiving) ----------------------------
-var PLANE_THRUST = 34;        // fwd accel (u/s^2) at full throttle along nose
-var PLANE_THROTTLE_RATE = 0.8;  // throttle units per second (W/S) — near-full by liftoff
+var PLANE_THRUST = 18;        // v1.68.2: fwd accel (u/s^2) at full throttle — lowered from 34 (user: "accelerates wayyy too quickly")
+var PLANE_THROTTLE_RATE = 0.4;  // v1.68.2: throttle spools in over ~2.5s (was 0.8) so power comes on gradually
 var PLANE_GRAV = 15;          // gravity pulling the plane down (u/s^2)
 var PLANE_LIFT_K = 0.7;       // lift accel per unit speed, along local up (>grav at takeoff spd => climbs)
 var PLANE_LIFT_CAP = 34;      // speed cap feeding lift (prevents runaway)
@@ -12747,7 +12747,7 @@ function updatePlaneWorld(dt) {
     plane.mElev *= Math.max(0, 1 - 7 * dt);
     tAil = Math.max(-1, Math.min(1, plane.mAil));
     tElev = Math.max(-1, Math.min(1, plane.mElev));
-    tRud = (keys['KeyD'] ? 1 : 0) - (keys['KeyA'] ? 1 : 0);
+    tRud = (keys['KeyA'] ? 1 : 0) - (keys['KeyD'] ? 1 : 0);   // v1.68.2: A=left, D=right (was reversed)
     if (keys['KeyW']) tThrottle += PLANE_THROTTLE_RATE * dt;
     if (keys['KeyS']) tThrottle -= PLANE_THROTTLE_RATE * dt;
     plane.throttle = Math.max(0, Math.min(1, tThrottle));
@@ -20776,9 +20776,10 @@ document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 document.addEventListener('mousemove', function (e) {
   if (document.pointerLockElement !== canvas || state.menu) return;
   if (plane && plane.piloting) {
-    // yoke-style: mouse DOWN (movementY+) => climb (elevator +); mouse RIGHT (movementX+) => roll right (aileron +).
+    // yoke-style: mouse DOWN (movementY+) => climb; mouse RIGHT => roll right.
+    // v1.68.2: roll sign flipped (was reversed — mouse-left rolled right).
     plane.mElev = Math.max(-1.4, Math.min(1.4, plane.mElev + e.movementY * PLANE_MOUSE_SENS));
-    plane.mAil = Math.max(-1.4, Math.min(1.4, plane.mAil + e.movementX * PLANE_MOUSE_SENS));
+    plane.mAil = Math.max(-1.4, Math.min(1.4, plane.mAil - e.movementX * PLANE_MOUSE_SENS));
     return;                                   // intercept: don't drive the FPS look
   }
   var sens = 0.0022 * (zoomed ? 0.35 : 1) * lookSens; yaw -= e.movementX * sens; pitch -= (lookInvert ? -1 : 1) * e.movementY * sens; pitch = Math.max(-1.45, Math.min(1.45, pitch));
@@ -21254,6 +21255,11 @@ document.addEventListener('keydown', function (e) {
     if (state.menu === 'shop' || state.menu === 'clerk') { closeMenus(); return; }
     if (state.menu) return;
     if (plane && plane.piloting) { exitPlane(); return; }
+    if (plane && !plane.piloting && plane.alive) {
+      // re-board a parked plane you've stepped out of (E near it)
+      var pbdx = player.x - plane.group.position.x, pbdz = player.z - plane.group.position.z;
+      if (pbdx * pbdx + pbdz * pbdz < 14 * 14) { boardPlane(); return; }
+    }
     if (driving) { exitCar(); return; }
     if (qLoc && qRoom) { exitPOI(); return; }   // inside a quest sub-space — E climbs back out
     if (inside) {
@@ -22419,9 +22425,10 @@ window.__wc = {
       debris: planeDebris.length, scorch: planeScorch.length
     };
   },
-  planeMouse: function (dx, dy) { if (plane && plane.piloting) { plane.mElev = Math.max(-1.4, Math.min(1.4, plane.mElev + dy * PLANE_MOUSE_SENS)); plane.mAil = Math.max(-1.4, Math.min(1.4, plane.mAil + dx * PLANE_MOUSE_SENS)); } },
+  planeMouse: function (dx, dy) { if (plane && plane.piloting) { plane.mElev = Math.max(-1.4, Math.min(1.4, plane.mElev + dy * PLANE_MOUSE_SENS)); plane.mAil = Math.max(-1.4, Math.min(1.4, plane.mAil - dx * PLANE_MOUSE_SENS)); } },
   planeProps: function () { return { debris: planeDebris.length, scorch: planeScorch.length }; },
   updatePlaneWorld: updatePlaneWorld,
+  updateCars: function (dt) { updateCars(dt); },
   // lightweight physics step (no render, no NPC/cop/car sim) — fast headless
   // stepping for plane/fall tests. Renders only when you call renderer yourself.
   stepLite: function (dt) { T += dt; updatePlayer(dt); updatePlaneWorld(dt); },
