@@ -12685,6 +12685,7 @@ function boardPlane() {
   if (!plane) return;
   if (driving) exitCar();
   plane.piloting = true;
+  startJet();                                            // spin up the turbine loop
   setZoom(false);
   vm.visible = false;                                    // hide FP arms/viewmodel like driving
   plane.mAil = 0; plane.mElev = 0;
@@ -12700,6 +12701,7 @@ function exitPlane() {
   var spd = plane.vel.length();
   var safe = (spd < PLANE_BAIL_SPD && alt < PLANE_BAIL_ALT && plane.onGround);
   plane.piloting = false;
+  stopJet();                                             // kill the turbine on exit/bail
   vm.visible = true;
   document.getElementById('crosshair').style.display = '';
   setEquipped(state.equipped);
@@ -12727,6 +12729,7 @@ function exitPlane() {
 }
 function removePlane() {
   if (!plane) return;
+  stopJet();                                             // safety: silence the turbine
   scene.remove(plane.group);
   plane = null;
 }
@@ -12860,6 +12863,7 @@ function updatePlaneWorld(dt) {
   // ---- pilot rides along; chase camera ----
   if (plane.piloting) {
     player.x = g.position.x; player.z = g.position.z; player.y = g.position.y;
+    updateJet(dt, plane.throttle);                       // turbine loudness/brightness track throttle
     updatePlaneCam(dt);
     updatePlaneHud();
   }
@@ -17570,6 +17574,59 @@ function updateAmbient(dt) {
     if (ambCarT <= 0) { ambCarT = 26 + Math.random() * 55; if (Math.random() < 0.7) ambCarPass(); }
   }
 }
+// ---- jet engine (flyable Learjet) ----------------------------------------
+// A continuous turbine loop built ONCE (like the ambient beds): a filtered
+// noise "rumble" bed + two detuned sawtooth "whine" oscillators through a
+// bandpass. Loudness + brightness (lowpass cutoff) + whine pitch all RISE with
+// plane.throttle; a "spool" term (rate-of-change of throttle) adds extra
+// brightness/whine while accelerating and MELLOWS at steady cruise. Nodes stay
+// alive between flights — startJet/stopJet just fade the master gain. Levels
+// are smoothed in JS and written straight to .value each frame so the values
+// are deterministic under headless dt-stepping (matches updateAmbient's style).
+var jetNodes = null, jetRunning = false, jetPrevThr = 0, jetSpool = 0;
+function buildJet() {
+  if (!ac || jetNodes) return;
+  // brown-ish turbine noise bed with a touch of hiss
+  var len = ac.sampleRate * 2, buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0), last = 0;
+  for (var i = 0; i < len; i++) { var w = Math.random() * 2 - 1; last = (last + 0.06 * w) / 1.06; d[i] = last * 3 + w * 0.35; }
+  var src = ac.createBufferSource(); src.buffer = buf; src.loop = true;
+  var lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 380; lp.Q.value = 0.7;
+  var noiseGain = ac.createGain(); noiseGain.gain.value = 0.6;
+  // turbine whine: two detuned saws (~octave apart) squeezed through a bandpass
+  var w1 = ac.createOscillator(); w1.type = 'sawtooth'; w1.frequency.value = 160;
+  var w2 = ac.createOscillator(); w2.type = 'sawtooth'; w2.frequency.value = 323;
+  var bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 900; bp.Q.value = 3;
+  var whineGain = ac.createGain(); whineGain.gain.value = 0;
+  var master = ac.createGain(); master.gain.value = 0;
+  src.connect(lp); lp.connect(noiseGain); noiseGain.connect(master);
+  w1.connect(bp); w2.connect(bp); bp.connect(whineGain); whineGain.connect(master);
+  master.connect(ac.destination);
+  try { src.start(); w1.start(); w2.start(); } catch (e) { }
+  jetNodes = { master: master, lp: lp, whineGain: whineGain, w1: w1, w2: w2, bp: bp };
+}
+function startJet() { buildJet(); if (!jetNodes) return; jetRunning = true; jetPrevThr = (plane ? plane.throttle : 0); jetSpool = 0; }
+function stopJet() { jetRunning = false; if (!jetNodes || !ac) return; try { jetNodes.master.gain.setTargetAtTime(0, ac.currentTime, 0.15); } catch (e) { jetNodes.master.gain.value = 0; } }
+function updateJet(dt, throttle) {
+  if (!jetNodes || !jetRunning) return;
+  var thr = Math.max(0, Math.min(1, throttle || 0));
+  // spool = how hard the throttle is moving; eases back to 0 when it holds (cruise)
+  var dThr = (thr - jetPrevThr) / Math.max(dt, 0.001);
+  jetPrevThr = thr;
+  var spoolTarget = Math.min(1, Math.abs(dThr) * 2.2);
+  jetSpool += (spoolTarget - jetSpool) * Math.min(1, dt * 4);
+  var k = Math.min(1, dt * 6), jn = jetNodes;                 // smooth toward targets
+  var vol = 0.05 + thr * 0.32;                                 // idle bed always audible
+  var cut = 380 + thr * 3200 + jetSpool * 1400;                // brightness climbs w/ throttle + spool
+  var whineHz = 150 + thr * 620;                               // turbine whine pitch
+  var bpHz = 700 + thr * 2200;
+  var whineVol = (0.014 + thr * 0.058) * (0.6 + 0.7 * jetSpool); // prominent while spooling, mellow at cruise
+  jn.master.gain.value += (vol - jn.master.gain.value) * k;
+  jn.lp.frequency.value += (cut - jn.lp.frequency.value) * k;
+  jn.w1.frequency.value += (whineHz - jn.w1.frequency.value) * k;
+  jn.w2.frequency.value += (whineHz * 2.02 - jn.w2.frequency.value) * k;
+  jn.bp.frequency.value += (bpHz - jn.bp.frequency.value) * k;
+  jn.whineGain.gain.value += (whineVol - jn.whineGain.gain.value) * k;
+}
 // ---- PS1-crunched TTS dialogue (optional voicelines.js) ----
 var voiceBufs = {}, voiceLastT = {}, dealerMet = false, shopBought = false, clerkScaredT = -99;
 // per-peer voice-play instrumentation (dbg): local = voices this peer played
@@ -17905,10 +17962,10 @@ function sfxPackBuf(key) {
 // loudness), r = base playbackRate, j = random rate jitter. Kinds NOT here
 // (raygun/laser zaps, UI ticks, deny/alarm, grunts, footsteps) stay synth.
 var SFX_MAP = {
-  pistol: { k: 'pistol', g: 0.6, j: 0.05 }, smg: { k: 'smg', g: 0.5, j: 0.06 },
-  rifle: { k: 'rifle', g: 0.85, j: 0.04 }, auto: { k: 'auto', g: 0.6, j: 0.06 },
-  copshot: { k: 'pistol', g: 0.38, r: 0.96, j: 0.05 }, copsmg: { k: 'smg', g: 0.3, r: 0.97, j: 0.06 },
-  rocketfire: { k: 'rocketfire', g: 0.8 }, boom: { k: 'boom', g: 1.2, j: 0.05 },
+  // gunshots (pistol/smg/rifle/auto/copshot/copsmg/rocketfire) are intentionally
+  // NOT pack-mapped — they route to the synthesized gunShot() for a sharper,
+  // punchier report (the Lyria gun clips read flat). boom stays on the pack.
+  boom: { k: 'boom', g: 1.2, j: 0.05 },
   crash: { k: 'crash', g: 0.85, j: 0.07 }, glass: { k: 'glass', g: 0.6, j: 0.06 },
   punchhit: { k: 'punch', g: 0.55, j: 0.08 }, hit: { k: 'punch', g: 0.42, r: 1.08, j: 0.08 },
   slap: { k: 'punch', g: 0.5, r: 1.35, j: 0.06 }, thud: { k: 'punch', g: 0.5, r: 0.65, j: 0.05 },
@@ -17978,6 +18035,56 @@ function fleeScream(n, kid) {
 }
 // sfx(kind) is 2D (player-sourced / UI); sfx(kind, at) places the sound in
 // the world — everything that has a source in the world should pass one.
+// ---- synthesized gunshot (replaces the flat Lyria gun clips) ----
+// Three layered elements: (1) a sharp CRACK — a very short highpassed noise
+// burst with a ~0.6ms attack + fast exponential decay; (2) a low BODY thump —
+// a sine that pitch-drops for the muzzle "boom"; (3) a report TAIL — lowpassed
+// noise that decays out. Per-class specs make bigger guns punchier + deeper.
+var GUNSPEC = {
+  pistol:  { crackHP: 1800, crackGain: 0.55, crackDur: 0.028, bodyF0: 175, bodyF1: 62, bodyGain: 0.40, bodyDur: 0.09, tailGain: 0.14, tailDur: 0.11, tailLP: 1700 },
+  smg:     { crackHP: 2200, crackGain: 0.42, crackDur: 0.020, bodyF0: 150, bodyF1: 60, bodyGain: 0.26, bodyDur: 0.06, tailGain: 0.09, tailDur: 0.07, tailLP: 2000 },
+  rifle:   { crackHP: 1300, crackGain: 0.90, crackDur: 0.042, bodyF0: 205, bodyF1: 44, bodyGain: 0.62, bodyDur: 0.17, tailGain: 0.32, tailDur: 0.30, tailLP: 1250 },
+  auto:    { crackHP: 1550, crackGain: 0.62, crackDur: 0.030, bodyF0: 185, bodyF1: 50, bodyGain: 0.46, bodyDur: 0.10, tailGain: 0.18, tailDur: 0.15, tailLP: 1550 },
+  copshot: { crackHP: 1900, crackGain: 0.42, crackDur: 0.026, bodyF0: 170, bodyF1: 62, bodyGain: 0.30, bodyDur: 0.08, tailGain: 0.11, tailDur: 0.10, tailLP: 1650 },
+  copsmg:  { crackHP: 2200, crackGain: 0.32, crackDur: 0.019, bodyF0: 150, bodyF1: 60, bodyGain: 0.20, bodyDur: 0.055, tailGain: 0.07, tailDur: 0.06, tailLP: 2000 },
+  rocket:  { crackHP: 600,  crackGain: 0.50, crackDur: 0.060, bodyF0: 260, bodyF1: 40, bodyGain: 0.72, bodyDur: 0.42, tailGain: 0.45, tailDur: 0.52, tailLP: 900 }
+};
+function gunShot(spec, at) {
+  if (!ac || !spec) return;
+  var dest = at ? voiceOut(1, at) : ac.destination;   // spatialized for cops; 2D for the player
+  var now = ac.currentTime, i, j = 0.94 + Math.random() * 0.12;   // slight per-shot pitch jitter
+  // (1) crack: fast highpassed noise burst, near-instant attack + short decay
+  var cd = spec.crackDur, cn = Math.max(1, (ac.sampleRate * cd) | 0);
+  var cb = ac.createBuffer(1, cn, ac.sampleRate), cdat = cb.getChannelData(0);
+  for (i = 0; i < cn; i++) cdat[i] = Math.random() * 2 - 1;
+  var cs = ac.createBufferSource(); cs.buffer = cb;
+  var hp = ac.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = spec.crackHP;
+  var cg = ac.createGain();
+  cg.gain.setValueAtTime(0.0001, now);
+  cg.gain.linearRampToValueAtTime(spec.crackGain, now + 0.0006);
+  cg.gain.exponentialRampToValueAtTime(0.0008, now + cd);
+  cs.connect(hp); hp.connect(cg); cg.connect(dest); cs.start(now); cs.stop(now + cd + 0.02);
+  // (2) body thump: low sine with a fast downward pitch drop
+  var o = ac.createOscillator(); o.type = 'sine'; var bd = spec.bodyDur;
+  var bg = ac.createGain();
+  o.frequency.setValueAtTime(spec.bodyF0 * j, now);
+  o.frequency.exponentialRampToValueAtTime(spec.bodyF1, now + bd);
+  bg.gain.setValueAtTime(spec.bodyGain, now);
+  bg.gain.exponentialRampToValueAtTime(0.0008, now + bd);
+  o.connect(bg); bg.connect(dest); o.start(now); o.stop(now + bd + 0.02);
+  // (3) report tail: lowpassed brown-ish noise, longer decay
+  var td = spec.tailDur;
+  if (td > 0 && spec.tailGain > 0) {
+    var tn = Math.max(1, (ac.sampleRate * td) | 0), tb = ac.createBuffer(1, tn, ac.sampleRate), tdat = tb.getChannelData(0), last = 0;
+    for (i = 0; i < tn; i++) { var wv = Math.random() * 2 - 1; last = (last + 0.1 * wv) / 1.1; tdat[i] = last * 2.2; }
+    var ts = ac.createBufferSource(); ts.buffer = tb;
+    var lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = spec.tailLP;
+    var tg = ac.createGain();
+    tg.gain.setValueAtTime(spec.tailGain, now + 0.004);
+    tg.gain.exponentialRampToValueAtTime(0.0006, now + td);
+    ts.connect(lp); lp.connect(tg); tg.connect(dest); ts.start(now); ts.stop(now + td + 0.02);
+  }
+}
 function sfx(kind, at) {
   if (!ac) return;
   if (at && !voiceEarshot(at)) return;
@@ -17986,13 +18093,13 @@ function sfx(kind, at) {
   function nb(dur, freq, gain) { noiseBurst(dur, freq, gain, at ? voiceOut(1, at) : null); }
   function bp(freq, dur, gain, type, slide) { beep(freq, dur, gain, type, slide, at ? voiceOut(1, at) : null); }
   switch (kind) {
-    case 'pistol': nb(0.14, 1700, 0.5); bp(220, 0.08, 0.12, 'square', 90); break;
-    case 'smg': nb(0.09, 2100, 0.35); break;
+    case 'pistol': gunShot(GUNSPEC.pistol, at); break;
+    case 'smg': gunShot(GUNSPEC.smg, at); break;
     case 'raygun': bp(1750, 0.14, 0.22, 'square', 420); bp(880, 0.1, 0.1, 'sawtooth', 220); break;
     case 'neon_blaster': bp(2100, 0.12, 0.2, 'square', 520); bp(1200, 0.1, 0.12, 'sawtooth', 320); break;
     case 'silenced': nb(0.05, 2600, 0.12); bp(320, 0.05, 0.05, 'sine', 120); break;   // muffled pfft
     case 'laser': bp(1350, 0.2, 0.22, 'sawtooth', 240); nb(0.06, 3000, 0.12); break;
-    case 'rifle': nb(0.3, 900, 0.8); bp(120, 0.18, 0.2, 'sawtooth', 45); break;
+    case 'rifle': gunShot(GUNSPEC.rifle, at); break;
     case 'whoosh': bp(280, 0.1, 0.1, 'sine', 90); break;
     case 'hit': bp(125 + Math.random() * 45, 0.09, 0.3, 'square', 60 + Math.random() * 25); nb(0.05, 700 + Math.random() * 450, 0.2); break;
     case 'punchhit': nb(0.07, 650 + Math.random() * 500, 0.4); bp(105 + Math.random() * 55, 0.11, 0.32, 'square', 55); break;
@@ -18003,12 +18110,12 @@ function sfx(kind, at) {
     case 'buy': bp(660, 0.09, 0.15, 'square'); setTimeout(function () { bp(990, 0.12, 0.15, 'square'); }, 80); break;
     case 'deny': bp(150, 0.2, 0.25, 'sawtooth', 110); break;
     case 'alarm': bp(760, 0.18, 0.2, 'square'); setTimeout(function () { bp(560, 0.18, 0.2, 'square'); }, 180); setTimeout(function () { bp(760, 0.18, 0.2, 'square'); }, 360); break;
-    case 'copshot': nb(0.12, 1500, 0.3); break;
-    case 'copsmg': nb(0.08, 1900, 0.22); break;
+    case 'copshot': gunShot(GUNSPEC.copshot, at); break;
+    case 'copsmg': gunShot(GUNSPEC.copsmg, at); break;
     case 'grunt': { var gf = at && at.fem; bp(gf ? 265 : 150, gf ? 0.24 : 0.28, 0.4, 'sawtooth', gf ? 130 : 55); nb(0.1, gf ? 950 : 600, gf ? 0.12 : 0.18); if (window.__voiceLog) { window.__voiceLog.push({ kind: 'grunt', role: gf ? 'F' : 'M', cat: 'grunt', len: 1, t: 0 }); if (window.__voiceLog.length > 240) window.__voiceLog.shift(); } } break;
-    case 'auto': nb(0.11, 1300, 0.5); break;
+    case 'auto': gunShot(GUNSPEC.auto, at); break;
     case 'eat': nb(0.09, 2500, 0.2); setTimeout(function () { nb(0.09, 2200, 0.18); }, 140); setTimeout(function () { nb(0.09, 2400, 0.15); }, 280); break;
-    case 'rocketfire': nb(0.5, 800, 0.7); bp(220, 0.4, 0.3, 'sawtooth', 50); break;
+    case 'rocketfire': gunShot(GUNSPEC.rocket, at); bp(190, 0.4, 0.12, 'sawtooth', 55); break;   // deep launch roar + a low whoosh
     case 'crash': nb(0.3, 900, 0.8); bp(85, 0.18, 0.35, 'square', 45); break;
     case 'splash': nb(0.22, 1900, 0.5); bp(360, 0.1, 0.09, 'sine', 150); setTimeout(function () { nb(0.16, 1200, 0.3); }, 60); setTimeout(function () { nb(0.13, 800, 0.2); }, 150); break;   // car hits the water
     case 'glass': nb(0.07, 3400, 0.5); bp(190, 0.09, 0.14, 'square', 70); setTimeout(function () { nb(0.1, 2700, 0.38); }, 70); setTimeout(function () { nb(0.14, 2100, 0.28); }, 160); break;
@@ -22428,6 +22535,8 @@ window.__wc = {
   planeMouse: function (dx, dy) { if (plane && plane.piloting) { plane.mElev = Math.max(-1.4, Math.min(1.4, plane.mElev + dy * PLANE_MOUSE_SENS)); plane.mAil = Math.max(-1.4, Math.min(1.4, plane.mAil - dx * PLANE_MOUSE_SENS)); } },
   planeProps: function () { return { debris: planeDebris.length, scorch: planeScorch.length }; },
   updatePlaneWorld: updatePlaneWorld,
+  // jet-engine audio debug: gain rises with throttle (headless verification hook)
+  jetInfo: function () { return jetNodes ? { running: jetRunning, gain: jetNodes.master.gain.value, cutoff: jetNodes.lp.frequency.value, whine: jetNodes.w1.frequency.value, spool: jetSpool } : { running: false, gain: 0, cutoff: 0, whine: 0, spool: 0 }; },
   updateCars: function (dt) { updateCars(dt); },
   // lightweight physics step (no render, no NPC/cop/car sim) — fast headless
   // stepping for plane/fall tests. Renders only when you call renderer yourself.
