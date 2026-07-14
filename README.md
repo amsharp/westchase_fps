@@ -401,8 +401,8 @@ your wanted level.
 
 ## Traffic & driving
 
-Cars hum with engine noise as they pass — and the pitch bends as they
-close in and blow by, like the real thing. Don't stand in the road —
+Cars rumble with a plain engine note as they pass — and the pitch bends as
+they close in and blow by, like the real thing. Don't stand in the road —
 getting run over ragdolls pedestrians sky-high with a blood splatter (and
 hurts you too). Shoot a moving car for ~3 seconds and it loses control,
 floors it, and explodes on whatever it hits — killing anything nearby,
@@ -430,7 +430,12 @@ Press **E** next to a passing car to carjack it — the driver bails and
 runs off screaming (and yes, that's a crime). Driving is third-person:
 WASD to drive, **E** to get out. A **speedometer** lights up on the HUD
 while you're behind the wheel — a big MPH readout and a speed bar that
-greens up at a cruise and reddens as you floor it. You can't shoot from the driver's seat,
+greens up at a cruise and reddens as you floor it. Tap **R** to flip on the
+**car radio** and cycle its stations — **Electronic, Rap, Chill, Rock**, or
+off. Each station plays a set of tracks on a loop; the music is yours alone
+(other cars stay quiet), it cuts out the moment you step out or the car goes
+up, and it picks the station back up when you climb into your next ride. You
+can't shoot from the driver's seat,
 but the car itself is the weapon — mow down pedestrians and cops, and
 ram traffic to send it spinning out of control like you'd shot it up.
 Trees and street lights snap and topple if you plow through them, in a
