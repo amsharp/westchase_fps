@@ -4103,7 +4103,13 @@ var houseFronts = [];      // final (post-nudge) house-front frames for the land
       addColliderOBB(x, z, w / 2 + 0.2, d / 2 + 0.2, a, 'house');
       houseStats.colliders++;
     } else {
-      addCollider(x, z, w + 0.4, d + 0.4, 'house');
+      // near-axis-aligned (within ~2.9deg of a quarter turn): cheap AABB, but it
+      // MUST use the rotation-aware world extents (hx,hz) not raw w,d — at ~90/270
+      // the footprint's world width IS d and depth IS w. Feeding w,d straight in
+      // registered a 90deg-swapped box: half the house walk-through, the other
+      // half an invisible wall out in the side yard (same hx/hz the minimap and
+      // rain already use for this instance on the mapBuildings line below).
+      addCollider(x, z, hx * 2 + 0.4, hz * 2 + 0.4, 'house');
       houseStats.colliders++;
     }
     // invisible raycast proxy (bullets, cop line-of-sight)
