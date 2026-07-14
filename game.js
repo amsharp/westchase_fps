@@ -19811,7 +19811,10 @@ function updatePlayer(dt) {
     }
     player.y = eyeFloor; player.vy = 0; player.grounded = true;
   }
-  player.x = Math.max(-HALF + 1.2, Math.min(HALF - 1.2, player.x)); player.z = Math.max(-HALF + 1.2, Math.min(HALF - 1.2, player.z));
+  // world-boundary clamp only OUTDOORS — several shop interiors sit past ±HALF
+  // (Dunkin/Starbucks/Sakura/DollarTree/Bank), and their own wall colliders
+  // confine the player; clamping inside chopped off the far half of those rooms.
+  if (!inside) { player.x = Math.max(-HALF + 1.2, Math.min(HALF - 1.2, player.x)); player.z = Math.max(-HALF + 1.2, Math.min(HALF - 1.2, player.z)); }
   if (!landColliders) landColliders = colliders.filter(function (cc) { return !cc.lake; });
   var p = pushOut(player.x, player.z, 0.55, inside ? (curInterior ? curInterior.colliders : intColliders) : landColliders); player.x = p.x; player.z = p.z;
   // pedestrians are solid-ish: you shoulder past them, not through them
@@ -20556,6 +20559,7 @@ window.__wc = {
   envVendors: function () { return envVendors.map(function (v) { return { voice: v.voice, x: Math.round(v.x * 10) / 10, z: Math.round(v.z * 10) / 10, px: v.px, pz: v.pz }; }); },
   voiceLog: function () { return window.__voiceLog || []; },
   interiorState: function () { return { inside: inside, id: curInterior ? curInterior.id : (inside ? 'gas' : null), staff: curInterior ? curInterior.staff.length : 0, colliders: curInterior ? curInterior.colliders.length : 0, box: curInterior ? curInterior.box : null }; },
+  curInteriorRef: function () { return curInterior; }, intCollidersRef: function () { return intColliders; },
   shopPopulation: function () { return shopCust.length; },
   spawnCustomer: function () { return !!spawnCustomer(true); },
   listShopNpcs: function () { return shopCust.map(function (c) { return { state: c.state, x: Math.round(c.x * 10) / 10, z: Math.round(c.z * 10) / 10, lane: c.lane, qi: c.qi, beats: c.beats }; }); },
