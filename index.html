@@ -201,39 +201,6 @@
   .crow button:active { transform:translate(1px,1px); box-shadow:1px 1px 0 rgba(0,0,0,.5); }
   .swatch { display:inline-block; width:46px; height:17px; border:2px solid #000; vertical-align:middle; }
 
-  /* ---------- quest log (PS1-style; toggled with J) ---------- */
-  #questPanel { min-width:780px; max-width:94vw; }
-  #questWrap { display:flex; gap:20px; align-items:stretch; }
-  #questList { width:260px; flex:none; border:3px solid #3a3f4d; background:#0d1017;
-    box-shadow:inset 2px 2px 0 #05070b; padding:6px; max-height:56vh; overflow-y:auto; }
-  .qItem { display:flex; align-items:center; gap:8px; padding:9px 10px; font-size:16px; letter-spacing:1px;
-    color:#cfc9b4; cursor:pointer; border-bottom:2px solid #1c2130; text-shadow:1px 1px 0 #000; }
-  .qItem:hover { background:#1a2030; }
-  .qItem.sel { background:#243049; color:#fff; box-shadow:inset 3px 0 0 #ffb428; }
-  .qItem.completed { color:#7f9a86; }
-  .qItem.active .qTag { color:#ffd94a; }
-  .qItem .qTag { width:16px; text-align:center; color:#8fd0e8; font-weight:bold; }
-  .qItem.completed .qTag { color:#8ee87f; }
-  #questDetail { flex:1; padding:4px 6px; max-height:56vh; overflow-y:auto; }
-  #questDetail .qName { font-size:23px; letter-spacing:3px; color:#ffd98a; text-shadow:2px 2px 0 #000; }
-  #questDetail .qState { display:inline-block; margin:8px 0; font-size:13px; letter-spacing:2px; padding:3px 10px;
-    border:2px solid #4a4436; color:#8fd0e8; }
-  #questDetail .qState.active { color:#ffd94a; border-color:#ffd94a; }
-  #questDetail .qState.completed { color:#8ee87f; border-color:#3a7a4a; }
-  #questDetail .qGiver { color:#8a8470; font-size:13px; letter-spacing:1px; margin-bottom:8px; }
-  #questDetail .qSummary { color:#cfc9b4; font-size:14px; line-height:1.5; margin-bottom:14px;
-    border-left:3px solid #3a3f4d; padding-left:10px; }
-  #questDetail .qBeats { margin:8px 0; }
-  .qBeat { display:flex; gap:9px; align-items:flex-start; padding:6px 4px; font-size:15px; line-height:1.35;
-    border-bottom:2px solid #1c2130; }
-  .qBeat .qbm { width:18px; flex:none; text-align:center; }
-  .qBeat.done { color:#7f9a86; } .qBeat.done .qbm { color:#8ee87f; }
-  .qBeat.cur { color:#fff; } .qBeat.cur .qbm { color:#ffd94a; }
-  .qBeat.todo { color:#6a6656; } .qBeat.todo .qbm { color:#4a4436; }
-  #questDetail .qReward { margin-top:14px; color:#8ee87f; font-size:14px; letter-spacing:1px;
-    border-top:2px solid #3a3f4d; padding-top:10px; }
-  #questDetail .qActions { margin-top:14px; }
-
   /* ---------- CRT overlay (scanlines + vignette); JS const CRT_FX toggles it ---------- */
   #crtFx { position:fixed; inset:0; pointer-events:none; z-index:70;
     background:
@@ -352,15 +319,6 @@
   </div>
 </div>
 
-<div id="questPanel" class="panel hidden">
-  <h1>QUEST LOG</h1>
-  <div id="questWrap">
-    <div id="questList"></div>
-    <div id="questDetail"></div>
-  </div>
-  <div class="footer">[J] close &nbsp;·&nbsp; click a quest to view &nbsp;·&nbsp; SET ACTIVE to track it on your minimap</div>
-</div>
-
 <div id="clerkPanel" class="panel hidden">
   <h1>GAS STATION CLERK</h1>
   <p id="clerkSay" style="margin-bottom:12px; color:#cfc9b4; font-size:15px;"></p>
@@ -378,7 +336,6 @@
   <div class="row"><span class="desc">SELECT WEAPON</span><span>1 &ndash; 0</span></div>
   <div class="row"><span class="desc">CYCLE WEAPON</span><span>MOUSE WHEEL</span></div>
   <div class="row"><span class="desc">INVENTORY</span><span>TAB</span></div>
-  <div class="row"><span class="desc">QUEST LOG</span><span>J</span></div>
   <div class="row"><span class="desc">INTERACT&nbsp;<small>dealer / store / car / doors</small></span><span>E</span></div>
   <div class="row"><span class="desc">HORN&nbsp;<small>while driving</small></span><span>H</span></div>
   <div class="row"><span class="desc">MINIMAP ZOOM</span><span>[&nbsp;&nbsp;]&nbsp;&middot;&nbsp;CTRL+WHEEL</span></div>
@@ -413,7 +370,7 @@
   <div id="bootLabel">warming up the engine…</div>
 </div>
 <script>
-var wcBootDone = 0, WC_BOOT_TOTAL = 73.35;   // = SUM of the wcTick weights below — re-sum when adding scripts (grep wcTick | add)
+var wcBootDone = 0, WC_BOOT_TOTAL = 55.75;   // = SUM of the wcTick weights below — re-sum when adding scripts (grep wcTick | add)
 function wcTick(w, nextLabel) {
   wcBootDone += w;
   var b = document.getElementById('bootBar');
@@ -459,14 +416,6 @@ function wcTick(w, nextLabel) {
 <!-- street-vendor voiced dialogue (lemonade kid + ice-cream truck; reports
      mreehkm9/mreeipmy); game.js guards with typeof/window.VEND_VOICES -->
 <script src="vendvoices.js" onload="wcTick(0.1,'stocking the freezer…')"></script>
-<!-- quest content pack (#77): 11 quest NPCs + 6 reskins, 36 item icons, 8 props,
-     279 dialogue lines. questchars.js loads AFTER meshychars.js + kidchars.js
-     (reskins clone those bases). game.js guards typeof QUEST_CHARS / QUEST_ITEMS
-     / QUEST_PROPS / QUEST_VOICES so it still boots if any pack is absent. -->
-<script src="questchars.js" onload="wcTick(4.0,'briefing the cast…')"></script>
-<script src="questprops.js" onload="wcTick(2.5,'digging the tunnels…')"></script>
-<script src="questitems.js" onload="wcTick(0.4,'sealing the evidence…')"></script>
-<script src="questvoices1.js" onload="wcTick(11.0,'recording the dialogue…')"></script>
 <script src="voicelines.js" onload="wcTick(1.0,'loading decals…')"></script>
 <script src="blooddecals.js" onload="wcTick(0.2,'loading street furniture…')"></script>
 <script src="streetprops.js" onload="wcTick(0.5,'loading the map…')"></script>
