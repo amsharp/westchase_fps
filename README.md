@@ -226,29 +226,6 @@ the dog slips away, a pushed stroller is just left standing where it was, and
 a carried item falls from the hand. (All of this is local colour — it isn't
 streamed over the network, so it stays smooth without adding traffic.)
 
-## Wildlife
-
-The suburb is alive with small critters — the visible source of the birdsong
-and nature sounds drifting over the neighbourhood:
-
-- **Ground birds** (pigeons, sparrows, robins) peck and hop on the sidewalks
-  and parking lots. Walk up on one, or drive a car past, and the flock
-  **flutters up and flies off** to resettle somewhere quieter — with a real
-  wing-flutter and the occasional chirp.
-- **Ducks** paddle around the **lake**, drifting between spots on the water,
-  bobbing and dipping their heads, with a soft quack now and then.
-- **Squirrels** scurry on the ground around the big **oaks**. Get close and one
-  **darts up the nearest trunk** and freezes, clinging, until you back off — then
-  it climbs back down.
-- **Stray cats** amble along the sidewalks and yards. They're **skittish** — move
-  in too fast and one bolts a short way — but approach gently and you can press
-  **[E] to pet it**: a meow, a purr, and a little heart. Wholesome.
-
-Like the kids and dogs, **every critter is off-limits** — weapons, cars and
-blasts pass right through, and they never count toward your wanted level. It's
-all local colour (not streamed in multiplayer), and only a small handful stay
-active near you at a time, so it never costs the framerate.
-
 ## The loop
 
 You spawn **with no gun**. Punch pedestrians (they drop cash) — just walk
@@ -486,7 +463,10 @@ and deliberately arcade — forgiving and fun, not a study sim:
 - **Mouse** — the yoke: push the mouse **DOWN to climb** and up to descend
   (yoke-style, intentionally inverted from the on-foot look), and **left /
   right to roll**. Bank into a turn and the plane carves around.
-- **E** — get out.
+- **E** — get out (and, once parked, **[E] near the plane climbs back in**).
+
+The turbines **spool up as you feed in throttle** and settle to a steady
+whine at cruise, so you can fly by ear as much as by the speed readout.
 
 Hold the runway with the throttle open; once you're past takeoff speed and
 pull the nose up, the jet **rotates and lifts off**. Below takeoff speed
