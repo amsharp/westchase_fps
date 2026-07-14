@@ -5594,54 +5594,6 @@ function buildStaff(name, cfg) {
   if (i === undefined) return buildPerson('#1c7e3a', '#e8e4da', CSKIN[2], { hairColor: 0x2a1c10 });   // fallback if staffchars.js absent
   return buildMeshySkinned(cfg || randomCharConfig(), i);
 }
-// ---- quest NPC models (questchars.js #77): 10 skinned quest cast + BISCUIT
-// (animal, built elsewhere) + 6 texture-only reskins. Skinned entries share the
-// MESHY_CHARS schema, so append them to MESHY_LIST (AFTER the civ/cop/role
-// classification so they stay out of the random street pools) and index by name.
-var QUEST_SRC = (typeof QUEST_CHARS !== 'undefined') ? QUEST_CHARS : [];
-var QUEST_IDX = {};   // quest char name -> MESHY_LIST index (skinned only)
-for (var qci = 0; qci < QUEST_SRC.length; qci++) {
-  if (!QUEST_SRC[qci].skel) continue;   // BISCUIT (animal) — no skeleton, built via the dog prop
-  QUEST_IDX[QUEST_SRC[qci].n] = MESHY_LIST.length;
-  MESHY_LIST.push(QUEST_SRC[qci]);
-}
-var MESHY_NAME_IDX = {};   // any MESHY_LIST name -> index (quest names win, pushed last)
-for (var mni = 0; mni < MESHY_LIST.length; mni++) MESHY_NAME_IDX[MESHY_LIST[mni].n] = mni;
-var QUEST_RESKIN_SRC = (typeof QUEST_RESKINS !== 'undefined') ? QUEST_RESKINS : [];
-var QUEST_RESKIN_IDX = {};
-for (var qri = 0; qri < QUEST_RESKIN_SRC.length; qri++) QUEST_RESKIN_IDX[QUEST_RESKIN_SRC[qri].n] = qri;
-var questReskinTexCache = {};
-function questReskinTex(name) {
-  if (questReskinTexCache[name]) return questReskinTexCache[name];
-  var r = QUEST_RESKIN_SRC[QUEST_RESKIN_IDX[name]]; if (!r) return null;
-  var im = new Image(), tx = new THREE.Texture(im);
-  tx.magFilter = THREE.NearestFilter; tx.minFilter = THREE.NearestFilter; tx.generateMipmaps = false;
-  im.onload = function () { tx.needsUpdate = true; }; im.src = r.tex;
-  return (questReskinTexCache[name] = tx);
-}
-function meshSwapMap(g, tx) {   // repaint a built skinned group's SkinnedMesh
-  if (!g || !tx) return g;
-  for (var i = 0; i < g.children.length; i++) { var c = g.children[i]; if (c.isSkinnedMesh || c.isMesh) { c.material = c.material.clone(); c.material.map = tx; c.material.needsUpdate = true; break; } }
-  return g;
-}
-// build any quest actor by name: a QUEST_CHARS skinned char, or a QUEST_RESKINS
-// texture-swap over a base (Meshy/quest/kid) char. Returns a Group with the
-// same limbs/skin/shadow contract as buildMeshySkinned (animPerson-compatible).
-function buildQuestChar(name, cfg) {
-  cfg = cfg || randomCharConfig();
-  if (QUEST_IDX[name] !== undefined) return buildMeshySkinned(cfg, QUEST_IDX[name]);
-  var r = QUEST_RESKIN_SRC[QUEST_RESKIN_IDX[name]];
-  if (r) {
-    // kid-based reskin (e.g. GRAY_BOY <- LEO): build the kid then swap the map
-    if (typeof KID_LOOKS !== 'undefined') {
-      for (var ki = 0; ki < KID_LOOKS.length; ki++) if (KID_LOOKS[ki].n === r.base) return meshSwapMap(buildKid(ki), questReskinTex(name));
-    }
-    var bi = MESHY_NAME_IDX[r.base];
-    if (bi !== undefined && MESHY_LIST[bi].skel) return meshSwapMap(buildMeshySkinned(cfg, bi), questReskinTex(name));
-  }
-  // last resort: a generic body so a quest never crashes for a missing look
-  return buildPerson('#555', '#333', CSKIN[2], {});
-}
 var meshyPartsCache = [], meshyTexCache = [];
 function getMeshyParts(mi) {
   if (meshyPartsCache[mi]) return meshyPartsCache[mi];
@@ -10597,11 +10549,6 @@ var pendingVendors = [], envVendors = [];
 var envStats = { placed: 0, merged: 0, colliders: 0, batches: 0, byCat: {} };
 var ENV_BY_NAME = {};
 if (typeof ENV_PROPS !== 'undefined') for (var epi = 0; epi < ENV_PROPS.length; epi++) ENV_BY_NAME[ENV_PROPS[epi].n] = ENV_PROPS[epi];
-// quest props (questprops.js #77) share the ENV_PROPS schema — register them in
-// the lookup so getEnvProp()/envDecodeGeo()/envTex() build them. They are NOT
-// auto-placed by the env layer (that only bakes named venue props); quests place
-// them explicitly via getEnvProp('trapdoor'|'hollow_oak'|…).
-if (typeof QUEST_PROPS !== 'undefined') for (var qpi = 0; qpi < QUEST_PROPS.length; qpi++) ENV_BY_NAME[QUEST_PROPS[qpi].n] = QUEST_PROPS[qpi];
 // townhouse mailbox clusters become E-rummageable (junk mail / stray package)
 if (ENV_BY_NAME.mailbox_cluster) ENV_BY_NAME.mailbox_cluster.interact = 'mailbox';
 
@@ -11439,9 +11386,6 @@ function spawnInteriorCops(n) {
 function maxWanted() {
   var w = (state.dead || inside) ? 0 : (state.wanted || 0);
   for (var id in net.remotes) { var r = net.remotes[id]; if (r && !r.dead && (r.w || 0) > w) w = r.w; }
-  // #78 Q10 ending town-perks: signet (inherit) = cops ignore minor crimes;
-  // leniency (expose/Whistleblower) = one star cooler baseline
-  if (state.unlocks) { if (state.unlocks.perk_signet) w = Math.max(0, w - 2); else if (state.unlocks.perk_leniency) w = Math.max(0, w - 1); }
   return w;
 }
 function desiredCops() { var w = maxWanted(); return w === 0 ? 2 : 2 + w * 2; }
@@ -12348,10 +12292,8 @@ var breakIn = null;   // {c, t}
 function startBreakIn(c) {
   if (breakIn || driving || !c.parked || c.exploded || c.sunk) return;
   var g = c.car.group.position;
-  // Lockpick Set (q4) / Bait-Car hotwire (q5): skip the jimmy timer.
-  var fast = (typeof hasUnlock === 'function' && (hasUnlock('lockpick') || hasUnlock('hotwire')));
-  breakIn = { c: c, t: fast ? 0.05 : 0.9 };
-  popup2(fast ? 'HOTWIRING…' : 'BREAKING IN…');
+  breakIn = { c: c, t: 0.9 };
+  popup2('BREAKING IN…');
   sfx('glass', { x: g.x, z: g.z, range: 55 });
   // a bystander who can SEE you jimmy the door panics like a gunshot scare
   // (no automatic star — startFlee only, same as any scared pedestrian)
@@ -13423,7 +13365,6 @@ function updateDecals(dt) {
 // ---------------- ragdoll kills + explosions ----------------
 function killNpcRagdoll(n, dx, dz, power) {
   if (n.state === 'down' || n.state === 'ragdoll' || n.state === 'hidden') return;
-  if (n.qtag && typeof questKillTag === 'function') questKillTag(n.qtag);   // quest kill-beat credit
   breakNpcChat(n);   // free the chat partner before this one goes flying
   n.state = 'ragdoll'; n.hp = 0;
   if (n.grp) leaveGroup(n);   // #67: detach from its social group before it goes flying
@@ -14374,7 +14315,6 @@ function damageNPC(n, dmg, kx, kz, silent) {
     stopNpcVoice(n.vname);
     spawnCash(n.x, n.z, 5 + ((Math.random() * 18) | 0)); sfx('ko', { x: n.x, z: n.z, range: 50 }); sfx('grunt', { x: n.x, z: n.z, range: 50, fem: n.fem });
     maybeNpcItemDrop(n.x, n.z);
-    if (n.qtag && typeof questKillTag === 'function') questKillTag(n.qtag);   // quest kill-beat credit on KO death
     if (!silent) {
       popup('KO!');
       creditCivKill();
@@ -17017,7 +16957,7 @@ function tryAttack() {
       // clients predict hp so the overhead bar drops on hit (mrg4gnea) — the
       // host stays authoritative for the actual kill/credit
       if (isClient()) { netToHost({ t: 'dmgNpc', i: npcs.indexOf(npcHit), dmg: w.dmg, kx: dir.x, kz: dir.z }); npcHit.hp = Math.max(0, (npcHit.hp || 100) - w.dmg); }
-      else damageNPC(npcHit, w.dmg, dir.x, dir.z, ghostActive());   // #78 Ghost: silenced kills stay silent (no star)
+      else damageNPC(npcHit, w.dmg, dir.x, dir.z, false);
     }
     else if (remoteHit) { netSendHit(remoteHit, w.dmg, true); puff(h.point, 0xd93a2a, 'blood'); }
     else if (copMHit >= 0) {
@@ -17607,30 +17547,6 @@ function playVoiceAny(ids, gain, cdKey, cd, at) {
   voiceGroupT[cdKey] = T;
   playVoice(ids[(Math.random() * ids.length) | 0], gain, 0, at);
 }
-// ---- quest dialogue (questvoices1.js #77): QUEST_VOICES[npcKey][cat][idx] is a
-// data-URL WAV. playQuestVoice plays one line at the player's ear (2D UI VO — no
-// spatialization/earshot gate, since quest lines are directed narration). idx
-// omitted -> round-robins that category. Returns the line text-less; silently
-// no-ops if the pack/line is absent, so callers can toast a text fallback.
-var qVoiceBufs = {}, qVoiceCycle = {}, qVoiceLastT = {};
-function questVoiceUrl(npcKey, cat, idx) {
-  if (typeof QUEST_VOICES === 'undefined' || !QUEST_VOICES[npcKey]) return null;
-  var c = QUEST_VOICES[npcKey][cat]; if (!c || !c.length) return null;
-  if (idx == null) { var ck = npcKey + '.' + cat; qVoiceCycle[ck] = (qVoiceCycle[ck] == null) ? 0 : (qVoiceCycle[ck] + 1) % c.length; idx = qVoiceCycle[ck]; }
-  idx = Math.max(0, Math.min(c.length - 1, idx));
-  return c[idx] || null;
-}
-function playQuestVoice(npcKey, cat, idx, gain, cd) {
-  var url = questVoiceUrl(npcKey, cat, idx); if (!url) return false;
-  var key = npcKey + '.' + cat + '.' + (idx == null ? 'rr' : idx);
-  if (qVoiceLastT[key] !== undefined && T - qVoiceLastT[key] < (cd || 1.2)) return true;
-  qVoiceLastT[key] = T;
-  if (!ac) return true;
-  function playBuf(buf) { var s = ac.createBufferSource(); s.buffer = buf; var g = ac.createGain(); g.gain.value = gain || 0.7; s.connect(g); g.connect(ac.destination); s.start(); }
-  if (qVoiceBufs[url]) { playBuf(qVoiceBufs[url]); return true; }
-  try { var bytes = b64Bytes(url.split(',')[1]); ac.decodeAudioData(bytes.buffer, function (buf) { qVoiceBufs[url] = buf; playBuf(buf); }, function () { }); } catch (e) { }
-  return true;
-}
 // voice-play instrumentation (headless verification: AudioContext is silent
 // without a user gesture, so log every dialogue CALL — role/cat + data-URL
 // byte length as a non-zero-duration proxy — for the test harness to assert).
@@ -18054,7 +17970,7 @@ function footStep(surf, run) {
 // classify the ground under (x,z) for footstep timbre. order matters:
 // interior floor > lake water > sidewalk concrete > road asphalt > grass.
 function footSurface(x, z) {
-  if (inside || qLoc) return 'interior';
+  if (inside) return 'interior';
   if (typeof inLake === 'function' && inLake(x, z)) return 'water';
   var az = x < 0 ? -x : x, aze = z < 0 ? -z : z;
   // main axis carriageways (E-W @ z=0, N-S @ x=0) + their flanking sidewalks
@@ -18076,7 +17992,7 @@ function refreshShop() {
   GUN_LIST.forEach(function (k) {
     var w = WEAPONS[k], row = document.createElement('div'); row.className = 'row';
     if (!w.price) return;   // not for sale (ray gun drops from... something)
-    var price = ghostBuy(w.price);
+    var price = w.price;
     var pl = price < w.price ? '<span class="cash">$' + price + '</span> <small style="opacity:.6;text-decoration:line-through">$' + w.price + '</small>' : '<span class="cash">$' + price + '</span>';
     var left = document.createElement('div'); left.innerHTML = '<b>' + w.name + '</b> — ' + pl + '<small>' + w.desc + '</small>'; row.appendChild(left);
     if (state.owned[k]) { var sp = document.createElement('span'); sp.className = 'owned'; sp.textContent = 'OWNED'; row.appendChild(sp); }
@@ -18103,7 +18019,7 @@ function refreshSellRows(rows) {
   for (var k = 0; k < slots.length; k++) { var s = state.bag[slots[k]]; if (!agg[s.id]) { agg[s.id] = 0; order.push(s.id); } agg[s.id] += s.n; }
   var hdr = document.createElement('div'); hdr.className = 'row'; hdr.innerHTML = '<b style="color:#ffd98a; letter-spacing:2px;">— SELL JUNK &amp; VALUABLES —</b>'; rows.appendChild(hdr);
   order.forEach(function (id) {
-    var def = itemDef(id), n = agg[id], unit = ghostSell(def.value), total = unit * n;
+    var def = itemDef(id), n = agg[id], unit = def.value, total = unit * n;
     var row = document.createElement('div'); row.className = 'row';
     var ea = unit > def.value ? '<span class="cash">$' + unit + '</span> <small style="color:#8ee87f">(+15%)</small>' : '<span class="cash">$' + unit + '</span>';
     var left = document.createElement('div'); left.innerHTML = itemIconHtml(id) + '<b>' + def.name + '</b> &times;' + n + ' — ' + ea + ' ea<small>sells for $' + total + '</small>'; row.appendChild(left);
@@ -18172,8 +18088,8 @@ function refreshInvGrid() {
     })(i);
   }
 }
-function openMenu(which) { setZoom(false); state.menu = which; document.exitPointerLock && document.exitPointerLock(); if (which === 'shop') { shopBought = false; if (!dealerMet) { dealerMet = true; playVoice('dealer_hello_first', 0.5, 1, { ref: dealer }); } else playVoiceAny(['dealer_hello_1', 'dealer_hello_2'], 0.5, 'dealerHi', 18, { ref: dealer }); refreshShop(); document.getElementById('shopPanel').classList.remove('hidden'); } if (which === 'inv') { refreshInv(); document.getElementById('invPanel').classList.remove('hidden'); } if (which === 'clerk') { refreshClerk(); document.getElementById('clerkPanel').classList.remove('hidden'); } if (which === 'quest') { refreshQuestPanel(); document.getElementById('questPanel').classList.remove('hidden'); } }
-function closeMenus(relock) { if (state.menu === 'shop' && !shopBought) playVoice('dealer_bye', 0.45, 40, { ref: dealer }); state.menu = null; document.getElementById('shopPanel').classList.add('hidden'); document.getElementById('invPanel').classList.add('hidden'); document.getElementById('clerkPanel').classList.add('hidden'); var qp = document.getElementById('questPanel'); if (qp) qp.classList.add('hidden'); if (relock !== false && state.running) lockPointer(); }
+function openMenu(which) { setZoom(false); state.menu = which; document.exitPointerLock && document.exitPointerLock(); if (which === 'shop') { shopBought = false; if (!dealerMet) { dealerMet = true; playVoice('dealer_hello_first', 0.5, 1, { ref: dealer }); } else playVoiceAny(['dealer_hello_1', 'dealer_hello_2'], 0.5, 'dealerHi', 18, { ref: dealer }); refreshShop(); document.getElementById('shopPanel').classList.remove('hidden'); } if (which === 'inv') { refreshInv(); document.getElementById('invPanel').classList.remove('hidden'); } if (which === 'clerk') { refreshClerk(); document.getElementById('clerkPanel').classList.remove('hidden'); } }
+function closeMenus(relock) { if (state.menu === 'shop' && !shopBought) playVoice('dealer_bye', 0.45, 40, { ref: dealer }); state.menu = null; document.getElementById('shopPanel').classList.add('hidden'); document.getElementById('invPanel').classList.add('hidden'); document.getElementById('clerkPanel').classList.add('hidden'); if (relock !== false && state.running) lockPointer(); }
 
 // ---------------- minimap ----------------
 var mm = document.getElementById('mm');
@@ -18394,13 +18310,6 @@ function drawMinimap() {
   // cops (blue, slightly bigger)
   mg.fillStyle = '#3f8fe8'; for (var cop = 0; cop < cops.length; cop++) { if (cops[cop].state === 'down') continue; mg.fillRect(sx(cops[cop].x) - 1.5, sz(cops[cop].z) - 1.5, 3, 3); }
   for (var cop2 = 0; cop2 < copsM.length; cop2++) { mg.fillRect(sx(copsM[cop2].x) - 1.5, sz(copsM[cop2].z) - 1.5, 3, 3); }
-  // Police Scanner (q2): while wanted, ring the nearest patrol so you can route
-  // around it — turns the wanted system from surprise into strategy.
-  if (hasUnlock('scanner') && state.wanted > 0 && cops.length) {
-    var near = null, nd = 1e9;
-    for (var cs = 0; cs < cops.length; cs++) { var cc = cops[cs]; if (cc.state === 'down') continue; var ddx = cc.x - player.x, ddz = cc.z - player.z, dd = ddx * ddx + ddz * ddz; if (dd < nd) { nd = dd; near = cc; } }
-    if (near) { mg.strokeStyle = 'rgba(120,200,255,' + (0.5 + 0.4 * (Math.sin(T * 6) * 0.5 + 0.5)).toFixed(2) + ')'; mg.lineWidth = 1.4; mg.beginPath(); mg.arc(sx(near.x), sz(near.z), 5.5, 0, Math.PI * 2); mg.stroke(); }
-  }
   // other players (cyan)
   // real players as bright-green blips (match their name-tag color); dim the
   // dead, draw drivers as a slightly bigger square
@@ -18415,22 +18324,6 @@ function drawMinimap() {
   mg.fillStyle = '#ffd94a'; mg.font = 'bold 12px Courier New'; mg.fillText('$', sx(dealerPos.x), sz(dealerPos.z));
   // player heading arrow (fixed-north map -> the arrow itself shows facing)
   mg.save(); mg.translate(sx(player.x), sz(player.z)); mg.rotate(-yaw); mg.fillStyle = '#ffffff'; mg.strokeStyle = '#000'; mg.beginPath(); mg.moveTo(0, -5); mg.lineTo(3.6, 4); mg.lineTo(-3.6, 4); mg.closePath(); mg.fill(); mg.stroke(); mg.restore();
-  // active-quest waypoint: amber diamond at the current beat's waypoint; if it
-  // maps outside the minimap it clamps to the border as a pointing arrow
-  var wp = questWaypoint();
-  if (wp) {
-    var mx = sx(wp.x), my = sz(wp.z), inb = mx >= 5 && mx <= cw - 5 && my >= 5 && my <= ch - 5;
-    var blink = (Math.sin(T * 5) * 0.5 + 0.5);
-    mg.fillStyle = 'rgba(255,190,40,' + (0.55 + 0.45 * blink).toFixed(2) + ')'; mg.strokeStyle = '#3a2600'; mg.lineWidth = 1;
-    if (inb) {
-      mg.save(); mg.translate(mx, my); mg.rotate(Math.PI / 4); var dd2 = 3.4; mg.fillRect(-dd2, -dd2, dd2 * 2, dd2 * 2); mg.strokeRect(-dd2, -dd2, dd2 * 2, dd2 * 2); mg.restore();
-    } else {
-      // off-map: clamp to the border and draw a chevron pointing toward it
-      var cx = cw / 2, cy = ch / 2, ang = Math.atan2(my - cy, mx - cx);
-      var ex = Math.max(7, Math.min(cw - 7, mx)), ey = Math.max(7, Math.min(ch - 7, my));
-      mg.save(); mg.translate(ex, ey); mg.rotate(ang); mg.beginPath(); mg.moveTo(6, 0); mg.lineTo(-4, 4); mg.lineTo(-4, -4); mg.closePath(); mg.fill(); mg.stroke(); mg.restore();
-    }
-  }
   // custom waypoint blip (QoL): cyan diamond, off-map clamps to a border arrow
   if (userWP) {
     var wmx = sx(userWP.x), wmy = sz(userWP.z), winb = wmx >= 5 && wmx <= cw - 5 && wmy >= 5 && wmy <= ch - 5;
@@ -18458,1052 +18351,7 @@ function drawMinimap() {
   mg.strokeStyle = '#222'; mg.strokeRect(0.5, 0.5, cw - 1, ch - 1);
 }
 
-// ================= QUEST SYSTEM (framework) =================
-// RuneScape-style quest log: one active quest, minimap waypoint, declarative
-// beats. This is the ENGINE + UI that all 10 quests plug into. Quests are pure
-// data (QUESTS registry); beats advance on their objective type each frame.
-//   state.questLog = [{id, stage, done:[], completed, f:{}}]  (persisted)
-//   state.activeQuest = quest id | null
-//   state.unlocks = { <capability>: true }  (reward flags)
-state.questLog = state.questLog || [];
-state.activeQuest = state.activeQuest || null;
-state.unlocks = state.unlocks || {};
-
-// ---- quest item bank: quest rewards/clues reference items by id. The real
-// icon bank (quest_items.js -> QUEST_ITEM_DEFS/ICONS) is generated by a
-// separate agent and may not be wired yet, so register lightweight fallbacks
-// (using an existing icon) for any id the itemicons bank doesn't already know.
-// TODO: when quest_items.js ships QUEST_ITEM_DEFS + QUEST_ITEM_ICONS, prefer
-// those (they carry proper names + bespoke icons) over these placeholders.
-var QUEST_ITEM_FALLBACK = {   // quest id -> an existing itemicons.js icon id
-  loupe: 'flashlight', almond_vial: 'pills', guest_list: 'newspaper',
-  eviction_notice: 'newspaper', seating_chart: 'newspaper', scanner: 'flashlight',
-  lantern: 'flashlight', lockpick_set: 'crowbar', dog_whistle: 'lighter',
-  etched_lake_key: 'wrench', tunnel_fragment: 'newspaper', alien_keycard: 'smartphone'
-};
-var QUEST_ITEM_INFO = {   // minimal defs so itemDef()/bagAdd()/itemTex() work
-  loupe: { name: "Detective's Loupe", cat: 'tool', use: 'tool' },
-  almond_vial: { name: 'Bitter Almond Vial', cat: 'quirky', use: 'fun' },
-  guest_list: { name: 'Guest List', cat: 'quirky', use: 'fun' },
-  eviction_notice: { name: 'Eviction Notice', cat: 'quirky', use: 'fun' },
-  seating_chart: { name: 'Scratched Seating Chart', cat: 'quirky', use: 'fun' }
-};
-var questItemsRegistered = false;
-function questRegisterItems() {
-  if (!ITEM_BANK_OK || questItemsRegistered) return;
-  questItemsRegistered = true;
-  // Real wired bank: questitems.js ships QUEST_ITEM_DEFS (id/name/quest/use/notes)
-  // + QUEST_ITEMS (id -> 64px alpha-PNG data URL). Register defs + icons.
-  if (typeof QUEST_ITEM_DEFS !== 'undefined' && QUEST_ITEM_DEFS) {
-    for (var i = 0; i < QUEST_ITEM_DEFS.length; i++) {
-      var qd = QUEST_ITEM_DEFS[i]; if (ITEM_BY_ID[qd.id]) continue;
-      // map the quest-semantic `use` (reward/clue/key/tool/thread/entry) onto a
-      // game bag verb: rewards/tools feel 'useful'; everything else is inert flavor.
-      var gv = (qd.use === 'reward' || qd.use === 'tool') ? 'tool' : 'fun';
-      var d = { id: qd.id, name: qd.name, cat: 'quest', stackMax: 4, use: gv, hp: 0, value: 0, rarity: 2, quest: true, qUse: qd.use, notes: qd.notes };
-      ITEM_DEFS.push(d); ITEM_BY_ID[qd.id] = d;
-    }
-  }
-  if (typeof QUEST_ITEMS !== 'undefined' && QUEST_ITEMS) for (var k in QUEST_ITEMS) if (!ITEM_ICONS[k]) ITEM_ICONS[k] = QUEST_ITEMS[k];
-  // safety net: any quest id referenced by a reward/beat that the pack missed
-  // still resolves to a name + fallback icon so the bag never shows a blank.
-  for (var id in QUEST_ITEM_INFO) {
-    if (ITEM_BY_ID[id]) continue;
-    var inf = QUEST_ITEM_INFO[id];
-    var d2 = { id: id, name: inf.name, cat: inf.cat, stackMax: inf.stackMax || 4, use: inf.use, hp: 0, value: inf.value || 0, rarity: 1, quest: true };
-    ITEM_DEFS.push(d2); ITEM_BY_ID[id] = d2;
-  }
-  for (var id2 in QUEST_ITEM_FALLBACK) if (!ITEM_ICONS[id2] && ITEM_ICONS[QUEST_ITEM_FALLBACK[id2]]) ITEM_ICONS[id2] = ITEM_ICONS[QUEST_ITEM_FALLBACK[id2]];
-}
-
-// ---- QUESTS registry: each quest is pure data. beats[] drive advancement.
-// beat types: talk / reach / fetch / interact / kill / follow / timed.
-// beat fields (all optional but type): waypoint{x,z}, r (reach/POI radius),
-//   text (objective line), giver (talk target id), item+n (fetch), poi
-//   (interact target id), tag (kill target tag), secs+sub (timed),
-//   onEnter(q,beat) fired when the beat becomes active, onComplete(q,beat).
-// ---- #77 secret-POI room registry (declared before QUESTS so beat waypoints
-// can reference QPOI.<room>). Room builders/enter/exit live further below. ----
-var QPOI = {   // id -> { x, z (surface hatch), y (under-map floor), w, d, tint, ceil, name, enterMsg }
-  cellar:     { name: 'the Gains Cave', x: -132, z: 44, y: -120, w: 16, d: 12, tint: 0x6b6256, ceil: 0x2a2620, enterMsg: 'You drop into a dim stone cellar — Vlad\'s "pain temple". A bricked passage yawns at the back.' },
-  manhole:    { name: 'the Manhole Room', x: 20, z: -4, y: -128, w: 12, d: 10, tint: 0x4a4e52, ceil: 0x202226, enterMsg: 'You drop through the manhole into a concrete stash room. Stolen wallets everywhere.' },
-  hollow_oak: { name: 'the Hollow Oak', x: 165, z: 120, y: -136, w: 7, d: 7, tint: 0x5a4632, ceil: 0x241a10, enterMsg: 'You squeeze into the hollow of the old oak. A dead-drop cavity, larger than it looks.' },
-  stormdrain: { name: 'the Storm Drain', x: -238, z: -176, y: -132, w: 14, d: 8, tint: 0x3c4a52, ceil: 0x1a2228, enterMsg: 'You crawl into the box culvert. Water trickles; something was dug up in the mud.' },
-  boardroom:  { name: 'the Board Room', x: -278, z: -70, y: -150, w: 12, d: 10, tint: 0x7a2a24, ceil: 0x2a1010, enterMsg: 'The sealed door parts. A long table, five chairs, and a nameplate: A. THORNE. A cage-lift shaft drops away into the dark.' },
-  facility:   { name: 'the Sub-Lake Facility', x: -255, z: -150, y: -170, w: 24, d: 18, tint: 0x2a3a44, ceil: 0x0e1a22, enterMsg: 'Past the three locks, the facility opens: humming machines, and a tank where something enormous stirs.' },
-  // v1.65.5 prop-placement fix: bug report — the Wrong-Westchase arcade portal
-  // (a dark cabinet on a pedestal) stood mid-sidewalk, side-on, in front of the
-  // th_c row (front wall at z=23). Nudged the surface hatch back to z=22.3 so the
-  // portal sits flush against that wall (back to the wall, face to the road)
-  // instead of blocking the walkway. The under-map room + q6 beats reference this
-  // same record, so they move with it.
-  arcade:     { name: 'Wrong Westchase', x: -150, z: 22.3, y: -160, w: 22, d: 22, tint: 0x2a1050, ceil: 0x120626, enterMsg: 'INSERT COIN. The world flattens into fog and neon — a low-poly memory of the town, rendered wrong.' }
-};
-// ---- #77 quest content helpers (used by beat onEnter/onComplete hooks) ----
-function qv(npcKey, cat, idx, gain) { return playQuestVoice(npcKey, cat, idx, gain || 0.75, 0.4); }
-function qDrop(item, x, z) { questRegisterItems(); return spawnItemDrop(item, x, z, 999); }
-function qGrant(item, n) { questRegisterItems(); var left = bagAdd(item, n || 1); if (left > 0) spawnItemDrop(item, player.x, player.z, 999); var d = itemDef(item); if (d) toast(itemIconHtml(item) + ' Received <b>' + d.name + '</b>', 3200); }
-function qArm(tag) { questArmed[tag] = true; }
-function qLine(html, ms) { toast(html, ms || 3200); }
-function qSetClock(t) { try { envT = t; if (typeof updateEnv === 'function') updateEnv(0); } catch (e) { } }
-// spawn a killable hostile quest foe (a real npc with .qtag so shooting/KO'ing
-// it credits the kill beat). Uses the existing 'fight' AI (chase + jab).
-function qFoe(look, x, z, tag, hp) {
-  if (!(x === x) || !(z === z)) { x = player.x + 3; z = player.z; }   // NaN guard (room not built yet)
-  var mesh;
-  try { mesh = buildQuestChar(look) || buildPerson('#444', '#222', CSKIN[2], {}); } catch (e) { mesh = buildPerson('#444', '#222', CSKIN[2], {}); }
-  var n = { mesh: mesh, x: x, z: z, tx: x, tz: z, hp: hp || 100, state: 'fight', fightT: 99999, jabT: 0.7, animT: 0, phase: Math.random() * 9, speed: 2.6, downT: 0, hurtFlash: 0, qtag: tag, qfoe: true, vname: null, fem: false };
-  mesh.position.set(x, 0, z); mesh.userData.npc = n; scene.add(mesh); npcs.push(n);
-  return n;
-}
-var QUESTS = {
-  // ===================== QUEST 1 — A NIGHT TO DISMEMBER =====================
-  q1_dismember: {
-    id: 'q1_dismember', name: 'A Night to Dismember',
-    giver: { id: 'vivian', name: 'Vivian Crestwood', x: -196, z: -206, voice: 'q1_VIVIAN' },
-    summary: 'A murder-mystery dinner party at a lakeside townhouse turned real. Hostess Vivian Crestwood needs an investigator to name the killer before the next blackout claims another guest.',
-    reward: { item: 'loupe', n: 1, unlock: 'loupe', text: "Detective's Loupe — highlights clues & reveals trapped/false containers." },
-    beats: [
-      { type: 'talk', giver: 'vivian', waypoint: { x: -196, z: -206 }, text: 'Speak with Vivian at the townhouse door.', onEnter: function () { qv('q1_VIVIAN', 'intro', 0); } },
-      { type: 'interact', poi: 'q1_body', waypoint: { x: -191, z: -211 }, text: 'The lights cut out — search Gloria\'s body in the dining room.', onEnter: function () { qv('q1_VIVIAN', 'panic', 1); } },
-      { type: 'fetch', item: 'almond_vial', n: 1, waypoint: { x: -191, z: -211 }, text: 'Recover the Bitter Almond Vial (the murder weapon).' },
-      { type: 'fetch', item: 'seating_chart', n: 1, waypoint: { x: -203, z: -210 }, text: 'Gather clues: find the scratched-out name on the seating chart.', onEnter: function () { qDrop('eviction_notice', -191, -210); qDrop('seating_chart', -203, -210); } },
-      { type: 'follow', waypoint: { x: -206, z: -204 }, escort: true, r: 5, text: 'Second blackout — follow caterer Chet in the dark to the back door.', onEnter: function () { qv('q1_CHET', 'oily', 1); } },
-      { type: 'kill', tag: 'chet', waypoint: { x: -206, z: -204 }, text: 'Name Chet at the reveal — he draws a blade. Put him down.', onEnter: function () { qv('q1_CHET', 'cold', 0); qFoe('CHET', -204, -204, 'chet', 90); } },
-      { type: 'talk', giver: 'vivian', waypoint: { x: -196, z: -206 }, text: 'Return to Vivian. She knows more than she let on.', onEnter: function () { qv('q1_VIVIAN', 'reveal', 2); } }
-    ]
-  },
-  // ===================== QUEST 2 — SOMEONE'S WATCHING =====================
-  q2_watching: {
-    id: 'q2_watching', name: "Someone's Watching",
-    giver: { id: 'wendell', name: 'Wendell Pike', x: -210, z: -245, voice: 'q2_WENDELL' },
-    summary: 'Twitchy Wendell Pike is sure his neighbors are watching him. Prove it — tail the "watchers," connect the evidence, and stake out the lake at night. He might not be as crazy as he sounds.',
-    reward: { item: 'scanner', n: 1, unlock: 'scanner', text: 'Police Scanner — hear dispatch & mark the nearest patrol on the minimap while wanted.' },
-    beats: [
-      { type: 'talk', giver: 'wendell', waypoint: { x: -210, z: -245 }, text: 'Hear out Wendell behind the hedge.', onEnter: function () { qv('q2_WENDELL', 'intro', 0); } },
-      { type: 'follow', waypoint: { x: 150, z: -120 }, escort: true, r: 8, text: 'Daytime tail #1: follow the neighbor to the pharmacy (NE).', onEnter: function () { qv('q2_WENDELL', 'comms', 0); } },
-      { type: 'follow', waypoint: { x: -140, z: -120 }, escort: true, r: 8, text: 'Dusk tail #2: tail Don Sharp to the payphone — don\'t get made.', onEnter: function () { qSetClock(0.78); qv('q2_DON', 'call', 0); } },
-      { type: 'interact', poi: 'q2_wall', waypoint: { x: -210, z: -245 }, text: 'Back home: use clues to connect Wendell\'s evidence wall.', onEnter: function () { qv('q2_WENDELL', 'comms', 3); qDrop('binoculars', -210, -243); } },
-      { type: 'reach', waypoint: { x: -255, z: -150 }, r: 10, text: 'Late-night stakeout at the lake. Watch for the van.', onEnter: function () { qSetClock(0.95); qArm('q2_van'); qv('q2_WENDELL', 'comms', 4); } },
-      { type: 'kill', tag: 'q2_cleaner', waypoint: { x: -255, z: -150 }, text: 'A surveillance van! Two "utility workers" turn hostile — survive.', onEnter: function () { qFoe('METER_READER', -250, -150, 'q2_cleaner', 80); qFoe('METER_READER', -260, -148, 'q2_cleaner', 80); qv('q2_METER', 'hostile', 1); } },
-      { type: 'interact', poi: 'q2_photo', waypoint: { x: -255, z: -150 }, text: 'Photograph the lights over the lake, then run.', onEnter: function () { qDrop('lake_photo', -255, -148); } },
-      { type: 'talk', giver: 'wendell', waypoint: { x: -210, z: -245 }, text: 'Return to Wendell — vindicated and terrified.', onEnter: function () { qv('q2_WENDELL', 'vindicated', 1); } }
-    ]
-  },
-  // ===================== QUEST 3 — WHERE THE RED HOUSE WEEPS =====================
-  q3_redhouse: {
-    id: 'q3_redhouse', name: 'Where the Red House Weeps',
-    giver: { id: 'agatha', name: 'Agatha Holloway', x: -278, z: -72, voice: 'q3_AGATHA' },
-    summary: 'The ancient caretaker of the 5-story red-roof house needs the place "put to rest." Climb it floor by floor — each a decade the Countryway Association "assessed and removed" — to the sealed Board Room at the top.',
-    reward: { item: 'lantern', n: 1, unlock: 'lantern', text: 'Spirit Lantern — see in the dark, reveal hidden doors, part apparitions.' },
-    beats: [
-      { type: 'talk', giver: 'agatha', waypoint: { x: -278, z: -72 }, text: 'Take the cold brass lantern from Agatha.', onEnter: function () { qv('q3_AGATHA', 'intro', 0); qGrant('welcome_packet', 1); } },
-      { type: 'reach', waypoint: { x: -278, z: -78 }, r: 6, text: 'Floor 1 — the parlor. Hear the first family\'s echo.', onEnter: function () { qv('q3_AGATHA', 'reveals', 0); } },
-      { type: 'fetch', item: 'matchbook', n: 1, waypoint: { x: -282, z: -78 }, text: 'Floor 2 — the nursery. The Gray Boy gives you his matchbook.', onEnter: function () { qv('q3_GRAYBOY', 'giggles', 3); qDrop('matchbook', -282, -78); } },
-      { type: 'reach', waypoint: { x: -274, z: -78 }, r: 5, text: 'Floor 3 — the flooded floor. Light the lantern; the water parts.', onEnter: function () { qv('q3_AGATHA', 'reveals', 2); } },
-      { type: 'fetch', item: 'elevator_key', n: 1, waypoint: { x: -278, z: -82 }, text: 'Floor 4 — the study. Read the ledger, take the brass elevator key.', onEnter: function () { qv('q3_AGATHA', 'reveals', 3); qDrop('caretaker_ledger', -278, -80); qDrop('elevator_key', -278, -82); } },
-      { type: 'interact', poi: 'boardroom', waypoint: QPOI.boardroom, text: 'Floor 5 — hold the lantern to the sealed door: the BOARD ROOM.', onEnter: function () { qArm('q3_guard'); } },
-      { type: 'kill', tag: 'q3_guard', waypoint: QPOI.boardroom, text: 'A Cleaner steps from the shadow — ghost or guard? End it.', onEnter: function () { var s = QPOI.boardroom; qFoe('CONCIERGE', s.cx - 2, s.cz, 'q3_guard', 80); } },
-      { type: 'talk', giver: 'agatha', waypoint: { x: -278, z: -72 }, text: 'Return to Agatha. She can rest now.', onEnter: function () { qv('q3_AGATHA', 'farewell', 0); } }
-    ]
-  },
-  // ===================== QUEST 4 — THE COUNTRYWAY JOB =====================
-  q4_heist: {
-    id: 'q4_heist', name: 'The Countryway Job',
-    giver: { id: 'sal', name: 'Sal Marino', x: -116, z: -30, voice: 'q4_SAL' },
-    summary: 'Retired heist planner Sal Marino has a way into Regions Bank. Case the floor, gather three keys, turn the inside man, and crack the vault — the deposit boxes hide the Association\'s ledger and a strange etched key.',
-    reward: { item: 'lockpick_set', n: 1, unlock: 'lockpick', text: 'Lockpick Set — silently open locked doors, ATMs & cars; skip the break-in timer.' },
-    beats: [
-      { type: 'talk', giver: 'sal', waypoint: { x: -116, z: -30 }, text: 'Sal draws you the map at Starbucks.', onEnter: function () { qv('q4_SAL', 'recruit', 0); } },
-      { type: 'reach', waypoint: { x: 150, z: -110 }, r: 8, text: 'Case the Regions lobby (NE). Count the cameras.', onEnter: function () { qv('q4_SAL', 'coaching', 0); } },
-      { type: 'fetch', item: 'guard_key', n: 1, waypoint: { x: -116, z: 31 }, text: 'Lift the off-duty guard\'s key at the Dunkin.', onEnter: function () { qv('q4_SAL', 'coaching', 1); qDrop('guard_key', -116, 31); } },
-      { type: 'fetch', item: 'manager_key', n: 1, waypoint: { x: -40, z: -70 }, text: "Manager's key: Sal's toolkit is in the Publix false-bottom dumpster.", onEnter: function () { qv('q4_SAL', 'coaching', 2); qDrop('manager_key', -40, -70); } },
-      { type: 'fetch', item: 'timer_key', n: 1, waypoint: { x: -150, z: 20 }, text: 'Timer key: photograph the vault schedule from the roof stash.', onEnter: function () { qv('q4_SAL', 'coaching', 3); qDrop('timer_key', -150, 20); } },
-      { type: 'talk', giver: 'marcus_q4', waypoint: { x: 150, z: -112 }, text: 'Turn the inside man — Marcus, the indebted teller.', onEnter: function () { qv('q4_MARCUS', 'turn', 2); } },
-      { type: 'kill', tag: 'q4_cleaner', waypoint: { x: 152, z: -114 }, text: 'Crack the vault. The timer trips — two Cleaners guard the board box.', onEnter: function () { qv('q4_SAL', 'coaching', 5); qFoe('CONCIERGE', 152, -114, 'q4_cleaner', 90); qFoe('CONCIERGE', 148, -112, 'q4_cleaner', 90); } },
-      { type: 'interact', poi: 'q4_score', waypoint: { x: 152, z: -114 }, text: 'Grab the cash, the Association Ledger, and the Etched Lake Key.', onEnter: function () { state.money += 2000; qGrant('assoc_ledger', 1); qGrant('etched_lake_key', 1); } },
-      { type: 'talk', giver: 'sal', waypoint: { x: -116, z: -30 }, text: 'Meet Sal. He burns his name from the ledger.', onEnter: function () { qv('q4_SAL', 'payoff', 2); } }
-    ]
-  },
-  // ===================== QUEST 5 — ROADSIDE ASSISTANCE =====================
-  q5_siren: {
-    id: 'q5_siren', name: 'Roadside Assistance',
-    giver: { id: 'spouse', name: 'Worried Spouse', x: 60, z: 42, voice: 'q5_SPOUSE' },
-    summary: 'A frantic spouse\'s husband stopped to help a broken-down car on Race Track Rd and never came home. Go undercover as a mark, spring the Siren\'s trap, and dismantle the crew from their manhole stash.',
-    reward: { item: 'bait_car_keys', n: 1, unlock: 'hotwire', text: "Bait Car Keys + Slim Jim — instant hotwire on any locked car." },
-    beats: [
-      { type: 'talk', giver: 'spouse', waypoint: { x: 60, z: 42 }, text: 'Take the plea near the RaceTrac.', onEnter: function () { qv('q5_SPOUSE', 'plea', 0); } },
-      { type: 'reach', waypoint: { x: 20, z: -4 }, r: 6, text: 'Find the bait car on Race Track Rd. Approach on foot to "help".', onEnter: function () { qv('q5_DESIREE', 'lure', 0); } },
-      { type: 'kill', tag: 'q5_brick', waypoint: { x: 20, z: -4 }, text: 'The lure springs — Brick and a goon jump you. Fight free.', onEnter: function () { qv('q5_BRICK', 'menace', 0); qFoe('BRICK', 22, -4, 'q5_brick', 120); qFoe('DESIREE', 18, -2, 'q5_brick', 70); } },
-      { type: 'interact', poi: 'manhole', waypoint: QPOI.manhole, text: 'They vanished into a manhole — pry it and drop into the stash.', onEnter: function () { qDrop('stolen_wallet', QPOI.manhole.x - 2, QPOI.manhole.z); qDrop('marks_note', QPOI.manhole.x + 2, QPOI.manhole.z); } },
-      { type: 'fetch', item: 'marks_note', n: 1, waypoint: QPOI.manhole, text: 'The corkboard of "marks" includes your name — flagged for the board.' },
-      { type: 'talk', giver: 'spouse', waypoint: { x: 60, z: 42 }, text: 'Free the husband and return him to his spouse.', onEnter: function () { qv('q5_HUSBAND', 'relief', 2); qv('q5_SPOUSE', 'plea', 3); } }
-    ]
-  },
-  // ===================== QUEST 6 — INSERT COIN TO CONTINUE =====================
-  q6_arcade: {
-    id: 'q6_arcade', name: 'Insert Coin to Continue',
-    giver: { id: 'xander', name: 'Xander', x: -150, z: 26, voice: 'q6_XANDER' },
-    summary: 'Xander found an unlabeled WESTCHASE cartridge — and now Derik won\'t wake up. He\'s trapped in an 8-bit glitch dimension. Go in, beat the Arcade Warden, and pull Derik out.',
-    reward: { item: 'neon_blaster', n: 1, unlock: 'reflexes', text: 'Neon Blaster + 8-Bit Reflexes — ADS briefly slows time.' },
-    beats: [
-      { type: 'talk', giver: 'xander', waypoint: { x: -150, z: 26 }, text: 'Xander explains. Insert the cartridge.', onEnter: function () { qv('q6_XANDER', 'intro', 0); } },
-      { type: 'interact', poi: 'arcade', waypoint: QPOI.arcade, text: 'Level 1 — reach the glitching Publix in Wrong Westchase.', onEnter: function () { qv('q6_DERIK', 'trapped', 0); } },
-      { type: 'reach', waypoint: { x: QPOI.arcade.x - 6, z: QPOI.arcade.z - 6 }, r: 5, text: 'Level 2 — escape the Repeating Aisle in the right order.', onEnter: function () { qv('q6_XANDER', 'intro', 5); } },
-      { type: 'kill', tag: 'q6_warden', waypoint: { x: QPOI.arcade.x, z: QPOI.arcade.z - 4 }, text: 'Level 3 — the Arcade Warden guards Derik\'s cage. Beat it.', onEnter: function () { qv('q6_WARDEN', 'taunts', 1); var s = QPOI.arcade; qFoe('WARDEN', s.cx, s.cz - 4, 'q6_warden', 200); } },
-      { type: 'interact', poi: 'q6_cage', waypoint: { x: QPOI.arcade.x, z: QPOI.arcade.z - 6 }, text: 'Break the cage and free Derik. Grab the Neon Blaster.', onEnter: function () { qv('q6_DERIK', 'waking', 0); qDrop('cartridge', QPOI.arcade.x, QPOI.arcade.z - 5); } },
-      { type: 'talk', giver: 'xander', waypoint: { x: -150, z: 26 }, text: 'Back in the real world — Derik wakes; the cartridge is lake sand.', onEnter: function () { qv('q6_XANDER', 'relief', 0); } }
-    ]
-  },
-  // ===================== QUEST 7 — LEG DAY =====================
-  q7_legday: {
-    id: 'q7_legday', name: 'Leg Day',
-    giver: { id: 'vlad', name: 'Vlad', x: -240, z: -140, voice: 'q7_VLAD' },
-    summary: 'Vlad the lakeside fitness prophet needs a CHAMPION. Steal a rival\'s protein, carry a "boulder," sprint a smoothie, and enter his sacred Gains Cave — which turns out to be a Pact tunnel node.',
-    reward: { item: 'sprint_shoes', n: 1, unlock: 'sprint', text: "Vlad's Blessed Sneakers — faster run + a double jump." },
-    beats: [
-      { type: 'talk', giver: 'vlad', waypoint: { x: -240, z: -140 }, text: 'Take Vlad\'s absurd oath. Do NOT skip.', onEnter: function () { qv('q7_VLAD', 'oath', 0); } },
-      { type: 'fetch', item: 'protein_shaker', n: 1, waypoint: { x: -116, z: -30 }, text: "Steal cardio-boy Chad's protein shaker at Starbucks.", onEnter: function () { qv('q7_VLAD', 'dares', 0); qv('q7_CHAD', 'trash', 0); qDrop('protein_shaker', -116, -30); } },
-      { type: 'fetch', item: 'destiny_smoothie', n: 1, waypoint: { x: -210, z: -215 }, text: 'Carry the "boulder" (a garden gnome) — then sprint the Smoothie of Destiny.', onEnter: function () { qv('q7_VLAD', 'dares', 1); qDrop('destiny_smoothie', -210, -215); } },
-      { type: 'interact', poi: 'cellar', waypoint: QPOI.cellar, text: 'Enter the Gains Cave — Vlad\'s "pain temple."', onEnter: function () { qv('q7_VLAD', 'dares', 5); qArm('q7_cleaner'); } },
-      { type: 'kill', tag: 'q7_cleaner', waypoint: QPOI.cellar, text: 'Two real Cleaners are stashing crates. Clear the node.', onEnter: function () { qv('q7_VLAD', 'dares', 7); var s = QPOI.cellar; qFoe('SILAS', s.cx - 2, s.cz, 'q7_cleaner', 80); qFoe('SILAS', s.cx + 2, s.cz - 1, 'q7_cleaner', 80); } },
-      { type: 'fetch', item: 'tunnel_fragment', n: 1, waypoint: QPOI.cellar, text: 'Find the Tunnel Map Fragment pointing under the lake.', onEnter: function () { var s = QPOI.cellar; qDrop('tunnel_fragment', s.cx, s.cz - 2); } },
-      { type: 'talk', giver: 'vlad', waypoint: { x: -240, z: -140 }, text: 'Return to Vlad — champion crowned.', onEnter: function () { qv('q7_VLAD', 'crowning', 0); } }
-    ]
-  },
-  // ===================== QUEST 8 — THE CLEANERS =====================
-  q8_cleaners: {
-    id: 'q8_cleaners', name: 'The Cleaners',
-    giver: { id: 'concierge', name: 'The Concierge', x: -40, z: -70, voice: 'q8_CONCIERGE' },
-    summary: 'A black card recruits you into the Cleaners — the Pact\'s enforcement arm. Three contracts escalate from petty to a moral gut-punch, staged from the false-bottom dumpster and the Hollow Oak dead-drop.',
-    reward: { item: 'silenced_pistol', n: 1, unlock: 'ghost', text: 'Silenced Pistol + "Ghost" — clean stealth kills don\'t raise wanted; dealer discount.' },
-    beats: [
-      { type: 'interact', poi: 'q8_dumpster', waypoint: { x: -40, z: -70 }, text: 'Midnight — lift the false bottom behind Publix. The Concierge calls.', onEnter: function () { qv('q8_CONCIERGE', 'recruit', 0); qSetClock(0.98); } },
-      { type: 'fetch', item: 'dossier', n: 1, waypoint: QPOI.hollow_oak, text: 'Retrieve the dossier from the Hollow Oak dead-drop.', onEnter: function () { qv('q8_CONCIERGE', 'contracts', 2); qDrop('dossier', QPOI.hollow_oak.x, QPOI.hollow_oak.z + 2); } },
-      { type: 'kill', tag: 'q8_c1', waypoint: { x: -60, z: -40 }, text: 'Contract 1 — a "loud" newcomer. A clean takedown. Silas teaches you.', onEnter: function () { qv('q8_SILAS', 'tutorial', 1); qFoe('SILAS', -60, -40, 'q8_c1', 70); } },
-      { type: 'kill', tag: 'q8_c2', waypoint: { x: 120, z: -60 }, text: 'Contract 2 — tail and silence a "leak."', onEnter: function () { qv('q8_TARGET', 'warning', 4); qFoe('SILAS', 120, -60, 'q8_c2', 70); } },
-      { type: 'interact', poi: 'q8_c3', waypoint: { x: -40, z: -70 }, text: 'Contract 3 — the dossier names someone you helped. Make your choice.', onEnter: function () { qv('q8_TARGET', 'warning', 3); } },
-      { type: 'talk', giver: 'concierge', waypoint: { x: -40, z: -70 }, text: 'Meet the Concierge at last — a board member.', onEnter: function () { qv('q8_CONCIERGE', 'reveal', 3); state.unlocks.metConcierge = true; } }
-    ]
-  },
-  // ===================== QUEST 9 — WHERE'S BISCUIT? =====================
-  q9_biscuit: {
-    id: 'q9_biscuit', name: "Where's Biscuit?",
-    giver: { id: 'dylan', name: 'Dylan Sharp', x: -72, z: -97, voice: 'q9_DYLAN' },
-    summary: "Dylan Sharp's dog ran toward the lake and didn't come back. Track Biscuit through the town's secret nooks down to the Storm Drain — where he's dug up something that isn't from here. No combat; pure heart.",
-    reward: { item: 'dog_whistle', n: 1, unlock: 'dogwhistle', text: 'Dog Whistle — summon Biscuit: fetch, sniff out secret POIs, harass enemies.' },
-    beats: [
-      { type: 'talk', giver: 'dylan', waypoint: { x: -72, z: -97 }, text: "Hear Dylan's plea at the Publix lot.", onEnter: function () { qv('q9_DYLAN', 'plea', 0); } },
-      { type: 'talk', giver: 'champion', waypoint: { x: -90, z: -80 }, text: 'Ask the hide-and-seek champion — she knows every nook.', onEnter: function () { qv('q9_CHAMPION', 'hints', 0); } },
-      { type: 'follow', waypoint: { x: -200, z: -170 }, escort: true, r: 10, text: "Follow Biscuit's paw-prints toward the lake shore.", onEnter: function () { qv('q9_CHAMPION', 'hints', 3); } },
-      { type: 'interact', poi: 'stormdrain', waypoint: QPOI.stormdrain, text: 'Crawl into the Storm Drain where Biscuit is stuck.', onEnter: function () { qv('q9_BISCUIT', 'barks', 2); } },
-      { type: 'fetch', item: 'alien_keycard', n: 1, waypoint: QPOI.stormdrain, text: 'Take the strange metal fragment Biscuit dug up. Leash him.', onEnter: function () { var s = QPOI.stormdrain; qDrop('alien_keycard', s.cx, s.cz - 2); } },
-      { type: 'talk', giver: 'dylan', waypoint: { x: -72, z: -97 }, text: 'Return Biscuit to Dylan. Pure joy.', onEnter: function () { qv('q9_DYLAN', 'joy', 0); } }
-    ]
-  },
-  // ===================== QUEST 10 — WHAT LIES BENEATH =====================
-  q10_beneath: {
-    id: 'q10_beneath', name: 'What Lies Beneath',
-    giver: { id: 'thorne', name: 'Chairman Thorne', x: -250, z: -140, voice: 'q10_THORNE' },
-    summary: 'With the Etched Lake Key, Tunnel Fragment, and Alien Keycard — and the Concierge met — the board summons you to the water. Descend beneath the fountain, confront Chairman Thorne and the thing, and decide what Westchase becomes.',
-    reward: { item: 'whistleblower_perk', n: 1, unlock: 'ending', text: 'The finale reward — set by your choices.' },
-    gate: function () { return bagCount('etched_lake_key') > 0 && bagCount('tunnel_fragment') > 0 && bagCount('alien_keycard') > 0 && !!state.unlocks.metConcierge; },
-    beats: [
-      { type: 'interact', poi: 'facility', waypoint: QPOI.facility, text: 'Descend via any earned POI into the sub-lake tunnel.', onEnter: function () { qv('q10_DONRED', 'defection', 0); } },
-      { type: 'reach', waypoint: { x: QPOI.facility.x + 6, z: QPOI.facility.z }, r: 6, text: 'The three-lock door needs all three keys. Everything mattered.', onEnter: function () { qv('q10_ENTITY', 'assessment', 2); } },
-      { type: 'kill', tag: 'q10_cleaner', waypoint: { x: QPOI.facility.x + 6, z: QPOI.facility.z }, text: 'The board\'s remaining Cleaners make a stand.', onEnter: function () { var s = QPOI.facility; qFoe('CONCIERGE', s.cx + 6, s.cz, 'q10_cleaner', 100); qFoe('CONCIERGE', s.cx + 4, s.cz - 3, 'q10_cleaner', 100); } },
-      { type: 'talk', giver: 'thorne_in', waypoint: { x: QPOI.facility.x, z: QPOI.facility.z }, text: 'Chairman Thorne offers you the chair.', onEnter: function () { qv('q10_THORNE', 'offer', 0); } },
-      { type: 'kill', tag: 'q10_entity', waypoint: { x: QPOI.facility.x - 6, z: QPOI.facility.z }, text: 'The thing wakes. The reckoning.', onEnter: function () { qv('q10_ENTITY', 'assessment', 3); var s = QPOI.facility; qFoe('WARDEN', s.cx - 6, s.cz, 'q10_entity', 260); } },
-      { type: 'interact', poi: 'q10_choice', waypoint: { x: QPOI.facility.x - 6, z: QPOI.facility.z }, text: 'THE CHOICE: expose, burn, or inherit Westchase.', onEnter: function () { qv('q10_THORNE', 'menace', 0); } },
-      { type: 'talk', giver: 'thorne_in', waypoint: { x: QPOI.facility.x, z: QPOI.facility.z }, text: 'The town reacts to your choice. The cast pays off.', onEnter: function () { qv('q10_CAST', 'payoff', 0); } }
-    ]
-  }
-};
-var QUEST_ORDER = ['q1_dismember', 'q2_watching', 'q3_redhouse', 'q4_heist', 'q5_siren', 'q6_arcade', 'q7_legday', 'q8_cleaners', 'q9_biscuit', 'q10_beneath'];
-
-// ---- persistence (localStorage wc_quests), same pattern as wc_char ----
-function saveQuests() {
-  try { localStorage.setItem('wc_quests', JSON.stringify({ log: state.questLog, active: state.activeQuest, unlocks: state.unlocks })); } catch (e) { }
-}
-function loadQuests() {
-  try {
-    var raw = localStorage.getItem('wc_quests'); if (!raw) return;
-    var o = JSON.parse(raw);
-    if (o && o.log) state.questLog = o.log;
-    if (o && o.active) state.activeQuest = o.active;
-    if (o && o.unlocks) state.unlocks = o.unlocks;
-    // re-grant any bag reward items that don't persist in the bag itself is a
-    // content decision; capabilities live in state.unlocks and DO persist.
-  } catch (e) { }
-}
-
-// ---- registry / entry helpers ----
-function questDef(id) { return QUESTS[id] || null; }
-function questEntry(id) { for (var i = 0; i < state.questLog.length; i++) if (state.questLog[i].id === id) return state.questLog[i]; return null; }
-function activeQuestEntry() { return state.activeQuest ? questEntry(state.activeQuest) : null; }
-function questBeat(q) { var d = q && questDef(q.id); if (!d) return null; return d.beats[q.stage] || null; }
-function questFlags(q) { return q.f || (q.f = {}); }
-
-// current active beat's waypoint (for the minimap + HUD tracker)
-function questWaypoint() {
-  var q = activeQuestEntry(); if (!q || q.completed) return null;
-  var b = questBeat(q); return (b && b.waypoint) ? b.waypoint : null;
-}
-function questObjectiveText() {
-  var q = activeQuestEntry(); if (!q) return null;
-  var d = questDef(q.id); if (!d) return null;
-  if (q.completed) return { name: d.name, text: 'COMPLETE' };
-  var b = questBeat(q); return { name: d.name, text: b ? (b.text || b.type) : '' };
-}
-
-// ---- lifecycle ----
-function startQuest(id) {
-  var d = questDef(id); if (!d) return null;
-  var q = questEntry(id);
-  if (!q) { q = { id: id, stage: 0, done: [], completed: false, f: {} }; state.questLog.push(q); }
-  if (q.completed) { toast('You already finished <b>' + d.name + '</b>.', 2600); return q; }
-  if (!state.activeQuest) state.activeQuest = id;
-  beatEnter(q);
-  toast('<b style="color:#ffd98a">QUEST STARTED</b><br>' + d.name, 3600);
-  sfx('buy');
-  saveQuests();
-  return q;
-}
-function setActiveQuest(id) {
-  if (id && !questEntry(id)) return false;
-  state.activeQuest = id || null; saveQuests();
-  if (state.menu === 'quest') refreshQuestPanel();
-  return true;
-}
-// fire the current beat's onEnter hook + reset any per-beat timer
-function beatEnter(q) {
-  var b = questBeat(q); if (!b) return;
-  var f = questFlags(q); f['b' + q.stage] = false;
-  if (b.type === 'timed') q.timerEnd = T + (b.secs || 30);
-  if (typeof b.onEnter === 'function') { try { b.onEnter(q, b); } catch (e) { } }
-}
-// mark the current beat done, run onComplete, advance (or finish the quest)
-function completeBeat() {
-  var q = activeQuestEntry(); if (!q || q.completed) return false;
-  var b = questBeat(q); if (!b) return false;
-  if (q.done.indexOf(q.stage) < 0) q.done.push(q.stage);
-  if (typeof b.onComplete === 'function') { try { b.onComplete(q, b); } catch (e) { } }
-  q.stage++;
-  var d = questDef(q.id);
-  if (q.stage >= d.beats.length) { finishQuest(q.id); }
-  else { beatEnter(q); toast('<b style="color:#8ee87f">OBJECTIVE COMPLETE</b>', 1800); sfx('cash'); }
-  if (state.menu === 'quest') refreshQuestPanel();
-  saveQuests();
-  return true;
-}
-// debug/manual: skip the current beat's condition and advance
-function advanceBeat() { return completeBeat(); }
-function finishQuest(id) {
-  var q = questEntry(id), d = questDef(id); if (!q || !d) return;
-  q.completed = true; q.stage = d.beats.length;
-  if (state.activeQuest === id) state.activeQuest = null;
-  grantReward(id);
-  toast('<b style="color:#ffd98a">QUEST COMPLETE</b><br>' + d.name, 5000);
-  sfx('cash');
-  saveQuests();
-}
-// grant a quest's reward: item into the bag and/or a capability unlock flag.
-// Capability status (gated on state.unlocks[...]):
-//   lockpick (q4) / hotwire (q5)  — WORKING: skip the car break-in timer.
-//   sprint   (q7)                 — WORKING: faster run + double jump.
-//   loupe    (q1)                 — WORKING: L toggles amber clue-highlight + trap warnings.
-//   scanner  (q2)                 — WORKING: rings the nearest patrol on the minimap while wanted.
-//   lantern  (q3)                 — WORKING: G toggles the green dark-vision light + parts apparitions.
-//   reflexes (q6)                 — WORKING: ADS (right-click) slows the sim on a drainable meter.
-//   ghost    (q8)                 — WORKING: silenced-pistol kills don't raise wanted + dealer discount.
-//   dogwhistle (q9)               — WORKING: B summons/dismisses Biscuit the follow companion.
-//   ending   (q10)               — sets the finale flag; town-wide perk is future work.
-// unlock flag -> the weapon KIND it makes usable (owned + inventory-equippable)
-var UNLOCK_GUN = { reflexes: 'neon_blaster', ghost: 'silenced' };
-function grantReward(id) {
-  var d = questDef(id); if (!d || !d.reward) return;
-  // #78 finale: the Q10 reward is the ending the player chose (perk applied at
-  // choice time via applyEnding); make sure it's applied even on a direct finish.
-  if (id === 'q10_beneath') { if (typeof applyEnding === 'function') applyEnding(state.unlocks.ending || 'expose'); saveQuests(); return; }
-  var r = d.reward;
-  if (r.unlock) {
-    state.unlocks[r.unlock] = true;
-    if (UNLOCK_GUN[r.unlock]) { state.owned[UNLOCK_GUN[r.unlock]] = true; toast('New weapon in your inventory: <b>' + WEAPONS[UNLOCK_GUN[r.unlock]].name + '</b> (TAB to equip).', 4200); }
-  }
-  if (r.item) {
-    questRegisterItems();   // make sure the reward item resolves
-    var left = bagAdd(r.item, r.n || 1);
-    if (left > 0) { spawnItemDrop(r.item, player.x - Math.sin(yaw) * 2.2, player.z - Math.cos(yaw) * 2.2, 180); }   // bag full -> drop it at feet
-    var def = itemDef(r.item);
-    if (def) toast(itemIconHtml(r.item) + ' <b>REWARD:</b> ' + def.name + (r.text ? '<br><span style="opacity:.85">' + r.text + '</span>' : ''), 5200);
-  } else if (r.text) toast('<b>REWARD:</b> ' + r.text, 4200);
-  saveQuests();
-}
-function hasUnlock(k) { return !!state.unlocks[k]; }
-
-// ---- objective checkers (one per beat type). Each returns true when done. ----
-function within(wp, r) { if (!wp) return false; var dx = player.x - wp.x, dz = player.z - wp.z; r = r || 6; return dx * dx + dz * dz <= r * r; }
-var questCheck = {
-  reach: function (q, b) { return within(b.waypoint, b.r || 6); },
-  fetch: function (q, b) { return b.item ? bagCount(b.item) >= (b.n || 1) : false; },
-  talk: function (q, b) { return !!questFlags(q)['b' + q.stage]; },
-  interact: function (q, b) { return !!questFlags(q)['b' + q.stage]; },
-  kill: function (q, b) { return !!questFlags(q)['b' + q.stage]; },
-  follow: function (q, b) { var f = questFlags(q); if (f['b' + q.stage]) return true; if (b.waypoint && b.escort && within(b.waypoint, b.r || 6)) return true; return false; },
-  timed: function (q, b) { return !!questFlags(q)['b' + q.stage]; }
-};
-function questBeatDone(q, b) { var fn = questCheck[b.type]; return fn ? fn(q, b) : false; }
-
-// ---- signal helpers: called from the interaction/kill paths to satisfy a
-// beat. Each only fires if the ACTIVE beat is of the right type + target. ----
-function questFlagBeat(q) { questFlags(q)['b' + q.stage] = true; }
-function questTalk(giverId) {
-  var q = activeQuestEntry(); if (!q || q.completed) return false;
-  var b = questBeat(q); if (!b || b.type !== 'talk') return false;
-  if (b.giver && b.giver !== giverId) return false;
-  questFlagBeat(q); return true;
-}
-function questInteract(poiId) {
-  var q = activeQuestEntry(); if (!q || q.completed) return false;
-  var b = questBeat(q); if (!b || b.type !== 'interact') return false;
-  if (b.poi && b.poi !== poiId) return false;
-  questFlagBeat(q); return true;
-}
-function questKillTag(tag) {
-  var q = activeQuestEntry(); if (!q || q.completed) return false;
-  var b = questBeat(q); if (!b || b.type !== 'kill') return false;
-  if (b.tag && b.tag !== tag) return false;
-  questFlagBeat(q); return true;
-}
-function questFollowArrive() {
-  var q = activeQuestEntry(); if (!q || q.completed) return false;
-  var b = questBeat(q); if (!b || b.type !== 'follow') return false;
-  questFlagBeat(q); return true;
-}
-function questTimedSub() {
-  var q = activeQuestEntry(); if (!q || q.completed) return false;
-  var b = questBeat(q); if (!b || b.type !== 'timed') return false;
-  if (q.timerEnd && T > q.timerEnd) return false;   // too late
-  questFlagBeat(q); return true;
-}
-
-// ---- secret POIs + proximity triggers ----
-// registerQuestPOI: fire onEnter when the player comes within r; once=one-shot.
-var questPOIs = [];
-function registerQuestPOI(o) { if (!o || o.x == null) return null; o.r = o.r || 6; o._fired = false; questPOIs.push(o); return o; }
-function questPOIById(id) { for (var i = 0; i < questPOIs.length; i++) if (questPOIs[i].id === id) return questPOIs[i]; return null; }
-
-// ambush primitive: a zone (or an armed trigger) that, on entry, spawns hostile
-// actors and/or flips tagged quest NPCs hostile. Concrete danger uses the
-// existing cop actor as a stand-in for the reskinned "Cleaners".
-// TODO: swap the spawned cop stand-ins for reskinned Cleaner NPCs when wired.
-var questAmbushes = [];
-function registerAmbush(o) { if (!o) return null; o.r = o.r || 10; o._fired = false; questAmbushes.push(o); return o; }
-function triggerAmbush(a) {
-  if (!a || a._fired) return; a._fired = true;
-  // flip any tagged quest NPCs hostile (content agents wire the AI reaction)
-  if (a.tag) for (var i = 0; i < npcs.length; i++) if (npcs[i].qtag === a.tag) npcs[i].qhostile = true;
-  // concrete hostiles: spawn cop stand-ins near the player
-  var n = a.count || 2;
-  for (var c = 0; c < n; c++) { try { spawnCop(); } catch (e) { } }
-  if (typeof a.onTrigger === 'function') { try { a.onTrigger(a); } catch (e) { } }
-  toast('<b style="color:#e5533d">AMBUSH!</b> ' + (a.text || 'Hostiles closing in.'), 3000);
-  sfx('deny');
-}
-// arm a named ambush the moment a beat needs it (called from beat onEnter);
-// it then fires on the next proximity check (or immediately if already close)
-var questArmed = {};
-function questArmAmbush(tag) { questArmed[tag] = true; }
-
-// ---- generalized enterable secret sub-spaces (#77). Each POI room is a box
-// hidden under the map (like the gas interior); qLoc switches the floor height +
-// collider set in updatePlayer. A room is built lazily on first entry. Surface
-// hatches are registered in qHatches; E near one enters, E near the room's exit
-// climbs out. Rooms declare a themed floor/light + optional onEnter (drops, VO,
-// ambush) so all 10 quests reuse ONE room primitive. (QPOI itself is declared
-// above the QUESTS registry so beat waypoints can reference QPOI.<room>.)
-var qLoc = null;      // active room id | null
-var qRoom = null;     // active room spec | null
-var qHatches = [];    // surface enter points [{id,x,z}]
-for (var _qk in QPOI) qHatches.push({ id: _qk, x: QPOI[_qk].x, z: QPOI[_qk].z });
-function qAddCollider(spec, cx, cz, w, d) { spec.colliders.push({ x0: cx - w / 2, x1: cx + w / 2, z0: cz - d / 2, z1: cz + d / 2 }); }
-function buildRoom(id) {
-  var s = QPOI[id]; if (!s || s.built) return s; s.built = true;
-  s.colliders = [];
-  var Y = s.y, W = s.w, D = s.d, cx = s.x, cz = s.z;   // room centered under its surface hatch
-  s.cx = cx; s.cz = cz;
-  var stoneT = tex(64, function (g, sz) {
-    g.fillStyle = colHex(s.tint); g.fillRect(0, 0, sz, sz);
-    g.fillStyle = shade(colHex(s.tint), 0.82); for (var y = 0; y < sz; y += 12) for (var x = ((y / 12) & 1) ? 8 : 0; x < sz; x += 16) g.fillRect(x, y, 14, 10);
-    noise(g, sz, 90, 0.06, 0.05);
-  }, W / 3, D / 3);
-  var floor = new THREE.Mesh(new THREE.PlaneGeometry(W, D), lamb2(stoneT));
-  floor.rotation.x = -Math.PI / 2; floor.position.set(cx, Y, cz); scene.add(floor);
-  var ceil = new THREE.Mesh(new THREE.PlaneGeometry(W, D), lamb({ color: s.ceil })); ceil.rotation.x = Math.PI / 2; ceil.position.set(cx, Y + 3.4, cz); scene.add(ceil);
-  var wallM = lamb2(stoneT);
-  function wall(x, z, w, d) { var m = box(w, 3.4, d, wallM, x, Y + 1.7, z); scene.add(m); solidMeshes.push(m); qAddCollider(s, x, z, w, d); }
-  wall(cx, cz - D / 2 - 0.3, W + 1.2, 0.6); wall(cx, cz + D / 2 + 0.3, W + 1.2, 0.6);
-  wall(cx - W / 2 - 0.3, cz, 0.6, D + 1.2); wall(cx + W / 2 + 0.3, cz, 0.6, D + 1.2);
-  var lamp = new THREE.PointLight(id === 'arcade' ? 0xff40d0 : 0xffd090, id === 'facility' ? 1.3 : 0.9, 40); lamp.position.set(cx, Y + 2.8, cz); scene.add(lamp);
-  s.exit = { x: cx, z: cz + D / 2 - 1.5 };   // near the entry wall — stand here + E to climb out
-  // a couple of cheap prop hints per room
-  scene.add(box(1.4, 0.5, 0.6, lamb({ color: 0x33373f }), cx - W / 4, Y + 0.25, cz + 1.5));
-  scene.add(box(0.9, 0.9, 0.9, lamb({ color: 0x6b5a3a }), cx + W / 4, Y + 0.45, cz - 1.5));
-  qDressRoom(id, s);   // #78: place the quest set-dressing props for this room
-  return s;
-}
-// ---- #78 quest 3D prop placement (questprops.js meshes as set-dressing) ----
-// getEnvProp() builds a QUEST_PROPS mesh exactly like a street/env prop. We
-// ground it (base at y=0), face it, optionally add a collider. For POI-room
-// interiors the collider goes to the room's own list (blocks only in-room);
-// for surface props it goes to the world colliders. Flat floor hatches
-// (trapdoor/manhole_cover) skip colliders so the player can stand + press E.
-var qClueMeshes = [];   // #78: quest props the Detective's Loupe can highlight
-function qProp(name, x, z, ry, y, opts) {
-  if (typeof getEnvProp !== 'function' || typeof ENV_BY_NAME === 'undefined') return null;
-  var e = ENV_BY_NAME[name]; if (!e) return null;
-  var g = getEnvProp(name); if (!g) return null;
-  opts = opts || {}; ry = ry || 0;
-  var sc = opts.scale || 1;
-  g.position.set(x, y || 0, z); g.rotation.y = ry; if (sc !== 1) g.scale.set(sc, sc, sc);
-  scene.add(g);
-  if (opts.clue !== false) qClueMeshes.push({ mesh: g, x: x, z: z });
-  if (e.solid && !opts.noCol) {
-    solidMeshes.push(g);
-    var hw = e.dims[0] / 2 * sc, hd = e.dims[2] / 2 * sc;
-    if (opts.roomCols) {
-      var c = Math.abs(Math.cos(ry)), s = Math.abs(Math.sin(ry));
-      var ax = hw * c + hd * s, az = hw * s + hd * c;
-      opts.roomCols.push({ x0: x - ax, x1: x + ax, z0: z - az, z1: z + az });
-    } else if (typeof addColliderOBB === 'function') addColliderOBB(x, z, hw, hd, ry);
-  }
-  return g;
-}
-// interior set-dressing per POI room (called at the end of buildRoom)
-function qDressRoom(id, s) {
-  if (!s || typeof getEnvProp !== 'function') return;
-  var cx = s.cx, cz = s.cz, Y = s.y, W = s.w, D = s.d, RC = s.colliders;
-  try {
-    if (id === 'boardroom') {
-      // the sealed vault-style door on the back wall + the cage-lift shaft down
-      qProp('vault_door', cx, cz - D / 2 + 0.7, 0, Y, { roomCols: RC });
-      qProp('cage_lift', cx + W / 2 - 1.2, cz + D / 2 - 2, Math.PI / 2, Y, { roomCols: RC });
-      qProp('seance_table', cx, cz, 0, Y, { roomCols: RC });   // long board table
-    } else if (id === 'facility') {
-      // sub-lake facility: tile the interior module along the back + a lift out
-      qProp('facility_module', cx - 4.2, cz - D / 2 + 1.2, 0, Y, { roomCols: RC });
-      qProp('facility_module', cx + 4.2, cz - D / 2 + 1.2, 0, Y, { roomCols: RC });
-      qProp('cage_lift', cx, cz + D / 2 - 2.2, 0, Y, { roomCols: RC });
-    } else if (id === 'arcade') {
-      qProp('arcade_portal', cx, cz - D / 2 + 1, 0, Y, { roomCols: RC });
-    }
-  } catch (e2) { }
-}
-// surface set-dressing at the POI entrances / quest sites (placed once at load)
-function placeQuestSurfaceProps() {
-  if (typeof QUEST_PROPS === 'undefined' || typeof getEnvProp !== 'function') return;
-  try {
-    qProp('trapdoor', QPOI.cellar.x, QPOI.cellar.z, 0, 0, { noCol: true });          // Gains Cave hatch
-    qProp('trapdoor', -40, -70, 0.6, 0, { noCol: true });                             // false-bottom dumpster (Q4/Q8)
-    qProp('manhole_cover', QPOI.manhole.x, QPOI.manhole.z, 0, 0.02, { noCol: true }); // Manhole Room entrance
-    qProp('hollow_oak', QPOI.hollow_oak.x, QPOI.hollow_oak.z, 0.4, 0);                // Hollow Oak exterior
-    qProp('arcade_portal', QPOI.arcade.x, QPOI.arcade.z, Math.PI, 0);                 // Wrong-Westchase portal
-    qProp('seance_table', -191, -211, 0, 0);                                          // Q1 murder-dinner set
-  } catch (e) { }
-}
-function colHex(n) { return '#' + ('000000' + (n >>> 0).toString(16)).slice(-6); }
-function enterPOI(id) {
-  var s = QPOI[id]; if (!s) return false;
-  buildRoom(id);
-  qLoc = id; qRoom = s;
-  inside = false;   // mutually exclusive with the gas interior
-  player.x = s.cx; player.z = s.cz + s.d / 2 - 1.5; player.y = s.y + EYE;
-  player.vy = 0; player.grounded = true;
-  questInteract(id);
-  if (typeof s.onEnter === 'function') { try { s.onEnter(s); } catch (e) { } }
-  toast(s.enterMsg || ('You enter ' + s.name + '.'), 3600);
-  sfx('whoosh');
-  return true;
-}
-function exitPOI() {
-  if (!qLoc || !qRoom) return false;
-  var s = qRoom; qLoc = null; qRoom = null;
-  player.x = s.x; player.z = s.z + 2; player.y = EYE; player.vy = 0; player.grounded = true;
-  toast('You climb back out into the open air.', 2400);
-  return true;
-}
-function nearestHatch() {   // closest surface hatch within ~3.5u, or null
-  var best = null, bd = 12.25;
-  for (var i = 0; i < qHatches.length; i++) { var h = qHatches[i], dx = player.x - h.x, dz = player.z - h.z, d = dx * dx + dz * dz; if (d < bd) { bd = d; best = h; } }
-  return best;
-}
-
-// ---- per-frame quest update: POIs, ambushes, active-beat completion ----
-function updateQuests(dt) {
-  if (!state.running || state.dead) return;
-  // proximity POIs
-  for (var i = 0; i < questPOIs.length; i++) {
-    var p = questPOIs[i]; if (p._fired && p.once) continue;
-    var dx = player.x - p.x, dz = player.z - p.z;
-    if (dx * dx + dz * dz <= p.r * p.r) {
-      if (!p._inside) { p._inside = true; if (typeof p.onEnter === 'function') { try { p.onEnter(p); } catch (e) { } } p._fired = true; }
-    } else p._inside = false;
-  }
-  // ambush zones
-  for (var a = 0; a < questAmbushes.length; a++) {
-    var az = questAmbushes[a]; if (az._fired) continue;
-    var adx = player.x - az.x, adz = player.z - az.z;
-    if (adx * adx + adz * adz <= az.r * az.r) triggerAmbush(az);
-  }
-  // active-beat advancement
-  var q = activeQuestEntry(); if (!q || q.completed) return;
-  var b = questBeat(q); if (!b) return;
-  // pseudo-interact beats (a "search here" spot, not a room hatch) auto-satisfy
-  // on proximity so they never soft-lock; room-hatch interacts fire on enterPOI.
-  if (b.type === 'interact' && b.poi && b.poi !== 'q10_choice' && !QPOI[b.poi] && !questFlags(q)['b' + q.stage] && within(b.waypoint, b.r || 5)) questFlagBeat(q);
-  if (b.type === 'timed' && q.timerEnd && T > q.timerEnd && !questFlags(q)['b' + q.stage]) {
-    // ran out of time — restart the timed window (fail-forward, not a hard fail)
-    q.timerEnd = T + (b.secs || 30);
-    toast('<b style="color:#e5533d">TIME\'S UP</b> — try that again.', 2400);
-  }
-  if (questBeatDone(q, b)) completeBeat();
-}
-
-// ---- quest-giver interaction (E near a giver) ----
-function questGiverNear() {
-  var best = null, bestD = 1e9;
-  for (var i = 0; i < QUEST_ORDER.length; i++) {
-    var d = QUESTS[QUEST_ORDER[i]]; if (!d || !d.giver) continue;
-    var dx = player.x - d.giver.x, dz = player.z - d.giver.z, dd = dx * dx + dz * dz;
-    if (dd < 36 && dd < bestD) { bestD = dd; best = d; }
-  }
-  return best;
-}
-function questGiverTalk(d) {
-  if (!d) return false;
-  var q = questEntry(d.id);
-  // finale gate: Q10 (and any quest carrying a gate fn) refuses to start early.
-  if (!q && typeof d.gate === 'function' && !d.gate()) {
-    toast('<b>' + d.giver.name + ':</b> "You are not ready. Bring the key, the map, and the card — and know the Concierge first."', 4200);
-    return true;
-  }
-  if (!q) { startQuest(d.id); if (state.activeQuest !== d.id) setActiveQuest(d.id); questTalk(d.giver.id); return true; }
-  if (q.completed) { toast('<b>' + d.giver.name + ':</b> "Thank you again for everything."', 3000); return true; }
-  if (state.activeQuest !== d.id) setActiveQuest(d.id);
-  var b = questBeat(q);
-  if (b && b.type === 'talk' && (!b.giver || b.giver === d.giver.id)) { questTalk(d.giver.id); return true; }
-  toast('<b>' + d.giver.name + ':</b> "' + (b ? (b.text || 'Please, hurry.') : 'Please, hurry.') + '"', 3200);
-  return true;
-}
-
-// ---- quest log panel (PS1-style; toggled with J) ----
-var questSel = null;   // selected quest id in the panel
-function questStatus(id) {
-  var q = questEntry(id);
-  if (q && q.completed) return 'completed';
-  if (q) return (state.activeQuest === id) ? 'active' : 'started';
-  return 'available';
-}
-function refreshQuestPanel() {
-  var listEl = document.getElementById('questList'), detEl = document.getElementById('questDetail');
-  if (!listEl || !detEl) return;
-  if (!questSel || !QUESTS[questSel]) questSel = state.activeQuest || QUEST_ORDER[0];
-  // left column: quest list
-  listEl.innerHTML = '';
-  for (var i = 0; i < QUEST_ORDER.length; i++) {
-    (function (id) {
-      var d = QUESTS[id], st = questStatus(id);
-      var row = document.createElement('div');
-      row.className = 'qItem' + (id === questSel ? ' sel' : '') + ' ' + st;
-      var tag = st === 'completed' ? '✔' : (st === 'active' ? '◆' : (st === 'started' ? '•' : '·'));
-      row.innerHTML = '<span class="qTag">' + tag + '</span>' + d.name;
-      row.onclick = function () { questSel = id; refreshQuestPanel(); };
-      listEl.appendChild(row);
-    })(QUEST_ORDER[i]);
-  }
-  // right column: selected quest detail
-  var d = QUESTS[questSel]; if (!d) { detEl.innerHTML = ''; return; }
-  var q = questEntry(questSel), st = questStatus(questSel);
-  var html = '<div class="qName">' + d.name + '</div>';
-  html += '<div class="qState ' + st + '">' + (st === 'completed' ? 'COMPLETED' : st === 'active' ? 'ACTIVE' : st === 'started' ? 'IN PROGRESS' : 'AVAILABLE') + '</div>';
-  if (d.giver) html += '<div class="qGiver">Given by ' + d.giver.name + '</div>';
-  html += '<div class="qSummary">' + d.summary + '</div>';
-  html += '<div class="qBeats">';
-  for (var b = 0; b < d.beats.length; b++) {
-    var beat = d.beats[b], mark, cls;
-    if (st === 'completed' || (q && q.done.indexOf(b) >= 0)) { mark = '✔'; cls = 'done'; }
-    else if (q && q.stage === b) { mark = '▶'; cls = 'cur'; }
-    else { mark = '○'; cls = 'todo'; }
-    // hide the text of not-yet-reached beats to avoid spoilers, show current+done
-    var show = (cls === 'todo' && !(q && b <= q.stage)) ? '???' : (beat.text || beat.type);
-    html += '<div class="qBeat ' + cls + '"><span class="qbm">' + mark + '</span>' + show + '</div>';
-  }
-  html += '</div>';
-  if (d.reward) html += '<div class="qReward"><b>REWARD:</b> ' + (d.reward.text || (d.reward.item || '')) + '</div>';
-  html += '<div class="qActions">';
-  if (st === 'available') html += '<button id="qActStart">START (find ' + (d.giver ? d.giver.name : 'the giver') + ')</button>';
-  else if (st !== 'completed') html += '<button id="qActSet"' + (state.activeQuest === questSel ? ' disabled' : '') + '>SET ACTIVE</button>';
-  html += '</div>';
-  detEl.innerHTML = html;
-  var setB = document.getElementById('qActSet'); if (setB) setB.onclick = function () { setActiveQuest(questSel); refreshQuestPanel(); };
-  var startB = document.getElementById('qActStart'); if (startB) startB.onclick = function () { toast('Find <b>' + (d.giver ? d.giver.name : 'the quest giver') + '</b> on the map (amber beacon) and press E to begin.', 4000); };
-}
-
-// (questBeacons moved BELOW the quest-placement clearance pass — beacons must
-// read giver positions AFTER any road-clearance snap; see mrf7rsmq)
-
-// ---- #77 placed quest NPCs (visible, interactive bodies). Givers are talked to
-// via the giver path (checked first); non-giver actors (Marcus, the champion,
-// Thorne-inside) advance talk beats through questActorTalk. Meshes are idle-posed.
-var qActors = [];
-var QACTOR_DEFS = [
-  { id: 'vivian', name: 'Vivian Crestwood', look: { char: 'VIVIAN' }, x: -196, z: -206, yaw: 2.4 },
-  { id: 'wendell', name: 'Wendell Pike', look: { char: 'WENDELL' }, x: -210, z: -245, yaw: 0.3 },
-  { id: 'agatha', name: 'Agatha Holloway', look: { char: 'AGATHA' }, x: -278, z: -72, yaw: 3.1 },
-  { id: 'sal', name: 'Sal Marino', look: { char: 'SAL' }, x: -116, z: -30, yaw: 1.6 },
-  { id: 'vlad', name: 'Vlad', look: { char: 'VLAD' }, x: -240, z: -140, yaw: 0.8 },
-  { id: 'concierge', name: 'The Concierge', look: { char: 'CONCIERGE' }, x: -40, z: -70, yaw: 2.0 },
-  { id: 'thorne', name: 'Chairman Thorne', look: { char: 'THORNE' }, x: -250, z: -140, yaw: 1.2, quest: 'q10_beneath' },
-  { id: 'marcus_q4', name: 'Marcus', look: { person: ['#245', '#222', 2] }, x: 150, z: -112, yaw: 3.0 },
-  { id: 'champion', name: 'Hide-and-Seek Champ', look: { kid: true }, x: -90, z: -80, yaw: 1.0 },
-  { id: 'spouse', name: 'Worried Spouse', look: { person: ['#8a3a5a', '#333', 3] }, x: 60, z: 42, yaw: 2.6 },
-  { id: 'xander', name: 'Xander', look: { person: ['#3a6ea5', '#222', 1] }, x: -150, z: 26, yaw: 1.4 },
-  { id: 'dylan', name: 'Dylan Sharp', look: { kid: true }, x: -72, z: -97, yaw: 0.5 },
-  { id: 'thorne_in', name: 'Chairman Thorne', look: { char: 'THORNE' }, x: -255, z: -150, y: QPOI.facility.y, yaw: 1.0 }
-];
-
-// ---- quest-placement road clearance (bug mrf7rsmq) ----
-// Quest NPC spots were authored against the LEGACY axis roads; on the remap
-// several land on the new diagonals' asphalt (the Worried Spouse stood in the
-// middle of Countryway Blvd with traffic swerving around her). At load, any
-// giver/actor standing on road asphalt (or a junction pad) snaps to the
-// nearest clear spot — outward ring search; sidewalks/lawns are fine, venue
-// footprints / the lake / house footprints are not. Beat waypoints that
-// pointed at a moved NPC follow it, and questBeacons (below) runs after this
-// pass so the beacon stays glued to the NPC.
-function questSpotClear(x, z) {
-  if (!remapPointClear(x, z, 0.8)) return false;
-  if (typeof inLake === 'function' && inLake(x, z)) return false;
-  if (typeof remapInClear === 'function' && remapInClear(x, z, 0.4)) return false;
-  if (typeof houseBlocksSpot === 'function' && houseBlocksSpot(x, z)) return false;
-  return true;
-}
-function questSnapClear(x, z) {
-  if (questSpotClear(x, z)) return null;   // already fine — don't move
-  for (var r = 2; r <= 30; r += 2) {
-    var n = Math.max(8, Math.round(r * 2.5));
-    for (var i = 0; i < n; i++) {
-      var a = i / n * Math.PI * 2;
-      var px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r;
-      if (questSpotClear(px, pz)) return [Math.round(px * 10) / 10, Math.round(pz * 10) / 10];
-    }
-  }
-  return null;   // no clear spot within 30u — leave authored position
-}
-(function questPlacementClearance() {
-  if (!WC_REMAP) return;   // legacy axis world matches the authored spots
-  var moved = [], k, d, i, m;
-  function movedFor(x, z) {
-    for (var j = 0; j < moved.length; j++) if (Math.abs(moved[j][0] - x) < 0.6 && Math.abs(moved[j][1] - z) < 0.6) return moved[j];
-    return null;
-  }
-  for (k in QUESTS) {
-    d = QUESTS[k];
-    if (!d.giver || d.giver.x == null) continue;
-    var s = questSnapClear(d.giver.x, d.giver.z);
-    if (s) { moved.push([d.giver.x, d.giver.z, s[0], s[1]]); d.giver.x = s[0]; d.giver.z = s[1]; }
-  }
-  for (i = 0; i < QACTOR_DEFS.length; i++) {
-    var q = QACTOR_DEFS[i];
-    if (q.y) continue;   // under-map interior actors — surface roads don't apply
-    var prev = movedFor(q.x, q.z);   // reuse the giver's snap so actor+beacon agree
-    var s2 = prev ? [prev[2], prev[3]] : questSnapClear(q.x, q.z);
-    if (s2) { if (!prev) moved.push([q.x, q.z, s2[0], s2[1]]); q.x = s2[0]; q.z = s2[1]; }
-  }
-  // retarget beat waypoints that pointed at a moved NPC spot (never QPOI rooms
-  // — those aren't NPC positions, so they can't match a moved entry)
-  for (k in QUESTS) {
-    d = QUESTS[k];
-    if (!d.beats) continue;
-    for (i = 0; i < d.beats.length; i++) {
-      var w = d.beats[i].waypoint;
-      if (!w || w.x == null) continue;
-      m = movedFor(w.x, w.z);
-      if (m) { w.x = m[2]; w.z = m[3]; }
-    }
-  }
-})();
-
-// visible amber beacons at givers + the cellar hatch (so the framework is
-// eyeball-able before the real quest NPCs/props exist)
-(function questBeacons() {
-  function beacon(x, z, col) {
-    // FLOATS above head height so a quest-giver ped never stands "inside" the
-    // marker (mree10qu: worried-spouse giver clipped through the ground pole).
-    var g = new THREE.Group();
-    var mat = new THREE.MeshBasicMaterial({ color: col });
-    var pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 2.2, 6), mat);
-    pole.position.y = 4.4; g.add(pole);   // spans y 3.3 .. 5.5, clear of any NPC
-    var orb = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 6), mat);
-    orb.position.y = 5.7; g.add(orb);
-    var ptr = new THREE.Mesh(new THREE.ConeGeometry(0.36, 0.8, 6), mat);
-    ptr.position.y = 2.9; ptr.rotation.x = Math.PI; g.add(ptr);   // tip points down at the giver
-    g.position.set(x, 0, z); scene.add(g); return g;
-  }
-  for (var i = 0; i < QUEST_ORDER.length; i++) { var d = QUESTS[QUEST_ORDER[i]]; if (d && d.giver) beacon(d.giver.x, d.giver.z, 0xffcf4a); }
-})();
-function qActorMesh(look) {
-  try {
-    if (look.char) return buildQuestChar(look.char);
-    if (look.reskin) return buildQuestChar(look.reskin);
-    if (look.kid && typeof buildKid === 'function' && typeof KID_LOOKS !== 'undefined' && KID_LOOKS.length) return buildKid((Math.random() * KID_LOOKS.length) | 0);
-    if (look.person) return buildPerson(look.person[0], look.person[1], CSKIN[look.person[2] || 2], {});
-  } catch (e) { }
-  return buildPerson('#555', '#333', CSKIN[2], {});
-}
-(function placeQActors() {
-  for (var i = 0; i < QACTOR_DEFS.length; i++) {
-    var s = QACTOR_DEFS[i];
-    var m = qActorMesh(s.look);
-    m.position.set(s.x, s.y || 0, s.z); m.rotation.y = s.yaw || 0;
-    scene.add(m);
-    qActors.push({ id: s.id, name: s.name, mesh: m, x: s.x, z: s.z, quest: s.quest, yaw0: s.yaw || 0 });
-  }
-})();
-function questActorNear() {
-  var best = null, bd = 30;   // ~5.5u
-  for (var i = 0; i < qActors.length; i++) { var a = qActors[i], dx = player.x - a.x, dz = player.z - a.z, d = dx * dx + dz * dz; if (d < bd) { bd = d; best = a; } }
-  return best;
-}
-function questActorTalk() {
-  var a = questActorNear(); if (!a) return false;
-  // let the giver path own giver actors (it started/advances those)
-  var d = QUESTS[state.activeQuest];
-  var fired = questTalk(a.id);
-  if (!fired) toast('<b>' + a.name + ':</b> "…"', 1600);
-  return true;
-}
-// hatch gating: a POI is only enterable once the player has reason to know it.
-// cellar/manhole/hollow_oak/stormdrain/arcade open freely (their quests point
-// you there); boardroom needs the lantern; facility needs the three keys.
-function questHatchUnlocked(id) {
-  if (state.unlocks && state.unlocks.perk_signet) return true;   // #78 inherit: every secret door stays open
-  if (id === 'facility') return bagCount('etched_lake_key') > 0 && bagCount('tunnel_fragment') > 0 && bagCount('alien_keycard') > 0;
-  if (id === 'boardroom') return hasUnlock('lantern') || (state.activeQuest === 'q3_redhouse');
-  return true;
-}
-
-loadQuests();
-questRegisterItems();
-placeQuestSurfaceProps();   // #78: quest set-dressing props at the POI entrances
 loadLocalProgress();        // restore offline/guest money+guns+consumables (cloud login overrides later)
-
-// ================= #78 QUEST REWARD CAPABILITIES =================
-// The five stubbed rewards, made real. Each gated on its state.unlocks flag;
-// grant still fires the item + toast. Toggles bind to keys and __wc hooks.
-
-// ---- Detective's Loupe (Q1): highlight clues / reveal trapped containers ----
-var loupeOn = false, _loupeTinted = [];
-// known "trap"/false-bottom spots the Loupe warns about before you open them
-var qTraps = [{ x: -40, z: -70, name: 'false-bottom dumpster' }, { x: -132, z: 44, name: 'rigged liquor cabinet' }];
-var _loupeTrapT = 0;
-function tintClue(obj, hex) {
-  obj.traverse(function (o) {
-    if (o.isMesh && o.material && o.material.emissive) {
-      if (o.userData._emSaved === undefined) { o.userData._emSaved = o.material.emissive.getHex(); o.userData._emiSaved = o.material.emissiveIntensity || 0; }
-      o.material.emissive.setHex(hex); o.material.emissiveIntensity = 0.55 + 0.35 * Math.sin(T * 4);
-      _loupeTinted.push(o);
-    }
-  });
-}
-function clearLoupeTint() {
-  for (var i = 0; i < _loupeTinted.length; i++) { var o = _loupeTinted[i]; if (o.userData._emSaved !== undefined) { o.material.emissive.setHex(o.userData._emSaved); o.material.emissiveIntensity = o.userData._emiSaved; } }
-  _loupeTinted.length = 0;
-}
-function toggleLoupe(v) {
-  if (!hasUnlock('loupe')) { toast('You don\'t have the <b>Detective\'s Loupe</b> yet (Quest 1).', 2000); return false; }
-  loupeOn = (v == null) ? !loupeOn : !!v;
-  if (!loupeOn) clearLoupeTint();
-  toast(loupeOn ? '<b style="color:#ffcf6a">LOUPE UP</b> — clues glow amber; traps flagged.' : 'Loupe stowed.', 1600);
-  sfx(loupeOn ? 'buy' : 'whoosh');
-  return loupeOn;
-}
-function updateLoupe(dt) {
-  clearLoupeTint();
-  if (!loupeOn || !hasUnlock('loupe')) return;
-  var R2 = 26 * 26;
-  for (var i = 0; i < drops.length; i++) {
-    var d = drops[i]; if (!d.item) continue; var def = itemDef(d.itemId); if (!(def && def.quest)) continue;
-    var dx = d.mesh.position.x - player.x, dz = d.mesh.position.z - player.z; if (dx * dx + dz * dz > R2) continue;
-    tintClue(d.mesh, 0xffb020);
-  }
-  for (i = 0; i < qClueMeshes.length; i++) {
-    var c = qClueMeshes[i], cx = c.x - player.x, cz = c.z - player.z; if (cx * cx + cz * cz > R2) continue;
-    tintClue(c.mesh, 0xffb020);
-  }
-  // trap warning: within 5u of a flagged container, ping once every few sec
-  if (T - _loupeTrapT > 4) for (i = 0; i < qTraps.length; i++) {
-    var tp = qTraps[i], tx = tp.x - player.x, tz = tp.z - player.z;
-    if (tx * tx + tz * tz < 25) { toast('<b style="color:#e5533d">TRAP:</b> ' + tp.name + ' is rigged — the Loupe makes it safe to open.', 2600); _loupeTrapT = T; break; }
-  }
-}
-
-// ---- Spirit Lantern (Q3): dark-vision + reveal hidden doors/apparitions ----
-var lanternOn = false, lanternLight = null;
-function toggleLantern(v) {
-  if (!hasUnlock('lantern')) { toast('You don\'t have the <b>Spirit Lantern</b> yet (Quest 3).', 2000); return false; }
-  lanternOn = (v == null) ? !lanternOn : !!v;
-  if (lanternOn && !lanternLight) { lanternLight = new THREE.PointLight(0x9dffbe, 0, 40); scene.add(lanternLight); }
-  toast(lanternOn ? '<b style="color:#8effc0">SPIRIT LANTERN</b> — the dark parts before you; sealed doors reveal.' : 'The green flame gutters out.', 1800);
-  sfx(lanternOn ? 'buy' : 'whoosh');
-  return lanternOn;
-}
-function updateLantern(dt) {
-  if (!lanternLight) return;
-  var tgt = lanternOn && hasUnlock('lantern') ? 2.6 : 0;
-  lanternLight.intensity += (tgt - lanternLight.intensity) * Math.min(1, dt * 6);
-  lanternLight.position.set(player.x, player.y + 0.5, player.z);
-  lanternLight.visible = lanternLight.intensity > 0.03;
-  // part scripted apparitions: nudge quest foes back + stagger them while lit
-  if (lanternLight.intensity > 1.5) for (var i = 0; i < npcs.length; i++) {
-    var n = npcs[i]; if (!n.qfoe) continue;
-    var dx = n.x - player.x, dz = n.z - player.z, d2 = dx * dx + dz * dz;
-    if (d2 < 25 && d2 > 0.01) { var d = Math.sqrt(d2); n.x += (dx / d) * dt * 2.4; n.z += (dz / d) * dt * 2.4; n.jabT = Math.max(n.jabT, 0.5); }
-  }
-}
-
-// ---- 8-Bit Reflexes (Q6): ADS bullet-time on a drainable meter/cooldown ----
-var reflex = { active: false, meter: 1, cd: 0 };
-var adsDown = false;   // right-hold ADS (any weapon) for the reflexes bullet-time
-function reflexScale() { return reflex.active ? 0.34 : 1; }
-function setBulletTime(on) { reflex.forced = !!on; }   // debug/manual override
-function updateReflex(dt) {
-  var want = reflex.forced || (hasUnlock('reflexes') && (zoomed || adsDown) && reflex.meter > 0.03 && reflex.cd <= 0);
-  reflex.active = want;
-  if (want) { reflex.meter = Math.max(0, reflex.meter - dt * 0.55); if (reflex.meter <= 0) { reflex.cd = 3.5; reflex.active = false; } }
-  else { if (reflex.cd > 0) reflex.cd -= dt; reflex.meter = Math.min(1, reflex.meter + dt * 0.4); }
-}
-
-// ---- Biscuit the dog companion (Q9 Dog Whistle) ----
-var biscuit = null;   // { mesh, x, z, ... } — a following, non-harmable dog
-function summonBiscuit() {
-  if (!hasUnlock('dogwhistle')) { toast('You don\'t have the <b>Dog Whistle</b> yet (Quest 9).', 2000); return false; }
-  if (biscuit) { toast('Biscuit is already at your heel. <b>(B)</b> again to send him home.', 1800); return biscuit; }
-  var mesh = null;
-  try { if (typeof getAccessory === 'function') { var acc = getAccessory('dog'); if (acc && acc.mesh) mesh = acc.mesh; } } catch (e) { }
-  if (!mesh) { try { mesh = box(0.5, 0.4, 0.9, lamb({ color: 0x6b4a2e }), 0, 0.2, 0); } catch (e2) { mesh = new THREE.Group(); } }
-  var bx = player.x - Math.sin(yaw) * 2, bz = player.z - Math.cos(yaw) * 2;
-  mesh.position.set(bx, 0, bz); scene.add(mesh);
-  biscuit = { mesh: mesh, x: bx, z: bz, yaw: yaw, phase: 0, bark: 0 };
-  try { playQuestVoice('q9_BISCUIT', 'barks', 0, 0.8, 0.4); } catch (e3) { }
-  toast('<b style="color:#ffd98a">You whistle.</b> Biscuit bounds to your side! Good boy.', 2600);
-  sfx('cash');
-  return biscuit;
-}
-function dismissBiscuit() {
-  if (!biscuit) return false;
-  try { scene.remove(biscuit.mesh); } catch (e) { }
-  biscuit = null; toast('Biscuit trots off home. Blow the whistle to call him back.', 2200);
-  return true;
-}
-function toggleBiscuit() { return biscuit ? dismissBiscuit() : summonBiscuit(); }
-function updateBiscuit(dt) {
-  if (!biscuit) return;
-  var b = biscuit;
-  // heel target: just behind-left of the player (combat-exempt; never harmed)
-  var tx = player.x - Math.sin(yaw) * 2.1 - Math.cos(yaw) * 1.0;
-  var tz = player.z - Math.cos(yaw) * 2.1 + Math.sin(yaw) * 1.0;
-  var dx = tx - b.x, dz = tz - b.z, d = Math.sqrt(dx * dx + dz * dz);
-  var spd = d > 6 ? 7.5 : (d > 1.2 ? 4.2 : 0);   // sprint to catch up, trot near
-  if (spd > 0 && d > 0.01) { b.x += (dx / d) * spd * dt; b.z += (dz / d) * spd * dt; b.yaw = Math.atan2(dx, dz); }
-  b.phase += dt * (spd > 0 ? 9 : 2);
-  var y = qLoc && qRoom ? qRoom.y : (inside && curInterior ? curInterior.box.y : 0);
-  b.mesh.position.set(b.x, y + Math.abs(Math.sin(b.phase)) * (spd > 4 ? 0.12 : 0.03), b.z);
-  b.mesh.rotation.y = b.yaw;
-  // fetch nearby dropped cash toward the player (best-boy utility)
-  for (var i = 0; i < cashes.length; i++) {
-    var cs = cashes[i]; if (!cs || cs.taken) continue;
-    var cp = cs.mesh ? cs.mesh.position : cs;
-    var cdx = cp.x - b.x, cdz = cp.z - b.z, cd2 = cdx * cdx + cdz * cdz;
-    if (cd2 < 4 && cd2 > 0.01) { var cd = Math.sqrt(cd2); cp.x -= (cdx / cd) * dt * 3; cp.z -= (cdz / cd) * dt * 3; if (cs.x !== undefined) { cs.x = cp.x; cs.z = cp.z; } }
-  }
-}
-
-// ---- ghost (Q8): stealth kills via the silenced pistol don't raise wanted ----
-function ghostActive() { return hasUnlock('ghost') && state.equipped === 'silenced'; }
-// Cleaners fence connection: buy -10%, sell +15% once Ghost is unlocked
-function ghostBuy(p) { return hasUnlock('ghost') ? Math.max(0, Math.round(p * 0.9)) : p; }
-function ghostSell(v) { return hasUnlock('ghost') ? Math.round(v * 1.15) : v; }
-
-// ---- quest-NPC idle animation (C): the placed qActors are static-posed;
-// drive the standard idle (animPerson spd=0 → skinned idle clip / limb rest)
-// so they breathe and shift like every other townsperson. Near-camera only.
-function updateQActors(dt) {
-  if (typeof qActors === 'undefined' || !qActors) return;
-  for (var i = 0; i < qActors.length; i++) {
-    var a = qActors[i]; if (!a.mesh) continue;
-    if (a.phase === undefined) a.phase = Math.random() * 6.28;
-    var dx = a.x - player.x, dz = a.z - player.z; var d2 = dx * dx + dz * dz; if (d2 > 130 * 130) continue;
-    a.phase += dt * 3.4;
-    // turn to face the player when they're close (mrg4iels), ease back to the
-    // authored home yaw once they leave — shortest-angle lerp, ~4 rad/s cap
-    var tgt = d2 < 49 ? Math.atan2(player.x - a.x, player.z - a.z) : (a.yaw0 || 0);
-    var cur = a.mesh.rotation.y, dyaw = Math.atan2(Math.sin(tgt - cur), Math.cos(tgt - cur));
-    a.mesh.rotation.y = cur + dyaw * Math.min(1, dt * 4);
-    try { animPerson(a.mesh, 0, dt, a.phase); } catch (e) { }
-  }
-}
-// ---- Q10 ending forks (D): expose / burn / inherit. The finale choice beat
-// (interact poi 'q10_choice') no longer auto-satisfies; the player selects an
-// ending (keys 1/2/3 or __wc.chooseEnding), which applies a distinct town-perk,
-// reward, and denouement toast, then advances the quest to its payoff beat.
-var q10Prompted = false;
-function q10ChoiceActive() {
-  var q = activeQuestEntry(); if (!q || q.completed || q.id !== 'q10_beneath') return false;
-  var b = questBeat(q); return !!(b && b.type === 'interact' && b.poi === 'q10_choice');
-}
-function applyEnding(kind) {
-  if (kind !== 'expose' && kind !== 'burn' && kind !== 'inherit') return false;
-  state.unlocks.ending = kind;
-  if (kind === 'expose') {
-    state.unlocks.perk_leniency = true;
-    toast('<b style="color:#8ee87f">THE WHISTLEBLOWER.</b> You surface the records. The lights over the lake go dark and Westchase becomes an ordinary town — cops run a star cooler and every shop greets a hero.', 8000);
-  } else if (kind === 'burn') {
-    state.unlocks.perk_scorched = true; state.owned.rocket = true;
-    try { if (typeof boomAt === 'function') boomAt(new THREE.Vector3(QPOI.facility.cx || QPOI.facility.x, (QPOI.facility.y || 0) + 1.4, QPOI.facility.cz || QPOI.facility.z), 7); } catch (e) { }
-    toast('<b style="color:#ff6a3d">SCORCHED EARTH.</b> You blow the facility and the thing with it. The Pact ends in fire — the Rocket Launcher is yours, and the town runs wilder now.', 8000);
-  } else {
-    state.unlocks.perk_signet = true;
-    for (var i = 0; i < GUN_LIST.length; i++) state.owned[GUN_LIST[i]] = true;   // free dealer stock tier
-    toast('<b style="color:#ffd24a">THE BOARD SIGNET.</b> You take Thorne\'s chair. You run Westchase now: cops look away, the dealer\'s whole stock is yours, every secret door stays open, and the lights over the lake answer to you.', 8000);
-  }
-  sfx('cash'); saveQuests();
-  return kind;
-}
-function chooseEnding(kind) {
-  if (!q10ChoiceActive()) { toast('There is no choice to make right now.', 1600); return false; }
-  var ok = applyEnding(kind); if (!ok) return false;
-  q10Prompted = false;
-  var q = activeQuestEntry(); if (q) questFlagBeat(q);   // advance past the choice beat
-  return ok;
-}
-// ---- master capability update (called from the loop + __wc.tick) ----
-function updateQuestCaps(dt) {
-  updateLoupe(dt); updateLantern(dt); updateReflex(dt); updateBiscuit(dt); updateQActors(dt);
-  // present the finale choice prompt once the player reaches the choice beat
-  if (q10ChoiceActive()) {
-    if (!q10Prompted) { q10Prompted = true; toast('<b style="color:#ffd98a">THE CHOICE — press a key:</b><br><b>[1] EXPOSE</b> the Pact · <b>[2] BURN</b> it down · <b>[3] INHERIT</b> the chair', 9000); }
-  } else q10Prompted = false;
-}
-// debug: force-grant a capability (and its item) without playing the quest
-function giveUnlock(flag) {
-  state.unlocks[flag] = true;
-  if (UNLOCK_GUN[flag]) state.owned[UNLOCK_GUN[flag]] = true;
-  saveQuests();
-  return state.unlocks;
-}
-
-// ================= END QUEST SYSTEM =================
 
 // ---------------- input ----------------
 var canvas = renderer.domElement;
@@ -20789,12 +19637,11 @@ document.addEventListener('mousedown', function (e) {
   if (e.button === 0) { mouseDown = true; tryAttack(); }
   else if (e.button === 2 && !state.dead && !driving) {
     if (state.equipped === 'rifle') setZoom(true);
-    else adsDown = true;   // #78: right-hold = ADS (drives 8-Bit Reflexes bullet-time)
   }
 });
 document.addEventListener('mouseup', function (e) {
   if (e.button === 0) mouseDown = false;
-  else if (e.button === 2) { setZoom(false); adsDown = false; }
+  else if (e.button === 2) { setZoom(false); }
 });
 function cycleEquip(dir) {
   // quick-swap through everything you own; TAB inventory still works too
@@ -20954,8 +19801,8 @@ var bugOpen = false;
 function bugServerUrl() { return (WC_SERVER_URL || '').replace(/^ws/, 'http').replace(/\/$/, ''); }
 
 // ---------------- accounts: name+PIN progress saves on the relay ----------------
-// Register-on-first-login. Progress = money, guns, snacks/sodas, bag, look,
-// quest log. Autosaves every 10s while signed in and playing, plus a
+// Register-on-first-login. Progress = money, guns, snacks/sodas, bag, look.
+// Autosaves every 10s while signed in and playing, plus a
 // sendBeacon on tab close. Blank PIN = guest, nothing saved.
 var acct = { token: null, name: null, lastSaved: '' };
 function acctStatus(msg, cls) {
@@ -20967,8 +19814,7 @@ function acctBuildSave() {
   return {
     money: state.money | 0, owned: state.owned,
     snacks: state.snacks | 0, sodas: state.sodas | 0,
-    bag: state.bag, cc: cc,
-    quests: { log: state.questLog, active: state.activeQuest, unlocks: state.unlocks }
+    bag: state.bag, cc: cc
   };
 }
 function acctApplySave(s) {
@@ -20985,19 +19831,13 @@ function acctApplySave(s) {
     try { localStorage.setItem('wc_char', s.cc); } catch (e) { }
     var pc = decodeCC(s.cc); if (pc) playerChar = pc;
   }
-  if (s.quests) {
-    if (s.quests.log) state.questLog = s.quests.log;
-    if (s.quests.active !== undefined) state.activeQuest = s.quests.active;
-    if (s.quests.unlocks) state.unlocks = s.quests.unlocks;
-    saveQuests();
-  }
   updateHUD();
 }
 // ---------------- offline/guest local save (localStorage 'wc_save') ----------------
 // The account system above only persists to the relay when signed in with a
 // PIN. For file:// / guest / offline play, money + owned guns + snacks/sodas +
-// bag would reset every reload — so we also mirror them to localStorage. Char,
-// settings and quests already persist under their own keys; this fills the gap.
+// bag would reset every reload — so we also mirror them to localStorage. Char
+// and settings already persist under their own keys; this fills the gap.
 // Applied once at boot (a later cloud sign-in overrides via acctApplySave).
 // NOTE: the key is inlined as a literal, not a `var` — loadLocalProgress runs
 // at boot ABOVE this section, where a hoisted-but-unassigned var would be
@@ -21216,8 +20056,6 @@ document.addEventListener('keydown', function (e) {
   }
   if ((e.code === 'Enter' || e.code === 'NumpadEnter') && state.running && !state.menu && netActive()) { e.preventDefault(); openChat(); return; }
   if (e.code === 'Tab') { e.preventDefault(); if (!state.running || state.dead) return; if (state.menu === 'inv') closeMenus(); else { closeMenus(false); openMenu('inv'); } }
-  // J: quest journal toggle (restored — was temporarily taken by the plane test).
-  if (e.code === 'KeyJ' && !e.repeat) { e.preventDefault(); if (!state.running || state.dead) return; if (state.menu === 'quest') closeMenus(); else if (!state.menu) openMenu('quest'); return; }
   // PLANE TEST HARNESS: K spawns the Learjet in front of the player + boards as
   // pilot (single plane — re-spawns/replaces any existing one). Temporary test
   // key — this whole spawn-on-keypress goes away once airports exist.
@@ -21230,18 +20068,8 @@ document.addEventListener('keydown', function (e) {
   }
   // QoL: M drops/clears a personal waypoint at whatever you're looking at
   if (e.code === 'KeyM' && !e.repeat && state.running && !state.menu && !state.dead) { e.preventDefault(); toggleWaypointAtLook(); return; }
-  // #78 quest-reward capability toggles (only while playing, no menu)
+  // QoL: number-key direct weapon select (1..9, 0 = slot 10).
   if (!e.repeat && state.running && !state.menu && !state.dead) {
-    if (e.code === 'KeyL' && hasUnlock('loupe')) { toggleLoupe(); return; }
-    if (e.code === 'KeyG' && hasUnlock('lantern')) { toggleLantern(); return; }
-    if (e.code === 'KeyB' && hasUnlock('dogwhistle')) { toggleBiscuit(); return; }
-    if (q10ChoiceActive()) {
-      if (e.code === 'Digit1' || e.code === 'Numpad1') { chooseEnding('expose'); return; }
-      if (e.code === 'Digit2' || e.code === 'Numpad2') { chooseEnding('burn'); return; }
-      if (e.code === 'Digit3' || e.code === 'Numpad3') { chooseEnding('inherit'); return; }
-    }
-    // QoL: number-key direct weapon select (1..9, 0 = slot 10). Skipped above if
-    // a quest ending choice owns the digits this frame.
     var wslot = -1;
     if (e.code.length === 6 && e.code.indexOf('Digit') === 0) wslot = e.code.charCodeAt(5) - 48;
     else if (e.code.length === 7 && e.code.indexOf('Numpad') === 0) { var nc = e.code.charCodeAt(6) - 48; if (nc >= 0 && nc <= 9) wslot = nc; }
@@ -21261,7 +20089,6 @@ document.addEventListener('keydown', function (e) {
       if (pbdx * pbdx + pbdz * pbdz < 14 * 14) { boardPlane(); return; }
     }
     if (driving) { exitCar(); return; }
-    if (qLoc && qRoom) { exitPOI(); return; }   // inside a quest sub-space — E climbs back out
     if (inside) {
       if (curInterior) { interiorInteractE(); return; }   // generalized interiors (Publix etc.)
       var cdx = player.x - clerkPos.x, cdz = player.z - clerkPos.z;
@@ -21270,11 +20097,6 @@ document.addEventListener('keydown', function (e) {
       else if (xdx * xdx + xdz * xdz < 7) exitStore();
       return;
     }
-    var qgv = questGiverNear();
-    if (qgv) { questGiverTalk(qgv); return; }
-    if (questActorTalk()) return;              // E near a placed quest NPC (Chet, Sal, Vlad…)
-    var qh = nearestHatch();
-    if (qh && questHatchUnlocked(qh.id)) { enterPOI(qh.id); return; }
     var ddx = player.x - dealerPos.x, ddz = player.z - dealerPos.z;
     if (ddx * ddx + ddz * ddz < 36) { openMenu('shop'); return; }
     var gdx = player.x - gasRob.x, gdz = player.z - gasRob.z;
@@ -21350,16 +20172,13 @@ function updatePlayer(dt) {
       if (prog >= 1) { resolveDive(diveState.p); diveState = null; }
     }
   }
-  // Vlad's Sprint Shoes (q7): faster run + a mid-air double jump.
-  var sprintOn = (typeof hasUnlock === 'function' && hasUnlock('sprint'));
-  var spd = (keys['ShiftLeft'] || keys['ShiftRight'] ? 8.4 : 5.2) * (sprintOn ? 1.28 : 1);
+  var spd = (keys['ShiftLeft'] || keys['ShiftRight'] ? 8.4 : 5.2);
   if (f || s) { var inv = spd / Math.sqrt(f * f + s * s); var fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw); player.x += (fx * f + rx * s) * inv * dt; player.z += (fz * f + rz * s) * inv * dt; }
-  var spaceDown = !!keys['Space'], spaceEdge = spaceDown && !player._spaceWas; player._spaceWas = spaceDown;
-  if (spaceDown && player.grounded) { player.vy = 5.6; player.grounded = false; player._jumps = 1; }
-  else if (sprintOn && spaceEdge && !player.grounded && (player._jumps || 0) < 2) { player.vy = 5.2; player._jumps = 2; }
+  var spaceDown = !!keys['Space']; player._spaceWas = spaceDown;
+  if (spaceDown && player.grounded) { player.vy = 5.6; player.grounded = false; }
   var wasAirborne = !player.grounded;
   player.vy -= GRAV * dt; player.y += player.vy * dt;
-  var eyeFloor = (inside ? (curInterior ? curInterior.box.y : INT.y) : (qRoom ? qRoom.y : lakeBedY(player.x, player.z))) + EYE;
+  var eyeFloor = (inside ? (curInterior ? curInterior.box.y : INT.y) : lakeBedY(player.x, player.z)) + EYE;
   if (player.y <= eyeFloor) {
     // fall damage: a hard downward landing hurts, scaled by impact; a big drop
     // (e.g. bailing out of the plane at altitude) is lethal. Small hops are safe.
@@ -21371,9 +20190,9 @@ function updatePlayer(dt) {
   }
   player.x = Math.max(-HALF + 1.2, Math.min(HALF - 1.2, player.x)); player.z = Math.max(-HALF + 1.2, Math.min(HALF - 1.2, player.z));
   if (!landColliders) landColliders = colliders.filter(function (cc) { return !cc.lake; });
-  var p = pushOut(player.x, player.z, 0.55, inside ? (curInterior ? curInterior.colliders : intColliders) : (qRoom ? qRoom.colliders : landColliders)); player.x = p.x; player.z = p.z;
+  var p = pushOut(player.x, player.z, 0.55, inside ? (curInterior ? curInterior.colliders : intColliders) : landColliders); player.x = p.x; player.z = p.z;
   // pedestrians are solid-ish: you shoulder past them, not through them
-  if (!inside && !qLoc && !state.dead) for (var pci = 0; pci < npcs.length; pci++) {
+  if (!inside && !state.dead) for (var pci = 0; pci < npcs.length; pci++) {
     var pcn = npcs[pci];
     if (pcn.state === 'down' || pcn.state === 'ragdoll' || pcn.state === 'hidden') continue;
     var pcx = player.x - pcn.x, pcz = player.z - pcn.z, pc2 = pcx * pcx + pcz * pcz;
@@ -21384,7 +20203,7 @@ function updatePlayer(dt) {
     }
   }
   // cops are solid too — but they hold the line (player gives most of the ground)
-  if (!qLoc && !state.dead) for (var cci = 0; cci < cops.length; cci++) {
+  if (!state.dead) for (var cci = 0; cci < cops.length; cci++) {
     var ccc = cops[cci];
     if (ccc.state === 'down') continue;
     if (inside ? !ccc.interior : ccc.interior) continue;   // interior cops share x/z space at another floor
@@ -21395,7 +20214,7 @@ function updatePlayer(dt) {
       ccc.x -= ccx / ccd * ccp * 0.2; ccc.z -= ccz / ccd * ccp * 0.2;   // cops barely budge
     }
   }
-  if (!inside && !qLoc && !state.dead && isClient()) for (var cmi = 0; cmi < copsM.length; cmi++) {
+  if (!inside && !state.dead && isClient()) for (var cmi = 0; cmi < copsM.length; cmi++) {
     var cmc = copsM[cmi];
     if (cmc.down) continue;
     var cmx = player.x - cmc.x, cmz = player.z - cmc.z, cm2 = cmx * cmx + cmz * cmz;
@@ -21541,7 +20360,6 @@ function updatePlayer(dt) {
   // context prompt
   var prompt = document.getElementById('prompt');
   if (state.menu) { prompt.textContent = ''; }
-  else if (qLoc) { prompt.textContent = '[E] CLIMB OUT'; }
   else if (inside) {
     if (curInterior) { prompt.textContent = interiorPrompt(); }
     else {
@@ -21554,16 +20372,10 @@ function updatePlayer(dt) {
   } else {
     var ddx = player.x - dealerPos.x, ddz = player.z - dealerPos.z;
     var gdx = player.x - gasRob.x, gdz = player.z - gasRob.z;
-    var qgv2 = questGiverNear();
-    var qa2 = questActorNear();
-    var qh2 = nearestHatch();
     var idr2 = nearInteriorDoor();
     if (ddx * ddx + ddz * ddz < 36) prompt.textContent = '[E] BUY GUNS';
     else if (gdx * gdx + gdz * gdz < 40) prompt.textContent = (T < gasClosedUntil) ? 'STORE CLOSED' : '[E] ENTER GAS STATION';
     else if (idr2) prompt.textContent = '[E] ENTER ' + idr2.label;
-    else if (qgv2) prompt.textContent = '[E] TALK TO ' + qgv2.giver.name.toUpperCase();
-    else if (qa2) prompt.textContent = '[E] TALK TO ' + (qa2.name || 'THEM').toUpperCase();
-    else if (qh2 && questHatchUnlocked(qh2.id)) prompt.textContent = '[E] ENTER ' + (QPOI[qh2.id].name || 'HATCH').toUpperCase();
     else {
       var petc = breakIn ? null : (typeof nearestPetCat === 'function' ? nearestPetCat() : null);
       var spp = (breakIn || petc) ? null : (streetPropPrompt() || envPropPrompt() || bushPrompt());   // street + env + bush E-prompts
@@ -21857,25 +20669,6 @@ function drawHudCanvas() {
   var hy = H - M - 30;
   drawSprite(SPR_HEART, M, hy + 5, 2, '#ff3b56');
   drawPix('' + hp, M + 24, hy, 4, hcol, 'left');
-  // ---- active-quest tracker (left edge, BELOW the top bar: the compass strip
-  // sits topmost, wanted stars under it, and the tracker clears both — its old
-  // M+10 anchor put the panel across the compass' left half and the star row
-  // on long objective lines, report mrg4brvw) ----
-  var qo = questObjectiveText();
-  if (qo) {
-    var qy = starY + 34;   // stars end at starY+18; 8px gap above the panel plate
-    var qtx = qo.text.length > 30 ? qo.text.slice(0, 29) + '\u2026' : qo.text;   // cap plate width (mrgb92wa)
-    var otxt = (qo.text === 'COMPLETE') ? '✔ COMPLETE' : ('◆ ' + qtx);
-    hudCx.font = 'bold 11px "Courier New",monospace';
-    var qtw = hudCx.measureText(otxt).width;
-    var qnw = qo.name.length * 12 - 2;                    // drawPix px=2 advance
-    var qpw = Math.min(200, Math.max(qnw, qtw) + 20);
-    hudCx.fillStyle = '#000'; hudCx.fillRect(M - 8, qy - 8, qpw + 4, 38);
-    hudCx.fillStyle = 'rgba(10,13,20,0.78)'; hudCx.fillRect(M - 6, qy - 6, qpw, 34);
-    hudCx.fillStyle = '#ffb428'; hudCx.fillRect(M - 6, qy - 6, 3, 34);   // amber accent bar
-    drawPix(qo.name, M + 4, qy - 1, 2, '#ffd98a', 'left');
-    hudText(otxt, M + 4, qy + 22, 11, (qo.text === 'COMPLETE') ? '#8ee87f' : '#cfe6ff', 'left');
-  }
   // ---- weapon (bottom-right): bitmap name, small flavor line under it ----
   var wb = document.getElementById('weaponBox'), main = '', sub = '';
   if (wb) {
@@ -21949,14 +20742,12 @@ function drawHudCanvas() {
     // on foot: weapon quick-bar occupies the same bottom-center strip as the speedo
     drawQuickBar(W, H);
   }
-  // ---- FPS / perf readout (QoL, settings.fps): left edge, clear of the quest
-  // tracker (top) and health (bottom). renderer.info reflects last frame. ----
+  // ---- FPS / perf readout (QoL, settings.fps): left edge, clear of the
+  // minimap (top) and health (bottom). renderer.info reflects last frame. ----
   if (settings && settings.fps) {
     var fv = Math.round(fpsVal);
     var fcol = fv >= 50 ? '#8ee87f' : (fv >= 30 ? '#ffd200' : '#ff5a3a');
-    // below the minimap line AND below the quest tracker (which now hangs
-    // under the top bar on the same left edge — mrg4brvw layout pass)
-    var fy = Math.max(hudMmB + 6, qo ? qy + 52 : 0);
+    var fy = hudMmB + 6;
     hudText('FPS ' + (fv || '--'), M, fy, 13, fcol, 'left');
     var ri = (renderer && renderer.info && renderer.info.render) ? renderer.info.render : null;
     if (ri) {
@@ -22044,9 +20835,8 @@ function loop(now) {
   // flies a free camera for screenshots — no T advance, no update calls.
   if (photoMode) { updatePhotoCam(dt); renderer.render(scene, camera); return; }
   T += dt;
-  updateReflex(dt);                       // 8-Bit Reflexes: sets the slow-mo factor
-  var sdt = dt * reflexScale();           // world sim dt (bullet-time scales it)
-  updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateWildlife(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); updateQuestCaps(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
+  var sdt = dt;
+  updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateWildlife(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
   renderer.render(scene, camera);
 }
 setEquipped('fists');
@@ -22376,35 +21166,8 @@ window.__wc = {
   settingsView: function () { return { lookSens: lookSens, lookInvert: lookInvert, baseFov: baseFov, camFov: camera.fov, viewDistScale: viewDistScale, crt: CRT_FX, crtHidden: (document.getElementById('crtFx') || {}).className, settingsOpen: settingsOpen }; },
   getPlayerChar: function () { return playerChar; },
   setPlayerChar: function (c) { playerChar = c; },
-  // --- quest system debug hooks ---
-  QUESTS: QUESTS, questLog: function () { return state.questLog; },
-  startQuest: startQuest, setActiveQuest: setActiveQuest, advanceBeat: advanceBeat, completeBeat: completeBeat,
-  finishQuest: finishQuest, grantReward: grantReward, hasUnlock: hasUnlock,
-  questState: function () { var q = activeQuestEntry(); return { active: state.activeQuest, stage: q ? q.stage : -1, beat: q ? questBeat(q) : null, obj: questObjectiveText(), waypoint: questWaypoint(), log: state.questLog, unlocks: state.unlocks }; },
-  questWaypoint: questWaypoint, questObjectiveText: questObjectiveText, questBeatDone: function () { var q = activeQuestEntry(); return q ? questBeatDone(q, questBeat(q)) : false; },
-  questTalk: questTalk, questInteract: questInteract, questKillTag: questKillTag, questFollowArrive: questFollowArrive, questTimedSub: questTimedSub,
-  registerQuestPOI: registerQuestPOI, questPOIById: questPOIById, registerAmbush: registerAmbush, triggerAmbush: triggerAmbush,
-  enterPOI: enterPOI, exitPOI: exitPOI, questLoc: function () { return qLoc; },
-  qProp: qProp, placeQuestSurfaceProps: placeQuestSurfaceProps, buildRoom: buildRoom,
-  // #78 reward capabilities
-  giveUnlock: giveUnlock,
-  toggleLoupe: toggleLoupe, loupeState: function () { return { on: loupeOn, tinted: _loupeTinted.length, clues: qClueMeshes.length }; },
-  toggleLantern: toggleLantern, lanternState: function () { return { on: lanternOn, intensity: lanternLight ? Math.round(lanternLight.intensity * 100) / 100 : 0 }; },
-  setBulletTime: setBulletTime, reflexState: function () { return { active: reflex.active, meter: Math.round(reflex.meter * 100) / 100, cd: Math.round(reflex.cd * 100) / 100, scale: reflexScale() }; },
-  summonBiscuit: summonBiscuit, dismissBiscuit: dismissBiscuit, toggleBiscuit: toggleBiscuit,
-  biscuitState: function () { return biscuit ? { x: Math.round(biscuit.x * 10) / 10, z: Math.round(biscuit.z * 10) / 10, dist: Math.round(Math.sqrt((biscuit.x - player.x) * (biscuit.x - player.x) + (biscuit.z - player.z) * (biscuit.z - player.z)) * 10) / 10 } : null; },
-  ghostActive: ghostActive, ghostBuy: ghostBuy, ghostSell: ghostSell,
-  qActorsRef: function () { return qActors; }, updateQActors: updateQActors,
-  chooseEnding: chooseEnding, applyEnding: applyEnding, q10ChoiceActive: q10ChoiceActive,
-  endingState: function () { return { ending: state.unlocks.ending || null, leniency: !!state.unlocks.perk_leniency, scorched: !!state.unlocks.perk_scorched, signet: !!state.unlocks.perk_signet, maxWanted: maxWanted() }; },
   ownWeapon: function (k) { if (WEAPONS[k]) { state.owned[k] = true; return true; } return false; },
-  setAdsDown: function (v) { adsDown = !!v; },
-  questGiverNear: questGiverNear, questGiverTalk: questGiverTalk, refreshQuestPanel: refreshQuestPanel,
-  openQuestLog: function () { openMenu('quest'); }, saveQuests: saveQuests, loadQuests: loadQuests,
-  // --- #77 quest-asset wiring test hooks ---
-  buildQuestChar: buildQuestChar, playQuestVoice: playQuestVoice, getEnvProp: getEnvProp,
-  questRegisterItems: questRegisterItems, itemDef: itemDef, itemTex: itemTex, bagAdd: bagAdd, bagCount: bagCount,
-  questAssets: function () { return { chars: Object.keys(QUEST_IDX), reskins: Object.keys(QUEST_RESKIN_IDX), props: (typeof QUEST_PROPS !== 'undefined') ? QUEST_PROPS.map(function (p) { return p.n; }) : [], items: (typeof QUEST_ITEM_DEFS !== 'undefined') ? QUEST_ITEM_DEFS.length : 0, voices: (typeof QUEST_VOICES !== 'undefined') ? Object.keys(QUEST_VOICES).length : 0 }; },
+  getEnvProp: getEnvProp, itemDef: itemDef, itemTex: itemTex, bagAdd: bagAdd, bagCount: bagCount,
   wildlife: wildlife, wildlifeCounts: wildlifeCounts, updateWildlife: updateWildlife, initWildlife: initWildlife, nearestPetCat: nearestPetCat, petCat: petCat,
   // --- flyable plane (Learjet) — local/singleplayer test hooks ---
   spawnPlane: function () { return spawnPlane(); },
@@ -22432,7 +21195,7 @@ window.__wc = {
   // lightweight physics step (no render, no NPC/cop/car sim) — fast headless
   // stepping for plane/fall tests. Renders only when you call renderer yourself.
   stepLite: function (dt) { T += dt; updatePlayer(dt); updatePlaneWorld(dt); },
-  tick: function (dt) { T += dt; updateReflex(dt); var sdt = dt * reflexScale(); updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateWildlife(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); updateQuestCaps(dt); updateSecrets(sdt); renderer.render(scene, camera); }
+  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateWildlife(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
 };
 
 // ---------------- boot screen handoff + menu cover art ----------------

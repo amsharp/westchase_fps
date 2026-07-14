@@ -45,12 +45,12 @@ hijacked again for 15 seconds, so make your getaway count.
 
 **Keep your progress.** Type a **PIN (4-8 digits)** under your name before
 pressing PLAY ONLINE and your progress — cash, guns, snacks, your item bag,
-your look, and your quest log — is saved to the server under that name+PIN
+and your look — is saved to the server under that name+PIN
 and comes back on any browser or device. First sign-in creates the account;
 leave the PIN blank to play as a guest — but even guests keep their progress
 **locally on this browser** now (cash, guns, snacks/sodas, and item bag are
 mirrored to local storage and restored on your next visit, so offline
-singleplayer no longer resets every reload; your look, settings, and quests
+singleplayer no longer resets every reload; your look and settings
 already persisted). A PIN is what makes that progress follow you to *other*
 devices. Progress autosaves every few seconds while you play. Add an
 **email** and you can recover a
@@ -289,99 +289,6 @@ donation.
 Grab a wad of loose cash and a green **"+$" floats up from the spot** it
 was lying and fades — a little hit of feedback anchored to the world, not
 just a number ticking up in the corner.
-
-## Quests & the quest log
-
-Westchase has **stories to work through**. Quest-givers stand around town
-under a soft **amber beacon** — walk up and press **E** to hear them out and
-take the job. You can only actively track **one quest at a time**.
-
-Open the **quest log with J**. On the left is every quest you've found
-(available, in-progress, or completed); click one to read its summary and
-its **objective checklist** on the right. Hit **SET ACTIVE** to track a
-quest — its current objective then shows in the **top-left HUD tracker**, and
-an **amber diamond marks the next waypoint on your minimap** (with an arrow
-pointing the way if it's far off).
-
-Objectives come in a few flavors — **talk** to someone, **reach** a spot,
-**find** an item, **search/interact** with a place, take out a **target**,
-**escort** someone, or beat a **timer**. Some quests send you into hidden
-places the town keeps quiet — a cellar hatch behind the Dunkin, a manhole in
-the road, a hollow oak, a storm drain, the top floor of the red house, and
-somewhere under the lake. Press **E** at a hatch to drop in, **E** again to
-climb out. Finish a quest and you keep the **reward**: a new item in your bag
-and/or a lasting **capability**. Your progress is saved between sessions.
-
-### The Countryway Pact — 10 quests
-
-An old rumor at the Dunkin says people who get rich start seeing lights over
-the lake. They're right. Ten linked quests slowly uncover why — the secret
-HOA board that's run Westchase for two generations, and the thing they feed
-beneath the fountain. Each drops one tile of the story and grants a tool:
-
-1. **A Night to Dismember** *(Vivian, lakeside townhouse)* — a murder-mystery
-   dinner turns real. Name the killer. → **Detective's Loupe**.
-2. **Someone's Watching** *(Wendell, townhouse row)* — tail the "watchers,"
-   stake out the lake at night. He's not as crazy as he sounds. → **Police
-   Scanner** (rings the nearest patrol on your minimap while wanted).
-3. **Where the Red House Weeps** *(Agatha, the red house at night)* — climb
-   the 5-story house to the sealed Board Room. → **Spirit Lantern**.
-4. **The Countryway Job** *(Sal, Starbucks — needs a gun)* — a four-phase bank
-   heist on Regions. → **Lockpick Set** (skip car break-in timers) + the
-   **Etched Lake Key**.
-5. **Roadside Assistance** *(the worried spouse, RaceTrac)* — bust the Siren's
-   roadside-lure crew from their manhole stash. → **Bait Car keys** (instant
-   hotwire).
-6. **Insert Coin to Continue** *(Xander, the arcade)* — dive into a cursed
-   cartridge to pull Derik out of an 8-bit glitch world. → **Neon Blaster**.
-7. **Leg Day** *(Vlad, lakeside)* — absurd fitness dares that lead to the
-   Gains Cave, a Pact tunnel node. → **Sprint Shoes** (faster run + double
-   jump) + the **Tunnel Map Fragment**.
-8. **The Cleaners** *(the Concierge)* — recruited into the Pact's enforcers;
-   three contracts, then a choice. → **Silenced Pistol + "Ghost."**
-9. **Where's Biscuit?** *(Dylan, Publix lot)* — find a lost dog down at the
-   storm drain, where he's dug up something not from here. No combat, all
-   heart. → **Dog Whistle** + the **Alien Keycard**.
-10. **What Lies Beneath** *(the finale)* — with the Etched Lake Key, Tunnel
-    Fragment, and Alien Keycard — and having met the Concierge — descend under
-    the lake, face the board and the thing, and decide what Westchase becomes.
-
-Quests 1, 2, 5, 7 and 9 open early with no prerequisites; the finale only
-unlocks once you're holding all three keys.
-
-### Earned capabilities — how to use them
-
-Each reward is a real, usable power once you finish its quest:
-
-- **Detective's Loupe** (Q1) — press **L** to toggle. Nearby quest clues and
-  interactable props glow amber, and rigged/false-bottom containers get a trap
-  warning before you open them.
-- **Police Scanner** (Q2) — passive: rings the nearest patrol on your minimap
-  whenever you're wanted.
-- **Spirit Lantern** (Q3) — press **G** to toggle a green dark-vision light that
-  follows you, lights the sealed rooms, and pushes scripted apparitions back.
-- **Lockpick Set** (Q4) / **Bait Car + Slim Jim** (Q5) — silent openings and
-  instant hotwiring; no jimmy timer on locked cars.
-- **Neon Blaster + 8-Bit Reflexes** (Q6) — a ray-tech blaster in your inventory
-  (**Tab** to equip); **hold right-mouse to aim** and time slows on a drainable
-  meter (recharges when you let go).
-- **Sprint Shoes** (Q7) — faster run + a double jump.
-- **Silenced Pistol + "Ghost"** (Q8) — a suppressed pistol (**Tab** to equip);
-  clean kills with it **don't raise your wanted level**, and the dealer gives you
-  a Cleaners fence discount (buy −10%, sell +15%).
-- **Dog Whistle → Biscuit** (Q9) — press **B** to whistle Biscuit to your side;
-  he heels, catches up when you run, and noses dropped cash toward you. Press
-  **B** again to send him home. He can't be harmed.
-
-**The finale, three ways.** At the end of *What Lies Beneath* you choose an
-ending — press **[1] EXPOSE**, **[2] BURN**, or **[3] INHERIT**:
-
-- **Expose (The Whistleblower)** — the Pact ends honestly; cops run a star
-  cooler town-wide.
-- **Burn (Scorched Earth)** — you blow the facility; you keep the Rocket
-  Launcher and the town runs wilder.
-- **Inherit (The Board Signet)** — you take the chair: cops ignore minor crimes,
-  the dealer's whole stock is yours, and every secret door stays open.
 
 ## Items & your bag
 
@@ -752,11 +659,7 @@ the same quiet noise bed as before, and the SFX volume slider controls it.
 - **Tab** — inventory: equip/unequip weapons + your 6×4 item grid (click an
   item to use it, right-click or **Q** to drop one)
 - **K** — spawn the **Learjet** in front of you and hop in as pilot (see
-  **Flying**). *(This test build binds the plane to J; the quest log button on
-  the pause/menu still opens the journal.)*
-- **L / G / B** — toggle earned quest gear (Detective's Loupe / Spirit Lantern /
-  whistle Biscuit), once you've unlocked them
-- **1 / 2 / 3** — pick your ending at the Q10 finale (Expose / Burn / Inherit)
+  **Flying**)
 - **Enter** — open text chat (multiplayer), **Esc** to cancel
 - **Hold V** — push-to-talk voice chat (multiplayer)
 - **F8** — report a bug (grabs a screenshot + your note, sent for triage —
@@ -775,7 +678,7 @@ Publix, **DD** Dunkin, **SB** Starbucks, **BK** banks, **RX** pharmacy, **SU**
 sushi, **SCH** the school, **DT** Dollar Tree — plus the **LAKE** and a crosshair
 on the main intersection. Live blips overlay the map: cars (amber), pedestrians
 (white), cops (blue), other players (green), cash (green), dropped weapons
-(magenta), and your active quest waypoint (blinking amber). Zoom with **`[` / `]`**
+(magenta), and your personal waypoint (blinking cyan). Zoom with **`[` / `]`**
 (or Ctrl+scroll): the WIDE level shows the whole town, and NORMAL / CLOSE scale in
 and follow you for detail work.
 
