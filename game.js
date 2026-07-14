@@ -16205,7 +16205,7 @@ function vmArm(x, y, z, yawR) {
   var sleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.044, 0.042, 0.07, 8).rotateX(Math.PI / 2), sleeveM); sleeve.position.set(0, 0, 0.05);
   var hand = sph(0.052, skinM, 0, 0, -0.2, 8, 7); hand.scale.set(0.85, 0.75, 1.1);
   var thumb = sph(0.02, skinM, -0.035, 0.02, -0.21, 6, 5);
-  g.add(fore, sleeve, hand, thumb); g.position.set(x, y, z); g.rotation.y = yawR || 0; return g;
+  g.add(fore, sleeve, hand, thumb); g.position.set(x, y, z); g.rotation.y = yawR || 0; g.userData.vmArm = 1; return g;
 }
 var vmFists = new THREE.Group();
 var armLf = vmArm(-0.24, -0.44, -0.5, -0.18);
@@ -16218,7 +16218,11 @@ var psxArms = null;
 // arms also hold the Meshy gun viewmodels: the root reparents into the
 // equipped gun group (so draw/reload anims carry the hands along) and is
 // posed each frame on a static frame of the 'grab' clip
-var GUNHOLD_GROUPS = { pistol: 1, smg: 1, rifle: 1, auto: 1, rocket: 1, silenced: 1 };   // #78: silenced reuses the pistol two-hand hold
+// v: guns now show ONLY the weapon mesh — NO first-person arms/hands. Emptying
+// this map stops the skinned PSX arms from being reparented onto (or posed on)
+// any gun group; the capsule vmArm fallbacks are hidden in the gun groups too
+// (see the arm-hide pass after vmMap is built). Fists/melee keep their arms.
+var GUNHOLD_GROUPS = {};
 var gunHold = { clip: 'relax', t: 0.75 };   // relax mid-frame: right palm sits on the grips
 // The shared relax/grab clip leaves the LEFT (support) arm hanging at the side,
 // which reads as a detached floating hand for every gun. After posing, we swing
@@ -16587,11 +16591,13 @@ var vmPistol = new THREE.Group();
 var vmSmg = new THREE.Group();
 (function () {
   if (hasMeshyGun('tec9')) {
-    // v1.66.87: real-FPS diagonal composition (see AK), compact for the SMG.
+    // v: no-arms build — barrel points straight down-range (-z). Muzzle is
+    // authored along local -x, so yaw -PI/2 aims it forward; +cant toes it in
+    // toward center, small +x tilt levels the baked droop. Framed lower-right.
     var mg = getGunMesh('tec9', 0.72);
-    mg.position.set(0.324, -0.18, -0.495);
+    mg.position.set(0.24, -0.30, -0.52);
     mg.rotation.order = 'YXZ';
-    mg.rotation.set(-0.266, -0.871, -0.316);
+    mg.rotation.set(0.03, -Math.PI / 2 + 0.12, 0);
     vmSmg.add(mg);
     var sAr = vmArm(0.33, -0.48, -0.3, 0.18); sAr.userData.gunArm = 1; vmSmg.add(sAr);
     var sAr2 = vmArm(0.25, -0.42, -0.7, -0.3); sAr2.userData.gunArm = 1; vmSmg.add(sAr2);
@@ -16632,12 +16638,12 @@ var vmSmg = new THREE.Group();
 var vmRifle = new THREE.Group();
 (function () {
   if (hasMeshyGun('kar98k')) {
-    // v1.66.87: real-FPS diagonal composition (see AK) — stock off bottom-right,
-    // barrel diagonal up-left toward the crosshair, flat side 3/4 to camera.
+    // v: no-arms build — barrel points straight down-range (-z). yaw -PI/2 aims
+    // the -x muzzle forward; small +cant toes it toward center. Framed lower-right.
     var mg = getGunMesh('kar98k', 1.15);
-    mg.position.set(0.301, -0.233, -0.505);
+    mg.position.set(0.22, -0.30, -0.62);
     mg.rotation.order = 'YXZ';
-    mg.rotation.set(-0.258, -0.822, -0.32);
+    mg.rotation.set(0.02, -Math.PI / 2 + 0.10, 0);
     vmRifle.add(mg);
     var rAr1 = vmArm(0.34, -0.5, -0.29, 0.18); rAr1.userData.gunArm = 1; vmRifle.add(rAr1);
     var rAr2 = vmArm(0.08, -0.4, -0.78, -0.32); rAr2.userData.gunArm = 1; vmRifle.add(rAr2);
@@ -16659,15 +16665,12 @@ var vmRifle = new THREE.Group();
 var vmAuto = new THREE.Group();
 (function () {
   if (hasMeshyGun('ak47')) {
-    // v1.66.87: real-FPS composition — the rifle enters from the bottom-right
-    // (stock off-screen at the shoulder), receiver filling the lower-right, the
-    // barrel running DIAGONALLY up-and-left toward the crosshair. mg.quaternion
-    // maps the model -x (muzzle) axis onto that diagonal; position anchors the
-    // pistol grip at the bottom-right. GRIP_TGT/RIGHT_GRIP re-derived below.
+    // v: no-arms build — barrel points straight down-range (-z). yaw -PI/2 aims
+    // the -x muzzle forward; small +cant toes it toward center. Framed lower-right.
     var mg = getGunMesh('ak47', 1.12);
-    mg.position.set(0.313, -0.218, -0.458);
+    mg.position.set(0.22, -0.30, -0.60);
     mg.rotation.order = 'YXZ';
-    mg.rotation.set(-0.258, -0.822, -0.32);   // YXZ euler: barrel diagonal up-left, flat receiver 3/4 to camera
+    mg.rotation.set(0.02, -Math.PI / 2 + 0.10, 0);
     vmAuto.add(mg);
     var aAr1 = vmArm(0.31, -0.47, -0.33, 0.18); aAr1.userData.gunArm = 1; vmAuto.add(aAr1);
     var aAr2 = vmArm(0.15, -0.42, -0.78, -0.3); aAr2.userData.gunArm = 1; vmAuto.add(aAr2);
@@ -16698,14 +16701,14 @@ var rpgWarhead = null;   // the Meshy launcher's own warhead mesh (hidden while 
 (function () {
   var headCant = 0;
   if (hasMeshyGun('rpg7')) {
-    // v1.66.87: real-FPS diagonal composition (see AK) — tube over the shoulder,
-    // warhead up-left. rocketFwd/seat derive from the actual muzzle so the reload
-    // slide still tracks the tube after the re-cant.
+    // v: no-arms build — tube points straight down-range (-z). yaw -PI/2 aims the
+    // -x muzzle forward; small +cant toes it toward center. rocketFwd/seat derive
+    // from the actual muzzle so the reload slide still tracks the tube.
     var mg = getGunMesh('rpg7', 1.05);
     mg.traverse(function (o) { if (o.userData && o.userData.warhead) rpgWarhead = o; });
-    mg.position.set(0.342, -0.197, -0.42);
+    mg.position.set(0.24, -0.28, -0.58);
     mg.rotation.order = 'YXZ';
-    mg.rotation.set(-0.217, -0.956, -0.228);
+    mg.rotation.set(0.03, -Math.PI / 2 + 0.10, 0);
     vmRocket.add(mg);
     var kAr1 = vmArm(0.34, -0.46, -0.3, 0.18); kAr1.userData.gunArm = 1; vmRocket.add(kAr1);
     var kAr2 = vmArm(0.15, -0.44, -0.62, -0.3); kAr2.userData.gunArm = 1; vmRocket.add(kAr2);
@@ -16817,16 +16820,24 @@ vmMap.neon_blaster = vmNeon;
 var vmSilenced = vmPistol.clone(true);
 (function () { var supp = cyl(0.032, 0.032, 0.30, 10, darkMetalM, 0.26, -0.265, -1.02); supp.rotation.x = Math.PI / 2; vmSilenced.add(supp); })();
 vmMap.silenced = vmSilenced;
+// v: guns show ONLY the weapon mesh. Hide every capsule vmArm inside the gun
+// groups (both the meshy-path gunArm arms and the procedural-fallback arms).
+// The skinned PSX arms are no longer parented here (GUNHOLD_GROUPS is empty), so
+// this leaves each gun bare. Fists/snack/soda are item-in-hand and keep arms.
+['pistol', 'smg', 'rifle', 'auto', 'rocket', 'raygun', 'neon_blaster', 'silenced'].forEach(function (k) {
+  var g = vmMap[k]; if (!g) return;
+  g.traverse(function (o) { if (o.userData && o.userData.vmArm) o.visible = false; });
+});
 Object.keys(vmMap).forEach(function (k) { vm.add(vmMap[k]); vmMap[k].visible = false; });
 // v1.66.73: FP framing lift. The gun + skinned hands used to ride at the very
 // bottom of the frame (grip cut off at a level look). The equipped group's
 // position is rebased to this per-weapon lift each frame (see the draw block),
 // which moves gun AND arms together so the grip relationship is preserved.
-var VM_LIFT = { pistol: 0.24, smg: -0.20, rifle: -0.22, auto: -0.22, rocket: -0.12, silenced: 0.24 };   // auto/smg/rifle/rocket dropped so the weapon sits in the lower-right instead of crossing the frame (rifle hip view; vm hidden while scoped)
-// v1.66.97: per-weapon lateral shift of the whole equipped group (gun AND arms
-// together, so the grip is preserved) — nudges the AK from center toward the
-// SPEC lower-RIGHT anchor (muzzle target x=55; it was reading ~52 = "central").
-var VM_SHIFT = { auto: 0.055, smg: 0.06, rifle: 0.06, rocket: 0.05 };
+// v: no-arms build. The long guns' lower-right framing is now baked into each
+// gun mesh's own position (forward-pointing rotation), so their per-frame group
+// lift/shift is neutral. Pistol/silenced keep their lift (unchanged one-handed).
+var VM_LIFT = { pistol: 0.24, smg: 0, rifle: 0, auto: 0, rocket: 0, silenced: 0.24 };
+var VM_SHIFT = {};
 vmFists.visible = true;
 var zoomed = false;
 function setZoom(on) {
