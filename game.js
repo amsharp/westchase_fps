@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.71.1';
+var GAME_VERSION = 'v1.71.2';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -7470,11 +7470,10 @@ function refreshClerk() {
     var b = document.createElement('button'); b.textContent = label; b.disabled = !!disabled; b.onclick = fn;
     row.appendChild(b); rows.appendChild(row);
   }
-  addBtn('Buy a hot burger — $20  (+30 hp; eat it from your TAB bag)', function () {
+  addBtn('Buy a snack — $20  (+50 hp; equip & eat from your TAB inventory)', function () {
     if (state.money < 20) { sfx('deny'); popup2("You can't afford it"); return; }
-    if (bagAdd('burger', 1) > 0) { sfx('deny'); popup2('Your bag is full'); return; }   // nothing fit — don't charge
-    state.money -= 20; playVoice('clerk_snack', 0.5, 10, { ref: clerk });
-    sfx('buy'); itemToast('burger'); popup('+1 Cheeseburger');
+    state.money -= 20; state.snacks++; playVoice('clerk_snack', 0.5, 10, { ref: clerk });
+    sfx('buy'); popup('+1 Snack');
     refreshClerk();
   });
   if (!robbedVisit && !copsCalledVisit) addBtn('Rob the register', function () {
@@ -7868,24 +7867,8 @@ function buildDunkin(spec) {
   placeStaffIn(spec, 'DUNKIN_ASH', cx - 4, 592.6, Math.PI);
   placeStaffIn(spec, 'DUNKIN_RAJ', cx + 4, 592.6, Math.PI);
 
-  // interact zones: order coffee / donut / chat (player stands at the case, z~597)
-  spec.zones.push({
-    x: cx - 5, z: 597.2, r2: 8, prompt: '[E] ORDER A COFFEE — $3',
-    fn: function () {
-      if (state.money < 3) { sfx('deny'); popup2("You can't afford it"); return; }
-      if (bagAdd('coffee', 1) > 0) { sfx('deny'); popup2('Your bag is full'); return; }
-      state.money -= 3; sfx('buy'); itemToast('coffee'); popup('+1 Coffee'); staffSay(['"America runs on Dunkin!"'], 'DUNKIN', 'order');
-    }
-  });
-  spec.zones.push({
-    x: cx + 5, z: 597.2, r2: 8, prompt: '[E] GRAB A DONUT — $2',
-    fn: function () {
-      if (state.money < 2) { sfx('deny'); popup2("You can't afford it"); return; }
-      if (bagAdd('donut', 1) > 0) { sfx('deny'); popup2('Your bag is full'); return; }
-      state.money -= 2; sfx('buy'); itemToast('donut'); popup('+1 Donut'); staffSay(['"Time to make the donuts."'], 'DUNKIN', 'quip');
-    }
-  });
-  spec.zones.push({ x: cx, z: 597.2, r2: 5, prompt: '[E] CHAT WITH BARISTA', fn: function () { staffSay(['"What can I get started for ya?"', '"The iced coffee is on point today."', '"Fresh pot brewing — two minutes!"'], 'DUNKIN', 'chatter'); } });
+  // menu (equippable food/drink) is coming later — for now the counter is chat-only
+  spec.zones.push({ x: cx, z: 597.2, r2: 8, prompt: '[E] CHAT WITH BARISTA', fn: function () { staffSay(['"What can I get started for ya?"', '"The iced coffee is on point today."', '"Fresh pot brewing — two minutes!"'], 'DUNKIN', 'chatter'); } });
 }
 
 // ---------------- STARBUCKS café (venue starbucks, across from Dunkin) --------
@@ -7969,23 +7952,8 @@ function buildStarbucks(spec) {
   placeStaffIn(spec, 'BARISTA_CHLOE', cx - 3, 592.6, Math.PI);
   placeStaffIn(spec, 'BARISTA_OMARI', cx + 3, 592.6, Math.PI);
 
-  spec.zones.push({
-    x: cx - 4, z: 597.2, r2: 8, prompt: '[E] ORDER A LATTE — $4',
-    fn: function () {
-      if (state.money < 4) { sfx('deny'); popup2("You can't afford it"); return; }
-      if (bagAdd('coffee', 1) > 0) { sfx('deny'); popup2('Your bag is full'); return; }
-      state.money -= 4; sfx('buy'); itemToast('coffee'); popup('+1 Latte'); staffSay(['"One caffe latte, coming up!"'], 'BARISTA', 'order');
-    }
-  });
-  spec.zones.push({
-    x: cx + 4, z: 597.2, r2: 8, prompt: '[E] BUY A CROISSANT — $3',
-    fn: function () {
-      if (state.money < 3) { sfx('deny'); popup2("You can't afford it"); return; }
-      if (bagAdd('sandwich', 1) > 0) { sfx('deny'); popup2('Your bag is full'); return; }
-      state.money -= 3; sfx('buy'); itemToast('sandwich'); popup('+1 Croissant'); staffSay(['"Warmed up for ya!"'], 'BARISTA', 'order');
-    }
-  });
-  spec.zones.push({ x: cx, z: 597.2, r2: 5, prompt: '[E] CHAT WITH BARISTA', fn: function () { staffSay(['"Can I get a name for the cup?"', '"Oat milk or two percent?"', '"That\'ll be right up at the hand-off."'], 'BARISTA', 'chatter'); } });
+  // menu (equippable food/drink) is coming later — for now the counter is chat-only
+  spec.zones.push({ x: cx, z: 597.2, r2: 8, prompt: '[E] CHAT WITH BARISTA', fn: function () { staffSay(['"Can I get a name for the cup?"', '"Oat milk or two percent?"', '"That\'ll be right up at the hand-off."'], 'BARISTA', 'chatter'); } });
 }
 
 // ---------------- SAKURA SUSHI (venue sushi, NE corner) -----------------------
@@ -8136,16 +8104,7 @@ function buildDollarTree(spec) {
 
   placeStaffIn(spec, 'DOLLAR_PAM', cx - 8, -592, Math.PI);
 
-  var CHEAP = ['chips', 'soda', 'rubberduck', 'actionfig', 'gnome', 'cassette', 'lighter', 'water'];
-  spec.zones.push({
-    x: cx - 8, z: -595, r2: 9, prompt: '[E] BUY A DEAL — $1.25',
-    fn: function () {
-      if (state.money < 2) { sfx('deny'); popup2("You can't afford it"); return; }
-      var id = CHEAP[(Math.random() * CHEAP.length) | 0];
-      if (bagAdd(id, 1) > 0) { sfx('deny'); popup2('Your bag is full'); return; }
-      state.money -= 2; sfx('buy'); itemToast(id); staffSay(['"Everything\'s a dollar twenty-five, hon."', '"Great find!"'], 'DOLLAR', 'joke');
-    }
-  });
+  // "$1 deal" purchase removed with the scavenge-item system — aisle browse stays as flavor
   spec.zones.push({ x: cx + 3, z: -603, r2: 9, prompt: '[E] BROWSE THE AISLE', fn: function () { staffSay(['"Party supplies are on aisle three."', '"We got balloons, candy, gift bags — all a buck twenty-five."', '"Seasonal is fully stocked!"'], 'DOLLAR', 'line'); } });
   spec.zones.push({ x: cx - 8, z: -594.5, r2: 4, prompt: '[E] CHAT WITH CASHIER', fn: function () { staffSay(['"Did you find everything okay?"', '"Need a bag for a nickel?"', '"Next in line!"'], 'CASHIER', 'smalltalk'); } });
 }
@@ -8654,7 +8613,7 @@ var SP_SNAP = { stopsign: 'light', yieldsign: 'light', speedsign: 'light', onewa
 // base/pole collider handed to registerBreakable (deactivates while toppled).
 // Cones / barricades / shopping carts stay pass-through — steppable clutter.
 var SP_BLOCKR = { hydrant: 0.24, parkingmeter: 0.15, payphone: 0.3, stopsign: 0.14, yieldsign: 0.14, speedsign: 0.14, onewaysign: 0.14, newsbox: 0.24, trashcan: 0.36, wheeliebin: 0.35 };
-var SP_INTERACT = { vendingmachine: 'vend', payphone: 'phone', atm: 'atm', newsbox: 'news', dumpster: 'dumpster', trashcan: 'kick', wheeliebin: 'kick', mailbox: 'mailbox', homemailbox: 'mailbox' };
+var SP_INTERACT = { payphone: 'phone', atm: 'atm', newsbox: 'news', trashcan: 'kick', wheeliebin: 'kick', mailbox: 'mailbox', homemailbox: 'mailbox' };   // vend(soda)/dumpster(dive) removed with the scavenge-item system
 // authored front is -x; face = direction the front should point in the world
 var SP_FACE = { W: 0, E: Math.PI, N: -Math.PI / 2, S: Math.PI / 2 };
 
@@ -10364,11 +10323,9 @@ function streetPropNear() {
 function streetPropPrompt() {
   var p = streetPropNear();
   if (!p) return '';
-  if (p.kind === 'vend') return '[E] SODA — $2';
   if (p.kind === 'phone') return T < p.cd ? '' : '[E] USE PAYPHONE';
   if (p.kind === 'atm') return '[E] USE ATM';
   if (p.kind === 'news') return T < p.cd ? '' : '[E] NEWSPAPER BOX';
-  if (p.kind === 'dumpster') return T < p.cd ? '' : '[E] DUMPSTER DIVE';
   if (p.kind === 'kick') return (p.bb && p.bb.broken) ? '' : '[E] KICK IT OVER';
   if (p.kind === 'mailbox') return T < p.cd ? '' : '[E] CHECK MAIL';
   return '';
@@ -10376,15 +10333,7 @@ function streetPropPrompt() {
 function streetPropInteract() {
   var p = streetPropNear();
   if (!p) return false;
-  if (p.kind === 'vend') {
-    if (state.money < 2) { sfx('deny'); popup2('Need $2'); return true; }
-    state.money -= 2;
-    sfx('buy');
-    beep(880, 0.05, 0.1, 'square'); setTimeout(function () { beep(660, 0.05, 0.1, 'square'); }, 90);
-    setTimeout(function () { noiseBurst(0.09, 500, 0.35); beep(120, 0.08, 0.25, 'square', 60); }, 420);   // can drops
-    (function (pp) { setTimeout(function () { spawnSodaDrop(pp.x + pp.fx * 0.9, pp.z + pp.fz * 0.9); }, 500); })(p);
-    popup('SODA dispensed');
-  } else if (p.kind === 'phone') {
+  if (p.kind === 'phone') {
     if (T < p.cd) return true;
     p.cd = T + 8;
     beep(350, 0.9, 0.06, 'sine'); beep(440, 0.9, 0.06, 'sine');   // dial tone
@@ -10416,12 +10365,7 @@ function streetPropInteract() {
     setTimeout(function () { noiseBurst(0.06, 900, 0.3); beep(320, 0.05, 0.1, 'square'); }, 100);
     var nr = Math.random();
     if (nr < 1 / 6) { spawnCash(p.x + p.fx * 0.7, p.z + p.fz * 0.7, 5); sfx('cash'); popup('Someone left change!'); }
-    else if (nr < 0.55) { giveItem('newspaper', 1, true); toast(itemIconHtml('newspaper') + ' You grab today\'s <b>paper</b>.', 2400); }
     else popup('Just old news.');
-  } else if (p.kind === 'dumpster') {
-    if (diveState) return true;
-    if (T < p.cd) { sfx('deny'); popup2('picked clean — try later'); return true; }
-    startDive(p);
   } else if (p.kind === 'kick') {
     if (p.bb && !p.bb.broken) { breakProp(p.bb, p.x - player.x, p.z - player.z); popup('you boot it over'); }   // spills 0-2 junk via onStreetPropBreak('trash')
     else { sfx('deny'); }
@@ -10449,9 +10393,6 @@ function onStreetPropBreak(b) {
   if (b.kind === 'meter') {
     spawnCashNet(b.x, b.z, 5 + ((Math.random() * 11) | 0));
     sfx('cash', { x: b.x, z: b.z, range: 50 });
-  } else if (b.kind === 'trash') {   // kicked/rammed bins spill 0-2 pieces of junk
-    var tn = (Math.random() * 3) | 0;
-    for (var ti = 0; ti < tn; ti++) { var tid = Math.random() < 0.85 ? pick(DIVE_JUNK) : pick(DIVE_FOOD); spawnItemDrop(tid, b.x + (Math.random() - 0.5) * 1.6, b.z + (Math.random() - 0.5) * 1.6, 120); }
   } else if (b.kind === 'hydrant') {
     var parts = [];
     var jm = new THREE.MeshBasicMaterial({ color: 0xcfeaff, transparent: true, opacity: 0.85 });
@@ -11194,8 +11135,8 @@ function envPropPrompt() {
   if (k === 'drink') return T < p.cd ? '' : '[E] DRINK';
   if (k === 'read') return '[E] READ SIGN';
   if (k === 'cook') return '[E] COOK';
-  if (k === 'vend') return p.name === 'gumball_machine' ? '[E] GUMBALL — $1' : '[E] SODA — $2';
-  if (k === 'buy') { var b = ENV_BUY[p.name]; return b ? '[E] BUY ' + b.item + ' — $' + b.price : '[E] BUY'; }
+  if (k === 'vend') return p.name === 'gumball_machine' ? '[E] GUMBALL — $1' : '';   // soda removed (food/drink coming later)
+  if (k === 'buy') return '';   // purchasable food removed (equippable food/drink coming later)
   if (k === 'play') return p.name === 'claw_machine' ? '[E] CLAW — $2' : (p.name === 'jukebox' || p.name === 'arcade_cabinet' || p.name === 'boombox' ? '[E] PLAY MUSIC' : '[E] PLAY');
   if (k === 'mailbox') return T < p.cd ? '' : '[E] CHECK MAIL';
   return '';
@@ -11233,22 +11174,9 @@ function envPropInteract() {
       state.hp = Math.min(100, state.hp + 2); popup('gumball!');
       return true;
     }
-    if (state.money < 2) { sfx('deny'); popup2('Need $2'); return true; }
-    state.money -= 2; sfx('buy'); beep(880, 0.05, 0.1, 'square');
-    (function (pp) { setTimeout(function () { spawnSodaDrop(pp.x + pp.fx * 0.9, pp.z + pp.fz * 0.9); }, 260); })(p);
-    popup('SODA dispensed');
-    return true;
+    sfx('deny'); popup2('OUT OF SERVICE'); return true;   // soda removed (food/drink coming later)
   }
-  if (k === 'buy') {
-    var b = ENV_BUY[p.name]; if (!b) return true;
-    var vv = p.name === 'lemonade_stand' ? 'LEMONADE' : (p.name === 'icecream_truck' ? 'ICECREAM' : null);
-    if (state.money < b.price) { sfx('deny'); popup2('Need $' + b.price); return true; }
-    state.money -= b.price; sfx('buy');
-    state.hp = Math.min(100, state.hp + b.heal);
-    toast('Bought a <b>' + b.item + '</b> — +' + b.heal + ' hp', 2600);
-    if (vv) { playVendVoice(vv, 'sale', 0.75, 0, { x: p.x, z: p.z }); setTimeout(function () { playVendVoice(vv, 'thanks', 0.7, 0, { x: p.x, z: p.z }); }, 1400); }
-    return true;
-  }
+  if (k === 'buy') { return true; }   // purchasable food removed (equippable food/drink coming later)
   if (k === 'play') {
     if (p.name === 'claw_machine') {
       if (T < p.cd) return true; p.cd = T + 0.4;
@@ -11256,9 +11184,7 @@ function envPropInteract() {
       state.money -= 2; beep(700, 0.06, 0.1, 'square'); noiseBurst(0.3, 400, 0.12);
       if (Math.random() < 0.28) {
         spawnEnvToy(p.x + p.fx * 0.7, 1.0, p.z + p.fz * 0.7, GUMBALL_COLS[(Math.random() * GUMBALL_COLS.length) | 0]);
-        var cid = pick(['rubberduck', 'actionfig', 'magic8', 'vhs', 'cassette', 'gnome']);   // real quirky bag prize
-        giveItem(cid, 1, true); sfx('cash');
-        toast(itemIconHtml(cid) + ' The claw actually grabs a <b>' + itemDef(cid).name + '</b>!', 3000);
+        sfx('cash'); popup('The claw grabs a toy!');
       }
       else popup2('so close…');
       return true;
@@ -13771,6 +13697,9 @@ function itemDropGroup(id) {
   return g;
 }
 function spawnItemDrop(id, x, z, life) {
+  return null;   // scavenge items removed — no collectible world pickups
+}
+function _spawnItemDrop_removed(id, x, z, life) {
   if (!itemDef(id)) return null;
   var g = itemDropGroup(id);
   g.position.set(x, 0.8, z);
@@ -13808,6 +13737,7 @@ function randomCommonItem() { var t = npcDropTable(); return t.length ? t[(Math.
 // NPC knockout item drop (LOCAL-ONLY, alongside cash — not net-synced).
 // Only the peer whose sim ran the kill spawns it; the headless world-bot skips it.
 function maybeNpcItemDrop(x, z) {
+  return;   // scavenge items removed — NPCs no longer drop collectible items (money still drops)
   if (typeof WC_BOT !== 'undefined' && WC_BOT) return;
   if (Math.random() < 0.28) {
     var id = randomCommonItem();
@@ -13818,6 +13748,7 @@ function maybeNpcItemDrop(x, z) {
 // dumpsters at startup; persistent (long life) until collected. Local-only.
 var littered = false;
 function seedLitter() {
+  return;   // scavenge items removed — no ground litter is seeded
   if (littered || !ITEM_BANK_OK) return;
   if (typeof WC_BOT !== 'undefined' && WC_BOT) return;
   littered = true;
@@ -13844,6 +13775,9 @@ function pick(a) { return a[(Math.random() * a.length) | 0]; }
 // bag the item; if the bag is full the overflow drops as world pickups at
 // the player's feet (so a full bag never silently eats a jackpot).
 function giveItem(id, n, silent) {
+  return 0;   // scavenge items removed — dumpster/mailbox/bush rummage grants nothing
+}
+function _giveItem_removed(id, n, silent) {
   n = n || 1;
   if (!itemDef(id)) return 0;
   var left = bagAdd(id, n), got = n - left;
@@ -13905,19 +13839,8 @@ function checkMail(p) {
   p.cd = T + 40;
   noiseBurst(0.06, 1000, 0.3); beep(300, 0.05, 0.09, 'square', 220);
   var r = Math.random();
-  if (r < 0.02) {
-    var id = randomCommonItem() || 'wallet';
-    giveItem(id, 1, true);
-    toast(itemIconHtml(id) + ' A mis-delivered <b>package</b>… finders keepers? (you feel a little guilty)', 3200);
-    for (var i = 0; i < cops.length; i++) {
-      var c = cops[i]; if (c.state === 'down') continue;
-      var dx = c.x - p.x, dz = c.z - p.z; if (dx * dx + dz * dz > 1600) continue;
-      if (copHasLOS({ x: c.x, z: c.z }, { x: p.x, z: p.z, y: 1.2 })) { if (state.wanted < 1) setWanted(1); popup2('a cop saw that!'); break; }
-    }
-  } else if (r < 0.17) {
-    giveItem('newspaper', 1, true);
-    toast(itemIconHtml('newspaper') + ' Just <b>junk mail</b> and flyers.', 2400);
-  } else popup('Bills, bills, bills…');
+  if (r < 0.12) { spawnCash(p.x + p.fx * 0.6, p.z + p.fz * 0.6, 3); sfx('cash'); popup('A birthday card — with cash inside!'); }
+  else popup('Bills, bills, bills…');
 }
 // ---- bush / hedge rummage (registered as bush() props are built) ----
 // bushSpots is declared up by the bush() builder (load-order). E to rummage:
@@ -13934,8 +13857,7 @@ function bushRummage() {
   b.cd = T + 25;
   noiseBurst(0.18, 700, 0.14); for (var i = 0; i < 5; i++) puff(new THREE.Vector3(b.x + (Math.random() - 0.5) * 1.1, 0.6 + Math.random() * 0.9, b.z + (Math.random() - 0.5) * 1.1), pick([0x3f6f2e, 0x4a7d34, 0x355f28]));
   var r = Math.random();
-  if (r < 0.10) { var id = Math.random() < 0.5 ? randomCommonItem() : pick(DIVE_QUIRK); if (id) { giveItem(id, 1, true); toast(itemIconHtml(id) + ' Lost in the hedge: a <b>' + itemDef(id).name + '</b>!', 2800); } }
-  else if (r < 0.30) { spawnCritter(b.x, b.z, 'bird', { x: player.x, z: player.z }); beep(2100, 0.04, 0.12, 'square', 2600); setTimeout(function () { beep(1800, 0.04, 0.1, 'square', 2400); }, 70); popup('a bird bursts out!'); }
+  if (r < 0.30) { spawnCritter(b.x, b.z, 'bird', { x: player.x, z: player.z }); beep(2100, 0.04, 0.12, 'square', 2600); setTimeout(function () { beep(1800, 0.04, 0.1, 'square', 2400); }, 70); popup('a bird bursts out!'); }
   else popup('just leaves…');
   return true;
 }
@@ -17703,7 +17625,7 @@ function refreshShop() {
     else { var btn = document.createElement('button'); btn.textContent = 'BUY'; btn.disabled = state.money < price; btn.onclick = function () { if (state.dead) return; if (state.money < price) { playVoiceAny(['dealer_nocash_1', 'dealer_nocash_2'], 0.5, 'dealerNo', 5, { ref: dealer }); sfx('deny'); return; } state.money -= price; state.owned[k] = true; shopBought = true; playVoiceAny(['dealer_buy_1', 'dealer_buy_2'], 0.5, 'dealerBuy', 4, { ref: dealer }); sfx('buy'); popup(w.name + ' purchased!'); refreshShop(); }; row.appendChild(btn); }
     rows.appendChild(row);
   });
-  refreshSellRows(rows);
+  // sell-junk-to-dealer feature removed with the scavenge-item system
   document.getElementById('shopCash').textContent = '$' + state.money;
 }
 // dealer buys junk & valuables out of your bag for the def's value
