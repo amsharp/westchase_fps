@@ -49,15 +49,20 @@
   #netErr { margin-top:14px; color:#e5533d; font-size:14px; }
   #gameVer { position:absolute; left:18px; bottom:14px; color:#8a8470; font-size:15px; letter-spacing:2px; text-shadow:2px 2px 0 #000; }
 
-  #pauseScreen, #deadScreen { background:rgba(6,10,18,0.78); color:#fff; text-align:center; cursor:pointer; }
+  #pauseScreen { background:rgba(6,10,18,0.78); color:#fff; text-align:center; cursor:pointer; }
   #pauseScreen h1 { font-size:56px; letter-spacing:12px; text-shadow:4px 4px 0 #000, 8px 8px 0 rgba(0,0,0,.4); }
   #pauseScreen p { margin-top:14px; font-size:20px; letter-spacing:2px; text-shadow:2px 2px 0 #000; }
-  #deadScreen h1 { font-size:70px; letter-spacing:14px; color:#e5533d; text-shadow:4px 4px 0 #400, 8px 8px 0 rgba(0,0,0,.5); }
-  #deadScreen p { margin-top:18px; color:#d8ccb0; font-size:22px; letter-spacing:2px; text-shadow:2px 2px 0 #000; }
-  #deadTimer { margin-top:26px; font-size:17px; letter-spacing:3px; color:#ffcf6a; text-shadow:2px 2px 0 #000; }
-  #deadBarOuter { margin-top:12px; width:300px; max-width:70vw; height:14px; background:#1a0e10; border:2px solid #b48; box-shadow:0 0 0 2px #000; }
-  #deadBar { height:100%; width:0%; background:linear-gradient(90deg,#7a1410,#e5533d); }
-  #deadHint { margin-top:20px !important; font-size:14px !important; color:#8a8f9c !important; letter-spacing:2px; }
+  /* death cinematic: full-screen black fade the camera zoom-out ramps up, then the menu */
+  #deathFade { position:fixed; inset:0; background:#000; opacity:0; z-index:40; pointer-events:none; }
+  #deadScreen { background:#000; color:#fff; text-align:center; z-index:55; }
+  #deadScreen h1 { font-size:74px; letter-spacing:14px; color:#e5533d; text-shadow:4px 4px 0 #400, 8px 8px 0 rgba(0,0,0,.5); }
+  #deadScreen p { margin-top:16px; color:#d8ccb0; font-size:20px; letter-spacing:2px; text-shadow:2px 2px 0 #000; }
+  .deadBtns { margin-top:38px; display:flex; flex-direction:column; gap:16px; align-items:center; }
+  .deadBtn { font-family:inherit; font-size:22px; letter-spacing:4px; cursor:pointer; width:440px; max-width:82vw;
+    background:#2b3242; color:#fff; border:4px solid #cfc7b0; outline:4px solid #000; box-shadow:6px 6px 0 rgba(0,0,0,.5);
+    padding:15px 0; text-shadow:2px 2px 0 #000; text-transform:uppercase; }
+  .deadBtn:hover { background:#3d465c; }
+  .deadBtn:active { transform:translate(3px,3px); box-shadow:3px 3px 0 rgba(0,0,0,.5); }
 
   /* ---------- HUD ----------
      PS1-on-a-TV pixelation mechanism: the money/hp/weapon/stars/prompt/rocket
@@ -318,7 +323,8 @@
 </div>
 
 <div id="pauseScreen" class="overlay hidden"><h1>PAUSED</h1><p style="margin-top:10px">click to resume</p><button class="menuBtn" id="btnPauseHelp" style="width:320px; margin-top:22px">CONTROLS</button><button class="menuBtn" id="btnPauseSettings" style="width:320px; margin-top:13px">SETTINGS</button></div>
-<div id="deadScreen" class="overlay hidden"><h1>KNOCKED OUT</h1><p id="deadInfo"></p><div id="deadTimer"></div><div id="deadBarOuter"><div id="deadBar"></div></div><p id="deadHint">click to get up now</p></div>
+<div id="deathFade"></div>
+<div id="deadScreen" class="overlay hidden"><h1>WASTED</h1><p id="deadInfo"></p><div class="deadBtns"><button id="deadRespawn" class="deadBtn">RESPAWN</button><button id="deadMenu" class="deadBtn">RETURN TO MAIN MENU</button></div></div>
 
 <div id="shopPanel" class="panel hidden">
   <h1>WESTCHASE GUNS &amp; AMMO</h1>

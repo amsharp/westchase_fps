@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.72.1';
+var GAME_VERSION = 'v1.73.0';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -16238,7 +16238,7 @@ function setEquipped(w) {
     if (w === 'fists') { vmFists.add(psxArms.root); vmFists.rotation.set(0, 0, 0); armsPose(psxArms, 'idle', T); }
     else if (GUNHOLD_GROUPS[w]) { vmMap[w].add(psxArms.root); armsPose(psxArms, gunHold.clip, gunHold.t, true); solveSupportIK(w); gripFingers(); }
   }
-  vm.visible = !zoomed && !driving;
+  vm.visible = !zoomed && !driving && !state.dead;   // stay hidden during the death cinematic
   Object.keys(vmMap).forEach(function (k) { vmMap[k].visible = (k === w); });
   var sub = w === 'fists' ? 'punch for cash' : (w === 'rifle' ? 'right-click: scope' : (w === 'rocket' ? '5s reload' : (w === 'snack' ? 'left-click: eat (+50 hp) — x' + state.snacks : (w === 'soda' ? 'left-click: drink (+25 hp) — x' + state.sodas : 'ammo: &#8734;'))));
   document.getElementById('weaponBox').innerHTML = WEAPONS[w].name + '<br><small>' + sub + '</small>';
@@ -16513,9 +16513,11 @@ var RESPAWN_MS = 2600, deadAt = 0, deadUntil = 0, deadTimer = null;
 function doRespawn() {
   if (!state.dead) return;
   if (deadTimer) { clearTimeout(deadTimer); deadTimer = null; }
+  endDeathCam();
   player.x = spawnX; player.z = spawnZ; player.y = EYE; yaw = 0; pitch = 0; recoilPitch = 0;
   state.hp = 100; state.dead = false;
   document.getElementById('deadScreen').classList.add('hidden');
+  if (state.running) lockPointer();
 }
 function hurtPlayer(d, sx, sz) {
   if (state.dead) return;
@@ -16539,8 +16541,8 @@ function hurtPlayer(d, sx, sz) {
     closeMenus(false); closeChat(false); closeBug();   // dying with a panel open left it stuck (frozen after respawn) + a buy-guns-back-while-dead exploit
     var lost = Math.floor(state.money * 0.25); state.money -= lost;
     document.getElementById('deadInfo').textContent = lost > 0 ? 'You dropped $' + lost + ' on the pavement.' : 'At least you were already broke.';
-    document.getElementById('deadScreen').classList.remove('hidden');
-    deadAt = performance.now(); deadUntil = deadAt + RESPAWN_MS;   // drives the countdown UI
+    deadAt = performance.now();
+    startDeathCam();   // top-down zoom-out cinematic; the menu (respawn / main menu) appears when it finishes
     state.wanted = 0; state.civKills = 0; state.copKills = 0; updateStarsHUD();
     // drop everything you were carrying
     var dropped = 0;
@@ -16554,26 +16556,59 @@ function hurtPlayer(d, sx, sz) {
       dropped++;
     });
     setEquipped('fists');
-    if (deadTimer) clearTimeout(deadTimer);
-    deadTimer = setTimeout(doRespawn, RESPAWN_MS);
+    // no auto-respawn: the player chooses RESPAWN or MAIN MENU after the cinematic
   }
 }
-// live WASTED-screen countdown + progress bar; click after a short grace to
-// respawn early. Cache last strings so we only touch the DOM on change.
-var _deadTxtLast = '', _deadBarLast = '';
-function updateDeadScreen() {
-  if (!state.dead) return;
-  var now = performance.now();
-  var rem = Math.max(0, deadUntil - now);
-  var frac = Math.max(0, Math.min(1, (now - deadAt) / RESPAWN_MS));
-  var txt = 'RESPAWNING IN ' + (Math.ceil(rem / 100) / 10).toFixed(1) + 's';
-  if (txt !== _deadTxtLast) { _deadTxtLast = txt; var dt2 = document.getElementById('deadTimer'); if (dt2) dt2.textContent = txt; }
-  var bw = Math.round(frac * 100) + '%';
-  if (bw !== _deadBarLast) { _deadBarLast = bw; var db = document.getElementById('deadBar'); if (db) db.style.width = bw; }
+// ---- death cinematic (v1.73): on death the camera pulls up to a top-down view
+// and zooms out for DEATH_ZOOM_MS over the player's fallen body, fading to black;
+// when it finishes, the respawn / main-menu prompt appears. The FP viewmodel and
+// all HUD are hidden the instant the camera detaches (fixes lingering arms). ----
+var deathCam = null, deathBody = null;
+var DEATH_ZOOM_MS = 5000;
+function startDeathCam() {
+  var bx = player.x, bz = player.z;
+  if (deathBody) { scene.remove(deathBody); deathBody = null; }
+  try {
+    deathBody = buildCharacter(playerChar || randomCharConfig());
+    deathBody.position.set(bx, 0.16, bz);
+    deathBody.rotation.set(-1.5, yaw, 0);   // laid flat where they fell, facing the last look dir
+    if (deathBody.userData && deathBody.userData.shadow) deathBody.userData.shadow.visible = false;
+    scene.add(deathBody);
+  } catch (e) { deathBody = null; }
+  vm.visible = false;                        // kill the FP arms/weapon viewmodel immediately
+  deathCam = { el: 0, x: bx, z: bz, phase: 'zoom' };
+  var df = document.getElementById('deathFade'); if (df) { df.style.transition = 'none'; df.style.opacity = '0'; }
+  document.getElementById('deadScreen').classList.add('hidden');
+  if (document.exitPointerLock) document.exitPointerLock();
 }
+function updateDeathCam(dt) {
+  if (!deathCam) return;
+  deathCam.el += dt;
+  var f = Math.min(1, deathCam.el / (DEATH_ZOOM_MS / 1000));
+  var ease = f * f * (3 - 2 * f);                       // smoothstep
+  var y = 6 + ease * 42;                                // rise 6 -> 48 (zoom out)
+  camera.position.set(deathCam.x, y, deathCam.z + y * 0.14);   // slight tilt off pure top-down
+  camera.lookAt(deathCam.x, 0.2, deathCam.z);
+  var df = document.getElementById('deathFade');
+  if (df) df.style.opacity = String(Math.max(0, Math.min(1, (f - 0.5) / 0.5)));   // fade to black over the back half
+  if (f >= 1 && deathCam.phase !== 'menu') {
+    deathCam.phase = 'menu';
+    if (df) df.style.opacity = '1';
+    document.getElementById('deadScreen').classList.remove('hidden');
+  }
+}
+function endDeathCam() {
+  deathCam = null;
+  if (deathBody) { scene.remove(deathBody); deathBody = null; }
+  var df = document.getElementById('deathFade'); if (df) { df.style.transition = 'none'; df.style.opacity = '0'; }
+  camera.rotation.z = 0;   // clear any roll left by lookAt before the FP camera resumes
+  vm.visible = true;
+}
+function returnToMainMenu() { try { if (net && net.peer) net.peer.destroy(); } catch (e) { } location.reload(); }
+function updateDeadScreen() { }   // (legacy no-op: countdown replaced by the cinematic + menu)
 (function () {
-  var ds = document.getElementById('deadScreen');
-  if (ds) ds.addEventListener('click', function () { if (state.dead && performance.now() - deadAt > 600) doRespawn(); });
+  var rb = document.getElementById('deadRespawn'); if (rb) rb.addEventListener('click', function (e) { e.stopPropagation(); doRespawn(); });
+  var mb = document.getElementById('deadMenu'); if (mb) mb.addEventListener('click', function (e) { e.stopPropagation(); returnToMainMenu(); });
 })();
 
 // ---------------- audio ----------------
@@ -20240,6 +20275,7 @@ function drawCompass(W, H) {
 function drawHudCanvas() {
   var W = hudW, H = hudH, M = 14;
   hudCx.clearRect(0, 0, W, H);
+  if (state.dead) return;   // death cinematic: keep the screen clean (no crosshair/weapon/health/etc.)
   drawCrosshair(W, H);
   if (settings && settings.compass && state.running) drawCompass(W, H);
   // ---- hitmarker: four short diagonal ticks that flick out from the reticle
@@ -20435,7 +20471,7 @@ function updateLowHpVig() {
   }
   if (op !== lowHpVigLast) { lowHpVigLast = op; lowHpVigEl.style.opacity = op; }
 }
-function updateHUD() { document.getElementById('money').textContent = '$' + state.money; document.getElementById('hpBar').style.width = Math.max(0, state.hp) + '%'; var hbEl = document.getElementById('hotbarHud'); if (hbEl) hbEl.style.display = (state.running && !driving && !state.dead) ? 'flex' : 'none'; updateLowHpVig(); if (state.dead) updateDeadScreen(); drawHudCanvas(); }
+function updateHUD() { document.getElementById('money').textContent = '$' + state.money; document.getElementById('hpBar').style.width = Math.max(0, state.hp) + '%'; var hbEl = document.getElementById('hotbarHud'); if (hbEl) hbEl.style.display = (state.running && !driving && !state.dead) ? 'flex' : 'none'; var mmEl = document.getElementById('mm'); if (mmEl) mmEl.style.display = state.dead ? 'none' : ''; updateLowHpVig(); drawHudCanvas(); }
 
 // ---------------- QoL: photo mode ----------------
 // P toggles a free-fly camera for screenshots: HUD + first-person arms hidden,
@@ -20497,6 +20533,7 @@ function loop(now) {
   T += dt;
   var sdt = dt;
   updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
+  if (state.dead) updateDeathCam(dt);   // top-down zoom-out cinematic drives the camera while dead
   renderer.render(scene, camera);
 }
 setEquipped('fists');
@@ -20587,6 +20624,7 @@ window.__wc = {
   teleport: function (x, z) { player.x = x; player.z = z; },
   tryAttack: tryAttack, setEquipped: setEquipped, cycleEquip: cycleEquip,
   hotbarAdd: hotbarAdd, seedHotbar: seedHotbar, refreshHotbarHud: refreshHotbarHud, refreshInv: refreshInv, updateHUD: updateHUD, hotbar: function () { return state.hotbar; },
+  updateDeathCam: updateDeathCam, doRespawn: doRespawn, vm: vm,
   enterStore: enterStore, exitStore: exitStore, refreshClerk: refreshClerk, animPerson: animPerson, animPersonClip: animPersonClip, playVoice: playVoice, oak: oak, bush: bush, getPackProp: getPackProp,
   enterInterior: enterInterior, enterPublix: function () { enterInterior('publix'); }, exitInterior: exitInterior,
   enterDunkin: function () { enterInterior('dunkin'); }, enterStarbucks: function () { enterInterior('starbucks'); },
