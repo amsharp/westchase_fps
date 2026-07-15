@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.72.0';
+var GAME_VERSION = 'v1.72.1';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -20400,10 +20400,8 @@ function drawHudCanvas() {
     hudText('MPH', scxs + 12, sby - 12, 12, '#b9b19a', 'left');
     if ((driving.pspeed || 0) < -0.5) drawPix('R', scxs - sbw / 2 + 8, sby - 34, 3, '#ff5a3a', 'left');
     hudBar(scxs - sbw / 2 + 10, sby - 10, sbw - 20, 5, sfrac, scol, 0);
-  } else if (state.running && !state.dead && (!settings || settings.quickbar)) {
-    // on foot: weapon quick-bar occupies the same bottom-center strip as the speedo
-    drawQuickBar(W, H);
   }
+  // (on-foot weapon quick-bar is now the DOM hotbar #hotbarHud — v1.72)
   // ---- FPS / perf readout (QoL, settings.fps): left edge, clear of the
   // minimap (top) and health (bottom). renderer.info reflects last frame. ----
   if (settings && settings.fps) {
