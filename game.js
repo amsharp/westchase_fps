@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.74.0';
+var GAME_VERSION = 'v1.74.1';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -10500,7 +10500,8 @@ if (typeof ENV_PROPS !== 'undefined') for (var epi = 0; epi < ENV_PROPS.length; 
 var ENV_BLOCK = {
   food_truck: 1, icecream_truck: 1, hotdog_cart: 1, lemonade_stand: 1,
   arcade_cabinet: 1, jukebox: 1, boombox: 1, claw_machine: 1, gumball_machine: 1, soda_machine: 1,
-  cafe_set: 1, patio_umbrella: 1
+  cafe_set: 1, patio_umbrella: 1,
+  garden_gnome: 1, flamingo: 1   // owner: no gnomes or flamingos at all
 };
 // owner: too many props — thin decorative filler categories ~half (planters,
 // bollards, yard-decor misc like gnomes/flamingos). Keep fountains, benches,
