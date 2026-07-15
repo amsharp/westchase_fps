@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.73.0';
+var GAME_VERSION = 'v1.74.0';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -6144,7 +6144,7 @@ function buildPerson(shirtC, pantsC, skinC, opts) {
 }
 
 var npcs = [];
-var NPC_COUNT = 250;  // frustum-cull + anim-LOD only cut RENDER cost; the HOST bot sims ALL npcs every sub-step (CPU-bound headless), so 440 spiralled its fixed-timestep loop into slow-motion for every client (mrgmuf3y/mrgmusra). 250 holds real-time; raising it needs host-side sim-distance culling (perf round).
+var NPC_COUNT = 125;  // halved from 250 (owner: too many pedestrians) — also lighter on the host sim. frustum-cull + anim-LOD cut RENDER cost; the HOST bot sims ALL npcs every sub-step.
 // home-zone weights: core intersection / residential neighborhoods / collectors+Lynmar
 var NPC_W_CORE = 0.60, NPC_W_RES = 0.32;   // remainder (~0.08) = collectors
 var WALK = WC_REMAP ? { x0: -240, x1: 120, z0: -180, z1: 170 }   // recentred on the true venue span
@@ -8677,8 +8677,7 @@ var SP_PLACES = [
   ['homemailbox', -218, -237.6, 'S', 0.02],
   ['homemailbox', -158, -112.6, 'S', 0.02], ['homemailbox', -142, -112.6, 'S', 0.02],
   ['wheeliebin', -190, -208.3, 1.0, 0.02], ['wheeliebin', -224, -238, 2.2, 0.02],
-  // --- lake shore picnic tables (ellipse rx 77 rz 52 around (-255,-150) — kept dry)
-  ['picnictable', -176, -130, 'W', 0.02], ['picnictable', -172, -168, 'E', 0.02], ['picnictable', -232, -92, 'N', 0.02],
+  // (lake-shore picnic tables removed — owner: no outdoor tables)
   // --- odds and ends
   ['trashcan', 13.5, 24, 'W'], ['newsbox', -110.5, -22.4, 'N'],
   ['acunit', 65.2, -110, 'E']
@@ -8955,7 +8954,7 @@ if (WC_REMAP) (function densityLayer() {
       // DoubleSide here would z-fight the pair AND is what mirrored the text
       if (o.twoPlane) mo.side = THREE.FrontSide;
       var mat = lamb(mo);
-      if (o.decal) { mat.polygonOffset = true; mat.polygonOffsetFactor = -2; mat.polygonOffsetUnits = -2; }
+      if (o.decal) { mat.polygonOffset = true; mat.polygonOffsetFactor = -4; mat.polygonOffsetUnits = -4; }   // stronger bias so ground decals never z-fight the surface
       var mesh = new THREE.Mesh(g, mat); if (o.decal) mesh.frustumCulled = false;
       mesh.name = key;   // batch key on the mesh so world scans can attribute geometry
       scene.add(mesh); n++;
@@ -8963,7 +8962,7 @@ if (WC_REMAP) (function densityLayer() {
     densityStats.batches = n;
   }
   // helpers to place one asset instance into the right batch
-  function dDecal(name, x, z, y, ry, scale) { if (!dAsset[name]) return; var a = dAsset[name]; var w = a.dims[0] * (scale || 1), d = a.dims[1] * (scale || 1); bake('d_' + name, { texName: name, decal: true }, UDECAL, mtx(x, y, z, ry || 0, w, 1, d)); densityStats.decals++; }
+  function dDecal(name, x, z, y, ry, scale) { if (!dAsset[name]) return; var a = dAsset[name]; var w = a.dims[0] * (scale || 1), d = a.dims[1] * (scale || 1); bake('d_' + name, { texName: name, decal: true }, UDECAL, mtx(x, (y || 0) + 0.03, z, ry || 0, w, 1, d)); densityStats.decals++; }   // +0.03 lift so decals sit clearly above the ground (owner: z-fighting)
   // placards were a single DoubleSide plane → text read MIRRORED from behind
   // (seen live on a FOR SALE yard sign, mrft7zm5 shot). Same fix as greenSign:
   // bake the plane twice, front-to-front (ry and ry+PI), FrontSide material —
@@ -8975,7 +8974,7 @@ if (WC_REMAP) (function densityLayer() {
     bake('d_' + name, { texName: name, twoPlane: true }, USIGN, mtx(x, y, z, ry + Math.PI, sw, sh, 1));
     densityStats.signs++; densityPlaced.push({ n: name, x: x, z: z, y: y });
   }
-  function dBoxAsset(name, x, y, z, ry, sc) { if (!dAsset[name]) return; sc = sc || 1; var a = dAsset[name]; bake('d_' + name, { texName: name }, UBOX, mtx(x, y, z, ry || 0, a.dims[0] * sc, a.dims[1] * sc, a.dims[2] * sc)); densityStats.clutter++; densityPlaced.push({ n: name, x: x, z: z }); }
+  function dBoxAsset(name, x, y, z, ry, sc) { if (!dAsset[name]) return; if (Math.random() < 0.3) return; sc = sc || 1; var a = dAsset[name]; bake('d_' + name, { texName: name }, UBOX, mtx(x, y, z, ry || 0, a.dims[0] * sc, a.dims[1] * sc, a.dims[2] * sc)); densityStats.clutter++; densityPlaced.push({ n: name, x: x, z: z }); }   // owner: thin loose clutter
   // a flat textured box read as "2D trash" (report mredr84j); pile 3-4 lumpy,
   // squashed blobs instead so it reads as bulging plastic bags. Reuses the
   // trash_bags texture on the shared 'd_trash_bags' batch (still one draw call).
@@ -8989,7 +8988,7 @@ if (WC_REMAP) (function densityLayer() {
     }
     densityStats.clutter++; densityPlaced.push({ n: 'trash_bags', x: x, z: z });
   }
-  function dCylAsset(name, x, y, z) { if (!dAsset[name]) return; var a = dAsset[name]; bake('d_' + name, { texName: name }, UCYL, mtx(x, y, z, 0, a.dims[0], a.dims[1], a.dims[0])); densityStats.clutter++; densityPlaced.push({ n: name, x: x, z: z }); }
+  function dCylAsset(name, x, y, z) { if (!dAsset[name]) return; if (Math.random() < 0.3) return; var a = dAsset[name]; bake('d_' + name, { texName: name }, UCYL, mtx(x, y, z, 0, a.dims[0], a.dims[1], a.dims[0])); densityStats.clutter++; densityPlaced.push({ n: name, x: x, z: z }); }   // owner: thin loose clutter
   // waist-high+ poles (roadside sign posts, billboard legs) block the player;
   // short yard-sign stakes (h < 1.5) stay pass-through
   function pole(x, z, h, r) { r = r || 0.11; bake('_pole', { color: 0x8a8f94 }, UCYL, mtx(x, h / 2, z, 0, r * 2, h, r * 2)); if (h >= 1.5) addCollider(x, z, Math.max(0.26, r * 2), Math.max(0.26, r * 2), 'pole'); }
@@ -9422,7 +9421,7 @@ if (WC_REMAP) (function densityLayer() {
         // (visible whenever the stake side faced you) — and the placard read
         // too small. Now the placard is scaled 1.4x and the stake stops just
         // behind its bottom edge (tiny 0.08 overlap hidden by the 0.14 offset).
-        if (Math.random() < 0.55) {
+        if (Math.random() < 0.28) {   // owner: far fewer scattered yard signs (was 0.55)
           var yk = pick(['for_sale_sign', 'yard_sign', 'garage_sale_sign', 'lost_pet_flyer']);
           var ya = dAsset[yk];
           if (ya) {
@@ -9483,7 +9482,7 @@ if (WC_REMAP) (function densityLayer() {
     // Place them clear of the building footprint, spaced apart, and off any
     // tree/pole breakable. Push them a touch further off the wall than before.
     var jcPlaced = [];
-    for (var jc = 0; jc < 4; jc++) {
+    for (var jc = 0; jc < 2; jc++) {   // owner: fewer back-lot crate/box piles (was 4)
       var cn = pick(BACK_CLUTTER), ca = dAsset[cn]; if (!ca) continue;
       var chx = ca.dims[0] / 2, chz = ca.dims[2] / 2, jx, jz, jok = false;
       for (var jt = 0; jt < 10 && !jok; jt++) {
@@ -9515,8 +9514,8 @@ if (WC_REMAP) (function densityLayer() {
     if (vv3.type !== 'racetrac') {
       var sidex = vv3.x + f3.rx * (vv3.w / 2 + 1.0), sidez = vv3.z + f3.rz * (vv3.w / 2 + 1.0);
       dBoxAsset('ac_condenser', sidex, 0.65, sidez, f3.yaw, 1.75);
-      dBoxAsset('utility_box', sidex + f3.fx * 2, 0.5, sidez + f3.fz * 2, f3.yaw);
-      if (Math.random() < 0.6) dCylAsset('propane_tank', sidex - f3.fx * 2, 0.6, sidez - f3.fz * 2);
+      if (Math.random() < 0.5) dBoxAsset('utility_box', sidex + f3.fx * 2, 0.5, sidez + f3.fz * 2, f3.yaw);
+      if (Math.random() < 0.25) dCylAsset('propane_tank', sidex - f3.fx * 2, 0.6, sidez - f3.fz * 2);
     }
     // potted plants + mulch bed flanking the entrance
     var frx = vv3.x + f3.fx * (vv3.d / 2 + 1.3), frz = vv3.z + f3.fz * (vv3.d / 2 + 1.3), ee = Math.min(vv3.w / 2 - 1, 4);
@@ -9616,7 +9615,7 @@ if (WC_REMAP) (function densityLayer() {
       var lat = Math.min(vv5.w / 2 - 2, 5);
       spGate('bench', fpx2 + f6.rx * lat, fpz2 + f6.rz * lat, frontYaw);
       spGate('trashcan', fpx2 - f6.rx * lat, fpz2 - f6.rz * lat, frontYaw);
-      spGate('newsbox', fpx2 - f6.rx * (lat * 0.5), fpz2 - f6.rz * (lat * 0.5), frontYaw);   // free daily paper
+      // (per-venue newsbox removed — owner: reduce storefront prop clutter)
       if (vv5.type === 'publix' || vv5.type === 'dollar_tree') spGate('vendingmachine', fpx2 + f6.rx * (lat * 0.4), fpz2 + f6.rz * (lat * 0.4), frontYaw);
       if (vv5.type === 'bank') spGate('atm', fpx2, fpz2, frontYaw);
       if (vv5.type === 'farnell' || vv5.type === 'publix') spGate('bikerack', fpx2 + f6.rx * (lat * 0.7), fpz2 + f6.rz * (lat * 0.7), frontYaw);
@@ -10496,6 +10495,17 @@ var pendingVendors = [], envVendors = [];
 var envStats = { placed: 0, merged: 0, colliders: 0, batches: 0, byCat: {} };
 var ENV_BY_NAME = {};
 if (typeof ENV_PROPS !== 'undefined') for (var epi = 0; epi < ENV_PROPS.length; epi++) ENV_BY_NAME[ENV_PROPS[epi].n] = ENV_PROPS[epi];
+// owner-requested removals: food vendors, coin-op / interactive machines, and
+// outdoor café/patio tables. place() and spawnVendors() skip anything in here.
+var ENV_BLOCK = {
+  food_truck: 1, icecream_truck: 1, hotdog_cart: 1, lemonade_stand: 1,
+  arcade_cabinet: 1, jukebox: 1, boombox: 1, claw_machine: 1, gumball_machine: 1, soda_machine: 1,
+  cafe_set: 1, patio_umbrella: 1
+};
+// owner: too many props — thin decorative filler categories ~half (planters,
+// bollards, yard-decor misc like gnomes/flamingos). Keep fountains, benches,
+// playground, railings, signage intact.
+var ENV_THIN = { planter: 0.5, bollard: 0.5, misc: 0.5 };
 // townhouse mailbox clusters become E-rummageable (junk mail / stray package)
 if (ENV_BY_NAME.mailbox_cluster) ENV_BY_NAME.mailbox_cluster.interact = 'mailbox';
 
@@ -10716,7 +10726,9 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
   //   y (ground offset, def 0), noCol (skip collider), mapB (force rain/minimap),
   //   scale (uniform, instances only)
   function place(name, x, z, ry, opts) {
+    if (ENV_BLOCK[name]) return null;   // owner: removed food vendors / coin-op / outdoor tables
     var e = ENV_BY_NAME[name]; if (!e) return null;
+    if (ENV_THIN[e.cat] && Math.random() < ENV_THIN[e.cat]) return null;   // owner: thin decorative filler ~half
     opts = opts || {}; ry = ry || 0; var y = opts.y || 0, dims = e.dims;
     if (MERGE[name] && !opts.instance) {
       bake(name, mtx(x, y, z, ry)); envStats.merged++;
@@ -15396,6 +15408,7 @@ function spawnVendors() {
   if (typeof buildKid !== 'function' || typeof buildPerson !== 'function') return;
   for (var i = 0; i < pendingVendors.length; i++) {
     var v = pendingVendors[i], mesh = null;
+    if (ENV_BLOCK[v.prop]) continue;   // vendor's stand/cart was removed — don't spawn the seller
     if (v.build === 'kid') {
       if (!KID_LOOKS.length) continue;
       var girls = [];
@@ -17958,8 +17971,7 @@ function drawMinimap() {
   }
   // cars
   mg.fillStyle = '#e8a13a'; for (var c = 0; c < cars.length; c++) { var cm = cars[c].car.group.position; mg.fillRect(sx(cm.x) - 1, sz(cm.z) - 1, 2, 2); }
-  // npcs
-  mg.fillStyle = '#eeeeee'; for (var n = 0; n < npcs.length; n++) { if (npcs[n].state === 'down' || npcs[n].state === 'hidden') continue; mg.fillRect(sx(npcs[n].x) - 1, sz(npcs[n].z) - 1, 2, 2); }
+  // npcs are intentionally NOT drawn on the minimap (owner: too cluttered)
   // cops (blue, slightly bigger)
   mg.fillStyle = '#3f8fe8'; for (var cop = 0; cop < cops.length; cop++) { if (cops[cop].state === 'down') continue; mg.fillRect(sx(cops[cop].x) - 1.5, sz(cops[cop].z) - 1.5, 3, 3); }
   for (var cop2 = 0; cop2 < copsM.length; cop2++) { mg.fillRect(sx(copsM[cop2].x) - 1.5, sz(copsM[cop2].z) - 1.5, 3, 3); }
