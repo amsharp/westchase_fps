@@ -38,6 +38,7 @@ var WC_PLANE = (function () {
       if (!GEO.hasOwnProperty(name)) continue;
       var o = GEO[name];
       var moving = (name !== 'body');
+      var flip = (name === 'aileronL' || name === 'aileronR' || name === 'elevator' || name === 'rudder');   // control surfaces: source normals are inverted — render double-sided so lighting reads right from any angle (owner)
       var pv = o.pivot ? gpt(o.pivot[0], o.pivot[1], o.pivot[2]) : [0, 0, 0];
       var P = o.p, N = o.n, pos = [], nor = [], k, g;
       for (k = 0; k < P.length; k += 3) {
@@ -51,7 +52,7 @@ var WC_PLANE = (function () {
       geo.setAttribute('normal', new T.Float32BufferAttribute(nor, 3));
       geo.setAttribute('uv', new T.Float32BufferAttribute(o.u, 2));
       geo.setIndex(o.i);
-      var mesh = new T.Mesh(geo, new T.MeshLambertMaterial({ map: getTex(name) }));
+      var mesh = new T.Mesh(geo, new T.MeshLambertMaterial({ map: getTex(name), side: flip ? T.DoubleSide : T.FrontSide }));
       if (moving) { var sg = new T.Group(); sg.position.set(pv[0], pv[1], pv[2]); sg.add(mesh); parts[name] = sg; group.add(sg); }
       else { parts.body = mesh; group.add(mesh); }
     }
