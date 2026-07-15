@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.74.6';
+var GAME_VERSION = 'v1.74.7';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -11458,7 +11458,7 @@ function copShoot(c, wpn, dt, tgt) {
   var dx = tgt.x - c.x, dz = tgt.z - c.z, d = Math.sqrt(dx * dx + dz * dz) || 1;
   // muzzle flash at the gun's barrel tip; chest-height fallback if holstered
   var mz3 = copMuzzle(c) || new THREE.Vector3(c.x + dx / d * 0.5, (c.baseY || 0) + 1.45, c.z + dz / d * 0.5);
-  puff(mz3, 0xffe08a);
+  puff(mz3, 0xffe08a, 'muzzle');
   var hitChance = wpn.acc * Math.max(0.1, 1 - d / wpn.range);
   var hitV = null;   // where a round landed on a person (for the client blood puff)
   if (Math.random() < hitChance) {
@@ -12945,6 +12945,18 @@ function puff(p, col, kind) {
     }
     return;
   }
+  if (kind === 'muzzle') {
+    // reuse the gun muzzle-flash SPRITE (muzzleflash.js) in world space for cop
+    // fire — billboarded toward the camera by updatePuffs. Was a plain colored
+    // particle (looked like a little fireball); now it matches the player's gun.
+    if (flashTexs && flashTexs.length) {
+      var mf = new THREE.Mesh(puffGeo, new THREE.MeshBasicMaterial({ map: flashTexs[(Math.random() * flashTexs.length) | 0], transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false }));
+      mf.position.copy(p); mf.scale.setScalar(1.5 + Math.random() * 0.3); scene.add(mf);
+      puffs.push({ mesh: mf, life: 0.06, max: 0.06, muzzle: true });
+      return;
+    }
+    // no sprite pack present: fall through to the default spark puff below
+  }
   if (kind === 'impact' && smokeFrames) {
     // very subtle dust wisp for a bullet strike on a wall/prop/car: tiny + faint,
     // never a flame. small scale + low opacity so it reads as a puff of dust that
@@ -12993,6 +13005,8 @@ function updatePuffs(dt) {
       if (p.fire) { fr = (p.start + Math.floor(t * 10)) % VFX_NF; p.mesh.scale.multiplyScalar(1 + dt * 1.6); p.mesh.material.opacity = Math.max(0, 1 - t); }
       else { fr = Math.min(11, Math.floor(t * 12)); p.mesh.scale.multiplyScalar(1 + dt * (p.grow || 3.2)); p.mesh.material.opacity = Math.max(0, (p.omax || 0.9) * (1 - t * t)); }
       if (p.mesh.material.map !== p.frames[fr]) p.mesh.material.map = p.frames[fr];
+    } else if (p.muzzle) {
+      p.mesh.material.opacity = Math.max(0, p.life / p.max);   // hold size, snap out fast
     } else {
       p.mesh.scale.multiplyScalar(1 + dt * 6); p.mesh.material.opacity = Math.max(0, p.life / p.max);
     }
@@ -16531,6 +16545,7 @@ function doRespawn() {
   player.x = spawnX; player.z = spawnZ; player.y = EYE; yaw = 0; pitch = 0; recoilPitch = 0;
   state.hp = 100; state.dead = false;
   document.getElementById('deadScreen').classList.add('hidden');
+  document.getElementById('crosshair').style.display = '';   // always back on foot after respawn
   if (state.running) lockPointer();
 }
 function hurtPlayer(d, sx, sz) {
@@ -16551,6 +16566,13 @@ function hurtPlayer(d, sx, sz) {
       if (isClient()) { var dcp = driving.car.group; netToHost({ t: 'park', i: cars.indexOf(driving), x: dcp.position.x, z: dcp.position.z, ry: dcp.rotation.y }); }
       driving.pspeed = 0; driving = null; document.getElementById('crosshair').style.display = ''; vm.visible = true;
     }
+    if (plane && plane.piloting) {
+      // dying mid-flight: drop out of the cockpit or you respawn still "piloting"
+      // (frozen controls) with the gun crosshair stuck hidden. Leave the plane to
+      // auger in pilotless.
+      plane.piloting = false; stopJet();
+      document.getElementById('crosshair').style.display = ''; vm.visible = true;
+    }
     if (inside) exitStore(true);   // clean up interior cops + lockout, respawn is outside anyway
     closeMenus(false); closeChat(false); closeBug();   // dying with a panel open left it stuck (frozen after respawn) + a buy-guns-back-while-dead exploit
     var lost = Math.floor(state.money * 0.25); state.money -= lost;
@@ -16569,6 +16591,12 @@ function hurtPlayer(d, sx, sz) {
       state.owned[k] = false;
       dropped++;
     });
+    // lose everything else in the inventory too (consumables + scavenge bag). Only
+    // guns drop as pickups; snacks/sodas just vanish. Then wipe the hotbar down to
+    // fists so you can't still scroll to gear you no longer own (report: kept stuff).
+    state.snacks = 0; state.sodas = 0; state.bag = [];
+    if (typeof pruneHotbar === 'function') pruneHotbar();
+    if (typeof refreshHotbarHud === 'function') refreshHotbarHud();
     setEquipped('fists');
     // no auto-respawn: the player chooses RESPAWN or MAIN MENU after the cinematic
   }
@@ -18924,7 +18952,7 @@ function applyWorldSnap(dt) {
     for (i = 0; i < s.cfx.length; i++) {
       var fe = s.cfx[i];
       var mzv = new THREE.Vector3(fe[0] / 10, fe[1] / 10, fe[2] / 10);
-      puff(mzv, 0xffe08a);
+      puff(mzv, 0xffe08a, 'muzzle');
       sfx((fe[3] & 1) ? 'copsmg' : 'copshot', { x: mzv.x, z: mzv.z, y: mzv.y, range: 150 });
       if ((fe[3] & 2) && fe.length >= 7) puff(new THREE.Vector3(fe[4] / 10, fe[5] / 10, fe[6] / 10), 0xd93a2a, 'blood');
     }
