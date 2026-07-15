@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.71.0';
+var GAME_VERSION = 'v1.71.1';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -18224,36 +18224,11 @@ function makeTag(text, kind) {
 var npcTagPool = [];
 var NPC_TAG_MAX = 10, NPC_TAG_RANGE = 26;
 function updateNpcTags() {
-  var pool = npcTagPool, i;
-  // singleplayer gets NPC tags too (bug report: "name plates only show in
-  // multiplayer") — only gameplay-state gates remain
-  if (!state.running || inside || state.dead) { for (i = 0; i < pool.length; i++) pool[i].visible = false; return; }
-  var px = player.x, pz = player.z, R2 = NPC_TAG_RANGE * NPC_TAG_RANGE, cands = [];
-  for (i = 0; i < npcs.length; i++) { var n = npcs[i]; if (n.state === 'down' || n.state === 'ragdoll' || n.state === 'hidden') continue; var d2 = (n.x - px) * (n.x - px) + (n.z - pz) * (n.z - pz); if (d2 < R2) cands.push({ e: n, d2: d2, kind: 'npc', by: 0 }); }
-  for (i = 0; i < cops.length; i++) { var cp = cops[i]; if (cp.state === 'down' || cp.interior) continue; var cd2 = (cp.x - px) * (cp.x - px) + (cp.z - pz) * (cp.z - pz); if (cd2 < R2) cands.push({ e: cp, d2: cd2, kind: 'cop', by: cp.baseY || 0 }); }
-  // clients mirror street cops in copsM (their `cops` array is empty) — no hp
-  // on the wire, so the bar shows the locally-PREDICTED hp (hpM, decremented
-  // where dmgCop is sent; reset on slot reuse — mrg4gnea)
-  for (i = 0; i < copsM.length; i++) { var cm = copsM[i]; if (cm.down) continue; var md2 = (cm.x - px) * (cm.x - px) + (cm.z - pz) * (cm.z - pz); if (md2 < R2) cands.push({ e: { x: cm.x, z: cm.z, hp: cm.hpM !== undefined ? cm.hpM : 100, vname: 'POLICE' }, d2: md2, kind: 'cop', by: 0 }); }
-  cands.sort(function (a, b) { return a.d2 - b.d2; });
-  var nShow = Math.min(cands.length, NPC_TAG_MAX);
-  for (i = 0; i < NPC_TAG_MAX; i++) {
-    var tag = pool[i];
-    if (!tag) { tag = pool[i] = makeTag('', 'npc'); tag.scale.set(2.2, 0.6, 1); scene.add(tag); }
-    if (i < nShow) {
-      var cc = cands[i], e = cc.e;
-      var label = cc.kind === 'cop' ? 'POLICE' : (e.vname || 'CIVILIAN');
-      var hp = Math.max(0, Math.round(e.hp || 0));
-      if (tag.userData._lbl !== label || tag.userData._hp !== hp || tag.userData._k !== cc.kind) {
-        tag.userData._lbl = label; tag.userData._hp = hp; tag.userData._k = cc.kind;
-        tag.userData.draw(label, hp, cc.kind);
-      }
-      var d = Math.sqrt(cc.d2);
-      tag.material.opacity = d > NPC_TAG_RANGE - 5 ? Math.max(0, (NPC_TAG_RANGE - d) / 5) : 1;
-      tag.position.set(e.x, cc.by + 2.35, e.z);
-      tag.visible = true;
-    } else tag.visible = false;
-  }
+  // NPC/cop nameplates removed by request — only real players get overhead
+  // name + health tags (drawn per-remote in updateRemotes). Keep any pooled
+  // tags hidden in case the pool was ever populated.
+  var pool = npcTagPool;
+  for (var i = 0; i < pool.length; i++) if (pool[i]) pool[i].visible = false;
 }
 function hashStr(s) { var h = 0; for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h); }
 function ensureRemote(id) {
