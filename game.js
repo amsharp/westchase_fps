@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.71.2';
+var GAME_VERSION = 'v1.72.0';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -7472,7 +7472,7 @@ function refreshClerk() {
   }
   addBtn('Buy a snack — $20  (+50 hp; equip & eat from your TAB inventory)', function () {
     if (state.money < 20) { sfx('deny'); popup2("You can't afford it"); return; }
-    state.money -= 20; state.snacks++; playVoice('clerk_snack', 0.5, 10, { ref: clerk });
+    state.money -= 20; state.snacks++; hotbarAdd('snack'); refreshHotbarHud(); playVoice('clerk_snack', 0.5, 10, { ref: clerk });
     sfx('buy'); popup('+1 Snack');
     refreshClerk();
   });
@@ -13565,6 +13565,7 @@ function applyDropPickup(kind) {
     if (refund) sfx('cash');
   } else {
     state.owned[kind] = true;
+    hotbarAdd(kind);
     popup('Picked up ' + WEAPONS[kind].name);
     sfx('buy');
   }
@@ -16241,6 +16242,7 @@ function setEquipped(w) {
   Object.keys(vmMap).forEach(function (k) { vmMap[k].visible = (k === w); });
   var sub = w === 'fists' ? 'punch for cash' : (w === 'rifle' ? 'right-click: scope' : (w === 'rocket' ? '5s reload' : (w === 'snack' ? 'left-click: eat (+50 hp) — x' + state.snacks : (w === 'soda' ? 'left-click: drink (+25 hp) — x' + state.sodas : 'ammo: &#8734;'))));
   document.getElementById('weaponBox').innerHTML = WEAPONS[w].name + '<br><small>' + sub + '</small>';
+  if (typeof refreshHotbarHud === 'function') refreshHotbarHud();
 }
 
 // ---------------- combat ----------------
@@ -16258,8 +16260,9 @@ function tryAttack() {
       state.hp = Math.min(100, state.hp + 50);
       sfx('eat');
       popup('+50 HP');
-      if (state.snacks <= 0) setEquipped('fists');
+      if (state.snacks <= 0) { pruneHotbar(); setEquipped('fists'); }   // last one eaten: drop snack off the hotbar
       else setEquipped('snack'); // refresh the counter in the HUD
+      refreshHotbarHud();
     }
     return;
   }
@@ -17622,7 +17625,7 @@ function refreshShop() {
     var pl = price < w.price ? '<span class="cash">$' + price + '</span> <small style="opacity:.6;text-decoration:line-through">$' + w.price + '</small>' : '<span class="cash">$' + price + '</span>';
     var left = document.createElement('div'); left.innerHTML = '<b>' + w.name + '</b> — ' + pl + '<small>' + w.desc + '</small>'; row.appendChild(left);
     if (state.owned[k]) { var sp = document.createElement('span'); sp.className = 'owned'; sp.textContent = 'OWNED'; row.appendChild(sp); }
-    else { var btn = document.createElement('button'); btn.textContent = 'BUY'; btn.disabled = state.money < price; btn.onclick = function () { if (state.dead) return; if (state.money < price) { playVoiceAny(['dealer_nocash_1', 'dealer_nocash_2'], 0.5, 'dealerNo', 5, { ref: dealer }); sfx('deny'); return; } state.money -= price; state.owned[k] = true; shopBought = true; playVoiceAny(['dealer_buy_1', 'dealer_buy_2'], 0.5, 'dealerBuy', 4, { ref: dealer }); sfx('buy'); popup(w.name + ' purchased!'); refreshShop(); }; row.appendChild(btn); }
+    else { var btn = document.createElement('button'); btn.textContent = 'BUY'; btn.disabled = state.money < price; btn.onclick = function () { if (state.dead) return; if (state.money < price) { playVoiceAny(['dealer_nocash_1', 'dealer_nocash_2'], 0.5, 'dealerNo', 5, { ref: dealer }); sfx('deny'); return; } state.money -= price; state.owned[k] = true; hotbarAdd(k); shopBought = true; playVoiceAny(['dealer_buy_1', 'dealer_buy_2'], 0.5, 'dealerBuy', 4, { ref: dealer }); sfx('buy'); popup(w.name + ' purchased!'); refreshShop(); }; row.appendChild(btn); }
     rows.appendChild(row);
   });
   // sell-junk-to-dealer feature removed with the scavenge-item system
@@ -17659,61 +17662,50 @@ function refreshSellRows(rows) {
     row.appendChild(btn); rows.appendChild(row);
   });
 }
+// TAB panel: 7x3 owned-items grid + the detached 7-slot hotbar editor.
+// Click an item to add it to the hotbar (or drag it onto a specific slot);
+// click a hotbar slot to clear it.
 function refreshInv() {
-  var rows = document.getElementById('invRows'); rows.innerHTML = '';
-  ['fists'].concat(GUN_LIST).forEach(function (k) {
-    if (k !== 'fists' && !state.owned[k]) return;
-    var w = WEAPONS[k], row = document.createElement('div'); row.className = 'row';
-    var left = document.createElement('div'); left.innerHTML = '<b class="' + (state.equipped === k ? 'equipped' : '') + '">' + w.name + (state.equipped === k ? ' &#9668; equipped' : '') + '</b>'; row.appendChild(left);
-    var btn = document.createElement('button');
-    if (state.equipped === k && k !== 'fists') { btn.textContent = 'UNEQUIP'; btn.onclick = function () { setEquipped('fists'); refreshInv(); }; }
-    else if (state.equipped !== k) { btn.textContent = 'EQUIP'; btn.onclick = function () { setEquipped(k); refreshInv(); }; }
-    else { btn.textContent = 'EQUIPPED'; btn.disabled = true; }
-    row.appendChild(btn); rows.appendChild(row);
-  });
-  if (state.snacks > 0) {
-    var srow = document.createElement('div'); srow.className = 'row';
-    var sleft = document.createElement('div');
-    sleft.innerHTML = '<b class="' + (state.equipped === 'snack' ? 'equipped' : '') + '">SNACK &times;' + state.snacks + (state.equipped === 'snack' ? ' &#9668; equipped' : '') + '</b><small>eat to restore 50 hp</small>';
-    srow.appendChild(sleft);
-    var sbtn = document.createElement('button');
-    if (state.equipped === 'snack') { sbtn.textContent = 'UNEQUIP'; sbtn.onclick = function () { setEquipped('fists'); refreshInv(); }; }
-    else { sbtn.textContent = 'EQUIP'; sbtn.onclick = function () { setEquipped('snack'); refreshInv(); }; }
-    srow.appendChild(sbtn); rows.appendChild(srow);
+  var owned = ownedItemIds();
+  var grid = document.getElementById('invGridB');
+  if (grid) {
+    grid.innerHTML = '';
+    for (var i = 0; i < INV_COLS * INV_ROWS; i++) {
+      (function (id) {
+        var cell = document.createElement('div');
+        cell.className = 'invCell2' + (id ? '' : ' empty') + (id && id === state.equipped ? ' eq' : (id && hotbarHas(id) ? ' onbar' : ''));
+        if (id) {
+          var nm = document.createElement('span'); nm.className = 'icName'; nm.textContent = itemShort(id); cell.appendChild(nm);
+          var c = itemCount(id); if (c > 0) { var cn = document.createElement('span'); cn.className = 'cnt'; cn.textContent = c; cell.appendChild(cn); }
+          cell.title = (WEAPONS[id] ? WEAPONS[id].name : id) + (hotbarHas(id) ? ' — on hotbar' : ' — click to add to hotbar');
+          cell.draggable = true;
+          cell.addEventListener('dragstart', function (e) { e.dataTransfer.setData('text/plain', id); e.dataTransfer.effectAllowed = 'move'; });
+          cell.onclick = function () { hotbarAdd(id); refreshInv(); };
+        }
+        grid.appendChild(cell);
+      })(owned[i] || null);
+    }
   }
-  sodaInvRow(rows);   // streetprops vending sodas
-  var any = GUN_LIST.some(function (k) { return state.owned[k]; });
-  if (!any) { var hint = document.createElement('div'); hint.className = 'row'; hint.innerHTML = '<small>No guns yet — earn cash and visit the dealer ($ on the minimap).</small>'; rows.appendChild(hint); }
-  refreshInvGrid();
-}
-// the 6x4 stackable item grid (below the weapons rows in the TAB panel)
-function refreshInvGrid() {
-  var grid = document.getElementById('invGrid'); if (!grid) return;
-  grid.innerHTML = '';
-  for (var i = 0; i < state.bag.length; i++) {
-    (function (i) {
-      var s = state.bag[i];
-      var cell = document.createElement('div');
-      cell.className = 'invCell' + (s ? '' : ' empty');
-      if (s) {
-        var def = itemDef(s.id);
-        var img = document.createElement('img');
-        img.src = (ITEM_ICONS && ITEM_ICONS[s.id]) || '';
-        var tip = def ? def.name : s.id;
-        if (def && def.hp) tip += '  (+' + def.hp + ' hp)';
-        else if (def && def.use === 'sell') tip += '  ($' + def.value + ' at dealer)';
-        else if (def && def.use === 'tool') tip += '  (tool)';
-        img.alt = tip; img.title = tip;
-        cell.appendChild(img);
-        if (s.n > 1) { var c = document.createElement('span'); c.className = 'cnt'; c.textContent = s.n; cell.appendChild(c); }
-        cell.onclick = function () { bagSel = i; bagUse(i); };
-        cell.oncontextmenu = function (e) { e.preventDefault(); bagSel = i; bagDrop(i); return false; };
-        cell.onmouseover = function () { bagSel = i; };
-      }
-      grid.appendChild(cell);
-    })(i);
+  var hb = document.getElementById('invHotbar');
+  if (hb) {
+    hb.innerHTML = '';
+    for (var s = 0; s < HOTBAR_SLOTS; s++) {
+      (function (s) {
+        var id = state.hotbar[s];
+        var slot = document.createElement('div');
+        slot.className = 'hbEdit' + (id ? '' : ' empty') + (id && id === state.equipped ? ' eq' : '');
+        var key = document.createElement('span'); key.className = 'hbKey'; key.textContent = (s + 1); slot.appendChild(key);
+        if (id) { var nm = document.createElement('span'); nm.className = 'icName'; nm.textContent = itemShort(id); slot.appendChild(nm); }
+        slot.addEventListener('dragover', function (e) { e.preventDefault(); slot.classList.add('drop'); });
+        slot.addEventListener('dragleave', function () { slot.classList.remove('drop'); });
+        slot.addEventListener('drop', function (e) { e.preventDefault(); slot.classList.remove('drop'); var did = e.dataTransfer.getData('text/plain'); if (did) { hotbarSet(s, did); refreshInv(); } });
+        slot.onclick = function () { if (state.hotbar[s]) { hotbarClear(s); refreshInv(); } };
+        hb.appendChild(slot);
+      })(s);
+    }
   }
 }
+function refreshInvGrid() { }   // legacy junk-bag grid removed with the scavenge-item system
 function openMenu(which) { setZoom(false); state.menu = which; document.exitPointerLock && document.exitPointerLock(); if (which === 'shop') { shopBought = false; if (!dealerMet) { dealerMet = true; playVoice('dealer_hello_first', 0.5, 1, { ref: dealer }); } else playVoiceAny(['dealer_hello_1', 'dealer_hello_2'], 0.5, 'dealerHi', 18, { ref: dealer }); refreshShop(); document.getElementById('shopPanel').classList.remove('hidden'); } if (which === 'inv') { refreshInv(); document.getElementById('invPanel').classList.remove('hidden'); } if (which === 'clerk') { refreshClerk(); document.getElementById('clerkPanel').classList.remove('hidden'); } }
 function closeMenus(relock) { if (state.menu === 'shop' && !shopBought) playVoice('dealer_bye', 0.45, 40, { ref: dealer }); state.menu = null; document.getElementById('shopPanel').classList.add('hidden'); document.getElementById('invPanel').classList.add('hidden'); document.getElementById('clerkPanel').classList.add('hidden'); if (relock !== false && state.running) lockPointer(); }
 
@@ -17994,7 +17986,7 @@ function startGame() {
   retintPSXArms();
   startScreen.classList.add('hidden');
   state.running = true;
-  seedLitter();   // scatter scavengeable junk around the dumpsters
+  seedHotbar();   // auto-fill the hotbar from owned items (fists + any guns)
   lockPointer();
   toast('Welcome to <b>Westchase</b>. Punch people for cash, rob the gas station (the <b style="color:#e05a3a">G</b> on your minimap), and buy guns from the dealer (the gold <b style="color:#ffd94a">$</b>). <b>TAB</b> = inventory.', 11000);
 }
@@ -19244,29 +19236,77 @@ document.addEventListener('mouseup', function (e) {
   if (e.button === 0) mouseDown = false;
   else if (e.button === 2) { setZoom(false); }
 });
-function cycleEquip(dir) {
-  // quick-swap through everything you own; TAB inventory still works too
-  if (!state.running || state.menu || state.dead || driving) return;
+// ---------------- hotbar + inventory (v1.72) ----------------
+// The player OWNS items (fists + purchased guns + snack). The 7x3 TAB inventory
+// lists everything owned; the detached 7-slot HOTBAR is the quick-select bar you
+// fill from it (drag or click). Scroll wheel / number keys 1-7 cycle the hotbar
+// in-game, and it renders bottom-center (#hotbarHud). Future food/drink items
+// slot in as more owned items automatically.
+var HOTBAR_SLOTS = 7, INV_COLS = 7, INV_ROWS = 3;
+var ITEM_SHORT = { fists: 'FISTS', pistol: 'PISTOL', smg: 'SMG', rifle: 'RIFLE', auto: 'AK-47', rocket: 'RPG', raygun: 'RAY GUN', neon_blaster: 'NEON', silenced: 'SILENCED', snack: 'SNACK', soda: 'SODA' };
+if (!state.hotbar) state.hotbar = [null, null, null, null, null, null, null];
+function itemShort(id) { return ITEM_SHORT[id] || (WEAPONS[id] ? WEAPONS[id].name : id); }
+function itemCount(id) { return id === 'snack' ? state.snacks : (id === 'soda' ? state.sodas : 0); }
+function ownedItemIds() {
   var list = ['fists'];
   for (var i = 0; i < GUN_LIST.length; i++) if (state.owned[GUN_LIST[i]]) list.push(GUN_LIST[i]);
   if (state.snacks > 0) list.push('snack');
   if (state.sodas > 0) list.push('soda');
-  if (list.length < 2) return;
-  var idx = list.indexOf(state.equipped);
-  if (idx < 0) idx = 0;
-  setEquipped(list[(idx + dir + list.length) % list.length]);
+  return list;
 }
-// QoL: number-key direct weapon select. Slot n (1-based) = position in the same
-// owned list cycleEquip walks (1=fists, then owned guns, then snack/soda). Keys
-// for slots you don't own are ignored.
-function selectWeaponSlot(n) {
+function hotbarHas(id) { return state.hotbar.indexOf(id) >= 0; }
+function hotbarAdd(id) {   // first empty slot, no dupes
+  if (!id || hotbarHas(id)) return -1;
+  for (var i = 0; i < HOTBAR_SLOTS; i++) if (!state.hotbar[i]) { state.hotbar[i] = id; refreshHotbarHud(); return i; }
+  return -1;
+}
+function hotbarSet(slot, id) {   // drag-drop into a specific slot (move if already elsewhere)
+  if (slot < 0 || slot >= HOTBAR_SLOTS || !id) return;
+  var old = state.hotbar.indexOf(id);
+  if (old >= 0) state.hotbar[old] = null;
+  state.hotbar[slot] = id;
+  refreshHotbarHud();
+}
+function hotbarClear(slot) { if (slot >= 0 && slot < HOTBAR_SLOTS) { state.hotbar[slot] = null; refreshHotbarHud(); } }
+function seedHotbar() {   // auto-fill from owned items (called at game start)
+  state.hotbar = [null, null, null, null, null, null, null];
+  var ids = ownedItemIds();
+  for (var i = 0; i < ids.length && i < HOTBAR_SLOTS; i++) state.hotbar[i] = ids[i];
+  refreshHotbarHud();
+}
+function pruneHotbar() {   // drop items no longer owned (e.g. last snack eaten)
+  var owned = ownedItemIds(), changed = false;
+  for (var i = 0; i < HOTBAR_SLOTS; i++) if (state.hotbar[i] && owned.indexOf(state.hotbar[i]) < 0) { state.hotbar[i] = null; changed = true; }
+  if (changed) refreshHotbarHud();
+}
+function hotbarFilled() { var f = []; for (var i = 0; i < HOTBAR_SLOTS; i++) if (state.hotbar[i]) f.push(state.hotbar[i]); return f; }
+function refreshHotbarHud() {
+  var el = document.getElementById('hotbarHud'); if (!el) return;
+  el.innerHTML = '';
+  for (var i = 0; i < HOTBAR_SLOTS; i++) {
+    var id = state.hotbar[i];
+    var slot = document.createElement('div');
+    slot.className = 'hbSlot' + (id && id === state.equipped ? ' on' : '') + (id ? '' : ' empty');
+    var key = document.createElement('span'); key.className = 'hbKey'; key.textContent = (i + 1); slot.appendChild(key);
+    if (id) {
+      var lbl = document.createElement('span'); lbl.className = 'hbName'; lbl.textContent = itemShort(id); slot.appendChild(lbl);
+      var c = itemCount(id); if (c > 0) { var cn = document.createElement('span'); cn.className = 'hbCnt'; cn.textContent = c; slot.appendChild(cn); }
+    }
+    el.appendChild(slot);
+  }
+}
+function cycleEquip(dir) {   // scroll wheel: cycle non-empty hotbar slots
   if (!state.running || state.menu || state.dead || driving) return;
-  var list = ['fists'];
-  for (var i = 0; i < GUN_LIST.length; i++) if (state.owned[GUN_LIST[i]]) list.push(GUN_LIST[i]);
-  if (state.snacks > 0) list.push('snack');
-  if (state.sodas > 0) list.push('soda');
-  if (n < 1 || n > list.length) return;
-  if (list[n - 1] !== state.equipped) setEquipped(list[n - 1]);
+  var filled = hotbarFilled();
+  if (!filled.length) return;
+  var idx = filled.indexOf(state.equipped); if (idx < 0) idx = 0;
+  setEquipped(filled[(idx + dir + filled.length) % filled.length]);
+}
+function selectWeaponSlot(n) {   // number keys 1-7 select that hotbar slot directly
+  if (!state.running || state.menu || state.dead || driving) return;
+  if (n < 1 || n > HOTBAR_SLOTS) return;
+  var id = state.hotbar[n - 1];
+  if (id && id !== state.equipped) setEquipped(id);
 }
 document.addEventListener('wheel', function (e) {
   if (document.pointerLockElement !== canvas) return;
@@ -20397,7 +20437,7 @@ function updateLowHpVig() {
   }
   if (op !== lowHpVigLast) { lowHpVigLast = op; lowHpVigEl.style.opacity = op; }
 }
-function updateHUD() { document.getElementById('money').textContent = '$' + state.money; document.getElementById('hpBar').style.width = Math.max(0, state.hp) + '%'; updateLowHpVig(); if (state.dead) updateDeadScreen(); drawHudCanvas(); }
+function updateHUD() { document.getElementById('money').textContent = '$' + state.money; document.getElementById('hpBar').style.width = Math.max(0, state.hp) + '%'; var hbEl = document.getElementById('hotbarHud'); if (hbEl) hbEl.style.display = (state.running && !driving && !state.dead) ? 'flex' : 'none'; updateLowHpVig(); if (state.dead) updateDeadScreen(); drawHudCanvas(); }
 
 // ---------------- QoL: photo mode ----------------
 // P toggles a free-fly camera for screenshots: HUD + first-person arms hidden,
@@ -20548,6 +20588,7 @@ window.__wc = {
   setPitch: function (p2) { pitch = p2; camera.rotation.x = pitch; },
   teleport: function (x, z) { player.x = x; player.z = z; },
   tryAttack: tryAttack, setEquipped: setEquipped, cycleEquip: cycleEquip,
+  hotbarAdd: hotbarAdd, seedHotbar: seedHotbar, refreshHotbarHud: refreshHotbarHud, refreshInv: refreshInv, updateHUD: updateHUD, hotbar: function () { return state.hotbar; },
   enterStore: enterStore, exitStore: exitStore, refreshClerk: refreshClerk, animPerson: animPerson, animPersonClip: animPersonClip, playVoice: playVoice, oak: oak, bush: bush, getPackProp: getPackProp,
   enterInterior: enterInterior, enterPublix: function () { enterInterior('publix'); }, exitInterior: exitInterior,
   enterDunkin: function () { enterInterior('dunkin'); }, enterStarbucks: function () { enterInterior('starbucks'); },

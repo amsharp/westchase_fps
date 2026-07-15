@@ -188,6 +188,32 @@
     color:#fff; text-shadow:2px 2px 0 #000, -1px 1px 0 #000, 1px -1px 0 #000, -1px -1px 0 #000; }
   #toast img { image-rendering:pixelated; }
 
+  /* ---------- inventory grid (7x3) + hotbar editor (v1.72) ---------- */
+  #invGridB, #invHotbar { display:grid; grid-template-columns:repeat(7, 70px); gap:8px; }
+  .invCell2, .hbEdit { position:relative; width:70px; height:70px; background:#0d1017;
+    border:3px solid #2a3040; box-shadow:inset 2px 2px 0 #1c2130, inset -2px -2px 0 #05070b;
+    display:flex; align-items:center; justify-content:center; text-align:center; user-select:none; }
+  .invCell2 { cursor:grab; }
+  .invCell2.empty, .hbEdit.empty { cursor:default; opacity:.45; }
+  .invCell2.eq, .hbEdit.eq { border-color:#8ee87f; }
+  .invCell2.onbar { border-color:#5a6480; }
+  .invCell2:not(.empty):hover, .hbEdit:not(.empty):hover { border-color:#ffd98a; background:#1a2030; }
+  .hbEdit.drop { border-color:#ffd98a; background:#20283a; }
+  .icName { font-size:12px; font-weight:bold; color:#dfe6f2; letter-spacing:1px; text-shadow:1px 1px 0 #000; padding:0 3px; line-height:1.15; }
+  .invCell2 .cnt { position:absolute; right:4px; bottom:2px; font-size:15px; font-weight:bold; color:#8ee87f; text-shadow:1px 1px 0 #000; }
+  .hbKey { position:absolute; left:4px; top:2px; font-size:12px; font-weight:bold; color:#8a8470; }
+  .hbHdr { color:#ffd98a; font-size:15px; letter-spacing:3px; margin:20px 0 10px; border-top:3px solid #3a3f4d; padding-top:14px; }
+  .hbHdr small { color:#8a8470; letter-spacing:1px; font-size:13px; }
+  /* bottom-center hotbar HUD shown during gameplay */
+  #hotbarHud { position:absolute; left:50%; bottom:16px; transform:translateX(-50%); display:none; gap:6px; z-index:9; pointer-events:none; }
+  .hbSlot { position:relative; width:62px; height:46px; background:rgba(10,13,20,.66);
+    border:3px solid #2a3040; box-shadow:2px 2px 0 rgba(0,0,0,.4); display:flex; align-items:center; justify-content:center; }
+  .hbSlot.on { border-color:#ffd200; background:rgba(30,34,44,.82); }
+  .hbSlot.empty { opacity:.4; }
+  .hbSlot .hbName { font-size:12px; font-weight:bold; color:#dfe6f2; letter-spacing:1px; text-shadow:1px 1px 0 #000; padding:0 2px; }
+  .hbSlot.on .hbName { color:#ffe36b; }
+  .hbSlot .hbCnt { position:absolute; right:3px; bottom:0; font-size:13px; font-weight:bold; color:#8ee87f; text-shadow:1px 1px 0 #000; }
+
   /* ---------- character creator ---------- */
   #charPanel { min-width:760px; }
   #charCanvas { width:236px; height:310px; image-rendering:pixelated; border:4px solid #4a4436; outline:3px solid #000; background:#10141c; flex:none; }
@@ -224,6 +250,7 @@
   <div id="weaponBox">FISTS<br><small>&nbsp;</small></div>
   <canvas id="mm" width="170" height="170"></canvas>
   <div id="prompt"></div>
+  <div id="hotbarHud"></div>
   <div id="toast" class="hidden"></div>
   <div id="popups"></div>
 </div>
@@ -301,9 +328,12 @@
 
 <div id="invPanel" class="panel hidden">
   <h1>INVENTORY</h1>
-  <div id="invRows"></div>
+  <div id="invGridB"></div>
+  <div class="hbHdr">HOTBAR &nbsp;<small>drag items here &middot; scroll wheel or [1–7] to equip in game</small></div>
+  <div id="invHotbar"></div>
+  <div id="invRows" class="hidden"></div>
   <div class="invSection hidden"><div class="hdr">ITEMS</div><div id="invGrid"></div></div>
-  <div class="footer">[TAB] close &nbsp;·&nbsp; click a weapon to equip</div>
+  <div class="footer">[TAB] close &nbsp;·&nbsp; click an item to add it to the hotbar &nbsp;·&nbsp; click a hotbar slot to clear it</div>
 </div>
 
 <div id="charPanel" class="panel hidden">

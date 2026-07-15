@@ -44,11 +44,11 @@ steal each other's wheels: press **E** on a car a friend is driving to
 hijacked again for 15 seconds, so make your getaway count.
 
 **Keep your progress.** Type a **PIN (4-8 digits)** under your name before
-pressing PLAY ONLINE and your progress — cash, guns, snacks, your item bag,
+pressing PLAY ONLINE and your progress — cash, guns, snacks,
 and your look — is saved to the server under that name+PIN
 and comes back on any browser or device. First sign-in creates the account;
 leave the PIN blank to play as a guest — but even guests keep their progress
-**locally on this browser** now (cash, guns, snacks/sodas, and item bag are
+**locally on this browser** now (cash, guns, and snacks are
 mirrored to local storage and restored on your next visit, so offline
 singleplayer no longer resets every reload; your look and settings
 already persisted). A PIN is what makes that progress follow you to *other*
@@ -267,47 +267,24 @@ Grab a wad of loose cash and a green **"+$" floats up from the spot** it
 was lying and fades — a little hit of feedback anchored to the world, not
 just a number ticking up in the corner.
 
-## Items & your bag
+## Inventory & hotbar
 
-Beyond guns, the world is full of **loose items** — food, drinks, medkits,
-junk, jewelry, tools and oddball novelties. Open your bag with **Tab** and
-you'll find a **6×4 grid** below your weapons. Items **stack** (but only
-reasonably: junk piles deep, food and drinks eight to a slot, medkits four,
-valuables just two, tools one).
+Open your **inventory** with **Tab**. It's a **7×3 grid** holding everything
+you own — your fists, every gun you've bought or picked up, and your snacks —
+with room to spare for the food and drink items coming later.
 
-- **Click an item** to use it. Food, drinks and medkits restore health;
-  novelties do their own quirky thing (shake the Magic 8-Ball, scratch a
-  lottery ticket, set off a firework).
-- **Right-click** an item — or hover it and press **Q** — to **drop one** on
-  the ground. Walk back over it to pick it up again (it despawns after two
-  minutes).
-- **Junk and valuables sell** at the gun dealer — his shop grows a
-  *Sell junk & valuables* section listing everything he'll buy.
+Below the grid, detached, is your **hotbar**: **7 slots** you fill from the
+inventory for quick access in the field.
 
-Where do items come from? **Snacks and sodas** you buy now go straight into
-your bag (the gas-station burger heals, the vending sodas quench). **Knocked-out
-pedestrians** sometimes drop an item along with their cash, and there's
-**litter to scavenge around the dumpsters** out back of the strip malls and
-Publix — mostly junk, but keep an eye out for a dropped wallet or phone. Your
-bag is yours alone — in multiplayer, items you knock loose aren't shared yet.
+- **Click an item** in the grid to drop it into the next open hotbar slot, or
+  **drag it** onto a specific slot.
+- **Click a hotbar slot** to clear it.
+- In the field the hotbar sits at the **bottom-center of the screen**. Roll the
+  **scroll wheel** to cycle through it, or press **1–7** to jump straight to a
+  slot. The item you land on is equipped.
 
-### Dumpster diving & scavenging
-
-Press **E** on any **dumpster** to roll up your sleeves and dig in. A short
-rummage (head down in the bin, trash flying) turns up… something — usually
-junk, often food (gross, but hey, it heals — *still warm?*), sometimes a
-tossed-out wallet or phone, and once in a blue moon a **gold watch, chain or
-cash wad** somebody threw away. Every so often a **startled rat** shoots out,
-or a **grumpy sleeper** erupts to shove you off his bed. Each dumpster needs
-~90 seconds to refill (the buzzing flies tell you it's ready again).
-
-The whole town is scavengeable, in fact: **newspaper boxes** hand out today's
-paper, **kick over a trash can or wheelie bin** (E) to spill its junk, the
-**claw machine** grabs a real toy for your bag, the **mailboxes** at the
-townhouses hold junk mail (and, rarely, a mis-delivered package — pocket it,
-but not while a cop's watching), and you can **rummage the bushes** for the odd
-lost trinket (mind the birds). All of it drops straight into your bag; a full
-bag spills the overflow at your feet.
+Guns you buy or pick up, and snacks you buy, are added to your hotbar
+automatically as long as there's an open slot.
 
 ## The gas station
 
@@ -315,8 +292,8 @@ Press **E** at the RaceTrac door to walk inside (a real interior with
 snack aisles, drink fridges, a coffee maker, and a clerk at the register).
 Talk to the clerk with **E**:
 
-- **Buy a hot burger — $20.** It goes into your TAB bag — click it there to
-  eat it for +30 hp.
+- **Buy a snack — $20.** Add it to your hotbar, equip it, and left-click to
+  eat it for +50 hp.
 - **Rob the register** — only works with a gun in your hands ($100–$300,
   instant 2 stars). Try it bare-knuckled and the clerk hits the panic
   button: police storm the store to kill you.
