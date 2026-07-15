@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.74.2';
+var GAME_VERSION = 'v1.74.3';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -12128,7 +12128,7 @@ function updateCars(dt) {
     }
 
     // shove / hurt player (not while you're inside your own car)
-    if (Math.abs(edx) < 2.6 && Math.abs(edz) < 2.6 && !state.dead && !driving && !(plane && plane.piloting)) {
+    if (Math.abs(edx) < 2.6 && Math.abs(edz) < 2.6 && !state.dead && !driving && !inside && !(plane && plane.piloting)) {   // !inside: surface cars can't hit you in the under-map interior
       var d = ed || 1;
       player.x += (edx / d) * 2.4; player.z += (edz / d) * 2.4;
       if (T - state.lastCarHit > 0.8) { state.lastCarHit = T; hurtPlayer(12, m.position.x, m.position.z); sfx('thud'); }
@@ -16786,12 +16786,12 @@ function updateWorldFx(dt) {
     updateCarLights(c, dt, braking);
     if (c.exploded) {
       // the leftover wreck husk is solid-ish on foot, same as a parked car
-      if (c.husk && !driving && !state.dead) carShellPush(c.husk.position.x, c.husk.position.z, c.husk.rotation.y);
+      if (c.husk && !driving && !inside && !state.dead) carShellPush(c.husk.position.x, c.husk.position.z, c.husk.rotation.y);
       continue;
     }
     // parked cars are solid-ish to the on-foot player (traffic only shoves/hurts;
     // a still car you can lean on while breaking in must not be a ghost)
-    if (c.parked && !driving && !state.dead) carShellPush(m.x, m.z, c.car.group.rotation.y);
+    if (c.parked && !driving && !inside && !state.dead) carShellPush(m.x, m.z, c.car.group.rotation.y);
     var v2 = (mvx * mvx + mvz * mvz) / Math.max(dt * dt, 1e-6);
     if (v2 < 9) continue;                       // too slow to snap anything
     for (var j = 0; j < breakables.length; j++) {
@@ -18832,7 +18832,7 @@ function applyWorldSnap(dt) {
       ensureEngine(c);
       if (c.eng) engineTickMirror(c, dt);   // speed estimated from mirrored motion
     } else if (c.eng) c.eng.g.gain.value = 0;
-    if (!driving && !c.stolen && !c.parked && Math.abs(edx) < 2.6 && Math.abs(edz) < 2.6 && !state.dead) {
+    if (!driving && !inside && !c.stolen && !c.parked && Math.abs(edx) < 2.6 && Math.abs(edz) < 2.6 && !state.dead) {   // !inside: surface cars can't hit you in the under-map interior
       var dd = ed || 1;
       player.x += (edx / dd) * 2.4; player.z += (edz / dd) * 2.4;
       if (T - state.lastCarHit > 0.8) { state.lastCarHit = T; hurtPlayer(12, m.position.x, m.position.z); sfx('thud'); }
