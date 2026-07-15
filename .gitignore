@@ -17,3 +17,6 @@ signs_*.png
 scrub_*.png
 fencedecal_*.png
 hudfix_*.png
+
+# plane QA generated harness
+tools/planeqa/_comp.html
