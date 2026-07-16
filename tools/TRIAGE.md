@@ -580,11 +580,13 @@ east side (x 140..290) + one OOB (-575,-231). Dispositions:
   (#37/#38).
 
 ### Props on/near the road — OPEN (owner decision + remap placement)
-- mrn2eixk (-157,135), mrn2b523 (200,-99), mrn2bobd (198,-155) — screenshots show a
-  streetlight lying flat / leaning ~30° across the road. These are TOPPLED
-  BREAKABLES from the reporter's own driving (documented: cars snap lamps/trees,
-  60s respawn). Semi-intended. Candidate systematic change: topple AWAY from the
-  road, or shorten respawn — needs owner call (design, not a clear bug).
+- mrn2eixk (-157,135), mrn2b523 (200,-99), mrn2bobd (198,-155) — FIXED@v1.74.20
+  (owner opted for topple-off-road). These were toppled breakables from the
+  reporter's driving lying across the lane. breakProp() now biases roadside
+  lamps/trees to fall AWAY from the nearest road via new roadOutward(x,z): fall dir
+  = normalize(impact*0.35 + outward), so a clipped pole lands on the sidewalk/grass
+  instead of the lane. Verified: worst-case along-road impacts now yield
+  fallDotOutward ~0.94 (falls outward). Props >25u from any road keep natural fall.
 - mrn25ep0 (26,5) + mrn253sm (28,5) — FIXED@v1.74.19. The procedural per-arterial
   busshelter placer landed at the main-intersection crosswalk: it clears
   remapPointClear(2) yet sits just past the junction-pad edge (pads r=hw*1.5). Added

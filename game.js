@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.74.19';
+var GAME_VERSION = 'v1.74.20';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -2916,6 +2916,27 @@ function nearJunction(x, z, m) {
     if (dx * dx + dz * dz < lim * lim) return true;
   }
   return false;
+}
+// unit vector pointing AWAY from the nearest road centerline (from the closest
+// road point toward (x,z)) — the "off-road" side. Returns null if no road is
+// within `range` (default 25u) so props far from any road keep their natural
+// fall. Used to topple roadside lamps/trees onto the sidewalk, not the lane.
+function roadOutward(x, z, range) {
+  if (typeof REMAP_ROADS === 'undefined') return null;
+  var best = 1e9, ox = 0, oz = 0, R = range || 25;
+  for (var i = 0; i < REMAP_ROADS.length; i++) {
+    var r = REMAP_ROADS[i], pts = r.pts;
+    for (var j = 0; j < pts.length - 1; j++) {
+      var ax = pts[j][0], az = pts[j][1], bx = pts[j + 1][0], bz = pts[j + 1][1];
+      var dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz || 1;
+      var t = ((x - ax) * dx + (z - az) * dz) / L2; t = t < 0 ? 0 : (t > 1 ? 1 : t);
+      var qx = x - (ax + dx * t), qz = z - (az + dz * t), dd = qx * qx + qz * qz;
+      if (dd < best) { best = dd; ox = qx; oz = qz; }
+    }
+  }
+  if (best > R * R) return null;
+  var l = Math.sqrt(best) || 1;
+  return { x: ox / l, z: oz / l };
 }
 // true when (x,z) sits on a road's flanking SIDEWALK ribbon (between the curb
 // and the walk's outer edge). remapPointClear only rejects the asphalt (hw+pad),
@@ -16800,6 +16821,18 @@ function breakProp(b, dirX, dirZ) {
   b.broken = true; b.thudded = false; b.fallT = 0; b.respawnT = 60;
   var d = Math.sqrt(dirX * dirX + dirZ * dirZ) || 1;
   b.fx = dirX / d; b.fz = dirZ / d;
+  // roadside lamps/trees: bias the topple AWAY from the road so a car that clips
+  // one drops it on the sidewalk/grass instead of lying across the lane (reports
+  // mrn2eixk/mrn2b523/mrn2bobd "get rid of this in the middle of the road"). The
+  // off-road direction dominates; a little of the real impact dir keeps it lively.
+  if (b.type === 'light' || b.type === 'tree') {
+    var ow = roadOutward(b.x, b.z);
+    if (ow) {
+      var fbx = b.fx * 0.35 + ow.x, fbz = b.fz * 0.35 + ow.z;
+      var fbl = Math.sqrt(fbx * fbx + fbz * fbz) || 1;
+      b.fx = fbx / fbl; b.fz = fbz / fbl;
+    }
+  }
   if (b.col) b.col.active = false;   // toppled trunk stops blocking until respawn
   if (b.light) { b.light.broken = true; b.light.glow.visible = false; b.light.pool.visible = false; }
   var cols = b.type === 'tree' ? [0x4c8038, 0x3f6f2e, 0x7a5a3a]
