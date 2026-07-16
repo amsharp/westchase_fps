@@ -591,8 +591,10 @@ east side (x 140..290) + one OOB (-575,-231). Dispositions:
   placement bug; fix needs the remap road-network clearance tightened at junctions.
 
 ### Other — OPEN
-- mrn2d489 (219,-199 "car headlights don't shine on the road") — every car has a
-  beam (game.js 2198), gated lampsOn && !parked. Likely faint-glow/too-subtle at
-  night rather than absent; needs a driving render to confirm before touching.
+- mrn2d489 (219,-199 "car headlights don't shine on the road") — FIXED@v1.74.18.
+  The beam existed (game.js 2198) but was a 0.5 alpha-blend warm wash, nearly
+  invisible on dark asphalt. Now ADDITIVE-blended (glows on the road), opacity 0.8,
+  and a larger/longer pool (9.0x4.4 @ 6.6u ahead). Reads as a real headlight pool
+  at night; still gated lampsOn && !parked. Verified by night render (beam_pool.jpg).
 - mrn2auzo (292,-103 "weird curve at the end of the road") — remap road geometry at
   a map-edge terminus; part of the in-progress remap (#38).

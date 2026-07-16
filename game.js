@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.74.17';
+var GAME_VERSION = 'v1.74.18';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -1881,8 +1881,11 @@ var beamTex = (function () {
   var t = new THREE.CanvasTexture(c); t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter;
   return t;
 })();
-var beamGeo = (function () { var g = new THREE.PlaneGeometry(6.4, 3.4); g.rotateX(-Math.PI / 2); g.translate(5.3, 0, 0); return g; })();
-var beamM = new THREE.MeshBasicMaterial({ map: beamTex, transparent: true, opacity: 0.5, depthWrite: false });
+var beamGeo = (function () { var g = new THREE.PlaneGeometry(9.0, 4.4); g.rotateX(-Math.PI / 2); g.translate(6.6, 0, 0); return g; })();
+// additive so the warm pool actually GLOWS on the dark road at night (report
+// mrn2d489 "headlights don't shine on the road" — the old 0.5 alpha-blend wash
+// was nearly invisible on asphalt). depthWrite:false so it composites over the road.
+var beamM = new THREE.MeshBasicMaterial({ map: beamTex, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false });
 // nose/tail light glows: small additive quads on the car body (night + brake flare)
 var glowTex = (function () {
   var c = document.createElement('canvas'); c.width = 32; c.height = 32;
