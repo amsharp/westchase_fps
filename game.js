@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.74.11';
+var GAME_VERSION = 'v1.74.12';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -16912,22 +16912,29 @@ function setupAudioBus() {
 function initAudio() { if (ac) return; try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { } setupAudioBus(); decodeSfxPack(); startAmbient(); }
 
 // ---------------- car radio (player-only) ----------------
-// Four stations, three tracks each, played in sequence and looping (last -> first).
-// Only the player's own driven car has a radio; NPC/traffic cars never play music.
-// Tracks are plain local MP3s under music/ (user-supplied) — the system no-ops
-// gracefully until the files exist. Playback stops on car exit or destruction.
-// Uses an HTMLAudioElement (not the WebAudio graph) so it streams a normal MP3
-// straight off disk from file:// as well as over http — its volume tracks the
-// master-volume setting manually.
+// Each station holds ANY number of tracks (add as many MP3s as you like — no
+// per-station cap). A station is played on SHUFFLE: the first song is picked at
+// random, then the rest play from a shuffled queue so every song plays once
+// before any repeats, and a song never plays twice back-to-back across a
+// reshuffle. Only the player's own driven car has a radio; NPC/traffic cars
+// never play music. Tracks are plain local MP3s under music/ (user-supplied) —
+// list ONLY files that exist (a missing track auto-skips to the next). Uses an
+// HTMLAudioElement (not the WebAudio graph) so it streams a normal MP3 straight
+// off disk from file:// as well as over http; its volume tracks master manually.
 var RADIO_VOL = 0.75;   // radio loudness relative to the master volume
+// tracks[] grow as MP3s are dropped into music/ and listed here — no limit.
 var RADIO_STATIONS = [
-  { id: 'electronic', name: 'ELECTRONIC', tracks: ['music/electronic_1.mp3', 'music/electronic_2.mp3', 'music/electronic_3.mp3'] },
-  { id: 'rap',        name: 'RAP',        tracks: ['music/rap_1.mp3', 'music/rap_2.mp3', 'music/rap_3.mp3'] },
-  { id: 'chill',      name: 'CHILL',      tracks: ['music/chill_1.mp3', 'music/chill_2.mp3', 'music/chill_3.mp3'] },
-  { id: 'rock',       name: 'ROCK',       tracks: ['music/rock_1.mp3', 'music/rock_2.mp3', 'music/rock_3.mp3'] }
+  { id: 'electronic', name: 'ELECTRONIC', tracks: [] },
+  { id: 'rap',        name: 'RAP',        tracks: [] },
+  { id: 'chill',      name: 'CHILL',      tracks: [] },
+  { id: 'rock',       name: 'ROCK',       tracks: [] }
 ];
-var radioStation = -1;    // -1 = OFF; 0..3 = station index (persists across cars)
-var radioTrack = 0;       // 0..2 track within the current station
+var radioStation = -1;    // -1 = OFF; 0..N-1 = station index (persists across cars)
+var radioTrack = 0;       // current track index within the station's tracks[]
+var radioQueue = [];      // shuffled play order (track indices) for the current station
+var radioQPos = 0;        // cursor into radioQueue
+var radioLastTrack = -1;  // last track played — reshuffles avoid repeating it first
+var radioErr = 0;         // consecutive load errors this station (missing-file skip guard)
 var radioEl = null;       // the HTMLAudioElement doing playback
 var radioWantPlay = false; // are we supposed to be playing right now (in-car + station on)
 function radioInit() {
@@ -16935,8 +16942,9 @@ function radioInit() {
   try {
     radioEl = new Audio();
     radioEl.preload = 'auto';
-    radioEl.addEventListener('ended', radioNext);      // song finished -> next in station
-    radioEl.addEventListener('error', function () { });  // missing/undecodable file: stay silent
+    radioEl.addEventListener('ended', function () { radioErr = 0; radioNext(); });   // song finished -> next in station
+    radioEl.addEventListener('playing', function () { radioErr = 0; });               // a track loaded OK; clear the skip guard
+    radioEl.addEventListener('error', radioSkipBroken);   // missing/undecodable file: skip to the next track
   } catch (e) { radioEl = null; }
   return radioEl;
 }
@@ -16948,25 +16956,57 @@ function radioApplyVolume() {
 function radioLoadAndPlay() {
   if (!radioInit() || radioStation < 0) return;
   var st = RADIO_STATIONS[radioStation];
-  if (!st) return;
+  if (!st || !st.tracks || !st.tracks.length) return;   // station has no songs yet: silent
   radioEl.src = st.tracks[radioTrack % st.tracks.length];
   radioApplyVolume();
   radioWantPlay = true;
   try { var p = radioEl.play(); if (p && p.catch) p.catch(function () { }); } catch (e) { }
 }
+// Fisher-Yates shuffle of [0..n-1]; when n>1 the result never starts on `avoid`
+// (so a song can't play twice in a row across a queue reshuffle).
+function radioShuffle(n, avoid) {
+  var q = [], i;
+  for (i = 0; i < n; i++) q.push(i);
+  for (i = n - 1; i > 0; i--) { var k = (Math.random() * (i + 1)) | 0, t = q[i]; q[i] = q[k]; q[k] = t; }
+  if (n > 1 && q[0] === avoid) { var s = 1 + ((Math.random() * (n - 1)) | 0), tmp = q[0]; q[0] = q[s]; q[s] = tmp; }
+  return q;
+}
 function radioNext() {
   if (radioStation < 0) return;
   var st = RADIO_STATIONS[radioStation];
-  radioTrack = (radioTrack + 1) % st.tracks.length;   // wrap last -> first (looped)
+  var n = (st && st.tracks) ? st.tracks.length : 0;
+  if (!n) return;
+  radioLastTrack = radioTrack;
+  radioQPos++;
+  if (radioQPos >= radioQueue.length) {                 // whole station played -> reshuffle
+    radioQueue = radioShuffle(n, radioLastTrack);
+    radioQPos = 0;
+  }
+  radioTrack = radioQueue[radioQPos];
   radioLoadAndPlay();
+}
+// a track failed to load (missing/undecodable): skip forward, but bail if every
+// track in the station is broken so we don't spin forever.
+function radioSkipBroken() {
+  if (!radioWantPlay || radioStation < 0) return;
+  var st = RADIO_STATIONS[radioStation];
+  var n = (st && st.tracks) ? st.tracks.length : 0;
+  radioErr++;
+  if (!n || radioErr > n) { radioStop(); return; }      // all tracks bad: give up quietly
+  radioNext();
 }
 function radioSetStation(idx) {
   radioInit();
   radioStation = idx;
   if (idx < 0) { radioStop(); popup('RADIO OFF'); return; }
-  radioTrack = 0;                                      // each station starts on its first song
+  var st = RADIO_STATIONS[idx];
+  var n = (st && st.tracks) ? st.tracks.length : 0;
+  radioErr = 0; radioLastTrack = -1;
+  radioQueue = radioShuffle(n, -1);                     // fresh random order — first song is random
+  radioQPos = 0;
+  radioTrack = n ? radioQueue[0] : 0;
   radioLoadAndPlay();
-  popup('♪ ' + RADIO_STATIONS[idx].name);
+  popup('♪ ' + st.name);
 }
 function radioCycle() {
   // OFF -> Electronic -> Rap -> Chill -> Rock -> OFF
