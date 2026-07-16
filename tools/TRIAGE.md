@@ -573,11 +573,18 @@ east side (x 140..290) + one OOB (-575,-231). Dispositions:
   orphan collider. The forest/perimeter colliders are legit; they just aren't
   VISIBLE walls yet.
 - mrn28mvc (242,37), mrn28cte (241,58), mrn281sk (229,118), mrn26f20 (143,113),
-  mrn25yea (143,29), mrn253sm (28,5), mrn2ad8g (255,-49) — all in the remap east
-  side, near forest/house/busshelter colliders while DRIVING. Need tools/_barrierscan.js
-  (NOT in repo — lived in a prior session scratchpad) rebuilt to separate genuine
-  orphan colliders from legit forest/house walls. Entangled with in-progress remap
-  (#37/#38).
+  mrn25yea (143,29), mrn2ad8g (255,-49) — INVESTIGATED, NO ORPHANS (v1.74.20 sweep).
+  Raycast/render probing of every nearby active collider: the houses are backed by
+  real 5-6u buildings (top-hit y 4.9-5.8), and the forest:tile colliders sit inside
+  DENSE alpha-card forest (ground render at the "empty-looking" 200..206/77..93 tiles
+  = solid canopy). These are the CAR hitting legitimate forest + house yards while
+  driven off-road in the dense residential remap grid — working as designed, not
+  removable orphans. (mrn253sm 28,5 was the bus shelter, FIXED@v1.74.19.) Caveats
+  that fooled simpler probes: merged houses = one giant AABB; alpha-card forest =
+  vertical billboards a top-down ray passes through. The real UX fix is the pending
+  OOB visible-barrier feature (#42) so the forest/perimeter edge SHOWS why you stop,
+  plus mrn2fm6s (-575,-231 OOB). A definitive map-wide sweep still wants the
+  instancing+billboard-aware scanner rebuilt (deferred, big).
 
 ### Props on/near the road — OPEN (owner decision + remap placement)
 - mrn2eixk (-157,135), mrn2b523 (200,-99), mrn2bobd (198,-155) — FIXED@v1.74.20
