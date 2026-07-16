@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.74.8';
+var GAME_VERSION = 'v1.74.9';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -17657,13 +17657,13 @@ function footStep(surf, run) {
   footStepCount++;
   if (!ac) return;
   var g = run ? 1.35 : 1;   // heavier stomp at a run
-  // Lyria pack steps (asphalt reuses concrete pitched down); synth fallback
-  var fe = ({ water: ['step_water', 0.42, 1], grass: ['step_grass', 0.32, 1], interior: ['step_wood', 0.32, 1], concrete: ['step_concrete', 0.34, 1] })[surf] || ['step_concrete', 0.3, 0.85];
-  var fb = sfxPackBuf(fe[0]);
+  // one owner-supplied footstep for EVERY surface (no per-material clips) —
+  // nudge the pitch a little each step so a run doesn't sound like a metronome.
+  var fb = sfxPackBuf('step');
   if (fb) {
     var src = ac.createBufferSource(); src.buffer = fb;
-    src.playbackRate.value = fe[2] * (0.92 + Math.random() * 0.16);
-    var gg = ac.createGain(); gg.gain.value = fe[1] * g;
+    src.playbackRate.value = 0.9 + Math.random() * 0.2;   // ±~10% pitch jitter
+    var gg = ac.createGain(); gg.gain.value = 0.4 * g;
     src.connect(gg); gg.connect(ac.destination); src.start();
     return;
   }
