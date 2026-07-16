@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.75.0';
+var GAME_VERSION = 'v1.75.1';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -12456,7 +12456,7 @@ function updateDriving(dt) {
   var throttle = (c.flooding || c.sunk) ? 0 : (keys['KeyW'] ? 1 : (keys['KeyS'] ? -1 : 0));
   // realistic longitudinal force: strong off the line, tapering as v -> top speed
   // (engine force fades near redline) instead of the old constant snap to top.
-  if (throttle > 0) accel = 14 * hd.acc * (1 - Math.min(1, Math.max(0, c.pspeed) / topF));
+  if (throttle > 0) accel = 7 * hd.acc * (1 - Math.min(1, Math.max(0, c.pspeed) / topF));
   else if (throttle < 0) {
     if (c.pspeed > 0.4) accel = -30 * hd.acc;   // firm braking against forward motion
     else accel = -8 * hd.acc * (1 - Math.min(1, -Math.min(0, c.pspeed) / topR));  // gradual reverse
