@@ -124,14 +124,20 @@ climb as it accelerates, drop on each upshift, and settle to a low
 idle rumble at a stop. Your own stolen ride is louder and richer, and
 answers the throttle.
 
-Cars **drive** with more weight now: they build speed gradually — a
-strong pull off the line that tapers as you approach top speed, instead
-of snapping there instantly. The body **leans into corners** (a hard
-right throws it over to the left), and how far it leans scales with your
-speed and how sharp you turn. Push a turn too hard, too fast and the
-tyres **lose grip** — the car washes wide and slides. Cars can also
-**climb** ramps and raised surfaces (a test ramp sits on the road just
-east of the Publix spawn — drive up and over it).
+Cars **drive** with real weight now. They build speed gradually — a
+strong pull off the line that tapers as you climb toward a **high top
+speed** — and they **carry their momentum**: lift off the gas and the car
+coasts for a long time instead of stopping dead. Steering gets a little
+**heavier the faster you go**, so it's less twitchy at speed. The body
+**leans into corners** (a hard right throws it left), and if you take a
+corner too fast and **hold it too long** the tyres let go: the slide
+builds until the back end steps out and the car **spins out**. Ease off or
+scrub speed to catch it. Cars also **climb** ramps and kerbs — and if you
+hit a ramp or bump **fast enough you catch air**, flying with no steering
+until you land (the faster you're going, the bigger the jump). And crashing
+**into a solid wall at speed hurts** — hit a building fast enough and it's a
+fatal, fiery wreck. (A test ramp sits on the road just east of the Publix
+spawn — get a run-up and launch it.)
 
 Everything now **rides on top of the ground** instead of sinking into
 it: people, police, and vehicles sit on whichever layer is under them —

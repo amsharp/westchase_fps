@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.75.4';
+var GAME_VERSION = 'v1.76.0';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -12499,6 +12499,15 @@ function carHandling(vname) {
   if (vname === 'GG_WRECK') return { acc: 0.75, top: 0.86 };
   return { acc: 1, top: 1 };
 }
+// true if a still-standing breakable (tree / light / snappable pole) sits within
+// r of (x,z) — those get SNAPPED by a fast car, so a smash into one isn't a
+// "hit a solid wall" fatal-crash event.
+function nearBreakable(x, z, r) {
+  if (typeof breakables === 'undefined') return false;
+  var r2 = r * r;
+  for (var i = 0; i < breakables.length; i++) { var b = breakables[i]; if (!b || b.broken || !b.col || b.col.active === false) continue; var dx = x - b.x, dz = z - b.z; if (dx * dx + dz * dz < r2) return true; }
+  return false;
+}
 function updateDriving(dt) {
   var c = driving, g = c.car.group;
   var h = g.rotation.y;
@@ -12507,37 +12516,46 @@ function updateDriving(dt) {
   // identical). Heavier bodies pull away slower and top out lower.
   if (c.handling === undefined) c.handling = carHandling(c.car && c.car.vname);
   var hd = c.handling;
-  var topF = 26 * hd.top, topR = 9 * hd.top;
+  var topF = 39 * hd.top, topR = 13.5 * hd.top;   // +50% top speed (was 26 / 9)
   c.pspeed = c.pspeed || 0;
-  var throttle = (c.flooding || c.sunk) ? 0 : (keys['KeyW'] ? 1 : (keys['KeyS'] ? -1 : 0));
-  // realistic longitudinal force: strong off the line, tapering as v -> top speed
-  // (engine force fades near redline) instead of the old constant snap to top.
+  var airborne = !!c.airborne;
+  var throttle = (c.flooding || c.sunk || airborne) ? 0 : (keys['KeyW'] ? 1 : (keys['KeyS'] ? -1 : 0));
+  // longitudinal: SAME launch force (7) tapering toward the (now higher) top, so
+  // the early pull is unchanged and you keep gaining past the old top up to the new.
   if (throttle > 0) accel = 7 * hd.acc * (1 - Math.min(1, Math.max(0, c.pspeed) / topF));
   else if (throttle < 0) {
     if (c.pspeed > 0.4) accel = -30 * hd.acc;   // firm braking against forward motion
     else accel = -8 * hd.acc * (1 - Math.min(1, -Math.min(0, c.pspeed) / topR));  // gradual reverse
   }
   c.pspeed += accel * dt;
-  if (throttle === 0) c.pspeed *= Math.max(0, 1 - 1.3 * dt);   // coast-down drag
+  if (throttle === 0 && !airborne) c.pspeed *= Math.max(0, 1 - 0.22 * dt);   // light coast drag -> keeps momentum
   c.pspeed = Math.max(-topR, Math.min(topF, c.pspeed));
-  // brake-light input: S/Space against forward motion, or a hard one-frame
-  // speed drop (wall/car impact) — consumed by updateCarLights via updateWorldFx
+  // brake-light input: S/Space against forward motion, or a hard one-frame drop
   c.brakeIn = ((keys['KeyS'] || keys['Space']) && c.pspeed > 0.5) || (c._lps !== undefined && c._lps - c.pspeed > 5);
   c._lps = c.pspeed;
-  var steer = (keys['KeyA'] ? 1 : 0) - (keys['KeyD'] ? 1 : 0);
-  // grip model: a turn demands lateral accel = v * yawRate. Past GRIP the tyres
-  // wash out -> understeer (car rotates less than commanded) AND its travel
-  // direction lags the nose, i.e. it SLIDES. Tighter turn + more speed = more
-  // slip (report: taking turns too tight at speed should break traction).
+  var asp = Math.abs(c.pspeed);
+  var steer = airborne ? 0 : ((keys['KeyA'] ? 1 : 0) - (keys['KeyD'] ? 1 : 0));
+  // steering authority ramps in with speed, then eases OFF up top so the car feels
+  // heavier / less twitchy at high speed (subtle — ~35% less at the ceiling).
   var speedAuth = Math.max(-1, Math.min(1, c.pspeed / 8));
-  var yawRate = steer * 2.1 * speedAuth;
-  var slip = Math.max(0, Math.abs(c.pspeed * yawRate) - 30) / 30;   // 0 grip, >0 sliding
-  h += yawRate * (1 - Math.min(0.6, slip * 0.5)) * dt;              // understeer when saturated
-  c.slip = slip;
+  var turnRate = 2.1 * (1 - 0.35 * Math.min(1, asp / topF));
+  var yawRate = steer * turnRate * speedAuth;
+  // traction: hard cornering at speed BUILDS a slide over time (c.slid). Ease off
+  // or slow and it recovers; hold it pinned too long, too fast and the rear breaks
+  // fully loose and the car spins out — rotation the driver can no longer stop.
+  var GRIP = 32, latAcc = Math.abs(c.pspeed * yawRate);
+  c.slid = c.slid || 0;
+  if (!airborne && latAcc > GRIP && asp > 8) c.slid += (latAcc / GRIP - 1) * dt * 2.0;
+  else c.slid = Math.max(0, c.slid - dt * 1.4);
+  c.slid = Math.min(c.slid, 3.5);
+  if (steer !== 0) c.spinDir = yawRate >= 0 ? 1 : -1;
+  var ctrl = Math.max(0.1, 1 - c.slid * 0.55), loose = Math.max(0, c.slid - 1);
+  h += (yawRate * ctrl + loose * (c.spinDir || 1) * 3.0) * dt;   // past slid>1 the rear breaks loose -> full spin-out
+  c.slip = c.slid;
   var fx = Math.cos(h), fz = -Math.sin(h);
-  // travel direction eases toward the nose — grip catches it fast, a slide slow
+  // travel direction lags the nose the more it slides -> drifts / slides sideways
   if (c.mvx === undefined) { c.mvx = fx; c.mvz = fz; }
-  var mk = Math.min(1, (9 - 7 * Math.min(1, slip)) * dt);
+  var mk = Math.min(1, (9 - 7 * Math.min(1, c.slid)) * dt);
   c.mvx += (fx - c.mvx) * mk; c.mvz += (fz - c.mvz) * mk;
   var ml = Math.sqrt(c.mvx * c.mvx + c.mvz * c.mvz) || 1; c.mvx /= ml; c.mvz /= ml;
   var nx = g.position.x + c.mvx * c.pspeed * dt;
@@ -12545,23 +12563,44 @@ function updateDriving(dt) {
   nx = Math.max(-HALF + 3, Math.min(HALF - 3, nx));
   nz = Math.max(-HALF + 3, Math.min(HALF - 3, nz));
   // the DRIVEN car may cross the shoreline into the water — use the lake-filtered
-  // collider list (same one the on-foot player wades with). The fountain and
-  // every non-lake collider still block; only NPC/traffic pushOut keeps the wall.
+  // collider list. Airborne cars clear low props (feetY = their height).
   if (!landColliders) landColliders = colliders.filter(function (cc) { return !cc.lake; });
-  var p = pushOut(nx, nz, 1.7, landColliders);
+  var p = pushOut(nx, nz, 1.7, landColliders, airborne ? (c.cy || 5) : undefined);
   if (Math.abs(p.x - nx) > 0.01 || Math.abs(p.z - nz) > 0.01) {
-    if (Math.abs(c.pspeed) > 8) sfx('crash');
-    c.svy = (c.svy || 0) - Math.min(1.4, Math.abs(c.pspeed) * 0.09);   // suspension slam
+    if (asp > 8) sfx('crash', { x: p.x, z: p.z, range: 80 });
+    c.svy = (c.svy || 0) - Math.min(1.6, asp * 0.09);   // suspension slam
+    // a hard smash into a SOLID wall (not a snappable tree/pole) hurts you; fast
+    // enough and it's a fatal wreck.
+    if (asp > 16 && !state.dead && !nearBreakable(p.x, p.z, 2.6)) {
+      if (asp > 30) { hurtPlayer(200); explodeCar(c); return; }
+      hurtPlayer(Math.round((asp - 16) * 3.4), p.x, p.z);
+    }
     c.pspeed *= -0.15;
   }
-  var gs = driveSurfaceAt(p.x, p.z);
-  c.cy = c.cy || 0; c.cy += (surfaceHeightAt(p.x, p.z) - c.cy) * Math.min(1, 12 * dt);   // ride the surface (road/curb/ramp)
+  // ---- vertical: ride the surface; a ramp/bump taken too fast throws the car
+  // airborne (no control in the air, momentum carried; landing regains control
+  // and thuds with the crash sound). Air time + distance scale with speed. ----
+  var surf = surfaceHeightAt(p.x, p.z);
+  if (c.cy === undefined) c.cy = surf;
+  if (c.csurf === undefined) c.csurf = surf;
+  var groundRise = (surf - c.csurf) / dt; c.csurf = surf;   // vertical speed of the ground under the car
+  c.cvy = c.cvy || 0;
+  if (airborne) {
+    c.cvy -= 20 * dt; c.cy += c.cvy * dt;                    // ballistic arc
+    if (c.cy <= surf) { c.cy = surf; c.cvy = 0; c.airborne = false; sfx('crash', { x: p.x, z: p.z, range: 70 }); }
+  } else {
+    c.rampV = Math.max(groundRise, (c.rampV || 0) - dt * 30);   // remember recent upward ground speed (a ramp)
+    if (groundRise < 1 && c.rampV > 6 && asp > 15) {            // ground stopped rising = crest -> take off with the stored up-velocity
+      c.airborne = true; c.cvy = Math.min(c.rampV, 15); c.rampV = 0;
+    } else {
+      c.cy += (surf - c.cy) * Math.min(1, 12 * dt);
+    }
+  }
   g.position.set(p.x, c.cy, p.z);
   g.rotation.y = h;
-  // pitch/roll the body to the local grade: nose up climbing, lean across-slope
-  var rgx = -fz, rgz = fx;                                          // car's right vector
-  c.slopePitch = Math.atan(gs.gx * fx + gs.gz * fz);               // +up-grade -> nose up
-  c.slopeRoll = -Math.atan(gs.gx * rgx + gs.gz * rgz);
+  var gs = driveSurfaceAt(p.x, p.z), rgx = -fz, rgz = fx;   // car's right vector
+  if (c.airborne) { c.slopePitch = Math.atan2(c.cvy, Math.max(4, asp)); c.slopeRoll = (c.slopeRoll || 0) * 0.9; }   // nose tracks the arc
+  else { c.slopePitch = Math.atan(gs.gx * fx + gs.gz * fz); c.slopeRoll = -Math.atan(gs.gx * rgx + gs.gz * rgz); }
   lakeCarPhysics(c, dt);   // flood / sink / stall once the car drives into deep water
   var spin = (c.pspeed * dt) / 0.34;
   for (var wi = 0; wi < 4; wi++) c.car.wheels[wi].rotation.y -= spin;
