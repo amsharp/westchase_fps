@@ -585,6 +585,12 @@ east side (x 140..290) + one OOB (-575,-231). Dispositions:
   OOB visible-barrier feature (#42) so the forest/perimeter edge SHOWS why you stop,
   plus mrn2fm6s (-575,-231 OOB). A definitive map-wide sweep still wants the
   instancing+billboard-aware scanner rebuilt (deferred, big).
+  READABILITY FIX@v1.74.21 (owner chose this over removing legit colliders): a
+  forestEdgeBrush() pass now rings every residential-scale forest rect with a
+  dense ~3.5u band of shrubs (2 staggered rows), so the tree line LOOKS
+  impassable and lines up with where the colliders already stop you — you see a
+  wall of brush before you hit it. Pass-through (no colliders added); batched via
+  lbake. Skips slivers (<8u) and the huge fogged perimeter walls (>170u).
 
 ### Props on/near the road — OPEN (owner decision + remap placement)
 - mrn2eixk (-157,135), mrn2b523 (200,-99), mrn2bobd (198,-155) — FIXED@v1.74.20

@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.74.20';
+var GAME_VERSION = 'v1.74.21';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -10110,6 +10110,37 @@ if (WC_REMAP) (function landscapePass() {
     }
     landscapeStats.foundation = hfDone;
   }
+
+  // ---- forest-edge undergrowth (owner: dense forest read as open grass, so
+  // players/cars drove in and hit "invisible" tree colliders). Ring every
+  // forest rect's perimeter with a thick band of shrubs so the boundary LOOKS
+  // impassable — a visible wall of brush that lines up with where the tree
+  // colliders already stop you. Shrubs carry NO collider (pass-through), so this
+  // is purely a readability fix; collision is unchanged. Skip the huge fogged
+  // map-edge walls (already obviously impassable) and tiny slivers. ----
+  (function forestEdgeBrush() {
+    var brush = 0;
+    for (var fi = 0; fi < mapForest.length; fi++) {
+      var fr = mapForest[fi], fw = fr.x1 - fr.x0, fd = fr.z1 - fr.z0;
+      if (fw < 8 || fd < 8 || fw > 170 || fd > 170) continue;   // skip slivers + perimeter walls
+      var step = 2.6, rows = [1.1, 3.4];   // two staggered rows -> a ~3.5u deep hedge band
+      for (var ex = fr.x0 + 1.2; ex <= fr.x1 - 1.2; ex += step) {
+        for (var r1 = 0; r1 < rows.length; r1++) {
+          var jx = ex + rnd(-0.9, 0.9);
+          shrub(jx, fr.z0 + rows[r1] + rnd(-0.7, 0.7), rnd(0.85, 1.35), pick(SHRUB_KEYS)); brush++;
+          shrub(jx, fr.z1 - rows[r1] + rnd(-0.7, 0.7), rnd(0.85, 1.35), pick(SHRUB_KEYS)); brush++;
+        }
+      }
+      for (var ez = fr.z0 + 1.2 + step * 0.5; ez <= fr.z1 - 1.2; ez += step) {
+        for (var r2 = 0; r2 < rows.length; r2++) {
+          var jz = ez + rnd(-0.9, 0.9);
+          shrub(fr.x0 + rows[r2] + rnd(-0.7, 0.7), jz, rnd(0.85, 1.35), pick(SHRUB_KEYS)); brush++;
+          shrub(fr.x1 - rows[r2] + rnd(-0.7, 0.7), jz, rnd(0.85, 1.35), pick(SHRUB_KEYS)); brush++;
+        }
+      }
+    }
+    landscapeStats.forestEdge = brush;
+  })();
 
   lflush();
 })();
