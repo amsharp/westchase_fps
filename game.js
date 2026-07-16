@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.75.3';
+var GAME_VERSION = 'v1.75.4';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -9119,7 +9119,17 @@ if (WC_REMAP) (function densityLayer() {
     bake('d_' + name, { texName: name, twoPlane: true }, USIGN, mtx(x, y, z, ry + Math.PI, sw, sh, 1));
     densityStats.signs++; densityPlaced.push({ n: name, x: x, z: z, y: y });
   }
-  function dBoxAsset(name, x, y, z, ry, sc) { if (!dAsset[name]) return; if (Math.random() < 0.3) return; sc = sc || 1; var a = dAsset[name]; bake('d_' + name, { texName: name }, UBOX, mtx(x, y, z, ry || 0, a.dims[0] * sc, a.dims[1] * sc, a.dims[2] * sc)); densityStats.clutter++; densityPlaced.push({ n: name, x: x, z: z }); }   // owner: thin loose clutter
+  // clutter you should bump into / stand on (owner: AC units etc. had no collision
+  // and you walked through them). Foliage (potted_plant) + flat/low bits (sandbag,
+  // pallet) stay pass-through. Others (boxes, crates, appliances) collide + get a
+  // 2.5D top so you can jump onto them.
+  var D_SOLID = { ac_condenser: 1, utility_box: 1, barrel_delineator: 1, propane_tank: 1, bucket: 1, cardboard_box: 1, wooden_crate: 1, trash_bags: 1, mini_fridge: 1, cooler: 1, generator: 1, toolbox: 1, milk_crate: 1, keg: 1 };
+  function dClutterCol(name, x, y, z, ry, sc, a) {
+    if (!D_SOLID[name]) return;
+    var col = addColliderOBB(x, z, a.dims[0] * sc / 2, a.dims[2] * sc / 2, ry || 0, 'clutter:' + name);
+    col.topY = y + a.dims[1] * sc / 2;   // y is the box centre -> top is +half-height
+  }
+  function dBoxAsset(name, x, y, z, ry, sc) { if (!dAsset[name]) return; if (Math.random() < 0.3) return; sc = sc || 1; var a = dAsset[name]; bake('d_' + name, { texName: name }, UBOX, mtx(x, y, z, ry || 0, a.dims[0] * sc, a.dims[1] * sc, a.dims[2] * sc)); dClutterCol(name, x, y, z, ry, sc, a); densityStats.clutter++; densityPlaced.push({ n: name, x: x, z: z }); }   // owner: thin loose clutter
   // a flat textured box read as "2D trash" (report mredr84j); pile 3-4 lumpy,
   // squashed blobs instead so it reads as bulging plastic bags. Reuses the
   // trash_bags texture on the shared 'd_trash_bags' batch (still one draw call).
@@ -9131,9 +9141,10 @@ if (WC_REMAP) (function densityLayer() {
       var ang = i / n * 6.28 + Math.random(), rad = lead ? 0 : 0.2 + Math.random() * 0.2;
       bake('d_trash_bags', { texName: 'trash_bags' }, UBLOB, mtx(x + Math.cos(ang) * rad, r * 0.82, z + Math.sin(ang) * rad, Math.random() * 6.28, r * 1.9, r * (1.5 + Math.random() * 0.4), r * 1.7));
     }
+    var tcol = addCollider(x, z, 1.0, 1.0, 'clutter:trash_bags'); tcol.topY = 0.7;   // solid pile you can bump / stand on
     densityStats.clutter++; densityPlaced.push({ n: 'trash_bags', x: x, z: z });
   }
-  function dCylAsset(name, x, y, z) { if (!dAsset[name]) return; if (Math.random() < 0.3) return; var a = dAsset[name]; bake('d_' + name, { texName: name }, UCYL, mtx(x, y, z, 0, a.dims[0], a.dims[1], a.dims[0])); densityStats.clutter++; densityPlaced.push({ n: name, x: x, z: z }); }   // owner: thin loose clutter
+  function dCylAsset(name, x, y, z) { if (!dAsset[name]) return; if (Math.random() < 0.3) return; var a = dAsset[name]; bake('d_' + name, { texName: name }, UCYL, mtx(x, y, z, 0, a.dims[0], a.dims[1], a.dims[0])); dClutterCol(name, x, y, z, 0, 1, a); densityStats.clutter++; densityPlaced.push({ n: name, x: x, z: z }); }   // owner: thin loose clutter
   // waist-high+ poles (roadside sign posts, billboard legs) block the player;
   // short yard-sign stakes (h < 1.5) stay pass-through
   function pole(x, z, h, r) { r = r || 0.11; bake('_pole', { color: 0x8a8f94 }, UCYL, mtx(x, h / 2, z, 0, r * 2, h, r * 2)); if (h >= 1.5) addCollider(x, z, Math.max(0.26, r * 2), Math.max(0.26, r * 2), 'pole'); }
@@ -10683,6 +10694,10 @@ var ENV_BLOCK = {
 var ENV_THIN = { planter: 0.5, bollard: 0.5, misc: 0.5 };
 // townhouse mailbox clusters become E-rummageable (junk mail / stray package)
 if (ENV_BY_NAME.mailbox_cluster) ENV_BY_NAME.mailbox_cluster.interact = 'mailbox';
+// solid objects that shipped without a collision flag — you shouldn't walk
+// through a fire pit or a sandwich-board sign (owner collision audit).
+if (ENV_BY_NAME.fire_pit) ENV_BY_NAME.fire_pit.solid = 1;
+if (ENV_BY_NAME.aframe_sign) ENV_BY_NAME.aframe_sign.solid = 1;
 
 var envGeoCache = {}, envTexCache = {};
 // shared water-droplet particle (fountain / drinking-fountain flow anim)
@@ -10916,7 +10931,7 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
       if (e.anim) envAnimInit(rec, e);   // STEP 2: rig up spin/wave/flail/sway/glow/flow
       if (e.solid && !opts.noCol) solidMeshes.push(g);   // bullets stop on solid instances
     }
-    if (e.solid && !opts.noCol) { addColliderOBB(x, z, dims[0] / 2, dims[2] / 2, ry, 'env:' + name); envStats.colliders++; }
+    if (e.solid && !opts.noCol) { var _ec = addColliderOBB(x, z, dims[0] / 2, dims[2] / 2, ry, 'env:' + name); _ec.topY = y + dims[1]; envStats.colliders++; }   // 2.5D: tall ones stay walls (out of jump reach), low ones become standable
     if (opts.mapB || BIGMAP[name]) {
       var c = Math.abs(Math.cos(ry)), s = Math.abs(Math.sin(ry));
       mapBuildings.push({ x: x, z: z, w: dims[0] * c + dims[2] * s, d: dims[0] * s + dims[2] * c, c: 0x8a8f94, pad: 0, h: dims[1] });
