@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.74.16';
+var GAME_VERSION = 'v1.74.17';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -2796,26 +2796,42 @@ processForestTiles(expFillPts);
 // falls under the edge tree line (no hard dark rectangle on the open grass).
 (function forestFloorCover() {
   if (!mapForest.length) return;
-  var TS = 9, pos = [], uv = [], nrm = [], inset = 3;
+  // Each forest rect gets a litter-floor quad, but with a SOFT ALPHA BORDER so it
+  // dissolves into the grass instead of reading as a hard dark rectangle. The old
+  // inset-under-the-treeline trick failed on the sparse remap forest patches
+  // (reports mrn27gm9/mrn27pzp/mrn2ad8g "random black shadows" @ forestPatch
+  // 120..210 / 74..158) — where the canopy doesn't cover the rect, an opaque dark
+  // slab sat on open grass. Per-vertex alpha: full in the interior, 0 at the rim.
+  var TS = 9, pos = [], uv = [], nrm = [], col = [], inset = 3;
+  var y = 0.06;
+  function vert(x, z, a) { pos.push(x, y, z); uv.push(x / TS, z / TS); nrm.push(0, 1, 0); col.push(1, 1, 1, a); }
+  function quad(x0, z0, a0, x1, z1, a1, x2, z2, a2, x3, z3, a3) {
+    vert(x0, z0, a0); vert(x1, z1, a1); vert(x2, z2, a2);
+    vert(x0, z0, a0); vert(x2, z2, a2); vert(x3, z3, a3);
+  }
   for (var i = 0; i < mapForest.length; i++) {
     var r = mapForest[i];
     var ax = r.x0 + inset, bx = r.x1 - inset, az = r.z0 + inset, bz = r.z1 - inset;
     if (bx - ax < 4 || bz - az < 4) continue;
-    // two triangles, y just above the base grass plane
-    var y = 0.06;
-    var q = [[ax, az], [bx, az], [bx, bz], [ax, bz]];
-    var tri = [0, 1, 2, 0, 2, 3];
-    for (var t = 0; t < 6; t++) { var p = q[tri[t]]; pos.push(p[0], y, p[1]); uv.push(p[0] / TS, p[1] / TS); nrm.push(0, 1, 0); }
+    // inner (full-alpha) rect, inset by a fade band; clamp so tiny rects stay valid
+    var fw = Math.min(6, (bx - ax) / 3, (bz - az) / 3);
+    var ix0 = ax + fw, ix1 = bx - fw, iz0 = az + fw, iz1 = bz - fw;
+    quad(ix0, iz0, 1, ix1, iz0, 1, ix1, iz1, 1, ix0, iz1, 1);          // solid interior
+    quad(ax, az, 0, bx, az, 0, ix1, iz0, 1, ix0, iz0, 1);              // -z border strip (fade in)
+    quad(bx, az, 0, bx, bz, 0, ix1, iz1, 1, ix1, iz0, 1);              // +x
+    quad(bx, bz, 0, ax, bz, 0, ix0, iz1, 1, ix1, iz1, 1);              // +z
+    quad(ax, bz, 0, ax, az, 0, ix0, iz0, 1, ix0, iz1, 1);              // -x
   }
   if (!pos.length) return;
   var g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
   g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uv), 2));
   g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(nrm), 3));
+  g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(col), 4));   // RGBA — alpha fades the rim
   var ftex = forestFloorT.clone(); ftex.needsUpdate = true; ftex.repeat.set(1, 1);
-  // DoubleSide: the merged quads are wound front-down, so a single-sided
-  // material would backface-cull the whole cover when viewed from above.
-  var fmat = lamb({ map: ftex, side: THREE.DoubleSide });
+  // vertexColors + transparent => per-vertex alpha fades the border into grass.
+  // depthWrite:false so the soft edge composites cleanly over the base plane.
+  var fmat = lamb({ map: ftex, side: THREE.DoubleSide, transparent: true, vertexColors: true, depthWrite: false });
   fmat.polygonOffset = true; fmat.polygonOffsetFactor = -2; fmat.polygonOffsetUnits = -2;
   var fm = new THREE.Mesh(g, fmat); fm.frustumCulled = false;
   scene.add(fm);
