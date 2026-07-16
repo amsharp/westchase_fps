@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.75.2';
+var GAME_VERSION = 'v1.75.3';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -33,6 +33,10 @@ var HALF = 600, TOTAL = HALF * 2;   // expanded world (map expansion)
 var CORE = 340;                     // original hand-built map half-size — all
                                     // pre-expansion content lives in |x|,|z|<=CORE
 var EYE = 1.7, GRAV = 16;
+// 2.5D collision: a collider with a `.topY` only walls you off while your feet
+// are below its top (minus this step tolerance). Feet at/above the top pass over
+// it and stand on it; anything shorter than STEP_UP you just walk straight up.
+var STEP_UP = 0.5;
 var MAIN_HW = 14;   // main road (E-W, z=0) half width
 var CROSS_HW = 11;  // cross road (N-S, x=0) half width
 // arterial exits through the NEW perimeter (the bends are in EXP_ROADS):
@@ -4934,17 +4938,29 @@ function surfRect(x, z, list, y, h) {
   for (var i = 0; i < list.length; i++) { var r = list[i]; if (x > r.x - r.w / 2 && x < r.x + r.w / 2 && z > r.z - r.d / 2 && z < r.z + r.d / 2) return y; }
   return h;
 }
-function surfaceHeightAt(x, z, skipRects) {
+function surfaceHeightAt(x, z, skipRects, feetY) {
   if (typeof inLake === 'function' && inLake(x, z)) return lakeBedY(x, z);
   var h = driveSurfaceAt(x, z).h;                                      // ramps
   if (typeof REMAP_ROADS !== 'undefined') {
     if (!remapPointClear(x, z, 0)) { if (0.05 > h) h = 0.05; }         // road asphalt / junction
     else if (onSidewalk(x, z)) { if (0.12 > h) h = 0.12; }            // flanking sidewalk
   }
-  if (skipRects) return h;   // NPC fast path: skip the lot/pad/drive register scans
-  h = surfRect(x, z, mapParking, 0.10, h);
-  h = surfRect(x, z, mapDrives, 0.14, h);
-  h = surfRect(x, z, mapPave, 0.13, h);
+  if (!skipRects) {   // NPC fast path skips the lot/pad/drive register scans
+    h = surfRect(x, z, mapParking, 0.10, h);
+    h = surfRect(x, z, mapDrives, 0.14, h);
+    h = surfRect(x, z, mapPave, 0.13, h);
+  }
+  // 2.5D: stand on top of a collider box whose top your feet have reached
+  // (jump onto a dumpster/barrier/etc). Only the player passes feetY.
+  if (feetY !== undefined) {
+    for (var ci = 0; ci < colliders.length; ci++) {
+      var b = colliders[ci];
+      if (b.active === false || b.topY === undefined || b.topY <= h) continue;
+      if (x < b.x0 || x > b.x1 || z < b.z0 || z > b.z1) continue;      // outside footprint bounds
+      if (b.obb) { var odx = x - b.x, odz = z - b.z, u = odx * b.c - odz * b.s, v = odx * b.s + odz * b.c; if (Math.abs(u) > b.hx || Math.abs(v) > b.hz) continue; }
+      if (feetY >= b.topY - STEP_UP) h = b.topY;
+    }
+  }
   return h;
 }
 
@@ -8839,7 +8855,8 @@ function spOverlapsBuilding(x, z, hx, hz) {
     g.rotation.y = ry;
     scene.add(g);
     if (SP_SOLID[name]) {
-      addCollider(x, z, hx * 2, hz * 2, 'prop:' + name);
+      var _pc = addCollider(x, z, hx * 2, hz * 2, 'prop:' + name);
+      _pc.topY = new THREE.Box3().setFromObject(g).max.y;   // 2.5D: real top -> jump onto it
       solidMeshes.push(g);   // bullets stop on the big stuff
     }
     if (SP_SNAP[name]) {
@@ -9720,7 +9737,7 @@ if (WC_REMAP) (function densityLayer() {
     var hx = (dims[0] * c + dims[2] * s) / 2, hz = (dims[0] * s + dims[2] * c) / 2;
     if (spOverlapsBuilding(x, z, hx, hz)) return;
     g.position.set(x, y === undefined ? 0.13 : y, z); g.rotation.y = ry; scene.add(g);
-    if (SP_SOLID[name]) { addCollider(x, z, hx * 2, hz * 2, 'prop:' + name); solidMeshes.push(g); }
+    if (SP_SOLID[name]) { var _spc = addCollider(x, z, hx * 2, hz * 2, 'prop:' + name); _spc.topY = new THREE.Box3().setFromObject(g).max.y; solidMeshes.push(g); }   // 2.5D: real top -> stand on it
     if (SP_SNAP[name]) { registerBreakable(g, x, z, Math.max(hx, hz) + 0.15, SP_SNAP[name], null, SP_BLOCKR[name] || 0); var bb = breakables[breakables.length - 1]; if (name === 'parkingmeter') bb.kind = 'meter'; if (name === 'hydrant') bb.kind = 'hydrant'; if (name === 'trashcan' || name === 'wheeliebin') bb.kind = 'trash'; }
     if (SP_INTERACT[name]) { var it = { kind: SP_INTERACT[name], x: x, z: z, fx: -Math.cos(ry), fz: Math.sin(ry), g: g, cd: -99, robbed: false }; if (it.kind === 'atm') { g.userData.atm = it; if (!SP_SOLID[name]) solidMeshes.push(g); } if (it.kind === 'kick' && SP_SNAP[name]) it.bb = breakables[breakables.length - 1]; streetPropInteractables.push(it); }
     densityStats.props++;
@@ -15647,11 +15664,15 @@ function pointFree(px, pz, r) {
   }
   return true;
 }
-function pushOut(px, pz, r, list) {
+function pushOut(px, pz, r, list, feetY) {
   var L = list || colliders;
   for (var i = 0; i < L.length; i++) {
     var b = L[i];
     if (b.active === false) continue;   // toppled prop's trunk collider — sits out until it respawns
+    // 2.5D: if the mover's feet are at/above this box's top, it's a floor, not a
+    // wall — skip the horizontal block so they pass over / stand on it. (feetY
+    // omitted by NPCs/cars/traffic -> everything blocks, exactly as before.)
+    if (feetY !== undefined && b.topY !== undefined && feetY >= b.topY - STEP_UP) continue;
     if (px < b.x0 - r || px > b.x1 + r || pz < b.z0 - r || pz > b.z1 + r) continue;
     if (b.obb) {
       // oriented box: solve in the box's local frame (u along its width axis),
@@ -20155,10 +20176,10 @@ function updatePlayer(dt) {
   var _preMvX = player.x, _preMvZ = player.z;   // horizontal start-of-frame position (for swept collision below)
   if (f || s) { var inv = spd / Math.sqrt(f * f + s * s); var fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw); player.x += (fx * f + rx * s) * inv * dt; player.z += (fz * f + rz * s) * inv * dt; }
   var spaceDown = !!keys['Space']; player._spaceWas = spaceDown;
-  if (spaceDown && player.grounded) { player.vy = 5.6; player.grounded = false; }
+  if (spaceDown && player.grounded) { player.vy = 6.4; player.grounded = false; }   // ~1.28u apex — clears kerbs + lets you hop onto waist-high props (dumpsters, benches)
   var wasAirborne = !player.grounded;
   player.vy -= GRAV * dt; player.y += player.vy * dt;
-  var eyeFloor = (inside ? (curInterior ? curInterior.box.y : INT.y) : surfaceHeightAt(player.x, player.z)) + EYE;
+  var eyeFloor = (inside ? (curInterior ? curInterior.box.y : INT.y) : surfaceHeightAt(player.x, player.z, false, player.y - EYE)) + EYE;
   if (player.y <= eyeFloor) {
     // fall damage: a hard downward landing hurts, scaled by impact; a big drop
     // (e.g. bailing out of the plane at altitude) is lethal. Small hops are safe.
@@ -20184,12 +20205,12 @@ function updatePlayer(dt) {
     // collider stops/slides you at its face instead of sampling past it.
     var _nsub = Math.ceil(_mdist / 0.22), _sx = _mvx / _nsub, _sz = _mvz / _nsub, _cx = _preMvX, _cz = _preMvZ;
     for (var _ss = 0; _ss < _nsub; _ss++) {
-      var _q = pushOut(_cx + _sx, _cz + _sz, 0.55, _colList);
+      var _q = pushOut(_cx + _sx, _cz + _sz, 0.55, _colList, player.y - EYE);
       _cx = _q.x; _cz = _q.z;
     }
     player.x = _cx; player.z = _cz;
   } else {
-    var p = pushOut(player.x, player.z, 0.55, _colList); player.x = p.x; player.z = p.z;
+    var p = pushOut(player.x, player.z, 0.55, _colList, player.y - EYE); player.x = p.x; player.z = p.z;
   }
   // pedestrians are solid-ish: you shoulder past them, not through them
   if (!inside && !state.dead) for (var pci = 0; pci < npcs.length; pci++) {
@@ -21023,6 +21044,7 @@ window.__wc = {
   enterCar: enterCar, exitCar: exitCar, nearestStealableCar: nearestStealableCar,
   isDriving: function () { return !!driving; }, drivingCar: function () { return driving; },
   pressKey: function (code, down) { keys[code] = down; },
+  surfaceHeightAt: function (x, z, sk, fy) { return surfaceHeightAt(x, z, sk, fy); },
   // --- easter-egg / secret test hooks ---
   stashes: function () { return SECRET_STASHES; },
   secretState: function () { var left = 0; for (var i = 0; i < SECRET_STASHES.length; i++) if (!SECRET_STASHES[i].taken) left++; return { stashesLeft: left, stashTotal: SECRET_STASHES.length, confetti: confetti.length, comboIdx: konamiIdx }; },

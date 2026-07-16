@@ -140,6 +140,12 @@ surface instead of clipping through the raised road and kerb. Drive a car
 up onto a **kerb** and it steps up onto the sidewalk; you can walk (and
 jump) up ramps and raised layers on foot too.
 
+Collision is **2.5D** now: solid props have a real top, so if you can
+**jump high enough you land on top of them** — hop up onto a dumpster,
+bench, or barrier and stand there — while they still wall you off at
+ground level. Your jump is a little higher to make that reachable. Low
+kerbs and steps you just walk straight up.
+
 ## The town talks (and swings back)
 
 Everyone with a name has a voice: the dealer greets you (and remembers
