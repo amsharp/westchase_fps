@@ -585,10 +585,13 @@ east side (x 140..290) + one OOB (-575,-231). Dispositions:
   BREAKABLES from the reporter's own driving (documented: cars snap lamps/trees,
   60s respawn). Semi-intended. Candidate systematic change: topple AWAY from the
   road, or shorten respawn — needs owner call (design, not a clear bug).
-- mrn25ep0 (26,5) + mrn253sm (28,5) — bus shelter jammed at the main-intersection
-  crosswalk. Procedural per-arterial busshelter placer (game.js ~9634) still lands
-  in the junction throat here despite the mrftfuy6 network-clearance guard. Real
-  placement bug; fix needs the remap road-network clearance tightened at junctions.
+- mrn25ep0 (26,5) + mrn253sm (28,5) — FIXED@v1.74.19. The procedural per-arterial
+  busshelter placer landed at the main-intersection crosswalk: it clears
+  remapPointClear(2) yet sits just past the junction-pad edge (pads r=hw*1.5). Added
+  a nearJunction(x,z,m) guard (dist to the nearest RM.pad) and gated placement on
+  !nearJunction(bsx,bsz,12), so the slide-along-polyline search skips junction
+  throats and lands the shelter on a clear sidewalk stretch. Verified: no shelter
+  within 42u of origin (was ~26u on the crosswalk), 3 still placed, all off-asphalt.
 
 ### Other — OPEN
 - mrn2d489 (219,-199 "car headlights don't shine on the road") — FIXED@v1.74.18.

@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.74.18';
+var GAME_VERSION = 'v1.74.19';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -2904,6 +2904,18 @@ function remapPointClear(x, z, pad) {
     }
   }
   return true;
+}
+// distance test to the nearest intersection throat (junction pad). A point can
+// clear remapPointClear yet still sit on the CROSSWALK just past a pad edge —
+// use this with a generous margin to keep bulky props (bus shelters) well back
+// from junctions (report mrn25ep0: shelter on the main-intersection crosswalk).
+function nearJunction(x, z, m) {
+  if (typeof RM === 'undefined' || !RM || !RM.pads) return false;
+  for (var pi = 0; pi < RM.pads.length; pi++) {
+    var pd = RM.pads[pi], dx = x - pd.x, dz = z - pd.z, lim = pd.r + m;
+    if (dx * dx + dz * dz < lim * lim) return true;
+  }
+  return false;
 }
 // true when (x,z) sits on a road's flanking SIDEWALK ribbon (between the curb
 // and the walk's outer edge). remapPointClear only rejects the asphalt (hw+pad),
@@ -9665,7 +9677,9 @@ if (WC_REMAP) (function densityLayer() {
             // shelter sits on the LEFT sidewalk (offset by (-uz,+ux)); its opening
             // (front = (-cos,sin)) must face BACK toward the road, so add PI —
             // Math.atan2(ux,uz) alone points the opening away from the street.
-            if (spotClear(bsx, bsz) && remapPointClear(bsx, bsz, 2) && !remapInClear(bsx, bsz, 0)) {
+            // ...and stay well clear of intersection throats so the shelter never
+            // lands on a crosswalk just past the junction-pad edge (report mrn25ep0).
+            if (spotClear(bsx, bsz) && remapPointClear(bsx, bsz, 2) && !remapInClear(bsx, bsz, 0) && !nearJunction(bsx, bsz, 12)) {
               spFull('busshelter', bsx, bsz, Math.atan2(pbs.ux, pbs.uz) + Math.PI);
               break;
             }
