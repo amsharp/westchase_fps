@@ -551,3 +551,48 @@ Root cause: NPC_COUNT was doubled to 440 with a note that frustum-cull makes it 
 - mrgmtcce (5,140) reversed sign — PARTIAL@v1.67.12. Fixed the two explicit DoubleSide text-sign builders — signPlane() and publixSign() — to two-front-planes back-to-back (greenSign pattern; a single DoubleSide plane mirrors text from behind). These cover storage()'s SELF STORAGE call (line ~1230), shop/stripMall/farnell fascias, ROAD CLOSED, ICE, PUBLIX wordmark, etc. HONEST RESIDUAL: live probing the running (REMAP) build found the VISIBLE storage placard at (12.7,5.4,120) is a SEPARATE single DoubleSide plane (w19.2/h4.2) from an unidentified REMAP facade/fascia path — NOT signPlane (which makes w12 FrontSide planes; a w12 search returned 0 in-scene, so the REMAP venue sign path bypasses signPlane). ~30 such w19-38 DoubleSide venue-fascia planes exist at y~4.5-7 across venues. The 135deg venue rotation defeated a clean true-back capture (oblique back view read non-mirrored). NEXT: find the REMAP venue-name fascia builder and apply the two-plane fix there; the signPlane/publixSign fixes are correct and shipped regardless.
 - mrgmsvpb (27,240) arm clipping — OPEN@v1.67.12. Identified: the northern residential area (27,240) is populated ENTIRELY by SKINNED Meshy civilians (buildMeshySkinned). Examined 6+ nearby chars front + side across walk poses; the wider/muscular Meshy builds hang thick upper arms against a wide torso (closest to intersecting), but no single clear, reproducible arm-through-torso frame was isolated in budget. Arm-drop is rotation.z ±1.42 for the rigid path, but these are skinned (bone-driven walk clips), so a blind clip/adduction tune risks regressing the walk animation. Honest OPEN with character class + likely mechanism (Meshy walk-swing adduction on wide builds) identified. NEXT: systematic per-frame arm-vs-torso penetration sweep across the Meshy walk clip to isolate the offending frame, then clamp adduction.
 - mrgn7702 (-63,-8) floating prop — OPEN@v1.67.12. Exhaustive probing at (-63,-8): the ONLY discrete objects are (1) a wildlife SQUIRREL (buildSquirrel, tail+head), sitting EXACTLY at the report coord (-62.8,-8.4) — measured whole-group bbox y0=-0.018, body-sphere bottom ~0.005 = GROUNDED; (2) parked traffic cars (their small detail planes float at y0~0.6 but that's normal car geometry); (3) streetprops (trashcan/newsbox/vending) at y0=0.13 sitting on the 0.12 sidewalk; (4) crepe-myrtle pink blooms on thin (r0.045-0.085) trunks that read as floating from a distance. NO static prop measured as genuinely floating (foliage scan: 1006 grounded at y0=0, the ~99 at y0>0.3 are all crepe-myrtle canopies). The legless squirrel body sits above its contact shadow, which reads as hovering at close range, but it is geometrically grounded on flat terrain. Could not reproduce a real Y-offset float; honest OPEN with the squirrel identified as the most likely subject + thin-trunk crepe-myrtle as an alternative reading.
+
+## Round (v1.74.16 — owner "Alex" drive-through, 16 reports, triaged 2026-07-16)
+Reporter drove the whole map flagging issues; positions cluster in the WIP remap
+east side (x 140..290) + one OOB (-575,-231). Dispositions:
+
+### Black-shadow patches — FIXED@v1.74.17
+- mrn27gm9 (156,119), mrn27pzp (194,134), mrn2ad8g (255,-49 "invis barrier and
+  weird black shadows") — the shadow part FIXED. ROOT: forestFloorCover() laid an
+  OPAQUE dark litter quad over every mapForest rect; on the sparse remap forest
+  patches (forestPatch 120..210/74..158) the canopy didn't cover it, so a hard
+  dark rectangle sat on open grass. Fix: rebuilt the cover with a per-vertex ALPHA
+  border (full interior → 0 at the rim, transparent+vertexColors+depthWrite:false)
+  so each rect feathers into the grass instead of reading as a black slab. Verified
+  by top-down render at (156,119): hard squares gone, soft forest-floor shade.
+  (mrn2ad8g's invis-barrier half is OPEN — see below.)
+
+### Invisible barriers — OPEN (needs barrier scanner + OOB pass; deferred)
+- mrn2fm6s (-575,-231 "huge invis barrier") — car deep in OOB forest at the map
+  edge; this is the pending "Phase 4e: out-of-bounds visible barriers" task, not an
+  orphan collider. The forest/perimeter colliders are legit; they just aren't
+  VISIBLE walls yet.
+- mrn28mvc (242,37), mrn28cte (241,58), mrn281sk (229,118), mrn26f20 (143,113),
+  mrn25yea (143,29), mrn253sm (28,5), mrn2ad8g (255,-49) — all in the remap east
+  side, near forest/house/busshelter colliders while DRIVING. Need tools/_barrierscan.js
+  (NOT in repo — lived in a prior session scratchpad) rebuilt to separate genuine
+  orphan colliders from legit forest/house walls. Entangled with in-progress remap
+  (#37/#38).
+
+### Props on/near the road — OPEN (owner decision + remap placement)
+- mrn2eixk (-157,135), mrn2b523 (200,-99), mrn2bobd (198,-155) — screenshots show a
+  streetlight lying flat / leaning ~30° across the road. These are TOPPLED
+  BREAKABLES from the reporter's own driving (documented: cars snap lamps/trees,
+  60s respawn). Semi-intended. Candidate systematic change: topple AWAY from the
+  road, or shorten respawn — needs owner call (design, not a clear bug).
+- mrn25ep0 (26,5) + mrn253sm (28,5) — bus shelter jammed at the main-intersection
+  crosswalk. Procedural per-arterial busshelter placer (game.js ~9634) still lands
+  in the junction throat here despite the mrftfuy6 network-clearance guard. Real
+  placement bug; fix needs the remap road-network clearance tightened at junctions.
+
+### Other — OPEN
+- mrn2d489 (219,-199 "car headlights don't shine on the road") — every car has a
+  beam (game.js 2198), gated lampsOn && !parked. Likely faint-glow/too-subtle at
+  night rather than absent; needs a driving render to confirm before touching.
+- mrn2auzo (292,-103 "weird curve at the end of the road") — remap road geometry at
+  a map-edge terminus; part of the in-progress remap (#38).
