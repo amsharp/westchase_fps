@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.74.13';
+var GAME_VERSION = 'v1.74.14';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -16927,7 +16927,7 @@ var RADIO_STATIONS = [
   { id: 'electronic', name: 'ELECTRONIC', tracks: [] },
   { id: 'rap',        name: 'RAP',        tracks: ['music/rap_big_l_put_it_on.mp3', 'music/rap_chief_keef_kills.mp3', 'music/rap_mario_judah_i_miss_the_rage.mp3', 'music/rap_tayk_murder_she_wrote.mp3'] },
   { id: 'chill',      name: 'CHILL',      tracks: [] },
-  { id: 'rock',       name: 'ROCK',       tracks: [] }
+  { id: 'rock',       name: 'ROCK',       tracks: ['music/rock_alice_in_chains_them_bones.mp3', 'music/rock_deans_dream.mp3', 'music/rock_nirvana_lithium.mp3', 'music/rock_way_down_the_line.mp3'] }
 ];
 var radioStation = -1;    // -1 = OFF; 0..N-1 = station index (persists across cars)
 var radioTrack = 0;       // current track index within the station's tracks[]
