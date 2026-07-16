@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.74.22';
+var GAME_VERSION = 'v1.75.0';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -2245,9 +2245,14 @@ function updateCarFeel(c, dt, spd, accel, steer) {
   c.pitchS = c.pitchS || 0; c.rollS = c.rollS || 0;
   var k = Math.min(1, 6 * dt);
   c.pitchS += ((accel || 0) * 0.0035 - c.pitchS) * k;
-  c.rollS += (-(steer || 0) * Math.min(1, asp / 12) * 0.05 - c.rollS) * k;
-  cc.body.rotation.z = c.pitchS;
-  cc.body.rotation.x = c.rollS;
+  // lateral body lean: grows with speed AND turn tightness; a right turn (D)
+  // throws weight to the outside so the body rolls LEFT. Bigger + springier
+  // than the old barely-there tilt.
+  var leanT = -(steer || 0) * Math.min(1, asp / 9) * 0.18;
+  c.rollS += (leanT - c.rollS) * k;
+  var onGrade = (c === driving);   // ramp tilt only affects the car you're driving
+  cc.body.rotation.z = c.pitchS + (onGrade ? (c.slopePitch || 0) : 0);
+  cc.body.rotation.x = c.rollS + (onGrade ? (c.slopeRoll || 0) : 0);
   var target = (steer || 0) * 0.42;
   c.steerA = c.steerA || 0;
   c.steerA += (target - c.steerA) * Math.min(1, 10 * dt);
@@ -4871,6 +4876,53 @@ if (WC_REMAP) (function r3Junction() {
     }
   }
 })();
+
+// ---- drivable ramps / raised surfaces (temp test rig; groundwork for highways)
+// A ramp is an up-slope -> flat top -> down-slope hump the DRIVEN car climbs:
+// updateDriving samples driveSurfaceAt() and lifts group.position.y to the
+// surface, then pitches/rolls the body to the local grade. No collider (you
+// drive onto it, not into it); on-foot players don't climb it yet.
+var driveRamps = [];
+function addRamp(ax, az, dirDeg, len, rise, topLen, wid) {
+  var a = dirDeg * Math.PI / 180;
+  var r = { ax: ax, az: az, ux: Math.cos(a), uz: Math.sin(a), len: len, rise: rise, topLen: topLen, wid: wid, grad: rise / len };
+  driveRamps.push(r); buildRampMesh(r); return r;
+}
+var _ds = { h: 0, gx: 0, gz: 0 };
+function driveSurfaceAt(x, z) {
+  var h = 0, gx = 0, gz = 0;
+  for (var i = 0; i < driveRamps.length; i++) {
+    var r = driveRamps[i], dx = x - r.ax, dz = z - r.az;
+    var s = dx * r.ux + dz * r.uz, t = -dx * r.uz + dz * r.ux;
+    if (Math.abs(t) > r.wid / 2) continue;
+    var end = 2 * r.len + r.topLen, hh, sl = 0;
+    if (s < 0 || s > end) continue;
+    if (s <= r.len) { hh = r.grad * s; sl = r.grad; }               // up slope
+    else if (s <= r.len + r.topLen) { hh = r.rise; sl = 0; }        // flat top
+    else { hh = r.rise - r.grad * (s - r.len - r.topLen); sl = -r.grad; }  // down slope
+    if (hh > h) { h = hh; gx = sl * r.ux; gz = sl * r.uz; }
+  }
+  _ds.h = h; _ds.gx = gx; _ds.gz = gz; return _ds;
+}
+function buildRampMesh(r) {
+  var W = r.wid, prof = [[0, 0], [r.len, r.rise], [r.len + r.topLen, r.rise], [2 * r.len + r.topLen, 0]];
+  var pos = [], idx = [], v = 0;
+  function P(s, y, t) { return [r.ax + r.ux * s - r.uz * t, y, r.az + r.uz * s + r.ux * t]; }
+  function quad(A, B, C, D) { pos.push(A[0], A[1], A[2], B[0], B[1], B[2], C[0], C[1], C[2], D[0], D[1], D[2]); idx.push(v, v + 1, v + 2, v, v + 2, v + 3); v += 4; }
+  for (var i = 0; i < prof.length - 1; i++) {
+    var s0 = prof[i][0], y0 = prof[i][1], s1 = prof[i + 1][0], y1 = prof[i + 1][1];
+    quad(P(s0, y0, -W / 2), P(s1, y1, -W / 2), P(s1, y1, W / 2), P(s0, y0, W / 2));    // top surface
+    quad(P(s0, 0, -W / 2), P(s1, 0, -W / 2), P(s1, y1, -W / 2), P(s0, y0, -W / 2));    // left skirt
+    quad(P(s0, y0, W / 2), P(s1, y1, W / 2), P(s1, 0, W / 2), P(s0, 0, W / 2));        // right skirt
+  }
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+  geo.setIndex(idx); geo.computeVertexNormals();
+  var mat = lamb({ color: 0x8f9296 }); mat.side = THREE.DoubleSide;
+  var mesh = new THREE.Mesh(geo, mat); scene.add(mesh);
+}
+// TEMP test ramp on the road just east of spawn (-63,4) — drive east onto it.
+if (WC_REMAP) addRamp(-46, 3, 8, 9, 3.2, 7, 9);
 
 // ---- R3.5 divided arterials (remap): curbed grass medians with palms down
 // Race Track Rd + Countryway Blvd, per the satellite (both are divided roads
@@ -12399,22 +12451,41 @@ function updateDriving(dt) {
   // identical). Heavier bodies pull away slower and top out lower.
   if (c.handling === undefined) c.handling = carHandling(c.car && c.car.vname);
   var hd = c.handling;
-  if (keys['KeyW']) accel = 12 * hd.acc;
-  else if (keys['KeyS']) accel = -15 * hd.acc;
-  if (c.flooding || c.sunk) accel = 0;   // swamped: no throttle authority (lakeCarPhysics decays pspeed)
+  var topF = 26 * hd.top, topR = 9 * hd.top;
   c.pspeed = c.pspeed || 0;
+  var throttle = (c.flooding || c.sunk) ? 0 : (keys['KeyW'] ? 1 : (keys['KeyS'] ? -1 : 0));
+  // realistic longitudinal force: strong off the line, tapering as v -> top speed
+  // (engine force fades near redline) instead of the old constant snap to top.
+  if (throttle > 0) accel = 14 * hd.acc * (1 - Math.min(1, Math.max(0, c.pspeed) / topF));
+  else if (throttle < 0) {
+    if (c.pspeed > 0.4) accel = -30 * hd.acc;   // firm braking against forward motion
+    else accel = -8 * hd.acc * (1 - Math.min(1, -Math.min(0, c.pspeed) / topR));  // gradual reverse
+  }
   c.pspeed += accel * dt;
-  if (!accel) c.pspeed *= Math.max(0, 1 - 1.4 * dt);
-  c.pspeed = Math.max(-9 * hd.top, Math.min(26 * hd.top, c.pspeed));
+  if (throttle === 0) c.pspeed *= Math.max(0, 1 - 1.3 * dt);   // coast-down drag
+  c.pspeed = Math.max(-topR, Math.min(topF, c.pspeed));
   // brake-light input: S/Space against forward motion, or a hard one-frame
   // speed drop (wall/car impact) — consumed by updateCarLights via updateWorldFx
   c.brakeIn = ((keys['KeyS'] || keys['Space']) && c.pspeed > 0.5) || (c._lps !== undefined && c._lps - c.pspeed > 5);
   c._lps = c.pspeed;
   var steer = (keys['KeyA'] ? 1 : 0) - (keys['KeyD'] ? 1 : 0);
-  if (steer) h += steer * 2.1 * dt * Math.max(-1, Math.min(1, c.pspeed / 8));
+  // grip model: a turn demands lateral accel = v * yawRate. Past GRIP the tyres
+  // wash out -> understeer (car rotates less than commanded) AND its travel
+  // direction lags the nose, i.e. it SLIDES. Tighter turn + more speed = more
+  // slip (report: taking turns too tight at speed should break traction).
+  var speedAuth = Math.max(-1, Math.min(1, c.pspeed / 8));
+  var yawRate = steer * 2.1 * speedAuth;
+  var slip = Math.max(0, Math.abs(c.pspeed * yawRate) - 30) / 30;   // 0 grip, >0 sliding
+  h += yawRate * (1 - Math.min(0.6, slip * 0.5)) * dt;              // understeer when saturated
+  c.slip = slip;
   var fx = Math.cos(h), fz = -Math.sin(h);
-  var nx = g.position.x + fx * c.pspeed * dt;
-  var nz = g.position.z + fz * c.pspeed * dt;
+  // travel direction eases toward the nose — grip catches it fast, a slide slow
+  if (c.mvx === undefined) { c.mvx = fx; c.mvz = fz; }
+  var mk = Math.min(1, (9 - 7 * Math.min(1, slip)) * dt);
+  c.mvx += (fx - c.mvx) * mk; c.mvz += (fz - c.mvz) * mk;
+  var ml = Math.sqrt(c.mvx * c.mvx + c.mvz * c.mvz) || 1; c.mvx /= ml; c.mvz /= ml;
+  var nx = g.position.x + c.mvx * c.pspeed * dt;
+  var nz = g.position.z + c.mvz * c.pspeed * dt;
   nx = Math.max(-HALF + 3, Math.min(HALF - 3, nx));
   nz = Math.max(-HALF + 3, Math.min(HALF - 3, nz));
   // the DRIVEN car may cross the shoreline into the water — use the lake-filtered
@@ -12427,8 +12498,14 @@ function updateDriving(dt) {
     c.svy = (c.svy || 0) - Math.min(1.4, Math.abs(c.pspeed) * 0.09);   // suspension slam
     c.pspeed *= -0.15;
   }
-  g.position.set(p.x, 0, p.z);
+  var gs = driveSurfaceAt(p.x, p.z);
+  c.cy = c.cy || 0; c.cy += (gs.h - c.cy) * Math.min(1, 12 * dt);   // ease onto ramp surface
+  g.position.set(p.x, c.cy, p.z);
   g.rotation.y = h;
+  // pitch/roll the body to the local grade: nose up climbing, lean across-slope
+  var rgx = -fz, rgz = fx;                                          // car's right vector
+  c.slopePitch = Math.atan(gs.gx * fx + gs.gz * fz);               // +up-grade -> nose up
+  c.slopeRoll = -Math.atan(gs.gx * rgx + gs.gz * rgz);
   lakeCarPhysics(c, dt);   // flood / sink / stall once the car drives into deep water
   var spin = (c.pspeed * dt) / 0.34;
   for (var wi = 0; wi < 4; wi++) c.car.wheels[wi].rotation.y -= spin;

@@ -124,6 +124,15 @@ climb as it accelerates, drop on each upshift, and settle to a low
 idle rumble at a stop. Your own stolen ride is louder and richer, and
 answers the throttle.
 
+Cars **drive** with more weight now: they build speed gradually — a
+strong pull off the line that tapers as you approach top speed, instead
+of snapping there instantly. The body **leans into corners** (a hard
+right throws it over to the left), and how far it leans scales with your
+speed and how sharp you turn. Push a turn too hard, too fast and the
+tyres **lose grip** — the car washes wide and slides. Cars can also
+**climb** ramps and raised surfaces (a test ramp sits on the road just
+east of the Publix spawn — drive up and over it).
+
 ## The town talks (and swings back)
 
 Everyone with a name has a voice: the dealer greets you (and remembers
