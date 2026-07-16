@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.74.7';
+var GAME_VERSION = 'v1.74.8';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -12871,7 +12871,7 @@ var cashTopT = (function () {
 })();
 var cashSideM = lamb({ color: 0x4a8a3e }), cashTopM = lamb2(cashTopT);
 var cashMats = [cashSideM, cashSideM, cashTopM, cashSideM, cashSideM, cashSideM];
-function spawnCash(x, z, val, baseY) { var m = new THREE.Mesh(cashGeo, cashMats); m.position.set(x + (Math.random() - 0.5), (baseY || 0) + 0.4, z + (Math.random() - 0.5)); scene.add(m); cashes.push({ mesh: m, val: val, life: 40, baseY: baseY || 0 }); }
+function spawnCash(x, z, val, baseY, life) { var m = new THREE.Mesh(cashGeo, cashMats); m.position.set(x + (Math.random() - 0.5), (baseY || 0) + 0.4, z + (Math.random() - 0.5)); scene.add(m); cashes.push({ mesh: m, val: val, life: life || 40, baseY: baseY || 0 }); }
 // cash from client-triggered events (ATM/meter) must be spawned on the HOST,
 // or the authoritative cash-snapshot rebuild wipes it before it can be looted.
 function spawnCashNet(x, z, val) { if (isClient()) netToHost({ t: 'atmCash', x: x, z: z, val: val }); else spawnCash(x, z, val); }
@@ -16575,8 +16575,16 @@ function hurtPlayer(d, sx, sz) {
     }
     if (inside) exitStore(true);   // clean up interior cops + lockout, respawn is outside anyway
     closeMenus(false); closeChat(false); closeBug();   // dying with a panel open left it stuck (frozen after respawn) + a buy-guns-back-while-dead exploit
-    var lost = Math.floor(state.money * 0.25); state.money -= lost;
-    document.getElementById('deadInfo').textContent = lost > 0 ? 'You dropped $' + lost + ' on the pavement.' : 'At least you were already broke.';
+    var lost = Math.min(500, Math.floor(state.money * 0.10)); state.money -= lost;
+    // half of what you lose actually hits the pavement as recoverable cash (2-min
+    // despawn, like dropped guns) — you can race back for it, or your killer loots
+    // it (makes PvP kills pay). The other half is gone for good.
+    var dropCash = Math.floor(lost / 2);
+    if (dropCash > 0) {
+      if (isClient()) netToHost({ t: 'atmCash', x: player.x, z: player.z, val: dropCash, life: 120 });
+      else spawnCash(player.x, player.z, dropCash, 0, 120);
+    }
+    document.getElementById('deadInfo').textContent = lost > 0 ? 'You lost $' + lost + (dropCash > 0 ? ' — $' + dropCash + ' spilled on the pavement.' : '.') : 'At least you were already broke.';
     deadAt = performance.now();
     startDeathCam();   // top-down zoom-out cinematic; the menu (respawn / main menu) appears when it finishes
     state.wanted = 0; state.civKills = 0; state.copKills = 0; updateStarsHUD();
@@ -18441,7 +18449,9 @@ function handleNet(m, conn) {
       if (!dup) {
         recentAtmCash.push({ x: acx, z: acz, t: T });
         if (recentAtmCash.length > 24) recentAtmCash.shift();
-        spawnCash(acx, acz, clampf(m.val, 1, 200) | 0);
+        // val up to 250 covers a death drop (half of the $500 loss cap); optional
+        // life lets a dying client's cash get the same 2-min despawn as the host's
+        spawnCash(acx, acz, clampf(m.val, 1, 250) | 0, 0, m.life ? clampf(m.life, 1, 120) : 40);
       }
     } else if (m.t === 'takeCash') {
       var bi = -1, bd2 = 6;

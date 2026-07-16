@@ -736,6 +736,8 @@ rooftops and gone. Wave if you see them.
   for the deep Florida lots).
 - The map is finite — a wall rings the city.
 - Watch for traffic; cars hurt.
-- Getting knocked out costs you 25% of your cash.
+- Getting knocked out costs you 10% of your cash (capped at $500). Half of what
+  you lose spills onto the pavement as cash you (or your killer) can grab within
+  2 minutes before it despawns; the other half is gone. Your guns drop too.
 - `serve.ps1` is only there so the dev preview can host the game locally;
   the game itself doesn't need it.
