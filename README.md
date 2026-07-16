@@ -133,6 +133,13 @@ tyres **lose grip** — the car washes wide and slides. Cars can also
 **climb** ramps and raised surfaces (a test ramp sits on the road just
 east of the Publix spawn — drive up and over it).
 
+Everything now **rides on top of the ground** instead of sinking into
+it: people, police, and vehicles sit on whichever layer is under them —
+grass, road, sidewalk, parking lot, or ramp — so feet and tyres meet the
+surface instead of clipping through the raised road and kerb. Drive a car
+up onto a **kerb** and it steps up onto the sidewalk; you can walk (and
+jump) up ramps and raised layers on foot too.
+
 ## The town talks (and swings back)
 
 Everyone with a name has a voice: the dealer greets you (and remembers

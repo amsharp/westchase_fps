@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.75.1';
+var GAME_VERSION = 'v1.75.2';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -4923,6 +4923,30 @@ function buildRampMesh(r) {
 }
 // TEMP test ramp on the road just east of spawn (-63,4) — drive east onto it.
 if (WC_REMAP) addRamp(-46, 3, 8, 9, 3.2, 7, 9);
+
+// Top walkable/drivable surface height at (x,z): people + cars ride ON the
+// highest layer (grass 0 / road .05 / lot .10 / sidewalk .12 / pad .13 /
+// drive .14 / ramp) instead of clipping through it (feet/tyres were pinned to
+// y=0 so they sank into every raised surface). In the lake, defer to the bed so
+// you still sink and swim. Used by the player floor, NPC feet, and car wheels.
+function surfRect(x, z, list, y, h) {
+  if (y <= h || !list) return h;
+  for (var i = 0; i < list.length; i++) { var r = list[i]; if (x > r.x - r.w / 2 && x < r.x + r.w / 2 && z > r.z - r.d / 2 && z < r.z + r.d / 2) return y; }
+  return h;
+}
+function surfaceHeightAt(x, z, skipRects) {
+  if (typeof inLake === 'function' && inLake(x, z)) return lakeBedY(x, z);
+  var h = driveSurfaceAt(x, z).h;                                      // ramps
+  if (typeof REMAP_ROADS !== 'undefined') {
+    if (!remapPointClear(x, z, 0)) { if (0.05 > h) h = 0.05; }         // road asphalt / junction
+    else if (onSidewalk(x, z)) { if (0.12 > h) h = 0.12; }            // flanking sidewalk
+  }
+  if (skipRects) return h;   // NPC fast path: skip the lot/pad/drive register scans
+  h = surfRect(x, z, mapParking, 0.10, h);
+  h = surfRect(x, z, mapDrives, 0.14, h);
+  h = surfRect(x, z, mapPave, 0.13, h);
+  return h;
+}
 
 // ---- R3.5 divided arterials (remap): curbed grass medians with palms down
 // Race Track Rd + Countryway Blvd, per the satellite (both are divided roads
@@ -12499,7 +12523,7 @@ function updateDriving(dt) {
     c.pspeed *= -0.15;
   }
   var gs = driveSurfaceAt(p.x, p.z);
-  c.cy = c.cy || 0; c.cy += (gs.h - c.cy) * Math.min(1, 12 * dt);   // ease onto ramp surface
+  c.cy = c.cy || 0; c.cy += (surfaceHeightAt(p.x, p.z) - c.cy) * Math.min(1, 12 * dt);   // ride the surface (road/curb/ramp)
   g.position.set(p.x, c.cy, p.z);
   g.rotation.y = h;
   // pitch/roll the body to the local grade: nose up climbing, lean across-slope
@@ -16970,6 +16994,18 @@ var fallAxis = new THREE.Vector3(), fallQ = new THREE.Quaternion();
 function updateWorldFx(dt) {
   updateSignals(dt);   // traffic-signal cycle (corridor details section)
   updateRtPylon(dt);   // RaceTrac pylon 7-seg flicker (rare canvas repaint)
+  // ground NPCs on the top surface (feet were pinned to y=0, sinking into raised
+  // road/sidewalk). Downed/ragdolled NPCs manage their own y. skipRects fast path.
+  for (var gi = 0; gi < npcs.length; gi++) {
+    var gn = npcs[gi];
+    if (!gn.mesh || gn.state === 'down' || gn.state === 'ragdoll') continue;
+    gn.mesh.position.y = surfaceHeightAt(gn.x, gn.z, true);
+  }
+  for (var gci = 0; gci < cops.length; gci++) {
+    var gc = cops[gci];
+    if (!gc.mesh || gc.interior || gc.state === 'down') continue;   // interior cops keep their room y
+    gc.mesh.position.y = surfaceHeightAt(gc.x, gc.z, true);
+  }
   // cars snap trees & street lights (works on host and on mirrored client cars)
   for (var i = 0; i < cars.length; i++) {
     var c = cars[i];
@@ -16978,6 +17014,10 @@ function updateWorldFx(dt) {
       if (c.car.beam.visible !== bv) c.car.beam.visible = bv;
     }
     var m = c.car.group.position;
+    // ride the top surface (road/curb/lot/ramp) — tyres were pinned to y=0 and
+    // sank into every raised layer. The driven car sets its own y (updateDriving);
+    // exploded/flooded/sunk husks manage theirs.
+    if (c !== driving && !c.exploded && !c.flooding && !c.sunk) m.y = surfaceHeightAt(m.x, m.z);
     var hx = c._bx === undefined ? m.x : c._bx, hz = c._bz === undefined ? m.z : c._bz;
     var mvx = m.x - hx, mvz = m.z - hz;
     c._bx = m.x; c._bz = m.z;
@@ -20118,7 +20158,7 @@ function updatePlayer(dt) {
   if (spaceDown && player.grounded) { player.vy = 5.6; player.grounded = false; }
   var wasAirborne = !player.grounded;
   player.vy -= GRAV * dt; player.y += player.vy * dt;
-  var eyeFloor = (inside ? (curInterior ? curInterior.box.y : INT.y) : lakeBedY(player.x, player.z)) + EYE;
+  var eyeFloor = (inside ? (curInterior ? curInterior.box.y : INT.y) : surfaceHeightAt(player.x, player.z)) + EYE;
   if (player.y <= eyeFloor) {
     // fall damage: a hard downward landing hurts, scaled by impact; a big drop
     // (e.g. bailing out of the plane at altitude) is lethal. Small hops are safe.
