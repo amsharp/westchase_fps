@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.74.12';
+var GAME_VERSION = 'v1.74.13';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -16925,7 +16925,7 @@ var RADIO_VOL = 0.75;   // radio loudness relative to the master volume
 // tracks[] grow as MP3s are dropped into music/ and listed here — no limit.
 var RADIO_STATIONS = [
   { id: 'electronic', name: 'ELECTRONIC', tracks: [] },
-  { id: 'rap',        name: 'RAP',        tracks: [] },
+  { id: 'rap',        name: 'RAP',        tracks: ['music/rap_big_l_put_it_on.mp3', 'music/rap_chief_keef_kills.mp3', 'music/rap_mario_judah_i_miss_the_rage.mp3', 'music/rap_tayk_murder_she_wrote.mp3'] },
   { id: 'chill',      name: 'CHILL',      tracks: [] },
   { id: 'rock',       name: 'ROCK',       tracks: [] }
 ];
