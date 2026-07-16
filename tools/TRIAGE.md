@@ -586,9 +586,10 @@ east side (x 140..290) + one OOB (-575,-231). Dispositions:
   plus mrn2fm6s (-575,-231 OOB). A definitive map-wide sweep still wants the
   instancing+billboard-aware scanner rebuilt (deferred, big).
   READABILITY FIX@v1.74.21 (owner chose this over removing legit colliders): a
-  forestEdgeBrush() pass now rings every residential-scale forest rect with a
-  dense ~3.5u band of shrubs (2 staggered rows), so the tree line LOOKS
-  impassable and lines up with where the colliders already stop you — you see a
+  forestBrush() pass now FILLS every residential-scale forest rect with a bed of
+  shrubs that grow BIGGER toward the middle (eased edge->core, ~0.6 rim -> ~2.75
+  core, v1.74.22), so the tree line LOOKS impassable and lines up with where the
+  colliders already stop you — you see a
   wall of brush before you hit it. Pass-through (no colliders added); batched via
   lbake. Skips slivers (<8u) and the huge fogged perimeter walls (>170u).
 
