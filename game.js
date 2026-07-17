@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.4';
+var GAME_VERSION = 'v1.76.5';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -12395,10 +12395,14 @@ function enterCar(c) {
   pitch = 0;
   document.getElementById('crosshair').style.display = 'none';
   document.getElementById('weaponBox').innerHTML = '';   // no driving HUD text — controls live in the pause-menu CONTROLS tab
-  radioResume();   // resume the selected radio station (music stopped when you last got out)
+  // radio: a car you've driven before picks up its own station where you left it;
+  // a fresh steal rolls the previous driver's radio (off, or already mid-song).
+  if (c.radio) radioApplySnapshot(c.radio);
+  else { c.radio = radioHijackRoll(); radioApplySnapshot(c.radio); }
 }
 function exitCar(hijacked) {
   if (!driving) return;
+  driving.radio = radioSnapshot();   // remember this car's station/song/position for next time you get in
   radioStop();   // music stops the moment you leave the car
   var g = driving.car.group;
   var h = g.rotation.y;
@@ -16842,6 +16846,7 @@ function hurtPlayer(d, sx, sz) {
     if (driving) {
       // tell the host the car is free, or it keeps chasing our respawned ghost
       if (isClient()) { var dcp = driving.car.group; netToHost({ t: 'park', i: cars.indexOf(driving), x: dcp.position.x, z: dcp.position.z, ry: dcp.rotation.y }); }
+      driving.radio = radioSnapshot();   // keep this car's station if you come back for it
       radioStop();   // dying in a car with the radio on left it playing through respawn — kill it here too
       if (driving.eng) stopEngine(driving);   // ...and silence the engine/idle audio on death
       driving.pspeed = 0; driving = null; document.getElementById('crosshair').style.display = ''; vm.visible = true;
@@ -17245,6 +17250,7 @@ var radioLastTrack = -1;  // last track played — reshuffles avoid repeating it
 var radioErr = 0;         // consecutive load errors this station (missing-file skip guard)
 var radioEl = null;       // the HTMLAudioElement doing playback
 var radioWantPlay = false; // are we supposed to be playing right now (in-car + station on)
+var radioSeekPending = 0;  // seconds to seek into the next loaded track (hijack "mid-song" illusion / resume where you left off)
 function radioInit() {
   if (radioEl) return radioEl;
   try {
@@ -17268,6 +17274,16 @@ function radioLoadAndPlay() {
   radioEl.src = st.tracks[radioTrack % st.tracks.length];
   radioApplyVolume();
   radioWantPlay = true;
+  // seek partway in once metadata is known (a hijacked NPC "already listening", or
+  // resuming your own car where you left off). Guard against tracks shorter than the seek.
+  if (radioSeekPending > 0) {
+    var seekTo = radioSeekPending; radioSeekPending = 0;
+    var onMeta = function () {
+      radioEl.removeEventListener('loadedmetadata', onMeta);
+      try { if (isFinite(radioEl.duration) && radioEl.duration > seekTo + 2) radioEl.currentTime = seekTo; } catch (e) { }
+    };
+    radioEl.addEventListener('loadedmetadata', onMeta);
+  }
   try { var p = radioEl.play(); if (p && p.catch) p.catch(function () { }); } catch (e) { }
 }
 // Fisher-Yates shuffle of [0..n-1]; when n>1 the result never starts on `avoid`
@@ -17329,6 +17345,37 @@ function radioStop() {
 function radioResume() {
   // re-entering a car resumes the selected station where it left off
   if (radioStation >= 0) radioLoadAndPlay();
+}
+// ---- per-car radio memory -------------------------------------------------
+// Each car remembers its own station / song / playback position (c.radio), so
+// hopping out and back in picks up right where you left off. A car you've never
+// been in gets a fresh "hijack" roll instead (see radioHijackRoll).
+function radioSnapshot() {
+  return { station: radioStation, track: radioTrack, queue: radioQueue.slice(), qpos: radioQPos,
+           lastTrack: radioLastTrack, time: (radioEl ? (radioEl.currentTime || 0) : 0) };
+}
+function radioApplySnapshot(s) {
+  radioInit();
+  radioStation = (s && s.station != null) ? s.station : -1;
+  if (radioStation < 0) { radioStop(); return; }
+  var st = RADIO_STATIONS[radioStation], n = (st && st.tracks) ? st.tracks.length : 0;
+  radioTrack = s.track || 0;
+  radioQueue = (s.queue && s.queue.length) ? s.queue.slice() : radioShuffle(n, -1);
+  radioQPos = s.qpos || 0;
+  radioLastTrack = (s.lastTrack != null) ? s.lastTrack : -1;
+  radioErr = 0;
+  radioSeekPending = (s.time > 0) ? s.time : 0;
+  radioLoadAndPlay();
+}
+// fresh carjack/break-in: the previous driver's radio was either off or already
+// mid-song on some station — seed it 20-30s into a random track for the illusion.
+function radioHijackRoll() {
+  var ns = RADIO_STATIONS.length;
+  if (ns === 0 || Math.random() < 0.4) return { station: -1 };   // ~40% they had it off
+  var idx = (Math.random() * ns) | 0;
+  var st = RADIO_STATIONS[idx], n = (st && st.tracks) ? st.tracks.length : 0;
+  var q = radioShuffle(n, -1);
+  return { station: idx, track: n ? q[0] : 0, queue: q, qpos: 0, lastTrack: -1, time: 20 + Math.random() * 10 };
 }
 function radioTick() {
   // keep the level in sync with the master-volume setting while driving

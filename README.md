@@ -440,8 +440,12 @@ WASD to drive, **E** to get out (the controls all live in the pause-menu
 or button prompts). Tap **R** to flip on the
 **car radio** and cycle its stations — **Electronic, Rap, Chill, Rock**, or
 off. Each station plays a set of tracks on a loop; the music is yours alone
-(other cars stay quiet), it cuts out the moment you step out, wreck, or die,
-and it picks the station back up when you climb into your next ride. The
+(other cars stay quiet), and it cuts out the moment you step out, wreck, or
+die. Every car remembers **its own** radio: hop out and back into the same
+ride and it's right where you left it, same station and song. But **jack a
+fresh car** and you inherit whatever the last driver had going — often the
+radio's off, and when it's on you drop in **partway through** a random song,
+like they'd been listening the whole time. The
 engine note dies with it too — step out or get wasted and the idle goes
 silent. You can't shoot from the driver's seat,
 but the car itself is the weapon — mow down pedestrians and cops, and
