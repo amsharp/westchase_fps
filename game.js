@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.9';
+var GAME_VERSION = 'v1.76.10';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -12579,6 +12579,23 @@ function nearBreakable(x, z, r) {
   for (var i = 0; i < breakables.length; i++) { var b = breakables[i]; if (!b || b.broken || !b.col || b.col.active === false) continue; var dx = x - b.x, dz = z - b.z; if (dx * dx + dz * dz < r2) return true; }
   return false;
 }
+// Oriented (OBB) overlap test between two cars, 2D SAT on the four box axes.
+// Replaces the old world-axis AABB ram box, which flagged a "hit" whenever a car
+// was within 4x3.2 world units regardless of heading — so passing a car in the
+// next lane phantom-bumped you. Half-extents are the real footprint, trimmed a
+// touch so only genuine contact counts.
+var CAR_HL = 2.15, CAR_HW = 0.98;   // half length / half width
+function carsOverlap(ax, az, aFx, aFz, bx, bz, bFx, bFz) {
+  var dx = bx - ax, dz = bz - az;
+  var aRx = -aFz, aRz = aFx, bRx = -bFz, bRz = bFx;
+  function sep(nx, nz) {
+    var d = Math.abs(dx * nx + dz * nz);
+    var ra = CAR_HL * Math.abs(aFx * nx + aFz * nz) + CAR_HW * Math.abs(aRx * nx + aRz * nz);
+    var rb = CAR_HL * Math.abs(bFx * nx + bFz * nz) + CAR_HW * Math.abs(bRx * nx + bRz * nz);
+    return d > ra + rb;
+  }
+  return !(sep(aFx, aFz) || sep(aRx, aRz) || sep(bFx, bFz) || sep(bRx, bRz));
+}
 function updateDriving(dt) {
   var c = driving, g = c.car.group;
   var h = g.rotation.y;
@@ -12770,7 +12787,10 @@ function updateDriving(dt) {
       var oc = cars[i];
       if (oc === c || oc.exploded || oc.stolen) continue;
       var om = oc.car.group.position;
-      if (Math.abs(om.x - p.x) < 4 && Math.abs(om.z - p.z) < 3.2) {
+      var rdx = om.x - p.x, rdz = om.z - p.z;
+      if (rdx * rdx + rdz * rdz > 36) continue;   // broad phase: skip cars clearly out of range
+      var ory = oc.car.group.rotation.y, ofx = Math.cos(ory), ofz = -Math.sin(ory);
+      if (carsOverlap(p.x, p.z, fx, fz, om.x, om.z, ofx, ofz)) {
         if (!oc.berserk && T - (oc.ramT || 0) > 0.4) {
           // a fender-bender dents, it doesn't detonate: the hit car gets
           // punted away spinning, takes speed-scaled damage, and only a
