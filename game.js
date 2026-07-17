@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.25';
+var GAME_VERSION = 'v1.76.27';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -16860,11 +16860,54 @@ var npcRootsAlive = [];
 // off in a burst of blood. Head gib tumbles with gravity; kids aren't in the hit
 // list so they can never be gored.
 var gibs = [];
+// gore hit-flash: a quick red screen tint that pulses in and fades out when the
+// player blows a head off or cleaves someone in half (#goreFx overlay).
+var goreFlashT = 0, _goreFxEl = document.getElementById('goreFx');
+function goreScreenFlash() { goreFlashT = 0.3; }
+function updateGoreFx(dt) {
+  if (!_goreFxEl) return;
+  if (goreFlashT > 0) {
+    goreFlashT -= dt;
+    var k = goreFlashT > 0.24 ? (0.3 - goreFlashT) / 0.06 : goreFlashT / 0.24;   // fast in, slower out
+    _goreFxEl.style.opacity = (Math.max(0, Math.min(1, k)) * 0.5).toFixed(3);
+    if (goreFlashT <= 0) { goreFlashT = 0; _goreFxEl.style.opacity = 0; }
+  }
+}
 var _gibV = new THREE.Vector3(), _gibQ = new THREE.Quaternion(), _gibS = new THREE.Vector3();
+// user-made gore chunk (gibdata.js) — what flies off when a shotgun takes a head
+var _gibGeo = null, _gibMat = null, _gibMax = 1;
+function buildGibAsset() {
+  if (_gibGeo || typeof GIB_DATA === 'undefined') return;
+  var e = GIB_DATA;
+  var qp = new Int16Array(b64Bytes(e.p).buffer), qu = new Uint16Array(b64Bytes(e.u).buffer);
+  var fp = new Float32Array(qp.length), fu = new Float32Array(qu.length);
+  for (var i = 0; i < qp.length; i++) fp[i] = qp[i] / e.q;
+  for (i = 0; i < qu.length; i += 2) { fu[i] = qu[i] / 8192; fu[i + 1] = 1 - qu[i + 1] / 8192; }
+  _gibGeo = new THREE.BufferGeometry();
+  _gibGeo.setAttribute('position', new THREE.BufferAttribute(fp, 3));
+  _gibGeo.setAttribute('uv', new THREE.BufferAttribute(fu, 2));
+  if (e.i) _gibGeo.setIndex(new THREE.BufferAttribute(new Uint16Array(b64Bytes(e.i).buffer), 1));
+  _gibGeo.computeVertexNormals();
+  var im = new Image(); var tx = new THREE.Texture(im);
+  tx.magFilter = THREE.NearestFilter; tx.minFilter = THREE.LinearMipmapLinearFilter;
+  im.onload = function () { tx.needsUpdate = true; }; im.src = e.tex;
+  _gibMat = lamb({ map: tx, side: THREE.DoubleSide });
+  _gibMax = Math.max(e.dims[0], e.dims[1], e.dims[2]) || 1;
+}
+function getGibMesh(size) {
+  buildGibAsset();
+  if (!_gibGeo) return null;
+  var m = new THREE.Mesh(_gibGeo, _gibMat);
+  var s = (size || 0.36) / _gibMax; m.scale.set(s, s, s);
+  m.rotation.set(Math.random() * 6.28, Math.random() * 6.28, Math.random() * 6.28);
+  m.frustumCulled = false;
+  return m;
+}
 function spawnHeadGib(head, dx, dz) {
-  head.getWorldPosition(_gibV); head.getWorldQuaternion(_gibQ); head.getWorldScale(_gibS);
-  var gm = new THREE.Mesh(head.geometry, head.material);
-  gm.position.copy(_gibV); gm.quaternion.copy(_gibQ); gm.scale.copy(_gibS);
+  head.getWorldPosition(_gibV);
+  var gm = getGibMesh();
+  if (!gm) { head.getWorldQuaternion(_gibQ); head.getWorldScale(_gibS); gm = new THREE.Mesh(head.geometry, head.material); gm.quaternion.copy(_gibQ); gm.scale.copy(_gibS); }
+  gm.position.copy(_gibV);
   scene.add(gm);
   gibs.push({ mesh: gm, vx: dx * 2.5 + (Math.random() - 0.5) * 3, vy: 4.5 + Math.random() * 2.5, vz: dz * 2.5 + (Math.random() - 0.5) * 3, spin: (Math.random() - 0.5) * 16, life: 6 });
 }
@@ -16880,8 +16923,9 @@ function updateGibs(dt) {
 }
 var _gibHeadGeo = null, _gibHeadMat = null;
 function spawnBloodGib(x, y, z, dx, dz) {
-  if (!_gibHeadGeo) { _gibHeadGeo = new THREE.SphereGeometry(0.14, 8, 6); _gibHeadMat = lamb({ color: 0x8a4a3a }); }
-  var gm = new THREE.Mesh(_gibHeadGeo, _gibHeadMat); gm.position.set(x, y, z); scene.add(gm);
+  var gm = getGibMesh();   // user-made gore chunk; falls back to a plain lump if the asset is missing
+  if (!gm) { if (!_gibHeadGeo) { _gibHeadGeo = new THREE.SphereGeometry(0.14, 8, 6); _gibHeadMat = lamb({ color: 0x8a4a3a }); } gm = new THREE.Mesh(_gibHeadGeo, _gibHeadMat); }
+  gm.position.set(x, y, z); scene.add(gm);
   gibs.push({ mesh: gm, vx: dx * 2.5 + (Math.random() - 0.5) * 3, vy: 4.5 + Math.random() * 2.5, vz: dz * 2.5 + (Math.random() - 0.5) * 3, spin: (Math.random() - 0.5) * 16, life: 6 });
 }
 function restoreHead(n) {   // put the head back when a decapitated NPC respawns (mesh is reused)
@@ -16901,6 +16945,8 @@ function decapitateNPC(n, dx, dz) {
   puff(new THREE.Vector3(hx, hy, hz), 0x8f1512, 'blood');
   bloodDecal(n.x, n.z); bloodDecal(n.x + (Math.random() - 0.5) * 1.6, n.z + (Math.random() - 0.5) * 1.6);
   sfx('crash', { x: n.x, z: n.z, range: 42 });
+  sfx('gore', { x: n.x, z: n.z, range: 46 });   // owner-supplied head-pop splat
+  goreScreenFlash();                             // quick red tint pulse
   if (isClient()) { netToHost({ t: 'dmgNpc', i: npcs.indexOf(n), dmg: 999, kx: dx, kz: dz }); n.hp = 0; }
   else damageNPC(n, 999, dx, dz, false);
 }
@@ -16973,6 +17019,7 @@ function bisectNPC(n, fx, fz) {
   puff(new THREE.Vector3(n.x, 1.0, n.z), 0x8f1512, 'blood');
   for (i = 0; i < 6; i++) bloodDecal(n.x + (Math.random() - 0.5) * 1.9, n.z + (Math.random() - 0.5) * 1.9);
   sfx('cut', { x: n.x, z: n.z, range: 46 });
+  goreScreenFlash();   // quick red tint pulse on the bisection
   n._bisected = (made > 0);
   if (made > 0) { m.visible = false; if (m.userData.shadow) m.userData.shadow.visible = false; }
   if (isClient()) { netToHost({ t: 'dmgNpc', i: npcs.indexOf(n), dmg: 999, kx: fx, kz: fz }); n.hp = 0; }
@@ -18522,7 +18569,10 @@ var SFX_MAP = {
   brake: { k: 'brake', g: 0.55, j: 0.05 }, tirescreech: { k: 'tirescreech', g: 0.6, j: 0.04 },
   // owner-supplied axe cut (carsfx.js SFX_PACK.cut): the meaty chop when the axe
   // cleaves an NPC in half. Synth has no fallback — silent if the pack is absent.
-  cut: { k: 'cut', g: 1.6, j: 0.05 }
+  cut: { k: 'cut', g: 1.6, j: 0.05 },
+  // owner-supplied gore splat (carsfx.js SFX_PACK.gore): plays when a shotgun
+  // blows a head clean off. Synth has no fallback — silent if the pack is absent.
+  gore: { k: 'gore', g: 1.3, j: 0.05 }
 };
 function sfxLogPush(kind, pack) {
   if (!window.__sfxLog) return;
@@ -21614,7 +21664,7 @@ function loop(now) {
   if (photoMode) { updatePhotoCam(dt); renderer.render(scene, camera); return; }
   T += dt;
   var sdt = dt;
-  updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
+  updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
   if (state.dead) updateDeathCam(dt);   // top-down zoom-out cinematic drives the camera while dead
   renderer.render(scene, camera);
 }
@@ -21987,7 +22037,7 @@ window.__wc = {
   // lightweight physics step (no render, no NPC/cop/car sim) — fast headless
   // stepping for plane/fall tests. Renders only when you call renderer yourself.
   stepLite: function (dt) { T += dt; updatePlayer(dt); updatePlaneWorld(dt); },
-  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
+  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
 };
 
 // ---------------- boot screen handoff + menu cover art ----------------

@@ -142,6 +142,9 @@
     background:radial-gradient(ellipse at center, rgba(140,0,0,0) 46%, rgba(150,0,0,0.55) 80%, rgba(90,0,0,0.9) 100%); }
   #waterFx { position:fixed; inset:0; pointer-events:none; z-index:7;
     background:radial-gradient(circle at center, rgba(20,80,150,0.38) 0%, rgba(8,40,90,0.55) 100%); }
+  /* gore hit-flash: quick red tint pulse on a decapitation / bisection (JS drives opacity) */
+  #goreFx { position:fixed; inset:0; pointer-events:none; z-index:8; opacity:0;
+    background:radial-gradient(circle at center, rgba(150,0,0,0.5) 0%, rgba(110,0,0,0.75) 100%); }
   #scope { position:fixed; inset:0; pointer-events:none; z-index:8;
     background:radial-gradient(circle at center, rgba(0,0,0,0) 27%, rgba(0,0,0,0.97) 29%); }
   #scope::before { content:''; position:absolute; left:50%; top:14%; bottom:14%; width:1.5px; background:rgba(0,0,0,0.75); }
@@ -281,6 +284,7 @@
 <div id="dmgFlash"></div>
 <div id="lowHpVig"></div>
 <div id="waterFx" class="hidden"></div>
+<div id="goreFx"></div>
 <div id="scope" class="hidden"></div>
 <div id="crtFx"></div>
 
@@ -433,6 +437,7 @@ function wcTick(w, nextLabel) {
 <script src="kamevoice.js"></script>
 <script src="axedata.js"></script>
 <script src="halfbody.js"></script>
+<script src="gibdata.js"></script>
 <!-- AI storefront sign + VFX sprite sheets; game.js guards typeof PUBLIX_SIGN /
      VFX_SMOKE / VFX_FIRE so it still boots (canvas sign + flat puffs) if absent -->
 <script src="publixsign.js" onload="wcTick(0.1,'loading fx sheets…')"></script>
