@@ -6,9 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.68.3';
-// QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
-var SPEEDO_MPH = 2.7;
+var GAME_VERSION = 'v1.76.14';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -33,6 +31,10 @@ var HALF = 600, TOTAL = HALF * 2;   // expanded world (map expansion)
 var CORE = 340;                     // original hand-built map half-size — all
                                     // pre-expansion content lives in |x|,|z|<=CORE
 var EYE = 1.7, GRAV = 16;
+// 2.5D collision: a collider with a `.topY` only walls you off while your feet
+// are below its top (minus this step tolerance). Feet at/above the top pass over
+// it and stand on it; anything shorter than STEP_UP you just walk straight up.
+var STEP_UP = 0.5;
 var MAIN_HW = 14;   // main road (E-W, z=0) half width
 var CROSS_HW = 11;  // cross road (N-S, x=0) half width
 // arterial exits through the NEW perimeter (the bends are in EXP_ROADS):
@@ -1881,8 +1883,11 @@ var beamTex = (function () {
   var t = new THREE.CanvasTexture(c); t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter;
   return t;
 })();
-var beamGeo = (function () { var g = new THREE.PlaneGeometry(6.4, 3.4); g.rotateX(-Math.PI / 2); g.translate(5.3, 0, 0); return g; })();
-var beamM = new THREE.MeshBasicMaterial({ map: beamTex, transparent: true, opacity: 0.5, depthWrite: false });
+var beamGeo = (function () { var g = new THREE.PlaneGeometry(9.0, 4.4); g.rotateX(-Math.PI / 2); g.translate(6.6, 0, 0); return g; })();
+// additive so the warm pool actually GLOWS on the dark road at night (report
+// mrn2d489 "headlights don't shine on the road" — the old 0.5 alpha-blend wash
+// was nearly invisible on asphalt). depthWrite:false so it composites over the road.
+var beamM = new THREE.MeshBasicMaterial({ map: beamTex, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false });
 // nose/tail light glows: small additive quads on the car body (night + brake flare)
 var glowTex = (function () {
   var c = document.createElement('canvas'); c.width = 32; c.height = 32;
@@ -2242,9 +2247,14 @@ function updateCarFeel(c, dt, spd, accel, steer) {
   c.pitchS = c.pitchS || 0; c.rollS = c.rollS || 0;
   var k = Math.min(1, 6 * dt);
   c.pitchS += ((accel || 0) * 0.0035 - c.pitchS) * k;
-  c.rollS += (-(steer || 0) * Math.min(1, asp / 12) * 0.05 - c.rollS) * k;
-  cc.body.rotation.z = c.pitchS;
-  cc.body.rotation.x = c.rollS;
+  // lateral body lean: grows with speed AND turn tightness; a right turn (D)
+  // throws weight to the outside so the body rolls LEFT. Bigger + springier
+  // than the old barely-there tilt.
+  var leanT = -(steer || 0) * Math.min(1, asp / 9) * 0.18;
+  c.rollS += (leanT - c.rollS) * k;
+  var onGrade = (c === driving);   // ramp tilt only affects the car you're driving
+  cc.body.rotation.z = c.pitchS + (onGrade ? (c.slopePitch || 0) : 0);
+  cc.body.rotation.x = c.rollS + (onGrade ? (c.slopeRoll || 0) : 0);
   var target = (steer || 0) * 0.42;
   c.steerA = c.steerA || 0;
   c.steerA += (target - c.steerA) * Math.min(1, 10 * dt);
@@ -2796,26 +2806,42 @@ processForestTiles(expFillPts);
 // falls under the edge tree line (no hard dark rectangle on the open grass).
 (function forestFloorCover() {
   if (!mapForest.length) return;
-  var TS = 9, pos = [], uv = [], nrm = [], inset = 3;
+  // Each forest rect gets a litter-floor quad, but with a SOFT ALPHA BORDER so it
+  // dissolves into the grass instead of reading as a hard dark rectangle. The old
+  // inset-under-the-treeline trick failed on the sparse remap forest patches
+  // (reports mrn27gm9/mrn27pzp/mrn2ad8g "random black shadows" @ forestPatch
+  // 120..210 / 74..158) — where the canopy doesn't cover the rect, an opaque dark
+  // slab sat on open grass. Per-vertex alpha: full in the interior, 0 at the rim.
+  var TS = 9, pos = [], uv = [], nrm = [], col = [], inset = 3;
+  var y = 0.06;
+  function vert(x, z, a) { pos.push(x, y, z); uv.push(x / TS, z / TS); nrm.push(0, 1, 0); col.push(1, 1, 1, a); }
+  function quad(x0, z0, a0, x1, z1, a1, x2, z2, a2, x3, z3, a3) {
+    vert(x0, z0, a0); vert(x1, z1, a1); vert(x2, z2, a2);
+    vert(x0, z0, a0); vert(x2, z2, a2); vert(x3, z3, a3);
+  }
   for (var i = 0; i < mapForest.length; i++) {
     var r = mapForest[i];
     var ax = r.x0 + inset, bx = r.x1 - inset, az = r.z0 + inset, bz = r.z1 - inset;
     if (bx - ax < 4 || bz - az < 4) continue;
-    // two triangles, y just above the base grass plane
-    var y = 0.06;
-    var q = [[ax, az], [bx, az], [bx, bz], [ax, bz]];
-    var tri = [0, 1, 2, 0, 2, 3];
-    for (var t = 0; t < 6; t++) { var p = q[tri[t]]; pos.push(p[0], y, p[1]); uv.push(p[0] / TS, p[1] / TS); nrm.push(0, 1, 0); }
+    // inner (full-alpha) rect, inset by a fade band; clamp so tiny rects stay valid
+    var fw = Math.min(6, (bx - ax) / 3, (bz - az) / 3);
+    var ix0 = ax + fw, ix1 = bx - fw, iz0 = az + fw, iz1 = bz - fw;
+    quad(ix0, iz0, 1, ix1, iz0, 1, ix1, iz1, 1, ix0, iz1, 1);          // solid interior
+    quad(ax, az, 0, bx, az, 0, ix1, iz0, 1, ix0, iz0, 1);              // -z border strip (fade in)
+    quad(bx, az, 0, bx, bz, 0, ix1, iz1, 1, ix1, iz0, 1);              // +x
+    quad(bx, bz, 0, ax, bz, 0, ix0, iz1, 1, ix1, iz1, 1);              // +z
+    quad(ax, bz, 0, ax, az, 0, ix0, iz0, 1, ix0, iz1, 1);              // -x
   }
   if (!pos.length) return;
   var g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
   g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uv), 2));
   g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(nrm), 3));
+  g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(col), 4));   // RGBA — alpha fades the rim
   var ftex = forestFloorT.clone(); ftex.needsUpdate = true; ftex.repeat.set(1, 1);
-  // DoubleSide: the merged quads are wound front-down, so a single-sided
-  // material would backface-cull the whole cover when viewed from above.
-  var fmat = lamb({ map: ftex, side: THREE.DoubleSide });
+  // vertexColors + transparent => per-vertex alpha fades the border into grass.
+  // depthWrite:false so the soft edge composites cleanly over the base plane.
+  var fmat = lamb({ map: ftex, side: THREE.DoubleSide, transparent: true, vertexColors: true, depthWrite: false });
   fmat.polygonOffset = true; fmat.polygonOffsetFactor = -2; fmat.polygonOffsetUnits = -2;
   var fm = new THREE.Mesh(g, fmat); fm.frustumCulled = false;
   scene.add(fm);
@@ -2885,6 +2911,39 @@ function remapPointClear(x, z, pad) {
     }
   }
   return true;
+}
+// distance test to the nearest intersection throat (junction pad). A point can
+// clear remapPointClear yet still sit on the CROSSWALK just past a pad edge —
+// use this with a generous margin to keep bulky props (bus shelters) well back
+// from junctions (report mrn25ep0: shelter on the main-intersection crosswalk).
+function nearJunction(x, z, m) {
+  if (typeof RM === 'undefined' || !RM || !RM.pads) return false;
+  for (var pi = 0; pi < RM.pads.length; pi++) {
+    var pd = RM.pads[pi], dx = x - pd.x, dz = z - pd.z, lim = pd.r + m;
+    if (dx * dx + dz * dz < lim * lim) return true;
+  }
+  return false;
+}
+// unit vector pointing AWAY from the nearest road centerline (from the closest
+// road point toward (x,z)) — the "off-road" side. Returns null if no road is
+// within `range` (default 25u) so props far from any road keep their natural
+// fall. Used to topple roadside lamps/trees onto the sidewalk, not the lane.
+function roadOutward(x, z, range) {
+  if (typeof REMAP_ROADS === 'undefined') return null;
+  var best = 1e9, ox = 0, oz = 0, R = range || 25;
+  for (var i = 0; i < REMAP_ROADS.length; i++) {
+    var r = REMAP_ROADS[i], pts = r.pts;
+    for (var j = 0; j < pts.length - 1; j++) {
+      var ax = pts[j][0], az = pts[j][1], bx = pts[j + 1][0], bz = pts[j + 1][1];
+      var dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz || 1;
+      var t = ((x - ax) * dx + (z - az) * dz) / L2; t = t < 0 ? 0 : (t > 1 ? 1 : t);
+      var qx = x - (ax + dx * t), qz = z - (az + dz * t), dd = qx * qx + qz * qz;
+      if (dd < best) { best = dd; ox = qx; oz = qz; }
+    }
+  }
+  if (best > R * R) return null;
+  var l = Math.sqrt(best) || 1;
+  return { x: ox / l, z: oz / l };
 }
 // true when (x,z) sits on a road's flanking SIDEWALK ribbon (between the curb
 // and the walk's outer edge). remapPointClear only rejects the asphalt (hw+pad),
@@ -4103,7 +4162,13 @@ var houseFronts = [];      // final (post-nudge) house-front frames for the land
       addColliderOBB(x, z, w / 2 + 0.2, d / 2 + 0.2, a, 'house');
       houseStats.colliders++;
     } else {
-      addCollider(x, z, w + 0.4, d + 0.4, 'house');
+      // near-axis-aligned (within ~2.9deg of a quarter turn): cheap AABB, but it
+      // MUST use the rotation-aware world extents (hx,hz) not raw w,d — at ~90/270
+      // the footprint's world width IS d and depth IS w. Feeding w,d straight in
+      // registered a 90deg-swapped box: half the house walk-through, the other
+      // half an invisible wall out in the side yard (same hx/hz the minimap and
+      // rain already use for this instance on the mapBuildings line below).
+      addCollider(x, z, hx * 2 + 0.4, hz * 2 + 0.4, 'house');
       houseStats.colliders++;
     }
     // invisible raycast proxy (bullets, cop line-of-sight)
@@ -4813,6 +4878,135 @@ if (WC_REMAP) (function r3Junction() {
     }
   }
 })();
+
+// ---- drivable ramps / raised surfaces (temp test rig; groundwork for highways)
+// A ramp is an up-slope -> flat top -> down-slope hump the DRIVEN car climbs:
+// updateDriving samples driveSurfaceAt() and lifts group.position.y to the
+// surface, then pitches/rolls the body to the local grade. No collider (you
+// drive onto it, not into it); on-foot players don't climb it yet.
+var driveRamps = [];
+// wood plank texture for the jump ramps (rampwood.js, AI-generated, 256px).
+// Built once + repeat-wrapped; falls back to a flat wood color if absent.
+var _rampWoodTex = null, _rampMat = null;
+function rampWoodTex() {
+  if (_rampWoodTex) return _rampWoodTex;
+  if (typeof RAMP_WOOD_TEX === 'undefined') return null;
+  var img = new Image(), tx = new THREE.Texture(img);
+  tx.wrapS = tx.wrapT = THREE.RepeatWrapping; tx.anisotropy = 4;
+  img.onload = function () { tx.needsUpdate = true; };
+  img.src = RAMP_WOOD_TEX;
+  return (_rampWoodTex = tx);
+}
+function rampMat() {
+  if (_rampMat) return _rampMat;
+  var t = rampWoodTex();
+  _rampMat = t ? new THREE.MeshLambertMaterial({ map: t }) : lamb({ color: 0x9a6a3a });
+  _rampMat.side = THREE.DoubleSide;
+  return _rampMat;
+}
+// RIGHT-TRIANGLE launch ramp: drive up the incline (length `len`, rising to
+// `rise`) and fly off the top lip — a vertical back face drops straight down, so
+// there's no flat top or down-slope like the old hump. dirDeg points UP the
+// incline (the direction you drive onto it). Bigger len+rise = bigger jump.
+function addRamp(ax, az, dirDeg, len, rise, wid) {
+  var a = dirDeg * Math.PI / 180;
+  var r = { ax: ax, az: az, ux: Math.cos(a), uz: Math.sin(a), len: len, rise: rise, wid: wid, grad: rise / len };
+  driveRamps.push(r); buildRampMesh(r); return r;
+}
+var _ds = { h: 0, gx: 0, gz: 0 };
+function driveSurfaceAt(x, z) {
+  var h = 0, gx = 0, gz = 0;
+  for (var i = 0; i < driveRamps.length; i++) {
+    var r = driveRamps[i], dx = x - r.ax, dz = z - r.az;
+    var s = dx * r.ux + dz * r.uz, t = -dx * r.uz + dz * r.ux;
+    if (Math.abs(t) > r.wid / 2) continue;
+    if (s < 0 || s > r.len) continue;                 // only the incline is drivable; past the lip you're airborne
+    var hh = r.grad * s;
+    if (hh > h) { h = hh; gx = r.grad * r.ux; gz = r.grad * r.uz; }
+  }
+  _ds.h = h; _ds.gx = gx; _ds.gz = gz; return _ds;
+}
+function buildRampMesh(r) {
+  var W = r.wid, L = r.len, H = r.rise, US = 1 / 3;   // wood tiles ~ every 3 world units
+  var pos = [], uv = [], idx = [], v = 0;
+  function P(s, y, t) { return [r.ax + r.ux * s - r.uz * t, y, r.az + r.uz * s + r.ux * t]; }
+  function tri(A, B, C, ua, ub, uc) {
+    pos.push(A[0], A[1], A[2], B[0], B[1], B[2], C[0], C[1], C[2]);
+    uv.push(ua[0], ua[1], ub[0], ub[1], uc[0], uc[1]);
+    idx.push(v, v + 1, v + 2); v += 3;
+  }
+  function quad(A, B, C, D, ua, ub, uc, ud) { tri(A, B, C, ua, ub, uc); tri(A, C, D, ua, uc, ud); }
+  var hyp = Math.sqrt(L * L + H * H);
+  quad(P(0, 0, -W / 2), P(L, H, -W / 2), P(L, H, W / 2), P(0, 0, W / 2),
+       [0, 0], [hyp * US, 0], [hyp * US, W * US], [0, W * US]);                    // incline (drive surface)
+  quad(P(L, 0, -W / 2), P(L, 0, W / 2), P(L, H, W / 2), P(L, H, -W / 2),
+       [0, 0], [W * US, 0], [W * US, H * US], [0, H * US]);                        // vertical back face at the lip
+  tri(P(0, 0, -W / 2), P(L, 0, -W / 2), P(L, H, -W / 2), [0, 0], [L * US, 0], [L * US, H * US]);   // left side
+  tri(P(0, 0, W / 2), P(L, H, W / 2), P(L, 0, W / 2), [0, 0], [L * US, H * US], [L * US, 0]);       // right side
+  quad(P(0, 0, -W / 2), P(0, 0, W / 2), P(L, 0, W / 2), P(L, 0, -W / 2),
+       [0, 0], [W * US, 0], [W * US, L * US], [0, L * US]);                        // bottom
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uv), 2));
+  geo.setIndex(idx); geo.computeVertexNormals();
+  var mesh = new THREE.Mesh(geo, rampMat()); scene.add(mesh);
+  r.mesh = mesh;
+}
+// Jump ramps around town — aligned with the roads so there's a straight run-up to
+// build speed and open road to land on. Mixed sizes: small kickers -> big launches.
+// (ax,az, dirDeg points up the incline, len, rise, wid). Placed/verified below.
+// [ax, az, dirDeg(up the incline), len, rise, wid]. Spots verified on clear road
+// with run-up + landing room (roadprobe): west arterial south lane, and the N-S
+// cross road's north & south straightaways. Sizes mixed small kicker -> big air.
+var RAMP_SPOTS = [
+  [-188, -9, 180, 14, 3.4, 7],   // BIG   — west main road, south lane, launch west
+  [6, 198, 90, 11, 2.6, 7],      // MED   — cross road north, launch north
+  [8, 262, 90, 6, 1.4, 7],       // SMALL — cross road north (combo after the MED)
+  [-6, -150, 270, 12, 3.0, 7],   // BIG   — cross road south, launch south
+  [-6, -232, 270, 6, 1.4, 7]     // SMALL — cross road south (combo after the BIG)
+];
+function placeRamps() {
+  if (typeof WC_REMAP === 'undefined' || !WC_REMAP) return;
+  var R = RAMP_SPOTS;
+  for (var i = 0; i < R.length; i++) addRamp(R[i][0], R[i][1], R[i][2], R[i][3], R[i][4], R[i][5]);
+}
+placeRamps();
+
+// Top walkable/drivable surface height at (x,z): people + cars ride ON the
+// highest layer (grass 0 / road .05 / lot .10 / sidewalk .12 / pad .13 /
+// drive .14 / ramp) instead of clipping through it (feet/tyres were pinned to
+// y=0 so they sank into every raised surface). In the lake, defer to the bed so
+// you still sink and swim. Used by the player floor, NPC feet, and car wheels.
+function surfRect(x, z, list, y, h) {
+  if (y <= h || !list) return h;
+  for (var i = 0; i < list.length; i++) { var r = list[i]; if (x > r.x - r.w / 2 && x < r.x + r.w / 2 && z > r.z - r.d / 2 && z < r.z + r.d / 2) return y; }
+  return h;
+}
+function surfaceHeightAt(x, z, skipRects, feetY) {
+  if (typeof inLake === 'function' && inLake(x, z)) return lakeBedY(x, z);
+  var h = driveSurfaceAt(x, z).h;                                      // ramps
+  if (typeof REMAP_ROADS !== 'undefined') {
+    if (!remapPointClear(x, z, 0)) { if (0.05 > h) h = 0.05; }         // road asphalt / junction
+    else if (onSidewalk(x, z)) { if (0.12 > h) h = 0.12; }            // flanking sidewalk
+  }
+  if (!skipRects) {   // NPC fast path skips the lot/pad/drive register scans
+    h = surfRect(x, z, mapParking, 0.10, h);
+    h = surfRect(x, z, mapDrives, 0.14, h);
+    h = surfRect(x, z, mapPave, 0.13, h);
+  }
+  // 2.5D: stand on top of a collider box whose top your feet have reached
+  // (jump onto a dumpster/barrier/etc). Only the player passes feetY.
+  if (feetY !== undefined) {
+    for (var ci = 0; ci < colliders.length; ci++) {
+      var b = colliders[ci];
+      if (b.active === false || b.topY === undefined || b.topY <= h) continue;
+      if (x < b.x0 || x > b.x1 || z < b.z0 || z > b.z1) continue;      // outside footprint bounds
+      if (b.obb) { var odx = x - b.x, odz = z - b.z, u = odx * b.c - odz * b.s, v = odx * b.s + odz * b.c; if (Math.abs(u) > b.hx || Math.abs(v) > b.hz) continue; }
+      if (feetY >= b.topY - STEP_UP) h = b.topY;
+    }
+  }
+  return h;
+}
 
 // ---- R3.5 divided arterials (remap): curbed grass medians with palms down
 // Race Track Rd + Countryway Blvd, per the satellite (both are divided roads
@@ -5594,54 +5788,6 @@ function buildStaff(name, cfg) {
   if (i === undefined) return buildPerson('#1c7e3a', '#e8e4da', CSKIN[2], { hairColor: 0x2a1c10 });   // fallback if staffchars.js absent
   return buildMeshySkinned(cfg || randomCharConfig(), i);
 }
-// ---- quest NPC models (questchars.js #77): 10 skinned quest cast + BISCUIT
-// (animal, built elsewhere) + 6 texture-only reskins. Skinned entries share the
-// MESHY_CHARS schema, so append them to MESHY_LIST (AFTER the civ/cop/role
-// classification so they stay out of the random street pools) and index by name.
-var QUEST_SRC = (typeof QUEST_CHARS !== 'undefined') ? QUEST_CHARS : [];
-var QUEST_IDX = {};   // quest char name -> MESHY_LIST index (skinned only)
-for (var qci = 0; qci < QUEST_SRC.length; qci++) {
-  if (!QUEST_SRC[qci].skel) continue;   // BISCUIT (animal) — no skeleton, built via the dog prop
-  QUEST_IDX[QUEST_SRC[qci].n] = MESHY_LIST.length;
-  MESHY_LIST.push(QUEST_SRC[qci]);
-}
-var MESHY_NAME_IDX = {};   // any MESHY_LIST name -> index (quest names win, pushed last)
-for (var mni = 0; mni < MESHY_LIST.length; mni++) MESHY_NAME_IDX[MESHY_LIST[mni].n] = mni;
-var QUEST_RESKIN_SRC = (typeof QUEST_RESKINS !== 'undefined') ? QUEST_RESKINS : [];
-var QUEST_RESKIN_IDX = {};
-for (var qri = 0; qri < QUEST_RESKIN_SRC.length; qri++) QUEST_RESKIN_IDX[QUEST_RESKIN_SRC[qri].n] = qri;
-var questReskinTexCache = {};
-function questReskinTex(name) {
-  if (questReskinTexCache[name]) return questReskinTexCache[name];
-  var r = QUEST_RESKIN_SRC[QUEST_RESKIN_IDX[name]]; if (!r) return null;
-  var im = new Image(), tx = new THREE.Texture(im);
-  tx.magFilter = THREE.NearestFilter; tx.minFilter = THREE.NearestFilter; tx.generateMipmaps = false;
-  im.onload = function () { tx.needsUpdate = true; }; im.src = r.tex;
-  return (questReskinTexCache[name] = tx);
-}
-function meshSwapMap(g, tx) {   // repaint a built skinned group's SkinnedMesh
-  if (!g || !tx) return g;
-  for (var i = 0; i < g.children.length; i++) { var c = g.children[i]; if (c.isSkinnedMesh || c.isMesh) { c.material = c.material.clone(); c.material.map = tx; c.material.needsUpdate = true; break; } }
-  return g;
-}
-// build any quest actor by name: a QUEST_CHARS skinned char, or a QUEST_RESKINS
-// texture-swap over a base (Meshy/quest/kid) char. Returns a Group with the
-// same limbs/skin/shadow contract as buildMeshySkinned (animPerson-compatible).
-function buildQuestChar(name, cfg) {
-  cfg = cfg || randomCharConfig();
-  if (QUEST_IDX[name] !== undefined) return buildMeshySkinned(cfg, QUEST_IDX[name]);
-  var r = QUEST_RESKIN_SRC[QUEST_RESKIN_IDX[name]];
-  if (r) {
-    // kid-based reskin (e.g. GRAY_BOY <- LEO): build the kid then swap the map
-    if (typeof KID_LOOKS !== 'undefined') {
-      for (var ki = 0; ki < KID_LOOKS.length; ki++) if (KID_LOOKS[ki].n === r.base) return meshSwapMap(buildKid(ki), questReskinTex(name));
-    }
-    var bi = MESHY_NAME_IDX[r.base];
-    if (bi !== undefined && MESHY_LIST[bi].skel) return meshSwapMap(buildMeshySkinned(cfg, bi), questReskinTex(name));
-  }
-  // last resort: a generic body so a quest never crashes for a missing look
-  return buildPerson('#555', '#333', CSKIN[2], {});
-}
 var meshyPartsCache = [], meshyTexCache = [];
 function getMeshyParts(mi) {
   if (meshyPartsCache[mi]) return meshyPartsCache[mi];
@@ -6186,7 +6332,7 @@ function buildPerson(shirtC, pantsC, skinC, opts) {
 }
 
 var npcs = [];
-var NPC_COUNT = 250;  // frustum-cull + anim-LOD only cut RENDER cost; the HOST bot sims ALL npcs every sub-step (CPU-bound headless), so 440 spiralled its fixed-timestep loop into slow-motion for every client (mrgmuf3y/mrgmusra). 250 holds real-time; raising it needs host-side sim-distance culling (perf round).
+var NPC_COUNT = 125;  // halved from 250 (owner: too many pedestrians) — also lighter on the host sim. frustum-cull + anim-LOD cut RENDER cost; the HOST bot sims ALL npcs every sub-step.
 // home-zone weights: core intersection / residential neighborhoods / collectors+Lynmar
 var NPC_W_CORE = 0.60, NPC_W_RES = 0.32;   // remainder (~0.08) = collectors
 var WALK = WC_REMAP ? { x0: -240, x1: 120, z0: -180, z1: 170 }   // recentred on the true venue span
@@ -6681,6 +6827,7 @@ function detachAccessory(a, i) {
       a.mesh.getWorldPosition(_accV); a.mesh.getWorldQuaternion(_accQ);
       a.mesh.parent.remove(a.mesh); scene.add(a.mesh);
       a.mesh.position.copy(_accV); a.mesh.position.y = 0; a.mesh.quaternion.copy(_accQ);
+      droppedProps.push({ mesh: a.mesh, t: T, baseScale: a.mesh.scale.clone() });   // track for a ~30s despawn (was orphaned forever)
     }
     a.dropped = true;   // now inert scenery; leave it (never re-owned)
   } else {   // hand: the item drops from the hand and vanishes
@@ -6748,11 +6895,32 @@ function updateRainUmbrellas(dt) {
     }
   }
 }
+// ---- dropped carried props (strollers / walkers / bikes) despawn ------------
+// When an owner dies the pushed/side prop is left standing (detachAccessory).
+// These used to linger on the sidewalk forever; track each one and clear it
+// ~30s later with a quick shrink-and-sink so the world tidies itself. Per-peer
+// local, like the accessories themselves — no netcode.
+var droppedProps = [];
+var DROP_PROP_TTL = 30;   // seconds a dropped prop stays before despawning
+function updateDroppedProps(dt) {
+  for (var i = droppedProps.length - 1; i >= 0; i--) {
+    var d = droppedProps[i], age = T - d.t;
+    if (age >= DROP_PROP_TTL) {
+      if (d.mesh && d.mesh.parent) d.mesh.parent.remove(d.mesh);
+      droppedProps.splice(i, 1);
+    } else if (age > DROP_PROP_TTL - 0.6 && d.mesh) {   // final 0.6s: shrink + sink into the ground, then remove
+      var s = Math.max(0.02, (DROP_PROP_TTL - age) / 0.6);
+      d.mesh.scale.copy(d.baseScale).multiplyScalar(s);
+      d.mesh.position.y = -(1 - s) * 0.5;
+    }
+  }
+}
 // per-frame accessory driver — called from updateNPCs after animPerson has posed
 // every NPC this frame (so hand items ride the freshly-posed arm)
 var _accFace = function (dx, dz) { return Math.atan2(dz, -dx); };   // authored front -x -> world dir
 function updateAccessories(dt) {
   updateRainUmbrellas(dt);   // rain rollout: peds raise colored umbrellas (mrg53h5l)
+  updateDroppedProps(dt);    // dropped strollers/bikes fade out after ~30s (report: never despawned)
   for (var i = accessories.length - 1; i >= 0; i--) {
     var a = accessories[i];
     if (a.dropped) continue;                 // detached scenery, nothing to do
@@ -7512,11 +7680,10 @@ function refreshClerk() {
     var b = document.createElement('button'); b.textContent = label; b.disabled = !!disabled; b.onclick = fn;
     row.appendChild(b); rows.appendChild(row);
   }
-  addBtn('Buy a hot burger — $20  (+30 hp; eat it from your TAB bag)', function () {
+  addBtn('Buy a snack — $20  (+50 hp; equip & eat from your TAB inventory)', function () {
     if (state.money < 20) { sfx('deny'); popup2("You can't afford it"); return; }
-    if (bagAdd('burger', 1) > 0) { sfx('deny'); popup2('Your bag is full'); return; }   // nothing fit — don't charge
-    state.money -= 20; playVoice('clerk_snack', 0.5, 10, { ref: clerk });
-    sfx('buy'); itemToast('burger'); popup('+1 Cheeseburger');
+    state.money -= 20; state.snacks++; hotbarAdd('snack'); refreshHotbarHud(); playVoice('clerk_snack', 0.5, 10, { ref: clerk });
+    sfx('buy'); popup('+1 Snack');
     refreshClerk();
   });
   if (!robbedVisit && !copsCalledVisit) addBtn('Rob the register', function () {
@@ -7910,24 +8077,8 @@ function buildDunkin(spec) {
   placeStaffIn(spec, 'DUNKIN_ASH', cx - 4, 592.6, Math.PI);
   placeStaffIn(spec, 'DUNKIN_RAJ', cx + 4, 592.6, Math.PI);
 
-  // interact zones: order coffee / donut / chat (player stands at the case, z~597)
-  spec.zones.push({
-    x: cx - 5, z: 597.2, r2: 8, prompt: '[E] ORDER A COFFEE — $3',
-    fn: function () {
-      if (state.money < 3) { sfx('deny'); popup2("You can't afford it"); return; }
-      if (bagAdd('coffee', 1) > 0) { sfx('deny'); popup2('Your bag is full'); return; }
-      state.money -= 3; sfx('buy'); itemToast('coffee'); popup('+1 Coffee'); staffSay(['"America runs on Dunkin!"'], 'DUNKIN', 'order');
-    }
-  });
-  spec.zones.push({
-    x: cx + 5, z: 597.2, r2: 8, prompt: '[E] GRAB A DONUT — $2',
-    fn: function () {
-      if (state.money < 2) { sfx('deny'); popup2("You can't afford it"); return; }
-      if (bagAdd('donut', 1) > 0) { sfx('deny'); popup2('Your bag is full'); return; }
-      state.money -= 2; sfx('buy'); itemToast('donut'); popup('+1 Donut'); staffSay(['"Time to make the donuts."'], 'DUNKIN', 'quip');
-    }
-  });
-  spec.zones.push({ x: cx, z: 597.2, r2: 5, prompt: '[E] CHAT WITH BARISTA', fn: function () { staffSay(['"What can I get started for ya?"', '"The iced coffee is on point today."', '"Fresh pot brewing — two minutes!"'], 'DUNKIN', 'chatter'); } });
+  // menu (equippable food/drink) is coming later — for now the counter is chat-only
+  spec.zones.push({ x: cx, z: 597.2, r2: 8, prompt: '[E] CHAT WITH BARISTA', fn: function () { staffSay(['"What can I get started for ya?"', '"The iced coffee is on point today."', '"Fresh pot brewing — two minutes!"'], 'DUNKIN', 'chatter'); } });
 }
 
 // ---------------- STARBUCKS café (venue starbucks, across from Dunkin) --------
@@ -8011,23 +8162,8 @@ function buildStarbucks(spec) {
   placeStaffIn(spec, 'BARISTA_CHLOE', cx - 3, 592.6, Math.PI);
   placeStaffIn(spec, 'BARISTA_OMARI', cx + 3, 592.6, Math.PI);
 
-  spec.zones.push({
-    x: cx - 4, z: 597.2, r2: 8, prompt: '[E] ORDER A LATTE — $4',
-    fn: function () {
-      if (state.money < 4) { sfx('deny'); popup2("You can't afford it"); return; }
-      if (bagAdd('coffee', 1) > 0) { sfx('deny'); popup2('Your bag is full'); return; }
-      state.money -= 4; sfx('buy'); itemToast('coffee'); popup('+1 Latte'); staffSay(['"One caffe latte, coming up!"'], 'BARISTA', 'order');
-    }
-  });
-  spec.zones.push({
-    x: cx + 4, z: 597.2, r2: 8, prompt: '[E] BUY A CROISSANT — $3',
-    fn: function () {
-      if (state.money < 3) { sfx('deny'); popup2("You can't afford it"); return; }
-      if (bagAdd('sandwich', 1) > 0) { sfx('deny'); popup2('Your bag is full'); return; }
-      state.money -= 3; sfx('buy'); itemToast('sandwich'); popup('+1 Croissant'); staffSay(['"Warmed up for ya!"'], 'BARISTA', 'order');
-    }
-  });
-  spec.zones.push({ x: cx, z: 597.2, r2: 5, prompt: '[E] CHAT WITH BARISTA', fn: function () { staffSay(['"Can I get a name for the cup?"', '"Oat milk or two percent?"', '"That\'ll be right up at the hand-off."'], 'BARISTA', 'chatter'); } });
+  // menu (equippable food/drink) is coming later — for now the counter is chat-only
+  spec.zones.push({ x: cx, z: 597.2, r2: 8, prompt: '[E] CHAT WITH BARISTA', fn: function () { staffSay(['"Can I get a name for the cup?"', '"Oat milk or two percent?"', '"That\'ll be right up at the hand-off."'], 'BARISTA', 'chatter'); } });
 }
 
 // ---------------- SAKURA SUSHI (venue sushi, NE corner) -----------------------
@@ -8178,16 +8314,7 @@ function buildDollarTree(spec) {
 
   placeStaffIn(spec, 'DOLLAR_PAM', cx - 8, -592, Math.PI);
 
-  var CHEAP = ['chips', 'soda', 'rubberduck', 'actionfig', 'gnome', 'cassette', 'lighter', 'water'];
-  spec.zones.push({
-    x: cx - 8, z: -595, r2: 9, prompt: '[E] BUY A DEAL — $1.25',
-    fn: function () {
-      if (state.money < 2) { sfx('deny'); popup2("You can't afford it"); return; }
-      var id = CHEAP[(Math.random() * CHEAP.length) | 0];
-      if (bagAdd(id, 1) > 0) { sfx('deny'); popup2('Your bag is full'); return; }
-      state.money -= 2; sfx('buy'); itemToast(id); staffSay(['"Everything\'s a dollar twenty-five, hon."', '"Great find!"'], 'DOLLAR', 'joke');
-    }
-  });
+  // "$1 deal" purchase removed with the scavenge-item system — aisle browse stays as flavor
   spec.zones.push({ x: cx + 3, z: -603, r2: 9, prompt: '[E] BROWSE THE AISLE', fn: function () { staffSay(['"Party supplies are on aisle three."', '"We got balloons, candy, gift bags — all a buck twenty-five."', '"Seasonal is fully stocked!"'], 'DOLLAR', 'line'); } });
   spec.zones.push({ x: cx - 8, z: -594.5, r2: 4, prompt: '[E] CHAT WITH CASHIER', fn: function () { staffSay(['"Did you find everything okay?"', '"Need a bag for a nickel?"', '"Next in line!"'], 'CASHIER', 'smalltalk'); } });
 }
@@ -8696,7 +8823,7 @@ var SP_SNAP = { stopsign: 'light', yieldsign: 'light', speedsign: 'light', onewa
 // base/pole collider handed to registerBreakable (deactivates while toppled).
 // Cones / barricades / shopping carts stay pass-through — steppable clutter.
 var SP_BLOCKR = { hydrant: 0.24, parkingmeter: 0.15, payphone: 0.3, stopsign: 0.14, yieldsign: 0.14, speedsign: 0.14, onewaysign: 0.14, newsbox: 0.24, trashcan: 0.36, wheeliebin: 0.35 };
-var SP_INTERACT = { vendingmachine: 'vend', payphone: 'phone', atm: 'atm', newsbox: 'news', dumpster: 'dumpster', trashcan: 'kick', wheeliebin: 'kick', mailbox: 'mailbox', homemailbox: 'mailbox' };
+var SP_INTERACT = { payphone: 'phone', atm: 'atm', newsbox: 'news', trashcan: 'kick', wheeliebin: 'kick', mailbox: 'mailbox', homemailbox: 'mailbox' };   // vend(soda)/dumpster(dive) removed with the scavenge-item system
 // authored front is -x; face = direction the front should point in the world
 var SP_FACE = { W: 0, E: Math.PI, N: -Math.PI / 2, S: Math.PI / 2 };
 
@@ -8760,8 +8887,7 @@ var SP_PLACES = [
   ['homemailbox', -218, -237.6, 'S', 0.02],
   ['homemailbox', -158, -112.6, 'S', 0.02], ['homemailbox', -142, -112.6, 'S', 0.02],
   ['wheeliebin', -190, -208.3, 1.0, 0.02], ['wheeliebin', -224, -238, 2.2, 0.02],
-  // --- lake shore picnic tables (ellipse rx 77 rz 52 around (-255,-150) — kept dry)
-  ['picnictable', -176, -130, 'W', 0.02], ['picnictable', -172, -168, 'E', 0.02], ['picnictable', -232, -92, 'N', 0.02],
+  // (lake-shore picnic tables removed — owner: no outdoor tables)
   // --- odds and ends
   ['trashcan', 13.5, 24, 'W'], ['newsbox', -110.5, -22.4, 'N'],
   ['acunit', 65.2, -110, 'E']
@@ -8795,7 +8921,8 @@ function spOverlapsBuilding(x, z, hx, hz) {
     g.rotation.y = ry;
     scene.add(g);
     if (SP_SOLID[name]) {
-      addCollider(x, z, hx * 2, hz * 2, 'prop:' + name);
+      var _pc = addCollider(x, z, hx * 2, hz * 2, 'prop:' + name);
+      _pc.topY = new THREE.Box3().setFromObject(g).max.y;   // 2.5D: real top -> jump onto it
       solidMeshes.push(g);   // bullets stop on the big stuff
     }
     if (SP_SNAP[name]) {
@@ -9038,7 +9165,7 @@ if (WC_REMAP) (function densityLayer() {
       // DoubleSide here would z-fight the pair AND is what mirrored the text
       if (o.twoPlane) mo.side = THREE.FrontSide;
       var mat = lamb(mo);
-      if (o.decal) { mat.polygonOffset = true; mat.polygonOffsetFactor = -2; mat.polygonOffsetUnits = -2; }
+      if (o.decal) { mat.polygonOffset = true; mat.polygonOffsetFactor = -4; mat.polygonOffsetUnits = -4; }   // stronger bias so ground decals never z-fight the surface
       var mesh = new THREE.Mesh(g, mat); if (o.decal) mesh.frustumCulled = false;
       mesh.name = key;   // batch key on the mesh so world scans can attribute geometry
       scene.add(mesh); n++;
@@ -9046,7 +9173,7 @@ if (WC_REMAP) (function densityLayer() {
     densityStats.batches = n;
   }
   // helpers to place one asset instance into the right batch
-  function dDecal(name, x, z, y, ry, scale) { if (!dAsset[name]) return; var a = dAsset[name]; var w = a.dims[0] * (scale || 1), d = a.dims[1] * (scale || 1); bake('d_' + name, { texName: name, decal: true }, UDECAL, mtx(x, y, z, ry || 0, w, 1, d)); densityStats.decals++; }
+  function dDecal(name, x, z, y, ry, scale) { if (!dAsset[name]) return; var a = dAsset[name]; var w = a.dims[0] * (scale || 1), d = a.dims[1] * (scale || 1); bake('d_' + name, { texName: name, decal: true }, UDECAL, mtx(x, (y || 0) + 0.03, z, ry || 0, w, 1, d)); densityStats.decals++; }   // +0.03 lift so decals sit clearly above the ground (owner: z-fighting)
   // placards were a single DoubleSide plane → text read MIRRORED from behind
   // (seen live on a FOR SALE yard sign, mrft7zm5 shot). Same fix as greenSign:
   // bake the plane twice, front-to-front (ry and ry+PI), FrontSide material —
@@ -9058,7 +9185,17 @@ if (WC_REMAP) (function densityLayer() {
     bake('d_' + name, { texName: name, twoPlane: true }, USIGN, mtx(x, y, z, ry + Math.PI, sw, sh, 1));
     densityStats.signs++; densityPlaced.push({ n: name, x: x, z: z, y: y });
   }
-  function dBoxAsset(name, x, y, z, ry, sc) { if (!dAsset[name]) return; sc = sc || 1; var a = dAsset[name]; bake('d_' + name, { texName: name }, UBOX, mtx(x, y, z, ry || 0, a.dims[0] * sc, a.dims[1] * sc, a.dims[2] * sc)); densityStats.clutter++; densityPlaced.push({ n: name, x: x, z: z }); }
+  // clutter you should bump into / stand on (owner: AC units etc. had no collision
+  // and you walked through them). Foliage (potted_plant) + flat/low bits (sandbag,
+  // pallet) stay pass-through. Others (boxes, crates, appliances) collide + get a
+  // 2.5D top so you can jump onto them.
+  var D_SOLID = { ac_condenser: 1, utility_box: 1, barrel_delineator: 1, propane_tank: 1, bucket: 1, cardboard_box: 1, wooden_crate: 1, trash_bags: 1, mini_fridge: 1, cooler: 1, generator: 1, toolbox: 1, milk_crate: 1, keg: 1 };
+  function dClutterCol(name, x, y, z, ry, sc, a) {
+    if (!D_SOLID[name]) return;
+    var col = addColliderOBB(x, z, a.dims[0] * sc / 2, a.dims[2] * sc / 2, ry || 0, 'clutter:' + name);
+    col.topY = y + a.dims[1] * sc / 2;   // y is the box centre -> top is +half-height
+  }
+  function dBoxAsset(name, x, y, z, ry, sc) { if (!dAsset[name]) return; if (Math.random() < 0.3) return; sc = sc || 1; var a = dAsset[name]; bake('d_' + name, { texName: name }, UBOX, mtx(x, y, z, ry || 0, a.dims[0] * sc, a.dims[1] * sc, a.dims[2] * sc)); dClutterCol(name, x, y, z, ry, sc, a); densityStats.clutter++; densityPlaced.push({ n: name, x: x, z: z }); }   // owner: thin loose clutter
   // a flat textured box read as "2D trash" (report mredr84j); pile 3-4 lumpy,
   // squashed blobs instead so it reads as bulging plastic bags. Reuses the
   // trash_bags texture on the shared 'd_trash_bags' batch (still one draw call).
@@ -9070,9 +9207,10 @@ if (WC_REMAP) (function densityLayer() {
       var ang = i / n * 6.28 + Math.random(), rad = lead ? 0 : 0.2 + Math.random() * 0.2;
       bake('d_trash_bags', { texName: 'trash_bags' }, UBLOB, mtx(x + Math.cos(ang) * rad, r * 0.82, z + Math.sin(ang) * rad, Math.random() * 6.28, r * 1.9, r * (1.5 + Math.random() * 0.4), r * 1.7));
     }
+    var tcol = addCollider(x, z, 1.0, 1.0, 'clutter:trash_bags'); tcol.topY = 0.7;   // solid pile you can bump / stand on
     densityStats.clutter++; densityPlaced.push({ n: 'trash_bags', x: x, z: z });
   }
-  function dCylAsset(name, x, y, z) { if (!dAsset[name]) return; var a = dAsset[name]; bake('d_' + name, { texName: name }, UCYL, mtx(x, y, z, 0, a.dims[0], a.dims[1], a.dims[0])); densityStats.clutter++; densityPlaced.push({ n: name, x: x, z: z }); }
+  function dCylAsset(name, x, y, z) { if (!dAsset[name]) return; if (Math.random() < 0.3) return; var a = dAsset[name]; bake('d_' + name, { texName: name }, UCYL, mtx(x, y, z, 0, a.dims[0], a.dims[1], a.dims[0])); dClutterCol(name, x, y, z, 0, 1, a); densityStats.clutter++; densityPlaced.push({ n: name, x: x, z: z }); }   // owner: thin loose clutter
   // waist-high+ poles (roadside sign posts, billboard legs) block the player;
   // short yard-sign stakes (h < 1.5) stay pass-through
   function pole(x, z, h, r) { r = r || 0.11; bake('_pole', { color: 0x8a8f94 }, UCYL, mtx(x, h / 2, z, 0, r * 2, h, r * 2)); if (h >= 1.5) addCollider(x, z, Math.max(0.26, r * 2), Math.max(0.26, r * 2), 'pole'); }
@@ -9505,7 +9643,7 @@ if (WC_REMAP) (function densityLayer() {
         // (visible whenever the stake side faced you) — and the placard read
         // too small. Now the placard is scaled 1.4x and the stake stops just
         // behind its bottom edge (tiny 0.08 overlap hidden by the 0.14 offset).
-        if (Math.random() < 0.55) {
+        if (Math.random() < 0.28) {   // owner: far fewer scattered yard signs (was 0.55)
           var yk = pick(['for_sale_sign', 'yard_sign', 'garage_sale_sign', 'lost_pet_flyer']);
           var ya = dAsset[yk];
           if (ya) {
@@ -9566,7 +9704,7 @@ if (WC_REMAP) (function densityLayer() {
     // Place them clear of the building footprint, spaced apart, and off any
     // tree/pole breakable. Push them a touch further off the wall than before.
     var jcPlaced = [];
-    for (var jc = 0; jc < 4; jc++) {
+    for (var jc = 0; jc < 2; jc++) {   // owner: fewer back-lot crate/box piles (was 4)
       var cn = pick(BACK_CLUTTER), ca = dAsset[cn]; if (!ca) continue;
       var chx = ca.dims[0] / 2, chz = ca.dims[2] / 2, jx, jz, jok = false;
       for (var jt = 0; jt < 10 && !jok; jt++) {
@@ -9598,8 +9736,8 @@ if (WC_REMAP) (function densityLayer() {
     if (vv3.type !== 'racetrac') {
       var sidex = vv3.x + f3.rx * (vv3.w / 2 + 1.0), sidez = vv3.z + f3.rz * (vv3.w / 2 + 1.0);
       dBoxAsset('ac_condenser', sidex, 0.65, sidez, f3.yaw, 1.75);
-      dBoxAsset('utility_box', sidex + f3.fx * 2, 0.5, sidez + f3.fz * 2, f3.yaw);
-      if (Math.random() < 0.6) dCylAsset('propane_tank', sidex - f3.fx * 2, 0.6, sidez - f3.fz * 2);
+      if (Math.random() < 0.5) dBoxAsset('utility_box', sidex + f3.fx * 2, 0.5, sidez + f3.fz * 2, f3.yaw);
+      if (Math.random() < 0.25) dCylAsset('propane_tank', sidex - f3.fx * 2, 0.6, sidez - f3.fz * 2);
     }
     // potted plants + mulch bed flanking the entrance
     var frx = vv3.x + f3.fx * (vv3.d / 2 + 1.3), frz = vv3.z + f3.fz * (vv3.d / 2 + 1.3), ee = Math.min(vv3.w / 2 - 1, 4);
@@ -9676,7 +9814,7 @@ if (WC_REMAP) (function densityLayer() {
     var hx = (dims[0] * c + dims[2] * s) / 2, hz = (dims[0] * s + dims[2] * c) / 2;
     if (spOverlapsBuilding(x, z, hx, hz)) return;
     g.position.set(x, y === undefined ? 0.13 : y, z); g.rotation.y = ry; scene.add(g);
-    if (SP_SOLID[name]) { addCollider(x, z, hx * 2, hz * 2, 'prop:' + name); solidMeshes.push(g); }
+    if (SP_SOLID[name]) { var _spc = addCollider(x, z, hx * 2, hz * 2, 'prop:' + name); _spc.topY = new THREE.Box3().setFromObject(g).max.y; solidMeshes.push(g); }   // 2.5D: real top -> stand on it
     if (SP_SNAP[name]) { registerBreakable(g, x, z, Math.max(hx, hz) + 0.15, SP_SNAP[name], null, SP_BLOCKR[name] || 0); var bb = breakables[breakables.length - 1]; if (name === 'parkingmeter') bb.kind = 'meter'; if (name === 'hydrant') bb.kind = 'hydrant'; if (name === 'trashcan' || name === 'wheeliebin') bb.kind = 'trash'; }
     if (SP_INTERACT[name]) { var it = { kind: SP_INTERACT[name], x: x, z: z, fx: -Math.cos(ry), fz: Math.sin(ry), g: g, cd: -99, robbed: false }; if (it.kind === 'atm') { g.userData.atm = it; if (!SP_SOLID[name]) solidMeshes.push(g); } if (it.kind === 'kick' && SP_SNAP[name]) it.bb = breakables[breakables.length - 1]; streetPropInteractables.push(it); }
     densityStats.props++;
@@ -9699,7 +9837,7 @@ if (WC_REMAP) (function densityLayer() {
       var lat = Math.min(vv5.w / 2 - 2, 5);
       spGate('bench', fpx2 + f6.rx * lat, fpz2 + f6.rz * lat, frontYaw);
       spGate('trashcan', fpx2 - f6.rx * lat, fpz2 - f6.rz * lat, frontYaw);
-      spGate('newsbox', fpx2 - f6.rx * (lat * 0.5), fpz2 - f6.rz * (lat * 0.5), frontYaw);   // free daily paper
+      // (per-venue newsbox removed — owner: reduce storefront prop clutter)
       if (vv5.type === 'publix' || vv5.type === 'dollar_tree') spGate('vendingmachine', fpx2 + f6.rx * (lat * 0.4), fpz2 + f6.rz * (lat * 0.4), frontYaw);
       if (vv5.type === 'bank') spGate('atm', fpx2, fpz2, frontYaw);
       if (vv5.type === 'farnell' || vv5.type === 'publix') spGate('bikerack', fpx2 + f6.rx * (lat * 0.7), fpz2 + f6.rz * (lat * 0.7), frontYaw);
@@ -9730,7 +9868,9 @@ if (WC_REMAP) (function densityLayer() {
             // shelter sits on the LEFT sidewalk (offset by (-uz,+ux)); its opening
             // (front = (-cos,sin)) must face BACK toward the road, so add PI —
             // Math.atan2(ux,uz) alone points the opening away from the street.
-            if (spotClear(bsx, bsz) && remapPointClear(bsx, bsz, 2) && !remapInClear(bsx, bsz, 0)) {
+            // ...and stay well clear of intersection throats so the shelter never
+            // lands on a crosswalk just past the junction-pad edge (report mrn25ep0).
+            if (spotClear(bsx, bsz) && remapPointClear(bsx, bsz, 2) && !remapInClear(bsx, bsz, 0) && !nearJunction(bsx, bsz, 12)) {
               spFull('busshelter', bsx, bsz, Math.atan2(pbs.ux, pbs.uz) + Math.PI);
               break;
             }
@@ -10141,6 +10281,33 @@ if (WC_REMAP) (function landscapePass() {
     landscapeStats.foundation = hfDone;
   }
 
+  // ---- forest undergrowth (owner: dense forest read as open grass, so
+  // players/cars drove in and hit "invisible" tree colliders). Fill every forest
+  // rect with a bed of shrubs so it LOOKS impassable — and grow them BIGGER
+  // toward the middle (owner: small brush at the rim, dense tall thickets in the
+  // core) so the boundary reads soft-to-solid as you look inward. Shrubs carry NO
+  // collider (pass-through), so this is purely a readability pass; collision is
+  // unchanged. Skip the huge fogged map-edge walls + tiny slivers. ----
+  (function forestBrush() {
+    var brush = 0;
+    for (var fi = 0; fi < mapForest.length; fi++) {
+      var fr = mapForest[fi], fw = fr.x1 - fr.x0, fd = fr.z1 - fr.z0;
+      if (fw < 8 || fd < 8 || fw > 170 || fd > 170) continue;   // skip slivers + perimeter walls
+      var half = Math.min(fw, fd) / 2, step = 3.8;
+      for (var bx = fr.x0 + step * 0.5; bx < fr.x1; bx += step) {
+        for (var bz = fr.z0 + step * 0.5; bz < fr.z1; bz += step) {
+          var jx = bx + rnd(-1.3, 1.3), jz = bz + rnd(-1.3, 1.3);
+          // 0 at the rim -> 1 at the deepest interior; ease so growth accelerates inward
+          var edgeD = Math.min(jx - fr.x0, fr.x1 - jx, jz - fr.z0, fr.z1 - jz);
+          var t = Math.max(0, Math.min(1, edgeD / half));
+          var sc = 0.6 + t * t * 2.15;   // ~0.6 small at the edge -> ~2.75 tall thickets in the core
+          shrub(jx, jz, sc * rnd(0.85, 1.15), pick(SHRUB_KEYS)); brush++;
+        }
+      }
+    }
+    landscapeStats.forestEdge = brush;
+  })();
+
   lflush();
 })();
 
@@ -10406,11 +10573,9 @@ function streetPropNear() {
 function streetPropPrompt() {
   var p = streetPropNear();
   if (!p) return '';
-  if (p.kind === 'vend') return '[E] SODA — $2';
   if (p.kind === 'phone') return T < p.cd ? '' : '[E] USE PAYPHONE';
   if (p.kind === 'atm') return '[E] USE ATM';
   if (p.kind === 'news') return T < p.cd ? '' : '[E] NEWSPAPER BOX';
-  if (p.kind === 'dumpster') return T < p.cd ? '' : '[E] DUMPSTER DIVE';
   if (p.kind === 'kick') return (p.bb && p.bb.broken) ? '' : '[E] KICK IT OVER';
   if (p.kind === 'mailbox') return T < p.cd ? '' : '[E] CHECK MAIL';
   return '';
@@ -10418,15 +10583,7 @@ function streetPropPrompt() {
 function streetPropInteract() {
   var p = streetPropNear();
   if (!p) return false;
-  if (p.kind === 'vend') {
-    if (state.money < 2) { sfx('deny'); popup2('Need $2'); return true; }
-    state.money -= 2;
-    sfx('buy');
-    beep(880, 0.05, 0.1, 'square'); setTimeout(function () { beep(660, 0.05, 0.1, 'square'); }, 90);
-    setTimeout(function () { noiseBurst(0.09, 500, 0.35); beep(120, 0.08, 0.25, 'square', 60); }, 420);   // can drops
-    (function (pp) { setTimeout(function () { spawnSodaDrop(pp.x + pp.fx * 0.9, pp.z + pp.fz * 0.9); }, 500); })(p);
-    popup('SODA dispensed');
-  } else if (p.kind === 'phone') {
+  if (p.kind === 'phone') {
     if (T < p.cd) return true;
     p.cd = T + 8;
     beep(350, 0.9, 0.06, 'sine'); beep(440, 0.9, 0.06, 'sine');   // dial tone
@@ -10458,12 +10615,7 @@ function streetPropInteract() {
     setTimeout(function () { noiseBurst(0.06, 900, 0.3); beep(320, 0.05, 0.1, 'square'); }, 100);
     var nr = Math.random();
     if (nr < 1 / 6) { spawnCash(p.x + p.fx * 0.7, p.z + p.fz * 0.7, 5); sfx('cash'); popup('Someone left change!'); }
-    else if (nr < 0.55) { giveItem('newspaper', 1, true); toast(itemIconHtml('newspaper') + ' You grab today\'s <b>paper</b>.', 2400); }
     else popup('Just old news.');
-  } else if (p.kind === 'dumpster') {
-    if (diveState) return true;
-    if (T < p.cd) { sfx('deny'); popup2('picked clean — try later'); return true; }
-    startDive(p);
   } else if (p.kind === 'kick') {
     if (p.bb && !p.bb.broken) { breakProp(p.bb, p.x - player.x, p.z - player.z); popup('you boot it over'); }   // spills 0-2 junk via onStreetPropBreak('trash')
     else { sfx('deny'); }
@@ -10491,9 +10643,6 @@ function onStreetPropBreak(b) {
   if (b.kind === 'meter') {
     spawnCashNet(b.x, b.z, 5 + ((Math.random() * 11) | 0));
     sfx('cash', { x: b.x, z: b.z, range: 50 });
-  } else if (b.kind === 'trash') {   // kicked/rammed bins spill 0-2 pieces of junk
-    var tn = (Math.random() * 3) | 0;
-    for (var ti = 0; ti < tn; ti++) { var tid = Math.random() < 0.85 ? pick(DIVE_JUNK) : pick(DIVE_FOOD); spawnItemDrop(tid, b.x + (Math.random() - 0.5) * 1.6, b.z + (Math.random() - 0.5) * 1.6, 120); }
   } else if (b.kind === 'hydrant') {
     var parts = [];
     var jm = new THREE.MeshBasicMaterial({ color: 0xcfeaff, transparent: true, opacity: 0.85 });
@@ -10597,13 +10746,24 @@ var pendingVendors = [], envVendors = [];
 var envStats = { placed: 0, merged: 0, colliders: 0, batches: 0, byCat: {} };
 var ENV_BY_NAME = {};
 if (typeof ENV_PROPS !== 'undefined') for (var epi = 0; epi < ENV_PROPS.length; epi++) ENV_BY_NAME[ENV_PROPS[epi].n] = ENV_PROPS[epi];
-// quest props (questprops.js #77) share the ENV_PROPS schema — register them in
-// the lookup so getEnvProp()/envDecodeGeo()/envTex() build them. They are NOT
-// auto-placed by the env layer (that only bakes named venue props); quests place
-// them explicitly via getEnvProp('trapdoor'|'hollow_oak'|…).
-if (typeof QUEST_PROPS !== 'undefined') for (var qpi = 0; qpi < QUEST_PROPS.length; qpi++) ENV_BY_NAME[QUEST_PROPS[qpi].n] = QUEST_PROPS[qpi];
+// owner-requested removals: food vendors, coin-op / interactive machines, and
+// outdoor café/patio tables. place() and spawnVendors() skip anything in here.
+var ENV_BLOCK = {
+  food_truck: 1, icecream_truck: 1, hotdog_cart: 1, lemonade_stand: 1,
+  arcade_cabinet: 1, jukebox: 1, boombox: 1, claw_machine: 1, gumball_machine: 1, soda_machine: 1,
+  cafe_set: 1, patio_umbrella: 1,
+  garden_gnome: 1, flamingo: 1   // owner: no gnomes or flamingos at all
+};
+// owner: too many props — thin decorative filler categories ~half (planters,
+// bollards, yard-decor misc like gnomes/flamingos). Keep fountains, benches,
+// playground, railings, signage intact.
+var ENV_THIN = { planter: 0.5, bollard: 0.5, misc: 0.5 };
 // townhouse mailbox clusters become E-rummageable (junk mail / stray package)
 if (ENV_BY_NAME.mailbox_cluster) ENV_BY_NAME.mailbox_cluster.interact = 'mailbox';
+// solid objects that shipped without a collision flag — you shouldn't walk
+// through a fire pit or a sandwich-board sign (owner collision audit).
+if (ENV_BY_NAME.fire_pit) ENV_BY_NAME.fire_pit.solid = 1;
+if (ENV_BY_NAME.aframe_sign) ENV_BY_NAME.aframe_sign.solid = 1;
 
 var envGeoCache = {}, envTexCache = {};
 // shared water-droplet particle (fountain / drinking-fountain flow anim)
@@ -10822,7 +10982,9 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
   //   y (ground offset, def 0), noCol (skip collider), mapB (force rain/minimap),
   //   scale (uniform, instances only)
   function place(name, x, z, ry, opts) {
+    if (ENV_BLOCK[name]) return null;   // owner: removed food vendors / coin-op / outdoor tables
     var e = ENV_BY_NAME[name]; if (!e) return null;
+    if (ENV_THIN[e.cat] && Math.random() < ENV_THIN[e.cat]) return null;   // owner: thin decorative filler ~half
     opts = opts || {}; ry = ry || 0; var y = opts.y || 0, dims = e.dims;
     if (MERGE[name] && !opts.instance) {
       bake(name, mtx(x, y, z, ry)); envStats.merged++;
@@ -10835,7 +10997,7 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
       if (e.anim) envAnimInit(rec, e);   // STEP 2: rig up spin/wave/flail/sway/glow/flow
       if (e.solid && !opts.noCol) solidMeshes.push(g);   // bullets stop on solid instances
     }
-    if (e.solid && !opts.noCol) { addColliderOBB(x, z, dims[0] / 2, dims[2] / 2, ry, 'env:' + name); envStats.colliders++; }
+    if (e.solid && !opts.noCol) { var _ec = addColliderOBB(x, z, dims[0] / 2, dims[2] / 2, ry, 'env:' + name); _ec.topY = y + dims[1]; envStats.colliders++; }   // 2.5D: tall ones stay walls (out of jump reach), low ones become standable
     if (opts.mapB || BIGMAP[name]) {
       var c = Math.abs(Math.cos(ry)), s = Math.abs(Math.sin(ry));
       mapBuildings.push({ x: x, z: z, w: dims[0] * c + dims[2] * s, d: dims[0] * s + dims[2] * c, c: 0x8a8f94, pad: 0, h: dims[1] });
@@ -11241,8 +11403,8 @@ function envPropPrompt() {
   if (k === 'drink') return T < p.cd ? '' : '[E] DRINK';
   if (k === 'read') return '[E] READ SIGN';
   if (k === 'cook') return '[E] COOK';
-  if (k === 'vend') return p.name === 'gumball_machine' ? '[E] GUMBALL — $1' : '[E] SODA — $2';
-  if (k === 'buy') { var b = ENV_BUY[p.name]; return b ? '[E] BUY ' + b.item + ' — $' + b.price : '[E] BUY'; }
+  if (k === 'vend') return p.name === 'gumball_machine' ? '[E] GUMBALL — $1' : '';   // soda removed (food/drink coming later)
+  if (k === 'buy') return '';   // purchasable food removed (equippable food/drink coming later)
   if (k === 'play') return p.name === 'claw_machine' ? '[E] CLAW — $2' : (p.name === 'jukebox' || p.name === 'arcade_cabinet' || p.name === 'boombox' ? '[E] PLAY MUSIC' : '[E] PLAY');
   if (k === 'mailbox') return T < p.cd ? '' : '[E] CHECK MAIL';
   return '';
@@ -11280,22 +11442,9 @@ function envPropInteract() {
       state.hp = Math.min(100, state.hp + 2); popup('gumball!');
       return true;
     }
-    if (state.money < 2) { sfx('deny'); popup2('Need $2'); return true; }
-    state.money -= 2; sfx('buy'); beep(880, 0.05, 0.1, 'square');
-    (function (pp) { setTimeout(function () { spawnSodaDrop(pp.x + pp.fx * 0.9, pp.z + pp.fz * 0.9); }, 260); })(p);
-    popup('SODA dispensed');
-    return true;
+    sfx('deny'); popup2('OUT OF SERVICE'); return true;   // soda removed (food/drink coming later)
   }
-  if (k === 'buy') {
-    var b = ENV_BUY[p.name]; if (!b) return true;
-    var vv = p.name === 'lemonade_stand' ? 'LEMONADE' : (p.name === 'icecream_truck' ? 'ICECREAM' : null);
-    if (state.money < b.price) { sfx('deny'); popup2('Need $' + b.price); return true; }
-    state.money -= b.price; sfx('buy');
-    state.hp = Math.min(100, state.hp + b.heal);
-    toast('Bought a <b>' + b.item + '</b> — +' + b.heal + ' hp', 2600);
-    if (vv) { playVendVoice(vv, 'sale', 0.75, 0, { x: p.x, z: p.z }); setTimeout(function () { playVendVoice(vv, 'thanks', 0.7, 0, { x: p.x, z: p.z }); }, 1400); }
-    return true;
-  }
+  if (k === 'buy') { return true; }   // purchasable food removed (equippable food/drink coming later)
   if (k === 'play') {
     if (p.name === 'claw_machine') {
       if (T < p.cd) return true; p.cd = T + 0.4;
@@ -11303,9 +11452,7 @@ function envPropInteract() {
       state.money -= 2; beep(700, 0.06, 0.1, 'square'); noiseBurst(0.3, 400, 0.12);
       if (Math.random() < 0.28) {
         spawnEnvToy(p.x + p.fx * 0.7, 1.0, p.z + p.fz * 0.7, GUMBALL_COLS[(Math.random() * GUMBALL_COLS.length) | 0]);
-        var cid = pick(['rubberduck', 'actionfig', 'magic8', 'vhs', 'cassette', 'gnome']);   // real quirky bag prize
-        giveItem(cid, 1, true); sfx('cash');
-        toast(itemIconHtml(cid) + ' The claw actually grabs a <b>' + itemDef(cid).name + '</b>!', 3000);
+        sfx('cash'); popup('The claw grabs a toy!');
       }
       else popup2('so close…');
       return true;
@@ -11439,9 +11586,6 @@ function spawnInteriorCops(n) {
 function maxWanted() {
   var w = (state.dead || inside) ? 0 : (state.wanted || 0);
   for (var id in net.remotes) { var r = net.remotes[id]; if (r && !r.dead && (r.w || 0) > w) w = r.w; }
-  // #78 Q10 ending town-perks: signet (inherit) = cops ignore minor crimes;
-  // leniency (expose/Whistleblower) = one star cooler baseline
-  if (state.unlocks) { if (state.unlocks.perk_signet) w = Math.max(0, w - 2); else if (state.unlocks.perk_leniency) w = Math.max(0, w - 1); }
   return w;
 }
 function desiredCops() { var w = maxWanted(); return w === 0 ? 2 : 2 + w * 2; }
@@ -11569,7 +11713,7 @@ function copShoot(c, wpn, dt, tgt) {
   var dx = tgt.x - c.x, dz = tgt.z - c.z, d = Math.sqrt(dx * dx + dz * dz) || 1;
   // muzzle flash at the gun's barrel tip; chest-height fallback if holstered
   var mz3 = copMuzzle(c) || new THREE.Vector3(c.x + dx / d * 0.5, (c.baseY || 0) + 1.45, c.z + dz / d * 0.5);
-  puff(mz3, 0xffe08a);
+  puff(mz3, 0xffe08a, 'muzzle');
   var hitChance = wpn.acc * Math.max(0.1, 1 - d / wpn.range);
   var hitV = null;   // where a round landed on a person (for the client blood puff)
   if (Math.random() < hitChance) {
@@ -11948,7 +12092,7 @@ function ensureEngine(c) {
   };
   // sample-based engine: idle + high-rev Lyria loops crossfaded by the same
   // RPM model; per-car personality survives via playbackRate (chr.pitch)
-  if (sfxEngReady(chr.cls)) {
+  if (false && sfxEngReady(chr.cls)) {   // v1.70: AI sample loops disabled — they read as music; use the plain synth
     var g2 = ac.createGain(); g2.gain.value = 0; g2.connect(ac.destination);
     // loops carry 100ms of margin context either side (see tools/sfxgen):
     // loopStart/loopEnd sit interior so decode-resampling never clicks
@@ -11965,14 +12109,16 @@ function ensureEngine(c) {
     c.eng = { smp: true, si: si, sh: sh, gi: gi, gh: gh, g: g2, rpm: ENG_IDLE, chr: chr };
     return;
   }
+  // simplified engine (v1.70): a single low sawtooth + a sub-sine for body,
+  // through a dull lowpass. The old detuned second oscillator beat against the
+  // first at a near-octave ratio, which read as a musical drone — dropped.
   var o = ac.createOscillator(); o.type = 'sawtooth'; o.frequency.value = 40;
-  var o2 = ac.createOscillator(); o2.type = chr.o2t; o2.frequency.value = 81;
-  var sub = ac.createOscillator(); sub.type = 'sine'; sub.frequency.value = 20;   // body
-  var f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 280; f.Q.value = 1.2;
+  var sub = ac.createOscillator(); sub.type = 'sine'; sub.frequency.value = 20;   // low-end body
+  var f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 240; f.Q.value = 0.7;
   var g = ac.createGain(); g.gain.value = 0;
-  o.connect(f); o2.connect(f); sub.connect(f); f.connect(g); g.connect(ac.destination);
-  o.start(); o2.start(); sub.start();
-  c.eng = { syn: true, o: o, o2: o2, sub: sub, f: f, g: g, rpm: ENG_IDLE, chr: chr };
+  o.connect(f); sub.connect(f); f.connect(g); g.connect(ac.destination);
+  o.start(); sub.start();
+  c.eng = { syn: true, o: o, sub: sub, f: f, g: g, rpm: ENG_IDLE, chr: chr };
 }
 function ensureEngineRich(c) {
   // the player's car earns the full stack: band-passed combustion noise
@@ -11994,7 +12140,7 @@ function engineTick(c, dt, sp, throttle, dist, drivenLoud) {
   var e = c.eng;
   // late pack upgrade: this engine was built as synth before the SFX pack
   // finished decoding — rebuild it on the sample loops (cheap, once per car)
-  if (e.syn && e.chr && sfxEngReady(e.chr.cls)) {
+  if (false && e.syn && e.chr && sfxEngReady(e.chr.cls)) {   // v1.70: never upgrade to sample loops (forced simple synth)
     var wasRich = !!e.rich;
     stopEngine(c); ensureEngine(c);
     if (wasRich) ensureEngineRich(c);
@@ -12017,11 +12163,10 @@ function engineTick(c, dt, sp, throttle, dist, drivenLoud) {
     e.gi.gain.value = 1 - revClimb * revClimb;
     e.gh.gain.value = Math.sqrt(revClimb) * 1.1;
   } else {
-    var f0 = Math.max(20, Math.min(400, (e.rpm / 22) * dop * chr.pitch));   // firing fundamental
+    var f0 = Math.max(20, Math.min(360, (e.rpm / 22) * dop * chr.pitch));   // firing fundamental
     e.o.frequency.value = f0;
-    e.o2.frequency.value = Math.min(820, f0 * chr.ratio);
     e.sub.frequency.value = Math.max(14, f0 * 0.5);
-    e.f.frequency.value = Math.max(140, Math.min(1400, (150 + e.rpm * 0.16) * chr.bright));
+    e.f.frequency.value = Math.max(120, Math.min(1000, (130 + e.rpm * 0.13) * chr.bright));
   }
   // loudness: distance falloff x rev-dependent presence (all gains clamped).
   // Sample loops are peak-normalized quieter than the raw saw stack -> boost.
@@ -12101,6 +12246,9 @@ function updateCars(dt) {
       }
       continue;
     }
+    // driverless runaway: a car you bailed out of at speed coasts on its heading
+    // (updateCoastCar handles decel + run-overs + crash-explode), then settles.
+    if (c.coast) { updateCoastCar(c, dt, i); continue; }
     // parked lot cars: no driver, no traffic AI, engine dead silent —
     // they only move if something rams them (shove physics still applies)
     if (c.parked) {
@@ -12238,7 +12386,7 @@ function updateCars(dt) {
     }
 
     // shove / hurt player (not while you're inside your own car)
-    if (Math.abs(edx) < 2.6 && Math.abs(edz) < 2.6 && !state.dead && !driving && !(plane && plane.piloting)) {
+    if (Math.abs(edx) < 2.6 && Math.abs(edz) < 2.6 && !state.dead && !driving && !inside && !(plane && plane.piloting)) {   // !inside: surface cars can't hit you in the under-map interior
       var d = ed || 1;
       player.x += (edx / d) * 2.4; player.z += (edz / d) * 2.4;
       if (T - state.lastCarHit > 0.8) { state.lastCarHit = T; hurtPlayer(12, m.position.x, m.position.z); sfx('thud'); }
@@ -12317,41 +12465,161 @@ function enterCar(c) {
   yaw = Math.atan2(-Math.cos(hh), Math.sin(hh));
   pitch = 0;
   document.getElementById('crosshair').style.display = 'none';
-  document.getElementById('weaponBox').innerHTML = 'DRIVING<br><small>[E] get out &middot; WASD drive &middot; mouse looks around</small>';
+  document.getElementById('weaponBox').innerHTML = '';   // no driving HUD text — controls live in the pause-menu CONTROLS tab
+  // radio: a car you've driven before picks up its own station where you left it;
+  // a fresh steal rolls the previous driver's radio (off, or already mid-song).
+  if (c.radio) radioApplySnapshot(c.radio);
+  else { c.radio = radioHijackRoll(); radioApplySnapshot(c.radio); }
+}
+// ===================== BAIL-OUT: momentum + tuck-and-roll =====================
+// Leaving a car no longer stops it dead — it keeps its momentum and coasts on its
+// heading, slowing gradually, mowing down anyone in the way and (if it's still
+// moving fast) exploding on the first solid thing it hits. Bail at speed and your
+// character tumbles out along the car's path in a quick third-person roll that
+// zooms back into first person — so you can aim a car at a target, jump out, and
+// let it fly. Host/SP only (MP clients still do a plain park).
+var COAST_MIN = 3, COAST_BOOM = 12, ROLL_MIN = 14;
+function startCoast(c, tvx, tvz, asp) {
+  var m = c.car.group;
+  c.coast = true; c.berserk = false; c.shoveT = 0;
+  c.bx = m.position.x; c.bz = m.position.z;
+  c.bvx = tvx * asp; c.bvz = tvz * asp;
+  c.pspeed = 0; c.speed = 0; c.stolen = true; c.parked = false;
+}
+function coastParkCar(c) {
+  c.coast = false; c.bvx = 0; c.bvz = 0; c.pspeed = 0; c.speed = 0;
+  if (c.slot) { c.parked = true; }   // lot car settles as parked; street car stays a stopped stolen car
+}
+function updateCoastCar(c, dt, i) {
+  var m = c.car.group, cs = Math.sqrt(c.bvx * c.bvx + c.bvz * c.bvz);
+  c.bvx *= Math.max(0, 1 - 1.0 * dt); c.bvz *= Math.max(0, 1 - 1.0 * dt);   // rolling resistance
+  c.bx += c.bvx * dt; c.bz += c.bvz * dt;
+  c.bx = Math.max(-HALF + 2, Math.min(HALF - 2, c.bx));
+  c.bz = Math.max(-HALF + 2, Math.min(HALF - 2, c.bz));
+  m.position.set(c.bx, 0, c.bz);   // heading (m.rotation.y) stays as it was on exit
+  var spin = (cs * dt) / 0.34;
+  for (var wi = 0; wi < 4; wi++) c.car.wheels[wi].rotation.y -= spin;
+  updateCarFeel(c, dt, cs, 0, 0);
+  var hh = m.rotation.y, hfx = Math.cos(hh), hfz = -Math.sin(hh);
+  // mow down pedestrians in the path
+  for (var ni = 0; ni < npcs.length; ni++) {
+    var n = npcs[ni]; if (n.state === 'down' || n.state === 'ragdoll' || n.state === 'hidden') continue;
+    var dxx = n.x - c.bx, dzz = n.z - c.bz, lon = dxx * hfx + dzz * hfz, lat = -dxx * hfz + dzz * hfx;
+    if (Math.abs(lon) < 2.8 && Math.abs(lat) < 1.5) {
+      sfx('crash', { x: n.x, z: n.z, range: 90 });
+      killNpcRagdoll(n, hfx, hfz, 8 + cs * 0.55);
+    }
+  }
+  // solid props / other cars: crash -> explode if still fast, else just stop
+  var hit = false;
+  for (var b = 0; b < colliders.length; b++) {
+    var bb = colliders[b]; if (bb.active === false || bb.lake) continue;
+    var qx = Math.max(bb.x0, Math.min(c.bx, bb.x1)), qz = Math.max(bb.z0, Math.min(c.bz, bb.z1));
+    var qdx = c.bx - qx, qdz = c.bz - qz;
+    if (qdx * qdx + qdz * qdz < 4.5) { hit = true; break; }
+  }
+  if (!hit) for (var j = 0; j < cars.length; j++) {
+    if (cars[j] === c || cars[j].exploded) continue;
+    var om = cars[j].car.group.position;
+    if (Math.abs(om.x - c.bx) < 4 && Math.abs(om.z - c.bz) < 4) {
+      if (cs > COAST_BOOM && !cars[j].stolen && !cars[j].drivenBy) explodeCar(cars[j]);
+      hit = true; break;
+    }
+  }
+  if (hit) { if (cs > COAST_BOOM) { explodeCar(c); return; } coastParkCar(c); return; }
+  if (cs < 2.5) coastParkCar(c);   // rolled to a gentle stop
+}
+// ---- tuck & roll: third-person tumble out along the car's path, zoom to head ----
+var rollState = null;
+function startRoll(x, z, tvx, tvz, asp) {
+  var body = null;
+  try {
+    body = buildCharacter(playerChar || randomCharConfig());
+    if (body.userData && body.userData.shadow) body.userData.shadow.visible = false;
+    scene.add(body);
+  } catch (e) { body = null; }
+  rollState = { t: 0, dur: 1.25, x: x, z: z, dx: tvx, dz: tvz, v: Math.min(20, asp * 0.55), body: body,
+                face: Math.atan2(tvx, -tvz) };
+  vm.visible = false;
+  document.getElementById('crosshair').style.display = 'none';
+}
+function updateRoll(dt) {
+  if (!rollState) return;
+  var r = rollState; r.t += dt;
+  var f = Math.min(1, r.t / r.dur);
+  r.v *= Math.max(0, 1 - 2.4 * dt);
+  var step = r.v * dt;
+  var p = pushOut(r.x + r.dx * step, r.z + r.dz * step, 0.5);
+  r.x = p.x; r.z = p.z; player.x = r.x; player.z = r.z; player.y = EYE;
+  if (r.body) {
+    var bob = Math.abs(Math.sin(r.t * 11)) * 0.28;
+    r.body.position.set(r.x, 0.32 + bob * (1 - f), r.z);
+    r.body.rotation.order = 'YXZ';
+    r.body.rotation.set(r.t * 12 * (1 - f * 0.4), r.face, 0);   // tumble forward, settling as it ends
+    if (f > 0.85) { var st = 1 - (f - 0.85) / 0.15; r.body.rotation.x *= st; }   // land on feet
+  }
+  var eyeY = 1.6;
+  if (f < 0.72) {
+    var back = 4.5 - f * 1.5, up = 2.8 - f * 0.9;
+    camera.position.set(r.x - r.dx * back, up, r.z - r.dz * back);
+    camera.lookAt(r.x, 1.0, r.z);
+  } else {
+    var g2 = (f - 0.72) / 0.28;                       // 0..1 blend into first person
+    var back = (4.5 - 0.72 * 1.5) * (1 - g2);
+    var cy = (2.8 - 0.72 * 0.9) * (1 - g2) + eyeY * g2;
+    camera.position.set(r.x - r.dx * back, cy, r.z - r.dz * back);
+    camera.lookAt(r.x + r.dx * (0.5 + g2 * 3), (1.0) * (1 - g2) + eyeY * g2, r.z + r.dz * (0.5 + g2 * 3));
+  }
+  if (f >= 1) endRoll();
+}
+function endRoll() {
+  var r = rollState; rollState = null;
+  if (r && r.body) scene.remove(r.body);
+  if (r) yaw = Math.atan2(-r.dx, -r.dz);   // face the way you rolled (the car's path)
+  pitch = 0; recoilPitch = 0;
+  player.y = EYE; player.vy = 0; camera.rotation.z = 0;
+  vm.visible = true;
+  document.getElementById('crosshair').style.display = '';
+  setEquipped(state.equipped);
+  if (state.running && document.pointerLockElement !== canvas) lockPointer();
 }
 function exitCar(hijacked) {
   if (!driving) return;
-  var g = driving.car.group;
-  var h = g.rotation.y;
+  var c = driving, g = c.car.group, h = g.rotation.y;
+  var asp = Math.abs(c.pspeed || 0);
+  var swamped = c.sunk || c.flooding;
+  // travel direction (falls back to the nose heading if the car wasn't drifting)
+  var tvx = c.mvx, tvz = c.mvz;
+  if (tvx === undefined || (tvx === 0 && tvz === 0)) { tvx = Math.cos(h); tvz = -Math.sin(h); }
+  var tl = Math.sqrt(tvx * tvx + tvz * tvz) || 1; tvx /= tl; tvz /= tl;
+  c.radio = radioSnapshot(); radioStop();
+  if (c.eng) stopEngine(c);
+  if (swamped && !landColliders) landColliders = colliders.filter(function (cc) { return !cc.lake; });
   var px = g.position.x + Math.cos(h + Math.PI / 2) * 2.6;
   var pz = g.position.z - Math.sin(h + Math.PI / 2) * 2.6;
-  // bailing out of a swamped car drops you INTO the lake (the swim/underwater
-  // system takes over) — use the lake-filtered list so pushOut doesn't shove you
-  // back to shore. Normal exits keep the full collider list.
-  var swamped = driving.sunk || driving.flooding;
-  if (swamped && !landColliders) landColliders = colliders.filter(function (cc) { return !cc.lake; });
   var p = pushOut(px, pz, 0.55, swamped ? landColliders : undefined);
-  player.x = p.x; player.z = p.z; player.y = EYE; player.vy = 0;
-  // when we got hijacked the car belongs to the thief now — don't park it
-  if (!hijacked) {
-    driving.pspeed = 0;
-    if (isClient()) netToHost({ t: 'park', i: cars.indexOf(driving), x: Math.round(g.position.x * 10) / 10, z: Math.round(g.position.z * 10) / 10, ry: Math.round(h * 100) / 100 });
+  var coastable = !hijacked && !swamped && !isClient() && asp > COAST_MIN;
+  if (coastable) startCoast(c, tvx, tvz, asp);
+  else if (!hijacked) {
+    if (!isClient()) c.pspeed = 0;
+    else netToHost({ t: 'park', i: cars.indexOf(c), x: Math.round(g.position.x * 10) / 10, z: Math.round(g.position.z * 10) / 10, ry: Math.round(h * 100) / 100 });
   }
   driving = null;
+  sfx('cardoor');
+  // fast bail -> tuck & roll (handles player pos + camera + vm restore itself)
+  if (coastable && asp > ROLL_MIN) { startRoll(p.x, p.z, tvx, tvz, asp); return; }
+  player.x = p.x; player.z = p.z; player.y = EYE; player.vy = 0;
   vm.visible = true;
-  sfx('cardoor');   // door slam on the way out too
   document.getElementById('crosshair').style.display = '';
-  setEquipped(state.equipped);   // restores viewmodel + weapon HUD
+  setEquipped(state.equipped);
 }
 // ---- breaking into parked cars: E starts a 0.9s window-jimmy, then you're in ----
 var breakIn = null;   // {c, t}
 function startBreakIn(c) {
   if (breakIn || driving || !c.parked || c.exploded || c.sunk) return;
   var g = c.car.group.position;
-  // Lockpick Set (q4) / Bait-Car hotwire (q5): skip the jimmy timer.
-  var fast = (typeof hasUnlock === 'function' && (hasUnlock('lockpick') || hasUnlock('hotwire')));
-  breakIn = { c: c, t: fast ? 0.05 : 0.9 };
-  popup2(fast ? 'HOTWIRING…' : 'BREAKING IN…');
+  breakIn = { c: c, t: 0.9 };
+  popup2('BREAKING IN…');
   sfx('glass', { x: g.x, z: g.z, range: 55 });
   // a bystander who can SEE you jimmy the door panics like a gunshot scare
   // (no automatic star — startFlee only, same as any scared pedestrian)
@@ -12420,6 +12688,32 @@ function carHandling(vname) {
   if (vname === 'GG_WRECK') return { acc: 0.75, top: 0.86 };
   return { acc: 1, top: 1 };
 }
+// true if a still-standing breakable (tree / light / snappable pole) sits within
+// r of (x,z) — those get SNAPPED by a fast car, so a smash into one isn't a
+// "hit a solid wall" fatal-crash event.
+function nearBreakable(x, z, r) {
+  if (typeof breakables === 'undefined') return false;
+  var r2 = r * r;
+  for (var i = 0; i < breakables.length; i++) { var b = breakables[i]; if (!b || b.broken || !b.col || b.col.active === false) continue; var dx = x - b.x, dz = z - b.z; if (dx * dx + dz * dz < r2) return true; }
+  return false;
+}
+// Oriented (OBB) overlap test between two cars, 2D SAT on the four box axes.
+// Replaces the old world-axis AABB ram box, which flagged a "hit" whenever a car
+// was within 4x3.2 world units regardless of heading — so passing a car in the
+// next lane phantom-bumped you. Half-extents are the real footprint, trimmed a
+// touch so only genuine contact counts.
+var CAR_HL = 2.15, CAR_HW = 0.98;   // half length / half width
+function carsOverlap(ax, az, aFx, aFz, bx, bz, bFx, bFz) {
+  var dx = bx - ax, dz = bz - az;
+  var aRx = -aFz, aRz = aFx, bRx = -bFz, bRz = bFx;
+  function sep(nx, nz) {
+    var d = Math.abs(dx * nx + dz * nz);
+    var ra = CAR_HL * Math.abs(aFx * nx + aFz * nz) + CAR_HW * Math.abs(aRx * nx + aRz * nz);
+    var rb = CAR_HL * Math.abs(bFx * nx + bFz * nz) + CAR_HW * Math.abs(bRx * nx + bRz * nz);
+    return d > ra + rb;
+  }
+  return !(sep(aFx, aFz) || sep(aRx, aRz) || sep(bFx, bFz) || sep(bRx, bRz));
+}
 function updateDriving(dt) {
   var c = driving, g = c.car.group;
   var h = g.rotation.y;
@@ -12428,36 +12722,127 @@ function updateDriving(dt) {
   // identical). Heavier bodies pull away slower and top out lower.
   if (c.handling === undefined) c.handling = carHandling(c.car && c.car.vname);
   var hd = c.handling;
-  if (keys['KeyW']) accel = 12 * hd.acc;
-  else if (keys['KeyS']) accel = -15 * hd.acc;
-  if (c.flooding || c.sunk) accel = 0;   // swamped: no throttle authority (lakeCarPhysics decays pspeed)
+  var topF = 39 * hd.top, topR = 13.5 * hd.top;   // +50% top speed (was 26 / 9)
   c.pspeed = c.pspeed || 0;
+  var airborne = !!c.airborne;
+  var throttle = (c.flooding || c.sunk || airborne) ? 0 : (keys['KeyW'] ? 1 : (keys['KeyS'] ? -1 : 0));
+  // longitudinal: SAME launch force (7) tapering toward the (now higher) top, so
+  // the early pull is unchanged and you keep gaining past the old top up to the new.
+  if (throttle > 0) accel = 7 * hd.acc * (1 - Math.min(1, Math.max(0, c.pspeed) / topF));
+  else if (throttle < 0) {
+    if (c.pspeed > 0.4) accel = -30 * hd.acc;   // firm braking against forward motion
+    else accel = -8 * hd.acc * (1 - Math.min(1, -Math.min(0, c.pspeed) / topR));  // gradual reverse
+  }
   c.pspeed += accel * dt;
-  if (!accel) c.pspeed *= Math.max(0, 1 - 1.4 * dt);
-  c.pspeed = Math.max(-9 * hd.top, Math.min(26 * hd.top, c.pspeed));
-  // brake-light input: S/Space against forward motion, or a hard one-frame
-  // speed drop (wall/car impact) — consumed by updateCarLights via updateWorldFx
+  if (throttle === 0 && !airborne) c.pspeed *= Math.max(0, 1 - 0.22 * dt);   // light coast drag -> keeps momentum
+  c.pspeed = Math.max(-topR, Math.min(topF, c.pspeed));
+  // brake-light input: S/Space against forward motion, or a hard one-frame drop
   c.brakeIn = ((keys['KeyS'] || keys['Space']) && c.pspeed > 0.5) || (c._lps !== undefined && c._lps - c.pspeed > 5);
   c._lps = c.pspeed;
-  var steer = (keys['KeyA'] ? 1 : 0) - (keys['KeyD'] ? 1 : 0);
-  if (steer) h += steer * 2.1 * dt * Math.max(-1, Math.min(1, c.pspeed / 8));
+  var asp = Math.abs(c.pspeed);
+  var steer = airborne ? 0 : ((keys['KeyA'] ? 1 : 0) - (keys['KeyD'] ? 1 : 0));
+  // steering authority ramps in with speed, then eases OFF up top so the car feels
+  // heavier / less twitchy at high speed (subtle — ~35% less at the ceiling).
+  var speedAuth = Math.max(-1, Math.min(1, c.pspeed / 8));
+  var turnRate = 2.1 * (1 - 0.35 * Math.min(1, asp / topF));
+  var yawRate = steer * turnRate * speedAuth;
+  // traction: hard cornering at speed BUILDS a slide over time (c.slid). Ease off
+  // or slow and it recovers; hold it pinned too long, too fast and the rear breaks
+  // fully loose and the car spins out — rotation the driver can no longer stop.
+  var GRIP = 32, latAcc = Math.abs(c.pspeed * yawRate);
+  c.slid = c.slid || 0;
+  if (!airborne && latAcc > GRIP && asp > 8) c.slid += (latAcc / GRIP - 1) * dt * 2.0;
+  else c.slid = Math.max(0, c.slid - dt * 1.4);
+  c.slid = Math.min(c.slid, 3.5);
+  if (c.slid > 0.3) c.pspeed *= Math.max(0, 1 - c.slid * 0.28 * dt);   // sliding tyres scrub speed -> a slide/spin bleeds momentum
+  if (steer !== 0) c.spinDir = yawRate >= 0 ? 1 : -1;
+  var ctrl = Math.max(0.1, 1 - c.slid * 0.55), loose = Math.max(0, c.slid - 1);
+  h += (yawRate * ctrl + loose * (c.spinDir || 1) * 3.0) * dt;   // past slid>1 the rear breaks loose -> full spin-out
+  c.slip = c.slid;
+  // ---- braking / tyre-screech SFX (carsfx.js) ----
+  // tyre screech on a hard high-speed brake OR when the tyres let go (sliding);
+  // a softer chirp for a normal low-speed stop. Keyed off the actual brake input
+  // (not c.brakeIn, which also spikes on impacts — those already play 'crash').
+  // Brake chirp fires once per application (rising edge); the ~3s screech re-arms
+  // near its own length so a sustained slide reads as continuous, not machine-gun.
+  var keyBrake = (keys['KeyS'] || keys['Space']) && c.pspeed > 0.5;
+  var screeching = (c.slid > 0.6) || (keyBrake && asp > 16);
+  var carAt = { x: g.position.x, z: g.position.z, range: 72 };
+  if (screeching) {
+    if (T - (c.screechT || -99) > 2.7) { c.screechT = T; sfx('tirescreech', carAt); }
+  } else if (keyBrake && asp > 3 && !c.brakePrev) {
+    sfx('brake', carAt);
+  }
+  c.brakePrev = keyBrake && asp > 3;
   var fx = Math.cos(h), fz = -Math.sin(h);
-  var nx = g.position.x + fx * c.pspeed * dt;
-  var nz = g.position.z + fz * c.pspeed * dt;
+  // travel direction lags the nose the more it slides -> drifts / slides sideways
+  if (c.mvx === undefined) { c.mvx = fx; c.mvz = fz; }
+  var mk = Math.min(1, (9 - 7 * Math.min(1, c.slid)) * dt);
+  c.mvx += (fx - c.mvx) * mk; c.mvz += (fz - c.mvz) * mk;
+  var ml = Math.sqrt(c.mvx * c.mvx + c.mvz * c.mvz) || 1; c.mvx /= ml; c.mvz /= ml;
+  var nx = g.position.x + c.mvx * c.pspeed * dt;
+  var nz = g.position.z + c.mvz * c.pspeed * dt;
   nx = Math.max(-HALF + 3, Math.min(HALF - 3, nx));
   nz = Math.max(-HALF + 3, Math.min(HALF - 3, nz));
   // the DRIVEN car may cross the shoreline into the water — use the lake-filtered
-  // collider list (same one the on-foot player wades with). The fountain and
-  // every non-lake collider still block; only NPC/traffic pushOut keeps the wall.
+  // collider list. Airborne cars clear low props (feetY = their height).
   if (!landColliders) landColliders = colliders.filter(function (cc) { return !cc.lake; });
-  var p = pushOut(nx, nz, 1.7, landColliders);
+  var p = pushOut(nx, nz, 1.7, landColliders, airborne ? (c.cy || 5) : undefined);
   if (Math.abs(p.x - nx) > 0.01 || Math.abs(p.z - nz) > 0.01) {
-    if (Math.abs(c.pspeed) > 8) sfx('crash');
-    c.svy = (c.svy || 0) - Math.min(1.4, Math.abs(c.pspeed) * 0.09);   // suspension slam
+    if (asp > 8) sfx('crash', { x: p.x, z: p.z, range: 80 });
+    c.svy = (c.svy || 0) - Math.min(1.6, asp * 0.09);   // suspension slam
+    // a hard smash into a SOLID wall (not a snappable tree/pole) hurts you; fast
+    // enough and it's a fatal wreck.
+    if (asp > 16 && !state.dead && !nearBreakable(p.x, p.z, 2.6)) {
+      if (asp > 30) { hurtPlayer(200); explodeCar(c); return; }
+      hurtPlayer(Math.round((asp - 16) * 3.4), p.x, p.z);
+    }
     c.pspeed *= -0.15;
   }
-  g.position.set(p.x, 0, p.z);
+  // ---- vertical: ride the surface. Two distinct ways to catch air, kept apart so
+  // curbs no longer over-launch (report: "air too exaggerated on little curbs"):
+  //   1) RAMP jump — a real addRamp incline. We track the along-heading up-grade
+  //      while climbing; at the crest the car flies off ALONG the ramp angle,
+  //      keeping its momentum (cvy = horizontal speed * grade => trajectory matches
+  //      the ramp). This is the big, satisfying jump.
+  //   2) CURB / bump — a sharp one-frame surface step (sidewalk edge). Gives only a
+  //      small, hard-capped hop (~half the old amount), never a ramp-sized launch.
+  var gs = driveSurfaceAt(p.x, p.z), rgx = -fz, rgz = fx;   // car's right vector
+  var rampGrad = gs.gx * fx + gs.gz * fz;                   // along-travel grade (>0 climbing a ramp, <0 descending)
+  var surf = surfaceHeightAt(p.x, p.z);
+  if (c.cy === undefined) c.cy = surf;
+  if (c.csurf === undefined) c.csurf = surf;
+  var groundRise = (surf - c.csurf) / dt; c.csurf = surf;   // vertical speed of the ground under the car (curb steps spike this)
+  c.cvy = c.cvy || 0;
+  if (gs.h > 0.05 && rampGrad > 0.02) c.onRampGrad = rampGrad;   // remember the up-grade of the ramp we're climbing
+  if (airborne) {
+    c.cvy -= 20 * dt; c.cy += c.cvy * dt;                    // ballistic arc
+    if (c.cy <= surf) { c.cy = surf; c.cvy = 0; c.airborne = false; sfx('crash', { x: p.x, z: p.z, range: 70 }); }
+  } else {
+    var launched = false;
+    // 1) RAMP LAUNCH: we were climbing a ramp and the grade just fell away (crest /
+    //    lip) -> fly off along that angle, momentum intact. cvy = speed * grade.
+    if ((c.onRampGrad || 0) > 0.05 && rampGrad < c.onRampGrad * 0.5 && asp > 12) {
+      c.airborne = true; c.cvy = Math.min(asp * c.onRampGrad, 22);
+      c.cy = Math.max(c.cy, surf);   // start the arc AT the crest (cy lags below while climbing) so we fly over the ramp top, not snap-land on it
+      c.onRampGrad = 0; c.rampV = 0; launched = true;
+    }
+    if (gs.h < 0.05) c.onRampGrad = 0;                       // fully off any ramp -> reset
+    if (!launched) {
+      // 2) CURB / BUMP: a small sharp step -> tiny hop only, hard-capped so curbs
+      //    can't throw the car (was launching with the full step velocity).
+      c.rampV = Math.max(groundRise, (c.rampV || 0) * 0.9);
+      if (groundRise < 1.5 && c.rampV > 6 && asp > 18) {
+        c.airborne = true; c.cvy = Math.min(c.rampV * 0.5, 4.5); c.rampV = 0;
+      } else {
+        c.cy += (surf - c.cy) * Math.min(1, 12 * dt);
+      }
+    }
+  }
+  g.position.set(p.x, c.cy, p.z);
   g.rotation.y = h;
+  if (c.airborne) { c.slopePitch = Math.atan2(c.cvy, Math.max(4, asp)); c.slopeRoll = (c.slopeRoll || 0) * 0.9; }   // nose tracks the arc
+  else { c.slopePitch = Math.atan(gs.gx * fx + gs.gz * fz); c.slopeRoll = -Math.atan(gs.gx * rgx + gs.gz * rgz); }
   lakeCarPhysics(c, dt);   // flood / sink / stall once the car drives into deep water
   var spin = (c.pspeed * dt) / 0.34;
   for (var wi = 0; wi < 4; wi++) c.car.wheels[wi].rotation.y -= spin;
@@ -12520,7 +12905,10 @@ function updateDriving(dt) {
       var oc = cars[i];
       if (oc === c || oc.exploded || oc.stolen) continue;
       var om = oc.car.group.position;
-      if (Math.abs(om.x - p.x) < 4 && Math.abs(om.z - p.z) < 3.2) {
+      var rdx = om.x - p.x, rdz = om.z - p.z;
+      if (rdx * rdx + rdz * rdz > 36) continue;   // broad phase: skip cars clearly out of range
+      var ory = oc.car.group.rotation.y, ofx = Math.cos(ory), ofz = -Math.sin(ory);
+      if (carsOverlap(p.x, p.z, fx, fz, om.x, om.z, ofx, ofz)) {
         if (!oc.berserk && T - (oc.ramT || 0) > 0.4) {
           // a fender-bender dents, it doesn't detonate: the hit car gets
           // punted away spinning, takes speed-scaled damage, and only a
@@ -12685,6 +13073,7 @@ function boardPlane() {
   if (!plane) return;
   if (driving) exitCar();
   plane.piloting = true;
+  startJet();                                            // spin up the turbine loop
   setZoom(false);
   vm.visible = false;                                    // hide FP arms/viewmodel like driving
   plane.mAil = 0; plane.mElev = 0;
@@ -12700,6 +13089,7 @@ function exitPlane() {
   var spd = plane.vel.length();
   var safe = (spd < PLANE_BAIL_SPD && alt < PLANE_BAIL_ALT && plane.onGround);
   plane.piloting = false;
+  stopJet();                                             // kill the turbine on exit/bail
   vm.visible = true;
   document.getElementById('crosshair').style.display = '';
   setEquipped(state.equipped);
@@ -12727,6 +13117,7 @@ function exitPlane() {
 }
 function removePlane() {
   if (!plane) return;
+  stopJet();                                             // safety: silence the turbine
   scene.remove(plane.group);
   plane = null;
 }
@@ -12860,6 +13251,7 @@ function updatePlaneWorld(dt) {
   // ---- pilot rides along; chase camera ----
   if (plane.piloting) {
     player.x = g.position.x; player.z = g.position.z; player.y = g.position.y;
+    updateJet(dt, plane.throttle);                       // turbine loudness/brightness track throttle
     updatePlaneCam(dt);
     updatePlaneHud();
   }
@@ -12977,7 +13369,7 @@ var cashTopT = (function () {
 })();
 var cashSideM = lamb({ color: 0x4a8a3e }), cashTopM = lamb2(cashTopT);
 var cashMats = [cashSideM, cashSideM, cashTopM, cashSideM, cashSideM, cashSideM];
-function spawnCash(x, z, val, baseY) { var m = new THREE.Mesh(cashGeo, cashMats); m.position.set(x + (Math.random() - 0.5), (baseY || 0) + 0.4, z + (Math.random() - 0.5)); scene.add(m); cashes.push({ mesh: m, val: val, life: 40, baseY: baseY || 0 }); }
+function spawnCash(x, z, val, baseY, life) { var m = new THREE.Mesh(cashGeo, cashMats); m.position.set(x + (Math.random() - 0.5), (baseY || 0) + 0.4, z + (Math.random() - 0.5)); scene.add(m); cashes.push({ mesh: m, val: val, life: life || 40, baseY: baseY || 0 }); }
 // cash from client-triggered events (ATM/meter) must be spawned on the HOST,
 // or the authoritative cash-snapshot rebuild wipes it before it can be looted.
 function spawnCashNet(x, z, val) { if (isClient()) netToHost({ t: 'atmCash', x: x, z: z, val: val }); else spawnCash(x, z, val); }
@@ -13051,11 +13443,26 @@ function puff(p, col, kind) {
     }
     return;
   }
+  if (kind === 'muzzle') {
+    // reuse the gun muzzle-flash SPRITE (muzzleflash.js) in world space for cop
+    // fire — billboarded toward the camera by updatePuffs. Was a plain colored
+    // particle (looked like a little fireball); now it matches the player's gun.
+    if (flashTexs && flashTexs.length) {
+      var mf = new THREE.Mesh(puffGeo, new THREE.MeshBasicMaterial({ map: flashTexs[(Math.random() * flashTexs.length) | 0], transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false }));
+      mf.position.copy(p); mf.scale.setScalar(1.5 + Math.random() * 0.3); scene.add(mf);
+      puffs.push({ mesh: mf, life: 0.06, max: 0.06, muzzle: true });
+      return;
+    }
+    // no sprite pack present: fall through to the default spark puff below
+  }
   if (kind === 'impact' && smokeFrames) {
-    var im = new THREE.Mesh(puffGeo, new THREE.MeshBasicMaterial({ map: smokeFrames[0], transparent: true, depthWrite: false, opacity: 0.7 }));
+    // very subtle dust wisp for a bullet strike on a wall/prop/car: tiny + faint,
+    // never a flame. small scale + low opacity so it reads as a puff of dust that
+    // is gone almost immediately (mrft7zm5 asked for smoke, user wants it subtle).
+    var im = new THREE.Mesh(puffGeo, new THREE.MeshBasicMaterial({ map: smokeFrames[0], transparent: true, depthWrite: false, opacity: 0.26 }));
     im.material.color.setHex(col || 0xbfb9ae);
-    im.position.copy(p); im.scale.setScalar(0.85 + Math.random() * 0.4); scene.add(im);
-    puffs.push({ mesh: im, life: 0.34, max: 0.34, fire: false, frames: smokeFrames, grow: 1.3, omax: 0.7 });
+    im.position.copy(p); im.scale.setScalar(0.3 + Math.random() * 0.14); scene.add(im);
+    puffs.push({ mesh: im, life: 0.28, max: 0.28, fire: false, frames: smokeFrames, grow: 0.9, omax: 0.26 });
     return;
   }
   var fire = vfxIsFire(col);
@@ -13096,6 +13503,8 @@ function updatePuffs(dt) {
       if (p.fire) { fr = (p.start + Math.floor(t * 10)) % VFX_NF; p.mesh.scale.multiplyScalar(1 + dt * 1.6); p.mesh.material.opacity = Math.max(0, 1 - t); }
       else { fr = Math.min(11, Math.floor(t * 12)); p.mesh.scale.multiplyScalar(1 + dt * (p.grow || 3.2)); p.mesh.material.opacity = Math.max(0, (p.omax || 0.9) * (1 - t * t)); }
       if (p.mesh.material.map !== p.frames[fr]) p.mesh.material.map = p.frames[fr];
+    } else if (p.muzzle) {
+      p.mesh.material.opacity = Math.max(0, p.life / p.max);   // hold size, snap out fast
     } else {
       p.mesh.scale.multiplyScalar(1 + dt * 6); p.mesh.material.opacity = Math.max(0, p.life / p.max);
     }
@@ -13423,7 +13832,6 @@ function updateDecals(dt) {
 // ---------------- ragdoll kills + explosions ----------------
 function killNpcRagdoll(n, dx, dz, power) {
   if (n.state === 'down' || n.state === 'ragdoll' || n.state === 'hidden') return;
-  if (n.qtag && typeof questKillTag === 'function') questKillTag(n.qtag);   // quest kill-beat credit
   breakNpcChat(n);   // free the chat partner before this one goes flying
   n.state = 'ragdoll'; n.hp = 0;
   if (n.grp) leaveGroup(n);   // #67: detach from its social group before it goes flying
@@ -13559,10 +13967,12 @@ function removeHusk(c) { if (c.husk) { scene.remove(c.husk); c.husk = null; } }
 function explodeCar(c) {
   if (c.exploded) return;
   c.exploded = true; c.berserk = false; c.dmgT = 0; c.burning = false;
+  if (c.eng) stopEngine(c);   // a wrecked car makes no engine noise
   var pos = c.car.group.position;
   if (driving === c) {
     // blown out of your own ride
     driving = null;
+    radioStop();   // the radio dies with the car
     document.getElementById('crosshair').style.display = '';
     setEquipped(state.equipped);
   }
@@ -13681,6 +14091,7 @@ function applyDropPickup(kind) {
     if (refund) sfx('cash');
   } else {
     state.owned[kind] = true;
+    hotbarAdd(kind);
     popup('Picked up ' + WEAPONS[kind].name);
     sfx('buy');
   }
@@ -13813,6 +14224,9 @@ function itemDropGroup(id) {
   return g;
 }
 function spawnItemDrop(id, x, z, life) {
+  return null;   // scavenge items removed — no collectible world pickups
+}
+function _spawnItemDrop_removed(id, x, z, life) {
   if (!itemDef(id)) return null;
   var g = itemDropGroup(id);
   g.position.set(x, 0.8, z);
@@ -13850,6 +14264,7 @@ function randomCommonItem() { var t = npcDropTable(); return t.length ? t[(Math.
 // NPC knockout item drop (LOCAL-ONLY, alongside cash — not net-synced).
 // Only the peer whose sim ran the kill spawns it; the headless world-bot skips it.
 function maybeNpcItemDrop(x, z) {
+  return;   // scavenge items removed — NPCs no longer drop collectible items (money still drops)
   if (typeof WC_BOT !== 'undefined' && WC_BOT) return;
   if (Math.random() < 0.28) {
     var id = randomCommonItem();
@@ -13860,6 +14275,7 @@ function maybeNpcItemDrop(x, z) {
 // dumpsters at startup; persistent (long life) until collected. Local-only.
 var littered = false;
 function seedLitter() {
+  return;   // scavenge items removed — no ground litter is seeded
   if (littered || !ITEM_BANK_OK) return;
   if (typeof WC_BOT !== 'undefined' && WC_BOT) return;
   littered = true;
@@ -13886,6 +14302,9 @@ function pick(a) { return a[(Math.random() * a.length) | 0]; }
 // bag the item; if the bag is full the overflow drops as world pickups at
 // the player's feet (so a full bag never silently eats a jackpot).
 function giveItem(id, n, silent) {
+  return 0;   // scavenge items removed — dumpster/mailbox/bush rummage grants nothing
+}
+function _giveItem_removed(id, n, silent) {
   n = n || 1;
   if (!itemDef(id)) return 0;
   var left = bagAdd(id, n), got = n - left;
@@ -13947,19 +14366,8 @@ function checkMail(p) {
   p.cd = T + 40;
   noiseBurst(0.06, 1000, 0.3); beep(300, 0.05, 0.09, 'square', 220);
   var r = Math.random();
-  if (r < 0.02) {
-    var id = randomCommonItem() || 'wallet';
-    giveItem(id, 1, true);
-    toast(itemIconHtml(id) + ' A mis-delivered <b>package</b>… finders keepers? (you feel a little guilty)', 3200);
-    for (var i = 0; i < cops.length; i++) {
-      var c = cops[i]; if (c.state === 'down') continue;
-      var dx = c.x - p.x, dz = c.z - p.z; if (dx * dx + dz * dz > 1600) continue;
-      if (copHasLOS({ x: c.x, z: c.z }, { x: p.x, z: p.z, y: 1.2 })) { if (state.wanted < 1) setWanted(1); popup2('a cop saw that!'); break; }
-    }
-  } else if (r < 0.17) {
-    giveItem('newspaper', 1, true);
-    toast(itemIconHtml('newspaper') + ' Just <b>junk mail</b> and flyers.', 2400);
-  } else popup('Bills, bills, bills…');
+  if (r < 0.12) { spawnCash(p.x + p.fx * 0.6, p.z + p.fz * 0.6, 3); sfx('cash'); popup('A birthday card — with cash inside!'); }
+  else popup('Bills, bills, bills…');
 }
 // ---- bush / hedge rummage (registered as bush() props are built) ----
 // bushSpots is declared up by the bush() builder (load-order). E to rummage:
@@ -13976,8 +14384,7 @@ function bushRummage() {
   b.cd = T + 25;
   noiseBurst(0.18, 700, 0.14); for (var i = 0; i < 5; i++) puff(new THREE.Vector3(b.x + (Math.random() - 0.5) * 1.1, 0.6 + Math.random() * 0.9, b.z + (Math.random() - 0.5) * 1.1), pick([0x3f6f2e, 0x4a7d34, 0x355f28]));
   var r = Math.random();
-  if (r < 0.10) { var id = Math.random() < 0.5 ? randomCommonItem() : pick(DIVE_QUIRK); if (id) { giveItem(id, 1, true); toast(itemIconHtml(id) + ' Lost in the hedge: a <b>' + itemDef(id).name + '</b>!', 2800); } }
-  else if (r < 0.30) { spawnCritter(b.x, b.z, 'bird', { x: player.x, z: player.z }); beep(2100, 0.04, 0.12, 'square', 2600); setTimeout(function () { beep(1800, 0.04, 0.1, 'square', 2400); }, 70); popup('a bird bursts out!'); }
+  if (r < 0.30) { spawnCritter(b.x, b.z, 'bird', { x: player.x, z: player.z }); beep(2100, 0.04, 0.12, 'square', 2600); setTimeout(function () { beep(1800, 0.04, 0.1, 'square', 2400); }, 70); popup('a bird bursts out!'); }
   else popup('just leaves…');
   return true;
 }
@@ -14374,7 +14781,6 @@ function damageNPC(n, dmg, kx, kz, silent) {
     stopNpcVoice(n.vname);
     spawnCash(n.x, n.z, 5 + ((Math.random() * 18) | 0)); sfx('ko', { x: n.x, z: n.z, range: 50 }); sfx('grunt', { x: n.x, z: n.z, range: 50, fem: n.fem });
     maybeNpcItemDrop(n.x, n.z);
-    if (n.qtag && typeof questKillTag === 'function') questKillTag(n.qtag);   // quest kill-beat credit on KO death
     if (!silent) {
       popup('KO!');
       creditCivKill();
@@ -15516,6 +15922,7 @@ function spawnVendors() {
   if (typeof buildKid !== 'function' || typeof buildPerson !== 'function') return;
   for (var i = 0; i < pendingVendors.length; i++) {
     var v = pendingVendors[i], mesh = null;
+    if (ENV_BLOCK[v.prop]) continue;   // vendor's stand/cart was removed — don't spawn the seller
     if (v.build === 'kid') {
       if (!KID_LOOKS.length) continue;
       var girls = [];
@@ -15539,509 +15946,6 @@ function spawnVendors() {
 }
 spawnVendors();
 
-// ======================= AMBIENT WILDLIFE =======================
-// Small, wholesome, COMBAT-EXEMPT ambient animals: ground birds (this step),
-// with ducks / squirrels / a stray cat layered in later. They live in their OWN
-// `wildlife` array — NEVER in npcs/kids/cops/cars — so no bullet, melee,
-// explosion, berserk-car, or cop code (all of which iterate those arrays
-// explicitly) can ever target, damage, ragdoll, or kill one. They carry NO
-// colliders (fully pass-through) and are LOCAL-ONLY (never serialized to the MP
-// wire). Cheap by construction: tiny fixed pools, shared geometry/materials, no
-// per-frame allocation, and a hard distance LOD — an animal far from the player
-// pauses and (for the roaming kinds) relocates to fresh ground near the player
-// rather than being simmed across the whole town. They are the visible source
-// of the ambient bird chirps / wing-flutters the atmosphere audio pass ships.
-// (NOTE: separate from the `critters` billboard array above — that one is the
-// short-lived dumpster-scavenge flutter/scurry fx, not persistent animals.)
-var wildlife = [], wildlifeReady = false;
-var wildRng = seededRng(0x63726974);       // seeded so first placement is reproducible
-var WILD_FAR = 95, WILD_FAR2 = WILD_FAR * WILD_FAR;
-var BIRD_COUNT = 8, DUCK_COUNT = 4, SQUIRREL_COUNT = 2, CAT_COUNT = 2;
-var wildPlayerSpeed = 0, wildPrevPX = null, wildPrevPZ = null;
-// shared geometry/materials (built lazily on first update so no load-time cost /
-// no dependency on load order)
-var wildGeo = null, BIRD_MATS = null, wBeakMat = null, DUCK_MATS = null, SQ_MATS = null, CAT_MATS = null;
-function buildWildlifeAssets() {
-  if (wildGeo) return;
-  wildGeo = {
-    birdBody: new THREE.SphereGeometry(0.12, 8, 6),
-    birdHead: new THREE.SphereGeometry(0.085, 8, 6),
-    birdBeak: new THREE.ConeGeometry(0.028, 0.07, 4),
-    birdWing: new THREE.PlaneGeometry(0.13, 0.17),
-    duckBody: new THREE.SphereGeometry(0.2, 10, 7),
-    duckHead: new THREE.SphereGeometry(0.11, 9, 7),
-    duckBill: new THREE.BoxGeometry(0.1, 0.04, 0.12),
-    sqBody: new THREE.SphereGeometry(0.11, 8, 6),
-    sqHead: new THREE.SphereGeometry(0.075, 8, 6),
-    sqTail: new THREE.SphereGeometry(0.1, 8, 6),
-    sqEar: new THREE.ConeGeometry(0.03, 0.06, 4),
-    catBody: new THREE.SphereGeometry(0.13, 10, 7),
-    catHead: new THREE.SphereGeometry(0.1, 9, 7),
-    catEar: new THREE.ConeGeometry(0.045, 0.09, 4),
-    catLeg: new THREE.CylinderGeometry(0.028, 0.022, 0.24, 5),
-    catTail: new THREE.CylinderGeometry(0.032, 0.02, 0.42, 5)
-  };
-  var L = lamb;
-  BIRD_MATS = [
-    { body: L({ color: 0x8b9099 }), belly: L({ color: 0xc4c8ce }), wing: L({ color: 0x767b84, side: THREE.DoubleSide }) },  // pigeon
-    { body: L({ color: 0x6e5334 }), belly: L({ color: 0xc3a578 }), wing: L({ color: 0x5b4426, side: THREE.DoubleSide }) },  // sparrow
-    { body: L({ color: 0x59504a }), belly: L({ color: 0xc4623a }), wing: L({ color: 0x494039, side: THREE.DoubleSide }) }   // robin
-  ];
-  wBeakMat = L({ color: 0xd9a02e });
-  // ducks: mallard drake (green head) + brown hen
-  DUCK_MATS = [
-    { body: L({ color: 0x6b5236 }), head: L({ color: 0x2f6a3f }), belly: L({ color: 0x8a7454 }), bill: L({ color: 0xdb9a24 }) },
-    { body: L({ color: 0x7a6142 }), head: L({ color: 0x6a533a }), belly: L({ color: 0xa08a68 }), bill: L({ color: 0xc79b52 }) }
-  ];
-  // squirrels: gray + a warmer brown (eastern gray / fox squirrel)
-  SQ_MATS = [
-    { body: L({ color: 0x8a8177 }), tail: L({ color: 0xa39a8f }), belly: L({ color: 0xcfc7bc }) },
-    { body: L({ color: 0x86603a }), tail: L({ color: 0x9c774c }), belly: L({ color: 0xd8b184 }) }
-  ];
-  // stray cats: gray tabby, ginger, tuxedo
-  CAT_MATS = [
-    { body: L({ color: 0x8d8b86 }), belly: L({ color: 0xc2c0ba }) },
-    { body: L({ color: 0xb5702f }), belly: L({ color: 0xe0b784 }) },
-    { body: L({ color: 0x2c2c30 }), belly: L({ color: 0xe8e8ea }) }
-  ];
-}
-function buildBird(variant) {
-  var m = BIRD_MATS[variant], g = new THREE.Group();
-  var body = new THREE.Mesh(wildGeo.birdBody, m.body);
-  body.scale.set(1, 0.9, 1.35); body.position.y = 0.14; body.rotation.x = -0.18; g.add(body);
-  var belly = new THREE.Mesh(wildGeo.birdBody, m.belly);
-  belly.scale.set(0.78, 0.6, 0.92); belly.position.set(0, 0.12, 0.09); g.add(belly);
-  var head = new THREE.Mesh(wildGeo.birdHead, m.body); head.position.set(0, 0.22, 0.15); g.add(head);
-  var beak = new THREE.Mesh(wildGeo.birdBeak, wBeakMat); beak.rotation.x = Math.PI / 2; beak.position.set(0, 0.21, 0.25); g.add(beak);
-  var tail = new THREE.Mesh(wildGeo.birdWing, m.wing); tail.rotation.x = -Math.PI / 2.3; tail.scale.set(0.55, 1, 0.66); tail.position.set(0, 0.16, -0.2); g.add(tail);
-  // wing pivot groups high on the body sides; rotation.z flaps the outer tip.
-  // at rest the wings tuck up along the back (base) so the silhouette stays clean
-  var wl = new THREE.Group(); wl.position.set(-0.04, 0.19, 0.0);
-  var wlm = new THREE.Mesh(wildGeo.birdWing, m.wing); wlm.rotation.x = -Math.PI / 2; wlm.position.set(-0.06, 0, 0); wl.add(wlm); g.add(wl);
-  var wr = new THREE.Group(); wr.position.set(0.04, 0.19, 0.0);
-  var wrm = new THREE.Mesh(wildGeo.birdWing, m.wing); wrm.rotation.x = -Math.PI / 2; wrm.position.set(0.06, 0, 0); wr.add(wrm); g.add(wr);
-  g.userData.wingL = wl; g.userData.wingR = wr; g.userData.head = head;
-  g.add(blobShadow(0.16, 0.16, 0.02));
-  g.scale.setScalar(0.9);
-  return g;
-}
-function setBirdWings(c, f) {
-  // f in -1..1 during flight; folded flat at rest
-  var flying = c.state === 'fly';
-  var base = flying ? 0.05 : 0.16, amt = flying ? 0.9 * f : 0;
-  var wl = c.mesh.userData.wingL, wr = c.mesh.userData.wingR;
-  if (wl) wl.rotation.z = -(base + amt);
-  if (wr) wr.rotation.z = (base + amt);
-}
-// pick a walkable, non-water spot minD..maxD from `near` (prefers sidewalk/lot
-// concrete, avoids the middle of roads, lake, buildings, and the map edge)
-function wildGroundSpot(near, minD, maxD) {
-  var fallback = null;
-  for (var t = 0; t < 14; t++) {
-    var a = wildRng() * 6.2832, d = minD + wildRng() * (maxD - minD);
-    var x = near.x + Math.cos(a) * d, z = near.z + Math.sin(a) * d;
-    if (x < -HALF + 8 || x > HALF - 8 || z < -HALF + 8 || z > HALF - 8) continue;
-    if (typeof inLake === 'function' && inLake(x, z)) continue;
-    var s = footSurface(x, z);
-    if (s === 'water' || s === 'interior') continue;
-    if (!pointFree(x, z, 0.5)) continue;             // not inside a building/prop
-    if (s === 'concrete' || s === 'grass') return { x: x, z: z, surf: s };
-    if (!fallback) fallback = { x: x, z: z, surf: s };  // asphalt: acceptable if nothing better
-  }
-  return fallback;
-}
-function relocateBird(c) {
-  var spot = wildGroundSpot(player, 30, 54) || wildGroundSpot(player, 12, 30);
-  if (spot) { c.x = spot.x; c.z = spot.z; } else { c.x = player.x + (wildRng() - 0.5) * 44; c.z = player.z + (wildRng() - 0.5) * 44; }
-  c.y = 0; c.state = 'peck'; c.hopT = 0.4 + wildRng() * 2; c._hop = 0; c.chirpT = 2 + wildRng() * 8;
-  c.mesh.position.set(c.x, 0, c.z); c.mesh.rotation.y = wildRng() * 6.2832;
-  setBirdWings(c, 0);
-}
-function birdCarThreat(c) {
-  for (var i = 0; i < cars.length; i++) {
-    var g = cars[i].car && cars[i].car.group; if (!g) continue;
-    var dx = c.x - g.position.x, dz = c.z - g.position.z;
-    if (dx * dx + dz * dz < 49) return { x: g.position.x, z: g.position.z };   // 7u
-  }
-  return null;
-}
-function birdTakeOff(c, from) {
-  var baseA = Math.atan2(c.z - from.z, c.x - from.x), spot = null;   // flee heading = away from the threat
-  for (var t = 0; t < 10; t++) {
-    var a = baseA + (wildRng() - 0.5) * 1.7, d = 22 + wildRng() * 18;
-    var x = c.x + Math.cos(a) * d, z = c.z + Math.sin(a) * d;
-    if (x < -HALF + 8 || x > HALF - 8 || z < -HALF + 8 || z > HALF - 8) continue;
-    if (typeof inLake === 'function' && inLake(x, z)) continue;
-    var s = footSurface(x, z); if (s === 'water' || s === 'interior') continue;
-    if (!pointFree(x, z, 0.5)) continue;
-    spot = { x: x, z: z }; break;
-  }
-  if (!spot) spot = { x: c.x + Math.cos(baseA) * 24, z: c.z + Math.sin(baseA) * 24 };
-  c.tgt = spot; c.state = 'fly'; c.flyT = 0; c.flyH = 3.2 + wildRng() * 3.4; c.flySpd = 9 + wildRng() * 4;
-  if (!inside && !underwater) { if (typeof ambFlutter === 'function') ambFlutter(); if (Math.random() < 0.5 && typeof ambChirp === 'function') ambChirp(); }
-}
-function updateBird(c, dt, px, pz) {
-  var m = c.mesh, dx = c.x - px, dz = c.z - pz, d2 = dx * dx + dz * dz;
-  if (d2 > WILD_FAR2) { relocateBird(c); m.visible = true; return; }   // LOD: far -> hop to fresh ground near the player
-  m.visible = true; c.phase += dt;
-  if (c.state === 'peck') {
-    var thr = null, close = d2 < 36;                 // player within 6u
-    if (!close) thr = birdCarThreat(c);
-    if (close || thr) { birdTakeOff(c, close ? { x: px, z: pz } : thr); return; }
-    c.hopT -= dt;
-    if (c.hopT <= 0 && c._hop <= 0) {
-      c.hopT = 0.7 + Math.random() * 2.6; c.hopA = Math.random() * 6.2832; c.hopV = 0.5 + Math.random() * 0.7; c._hop = 0.28;
-      m.rotation.y = Math.atan2(Math.cos(c.hopA), Math.sin(c.hopA));
-    }
-    if (c._hop > 0) {
-      c._hop -= dt;
-      c.x += Math.cos(c.hopA) * c.hopV * dt; c.z += Math.sin(c.hopA) * c.hopV * dt;
-      c.y = Math.sin((1 - Math.max(0, c._hop) / 0.28) * Math.PI) * 0.08;
-      if (c.head) c.head.rotation.x = 0;
-    } else {
-      c.y = 0;
-      if (c.head) c.head.rotation.x = Math.min(0, Math.sin(c.phase * 3.2)) * 0.55;   // head-bob peck
-    }
-    setBirdWings(c, 0);
-    c.chirpT -= dt;
-    if (c.chirpT <= 0) { c.chirpT = 4 + Math.random() * 11; if (d2 < 1600 && dayFactor() > 0.35 && !inside && !underwater && Math.random() < 0.6 && typeof ambChirp === 'function') ambChirp(); }
-  } else {   // 'fly'
-    var tdx = c.tgt.x - c.x, tdz = c.tgt.z - c.z, td = Math.sqrt(tdx * tdx + tdz * tdz);
-    c.flyT += dt;
-    if (td > 0.5) { c.x += (tdx / td) * c.flySpd * dt; c.z += (tdz / td) * c.flySpd * dt; m.rotation.y = Math.atan2(tdx, tdz); }
-    var tgtY = td < 3 ? c.flyH * (td / 3) : Math.min(c.flyH, c.flyT * 6);   // rise fast, ease down onto the spot
-    c.y += (tgtY - c.y) * Math.min(1, dt * 4);
-    c.flapPhase = (c.flapPhase || 0) + dt * (c.y > 0.6 ? 20 : 13);
-    setBirdWings(c, Math.sin(c.flapPhase));
-    if (td <= 0.6 && c.y < 0.35) { c.state = 'peck'; c.y = 0; c.hopT = 0.3 + Math.random() * 1.4; c._hop = 0; setBirdWings(c, 0); }
-  }
-  m.position.set(c.x, c.y, c.z);
-}
-function initWildlife() {
-  if (wildlifeReady) return;
-  wildlifeReady = true;
-  buildWildlifeAssets();
-  for (var i = 0; i < BIRD_COUNT; i++) {
-    var variant = (wildRng() * BIRD_MATS.length) | 0, g = buildBird(variant);
-    var c = { kind: 'bird', variant: variant, mesh: g, x: 0, z: 0, y: 0, state: 'peck', phase: wildRng() * 6.28, hopT: 0.5 + wildRng() * 2, _hop: 0, chirpT: 3 + wildRng() * 8, tgt: null, flapPhase: 0 };
-    scene.add(g); wildlife.push(c); relocateBird(c);
-  }
-  spawnDucks();
-  for (var s = 0; s < SQUIRREL_COUNT; s++) {
-    var sv = (wildRng() * SQ_MATS.length) | 0, sg = buildSquirrel(sv);
-    var sc = { kind: 'squirrel', variant: sv, mesh: sg, x: 0, z: 0, y: 0, state: 'hidden', phase: wildRng() * 6.28, tree: null, tgt: null, wanderT: 0, chitT: 4 + wildRng() * 9, climbY: 0 };
-    sg.visible = false; scene.add(sg); wildlife.push(sc);
-  }
-  for (var ci = 0; ci < CAT_COUNT; ci++) {
-    var cv = (wildRng() * CAT_MATS.length) | 0, cg = buildCat(cv);
-    var cc = { kind: 'cat', variant: cv, mesh: cg, x: 0, z: 0, y: 0, state: 'wander', phase: wildRng() * 6.28, tgt: null, wanderT: 0, sitT: 0, fleeT: 0, meowT: 6 + wildRng() * 12, petCD: 0 };
-    scene.add(cg); wildlife.push(cc); relocateCat(cc);
-  }
-}
-function updateWildlife(dt) {
-  if (!state.running || inside || state.dead) return;
-  initWildlife();
-  var px = player.x, pz = player.z;
-  // track player speed (drives the cat's skittishness) — cheap, once per frame
-  if (wildPrevPX !== null && dt > 0) { var mvd = Math.hypot(px - wildPrevPX, pz - wildPrevPZ) / dt; wildPlayerSpeed += (mvd - wildPlayerSpeed) * Math.min(1, dt * 8); }
-  wildPrevPX = px; wildPrevPZ = pz;
-  for (var i = 0; i < wildlife.length; i++) {
-    var c = wildlife[i];
-    if (c.kind === 'bird') updateBird(c, dt, px, pz);
-    else if (c.kind === 'duck') updateDuck(c, dt, px, pz);
-    else if (c.kind === 'squirrel') updateSquirrel(c, dt, px, pz);
-    else if (c.kind === 'cat') updateCat(c, dt, px, pz);
-  }
-}
-// ---- ducks (lake + fountain): float on the water surface, paddle to gentle
-// wander targets inside the lake, bob. Anchored to the lake (they do NOT follow
-// the player); paused entirely when the player is far from the water. ----
-function buildDuck(variant) {
-  var m = DUCK_MATS[variant], g = new THREE.Group();
-  var body = new THREE.Mesh(wildGeo.duckBody, m.body);
-  body.scale.set(1, 0.78, 1.5); body.position.y = 0.13; g.add(body);
-  var belly = new THREE.Mesh(wildGeo.duckBody, m.belly);
-  belly.scale.set(0.86, 0.5, 1.25); belly.position.set(0, 0.08, 0.02); g.add(belly);
-  var tail = new THREE.Mesh(wildGeo.duckBody, m.body);
-  tail.scale.set(0.5, 0.35, 0.7); tail.position.set(0, 0.17, -0.28); g.add(tail);
-  // upright neck + head at the front
-  var neck = new THREE.Mesh(wildGeo.duckHead, m.head); neck.scale.set(0.62, 1.1, 0.62); neck.position.set(0, 0.26, 0.22); g.add(neck);
-  var head = new THREE.Mesh(wildGeo.duckHead, m.head); head.position.set(0, 0.37, 0.27); g.add(head);
-  var bill = new THREE.Mesh(wildGeo.duckBill, m.bill); bill.position.set(0, 0.35, 0.4); g.add(bill);
-  g.add(blobShadow(0.24, 0.3, 0.02));
-  g.userData.head = head;
-  return g;
-}
-function lakeWaterSpot() {
-  if (typeof LAKE === 'undefined') return null;
-  for (var t = 0; t < 20; t++) {
-    var a = wildRng() * 6.2832, rr = 0.2 + wildRng() * 0.65;
-    var x = LAKE.x + Math.cos(a) * LAKE.r * 1.2 * rr, z = LAKE.z + Math.sin(a) * LAKE.r * 0.8 * rr;
-    if (typeof inLake === 'function' && !inLake(x, z)) continue;
-    var fdx = x - LAKE.x, fdz = z - LAKE.z; if (fdx * fdx + fdz * fdz < 64) continue;   // clear of the fountain
-    return { x: x, z: z };
-  }
-  return { x: LAKE.x + 20, z: LAKE.z + 8 };
-}
-function spawnDucks() {
-  if (typeof LAKE === 'undefined') return;
-  for (var i = 0; i < DUCK_COUNT; i++) {
-    var v = (wildRng() * DUCK_MATS.length) | 0, g = buildDuck(v), sp = lakeWaterSpot();
-    var c = { kind: 'duck', variant: v, mesh: g, x: sp.x, z: sp.z, y: (typeof WATER_Y !== 'undefined' ? WATER_Y : 0.2) + 0.02, state: 'swim', phase: wildRng() * 6.28, tgt: lakeWaterSpot(), pauseT: wildRng() * 3, quackT: 5 + wildRng() * 12 };
-    g.position.set(c.x, c.y, c.z); g.rotation.y = wildRng() * 6.28;
-    scene.add(g); wildlife.push(c);
-  }
-}
-function updateDuck(c, dt, px, pz) {
-  var m = c.mesh, wy = (typeof WATER_Y !== 'undefined' ? WATER_Y : 0.2);
-  if (typeof LAKE !== 'undefined') {
-    var ldx = px - LAKE.x, ldz = pz - LAKE.z;
-    if (ldx * ldx + ldz * ldz > 150 * 150) { m.visible = true; return; }   // player far from the lake: freeze (still visible)
-  }
-  m.visible = true; c.phase += dt;
-  c.pauseT -= dt;
-  if (c.pauseT > 0) {
-    // idle float: bob + preen head dip
-    c.y = wy + 0.02 + Math.sin(c.phase * 1.4) * 0.02;
-    if (c.head) c.head.rotation.x = Math.min(0, Math.sin(c.phase * 0.8)) * 0.4;
-  } else {
-    var tdx = c.tgt.x - c.x, tdz = c.tgt.z - c.z, td = Math.sqrt(tdx * tdx + tdz * tdz);
-    if (td < 0.7) { c.tgt = lakeWaterSpot(); c.pauseT = 1.5 + Math.random() * 3.5; }
-    else {
-      var sp = 0.85;
-      c.x += (tdx / td) * sp * dt; c.z += (tdz / td) * sp * dt;
-      var ty = Math.atan2(tdx, tdz); m.rotation.y += (ty - m.rotation.y) * Math.min(1, dt * 2.5);
-      c.y = wy + 0.02 + Math.sin(c.phase * 3) * 0.012;   // slight paddle bob
-      if (c.head) c.head.rotation.x = 0;
-    }
-  }
-  m.position.set(c.x, c.y, c.z);
-  c.quackT -= dt;
-  if (c.quackT <= 0) { c.quackT = 6 + Math.random() * 14; var qd = (c.x - px) * (c.x - px) + (c.z - pz) * (c.z - pz); if (qd < 3600 && !inside && Math.random() < 0.5) wildQuack(); }
-}
-// ---- squirrels (near big trees): scurry on the ground close to an oak, and
-// dart UP the trunk + freeze when the player approaches. Follow the player like
-// birds (relocate to the nearest tree near the player). ----
-function buildSquirrel(variant) {
-  var m = SQ_MATS[variant], g = new THREE.Group();
-  var body = new THREE.Mesh(wildGeo.sqBody, m.body); body.scale.set(1, 0.95, 1.5); body.position.set(0, 0.11, 0); body.rotation.x = -0.15; g.add(body);
-  var belly = new THREE.Mesh(wildGeo.sqBody, m.belly); belly.scale.set(0.8, 0.7, 1.1); belly.position.set(0, 0.08, 0.05); g.add(belly);
-  var head = new THREE.Mesh(wildGeo.sqHead, m.body); head.position.set(0, 0.18, 0.16); g.add(head);
-  var earL = new THREE.Mesh(wildGeo.sqEar, m.body); earL.position.set(-0.04, 0.25, 0.15); g.add(earL);
-  var earR = new THREE.Mesh(wildGeo.sqEar, m.body); earR.position.set(0.04, 0.25, 0.15); g.add(earR);
-  // signature bushy tail arcing up over the back
-  var tail = new THREE.Mesh(wildGeo.sqTail, m.tail); tail.scale.set(0.62, 1.7, 0.62); tail.position.set(0, 0.22, -0.2); tail.rotation.x = 0.7; g.add(tail);
-  g.add(blobShadow(0.14, 0.16, 0.02));
-  g.userData.tail = tail; g.userData.head = head;
-  return g;
-}
-function nearestTree(x, z, maxD) {
-  if (typeof breakables === 'undefined') return null;
-  var best = null, bd = maxD * maxD;
-  for (var i = 0; i < breakables.length; i++) {
-    var b = breakables[i]; if (b.type !== 'tree' || b.broken) continue;
-    var dx = b.x - x, dz = b.z - z, d = dx * dx + dz * dz;
-    if (d < bd) { bd = d; best = b; }
-  }
-  return best;
-}
-function relocateSquirrel(c) {
-  var tr = nearestTree(player.x, player.z, 62);
-  if (!tr) { c.tree = null; c.state = 'hidden'; c.mesh.visible = false; return; }
-  c.tree = tr; c.state = 'ground'; c.climbY = 0;
-  // start a little way out from the trunk on the ground
-  var a = wildRng() * 6.2832, rr = 1.6 + wildRng() * 2.4;
-  c.x = tr.x + Math.cos(a) * rr; c.z = tr.z + Math.sin(a) * rr; c.y = 0;
-  c.tgt = { x: tr.x + Math.cos(a + 1) * (1.2 + wildRng() * 2), z: tr.z + Math.sin(a + 1) * (1.2 + wildRng() * 2) };
-  c.wanderT = 0.6 + wildRng() * 2; c.mesh.visible = true; c.mesh.position.set(c.x, 0, c.z);
-}
-function updateSquirrel(c, dt, px, pz) {
-  var m = c.mesh;
-  // (re)acquire a tree near the player when hidden or when ours got far/broken
-  if (c.state === 'hidden' || !c.tree || c.tree.broken || ((c.tree.x - px) * (c.tree.x - px) + (c.tree.z - pz) * (c.tree.z - pz) > WILD_FAR2)) {
-    relocateSquirrel(c); if (c.state === 'hidden') return;
-  }
-  m.visible = true; c.phase += dt;
-  var tr = c.tree, pdx = c.x - px, pdz = c.z - pz, pd2 = pdx * pdx + pdz * pdz;
-  if (c.state === 'ground') {
-    if (pd2 < 25) {   // player within 5u -> dart up the trunk
-      c.state = 'climb';
-      c.x = tr.x + (c.x < tr.x ? -0.35 : 0.35); c.z = tr.z + (c.z < tr.z ? -0.35 : 0.35);   // hop to the trunk (far side-ish)
-      if (typeof ambFlutter === 'function') { /* soft scramble via quiet chitter */ }
-    } else {
-      c.wanderT -= dt;
-      if (c.wanderT <= 0) {
-        c.wanderT = 0.7 + Math.random() * 2.2;
-        var a = Math.random() * 6.2832, rr = 1.2 + Math.random() * 2.6;
-        c.tgt = { x: tr.x + Math.cos(a) * rr, z: tr.z + Math.sin(a) * rr };
-      }
-      var tdx = c.tgt.x - c.x, tdz = c.tgt.z - c.z, td = Math.sqrt(tdx * tdx + tdz * tdz);
-      if (td > 0.25) { var sp = 2.6; c.x += (tdx / td) * sp * dt; c.z += (tdz / td) * sp * dt; m.rotation.y = Math.atan2(tdx, tdz); }
-      c.y = 0;
-      if (c.head) c.head.rotation.x = Math.min(0, Math.sin(c.phase * 4)) * 0.4;   // quick nervous head dips
-      c.chitT -= dt;
-      if (c.chitT <= 0) { c.chitT = 5 + Math.random() * 10; if (pd2 < 900 && !inside && Math.random() < 0.4) wildChitter(); }
-    }
-  } else if (c.state === 'climb') {
-    c.climbY += dt * 3.2; if (c.climbY >= 2.3) { c.climbY = 2.3; c.state = 'cling'; }
-    c.y = c.climbY;
-    m.rotation.y = Math.atan2(tr.x - c.x, tr.z - c.z);   // face into the trunk
-    if (c.head) c.head.rotation.x = 0;
-  } else {   // 'cling' — frozen on the trunk until the player backs off
-    c.y = c.climbY;
-    if (pd2 > 100) { c.state = 'descend'; }   // player >10u away
-  }
-  if (c.state === 'descend') {
-    c.climbY -= dt * 2.0; if (c.climbY <= 0) { c.climbY = 0; c.state = 'ground'; c.wanderT = 0.3; }
-    c.y = c.climbY;
-  }
-  m.position.set(c.x, c.y, c.z);
-}
-// ---- stray cats: amble slowly along sidewalks/yards near the player, sit,
-// and are SKITTISH — bolt a short way if you get too close too fast. Approach
-// gently and press [E] to pet (a meow, a purr, and a little heart). ----
-function buildCat(variant) {
-  var m = CAT_MATS[variant], g = new THREE.Group();
-  var body = new THREE.Mesh(wildGeo.catBody, m.body); body.scale.set(1, 0.85, 1.75); body.position.set(0, 0.26, 0); g.add(body);
-  var belly = new THREE.Mesh(wildGeo.catBody, m.belly); belly.scale.set(0.8, 0.55, 1.4); belly.position.set(0, 0.2, 0.02); g.add(belly);
-  var head = new THREE.Mesh(wildGeo.catHead, m.body); head.scale.set(1, 0.92, 0.92); head.position.set(0, 0.34, 0.26); g.add(head);
-  var earL = new THREE.Mesh(wildGeo.catEar, m.body); earL.position.set(-0.055, 0.45, 0.24); g.add(earL);
-  var earR = new THREE.Mesh(wildGeo.catEar, m.body); earR.position.set(0.055, 0.45, 0.24); g.add(earR);
-  var snout = new THREE.Mesh(wildGeo.catHead, m.belly); snout.scale.set(0.5, 0.4, 0.5); snout.position.set(0, 0.31, 0.34); g.add(snout);
-  var lx = [-0.07, 0.07, -0.07, 0.07], lz = [0.14, 0.14, -0.14, -0.14];
-  for (var i = 0; i < 4; i++) { var leg = new THREE.Mesh(wildGeo.catLeg, m.body); leg.position.set(lx[i], 0.12, lz[i]); g.add(leg); }
-  // tail pivot at the rear; sways in updateCat
-  var tp = new THREE.Group(); tp.position.set(0, 0.28, -0.24);
-  var tail = new THREE.Mesh(wildGeo.catTail, m.body); tail.position.set(0, 0.16, -0.04); tail.rotation.x = 0.5; tp.add(tail); g.add(tp);
-  g.add(blobShadow(0.16, 0.26, 0.02));
-  g.userData.tail = tp; g.userData.head = head;
-  return g;
-}
-function relocateCat(c) {
-  var spot = wildGroundSpot(player, 24, 50) || wildGroundSpot(player, 10, 24);
-  if (spot) { c.x = spot.x; c.z = spot.z; } else { c.x = player.x + (wildRng() - 0.5) * 40; c.z = player.z + (wildRng() - 0.5) * 40; }
-  c.y = 0; c.state = 'wander'; c.wanderT = 0; c.tgt = null; c.mesh.visible = true; c.mesh.position.set(c.x, 0, c.z); c.mesh.rotation.y = wildRng() * 6.2832;
-}
-function catNewTarget(c) {
-  var spot = wildGroundSpot({ x: c.x, z: c.z }, 3, 10);
-  c.tgt = spot ? { x: spot.x, z: spot.z } : { x: c.x + (Math.random() - 0.5) * 8, z: c.z + (Math.random() - 0.5) * 8 };
-}
-function updateCat(c, dt, px, pz) {
-  var m = c.mesh, dx = c.x - px, dz = c.z - pz, d2 = dx * dx + dz * dz;
-  if (d2 > WILD_FAR2) { relocateCat(c); return; }   // LOD: far -> amble in from fresh ground near the player
-  m.visible = true; c.phase += dt;
-  if (c.petCD > 0) c.petCD -= dt;
-  // tail sway (idle motion, always)
-  if (m.userData.tail) m.userData.tail.rotation.z = Math.sin(c.phase * 1.8) * 0.3;
-  var spd = 0, vx = 0, vz = 0;
-  if (c.state === 'pet') {
-    c.sitT -= dt; m.rotation.y = Math.atan2(px - c.x, pz - c.z);   // look up at the player
-    if (m.userData.head) m.userData.head.rotation.x = -0.15;
-    if (c.sitT <= 0) { c.state = 'wander'; c.wanderT = 0; if (m.userData.head) m.userData.head.rotation.x = 0; }
-  } else {
-    // skittish: bolt if the player is very close, or close AND moving fast
-    if (c.state !== 'flee' && (d2 < 4.84 || (d2 < 20 && wildPlayerSpeed > 3.4))) {
-      c.state = 'flee'; c.fleeT = 1.0 + Math.random() * 0.8;
-      var fa = Math.atan2(dz, dx); c.tgt = { x: c.x + Math.cos(fa) * 8, z: c.z + Math.sin(fa) * 8 };
-      if (!inside && Math.random() < 0.5) wildMeow();
-    }
-    if (c.state === 'flee') {
-      c.fleeT -= dt; spd = 5.2;
-      var tdx = c.tgt.x - c.x, tdz = c.tgt.z - c.z, td = Math.hypot(tdx, tdz) || 1; vx = tdx / td; vz = tdz / td;
-      if (c.fleeT <= 0) { c.state = 'wander'; c.wanderT = 0; }
-    } else if (c.state === 'sit') {
-      c.sitT -= dt; if (c.sitT <= 0) { c.state = 'wander'; c.wanderT = 0; }
-    } else {   // wander
-      if (!c.tgt || c.wanderT <= 0) { catNewTarget(c); c.wanderT = 2 + Math.random() * 3; if (Math.random() < 0.3) { c.state = 'sit'; c.sitT = 2 + Math.random() * 3.5; } }
-      c.wanderT -= dt;
-      var wdx = c.tgt.x - c.x, wdz = c.tgt.z - c.z, wd = Math.hypot(wdx, wdz);
-      if (wd > 0.4) { spd = 1.25; vx = wdx / wd; vz = wdz / wd; } else { c.state = 'sit'; c.sitT = 1.5 + Math.random() * 3; }
-    }
-    if (m.userData.head) m.userData.head.rotation.x = 0;
-  }
-  if (spd > 0.05) {
-    c.x += vx * spd * dt; c.z += vz * spd * dt;
-    c.x = Math.max(-HALF + 6, Math.min(HALF - 6, c.x)); c.z = Math.max(-HALF + 6, Math.min(HALF - 6, c.z));
-    var pos = pushOut(c.x, c.z, 0.2); c.x = pos.x; c.z = pos.z;
-    m.rotation.y = Math.atan2(vx, vz);
-    if (m.userData.tail) m.userData.tail.rotation.z += Math.sin(c.phase * 9) * 0.12;   // faster sway on the move
-  }
-  m.position.set(c.x, 0, c.z);
-  // occasional meow near the player (not while fleeing)
-  c.meowT -= dt;
-  if (c.meowT <= 0) { c.meowT = 8 + Math.random() * 16; if (c.state !== 'flee' && d2 < 400 && !inside && Math.random() < 0.5) wildMeow(); }
-}
-// nearest pettable cat within reach (calm, not fleeing) — for the E prompt/handler
-function nearestPetCat() {
-  if (!state.running || state.dead || driving || inside) return null;
-  var best = null, bd = 2.4 * 2.4;
-  for (var i = 0; i < wildlife.length; i++) {
-    var c = wildlife[i]; if (c.kind !== 'cat' || c.state === 'flee' || !c.mesh.visible) continue;
-    var dx = c.x - player.x, dz = c.z - player.z, d2 = dx * dx + dz * dz;
-    if (d2 < bd) { bd = d2; best = c; }
-  }
-  return best;
-}
-function petCat(c) {
-  if (!c || c.petCD > 0) return false;
-  c.state = 'pet'; c.sitT = 2.6; c.petCD = 4; c.tgt = null;
-  if (!inside) { wildMeow(); setTimeout(function () { wildPurr(); }, 320); }
-  // a little floating heart + a wholesome line
-  popup('♥');
-  toast('🐈 You pet the stray cat. <b>Purrrr…</b>', 2400);
-  return true;
-}
-function wildlifeCounts() {
-  var o = { bird: 0, duck: 0, squirrel: 0, cat: 0 };
-  for (var i = 0; i < wildlife.length; i++) if (o[wildlife[i].kind] !== undefined) o[wildlife[i].kind]++;
-  return o;
-}
-// ---- critter one-shot voices (procedural, routed through ac.destination = the
-// SFX bus so the settings slider governs them; kept quiet — ambience). ----
-function wildQuack() {
-  if (!ac) return;
-  var quacks = 2 + (Math.random() * 2 | 0), t = ac.currentTime;
-  for (var i = 0; i < quacks; i++) {
-    var o = ac.createOscillator(); o.type = 'sawtooth';
-    var f = 300 + Math.random() * 90, g = ac.createGain();
-    var bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 900; bp.Q.value = 3;
-    o.frequency.setValueAtTime(f * 1.35, t); o.frequency.exponentialRampToValueAtTime(f * 0.8, t + 0.13);
-    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.05, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0006, t + 0.16);
-    o.connect(bp); bp.connect(g); g.connect(ac.destination); o.start(t); o.stop(t + 0.2); if (typeof ambTrack === 'function') ambTrack(o);
-    t += 0.17 + Math.random() * 0.08;
-  }
-}
-function wildChitter() {
-  if (!ac) return;
-  var n = 4 + (Math.random() * 4 | 0), t = ac.currentTime;
-  for (var i = 0; i < n; i++) {
-    var o = ac.createOscillator(); o.type = 'square';
-    var f = 1500 + Math.random() * 900, g = ac.createGain();
-    o.frequency.setValueAtTime(f, t); o.frequency.exponentialRampToValueAtTime(f * 1.3, t + 0.03);
-    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.02, t + 0.005); g.gain.exponentialRampToValueAtTime(0.0005, t + 0.04);
-    o.connect(g); g.connect(ac.destination); o.start(t); o.stop(t + 0.05); if (typeof ambTrack === 'function') ambTrack(o);
-    t += 0.05 + Math.random() * 0.03;
-  }
-}
-function wildMeow() {
-  if (!ac) return;
-  var t = ac.currentTime, o = ac.createOscillator(); o.type = 'sawtooth';
-  var bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1100; bp.Q.value = 4;
-  var g = ac.createGain();
-  o.frequency.setValueAtTime(560, t); o.frequency.linearRampToValueAtTime(820, t + 0.18); o.frequency.linearRampToValueAtTime(500, t + 0.5);
-  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.06, t + 0.08); g.gain.setValueAtTime(0.055, t + 0.32); g.gain.exponentialRampToValueAtTime(0.0006, t + 0.55);
-  o.connect(bp); bp.connect(g); g.connect(ac.destination); o.start(t); o.stop(t + 0.58); if (typeof ambTrack === 'function') ambTrack(o);
-}
-function wildPurr() {
-  if (!ac) return;
-  var t = ac.currentTime, dur = 1.4, n = ac.sampleRate * dur | 0, buf = ac.createBuffer(1, n, ac.sampleRate), d = buf.getChannelData(0), last = 0;
-  for (var i = 0; i < n; i++) { var w = Math.random() * 2 - 1; last = (last + 0.08 * w) / 1.08; d[i] = last * (1.6 + Math.sin(i / ac.sampleRate * 2 * Math.PI * 26) * 0.9); }   // ~26 Hz amplitude rumble
-  var src = ac.createBufferSource(); src.buffer = buf;
-  var lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 320;
-  var g = ac.createGain(); g.gain.value = 0.09;
-  src.connect(lp); lp.connect(g); g.connect(ac.destination); src.start(t); src.stop(t + dur); if (typeof ambTrack === 'function') ambTrack(src);
-}
-
 // ---------------- collision ----------------
 // cheap boolean "is this point clear of colliders" — used by the NPC steer-ahead
 // probe. Same slab math as pushOut but returns on FIRST overlap (no push vector).
@@ -16060,11 +15964,15 @@ function pointFree(px, pz, r) {
   }
   return true;
 }
-function pushOut(px, pz, r, list) {
+function pushOut(px, pz, r, list, feetY) {
   var L = list || colliders;
   for (var i = 0; i < L.length; i++) {
     var b = L[i];
     if (b.active === false) continue;   // toppled prop's trunk collider — sits out until it respawns
+    // 2.5D: if the mover's feet are at/above this box's top, it's a floor, not a
+    // wall — skip the horizontal block so they pass over / stand on it. (feetY
+    // omitted by NPCs/cars/traffic -> everything blocks, exactly as before.)
+    if (feetY !== undefined && b.topY !== undefined && feetY >= b.topY - STEP_UP) continue;
     if (px < b.x0 - r || px > b.x1 + r || pz < b.z0 - r || pz > b.z1 + r) continue;
     if (b.obb) {
       // oriented box: solve in the box's local frame (u along its width axis),
@@ -16205,7 +16113,7 @@ function vmArm(x, y, z, yawR) {
   var sleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.044, 0.042, 0.07, 8).rotateX(Math.PI / 2), sleeveM); sleeve.position.set(0, 0, 0.05);
   var hand = sph(0.052, skinM, 0, 0, -0.2, 8, 7); hand.scale.set(0.85, 0.75, 1.1);
   var thumb = sph(0.02, skinM, -0.035, 0.02, -0.21, 6, 5);
-  g.add(fore, sleeve, hand, thumb); g.position.set(x, y, z); g.rotation.y = yawR || 0; return g;
+  g.add(fore, sleeve, hand, thumb); g.position.set(x, y, z); g.rotation.y = yawR || 0; g.userData.vmArm = 1; return g;
 }
 var vmFists = new THREE.Group();
 var armLf = vmArm(-0.24, -0.44, -0.5, -0.18);
@@ -16218,7 +16126,11 @@ var psxArms = null;
 // arms also hold the Meshy gun viewmodels: the root reparents into the
 // equipped gun group (so draw/reload anims carry the hands along) and is
 // posed each frame on a static frame of the 'grab' clip
-var GUNHOLD_GROUPS = { pistol: 1, smg: 1, rifle: 1, auto: 1, rocket: 1, silenced: 1 };   // #78: silenced reuses the pistol two-hand hold
+// v: guns now show ONLY the weapon mesh — NO first-person arms/hands. Emptying
+// this map stops the skinned PSX arms from being reparented onto (or posed on)
+// any gun group; the capsule vmArm fallbacks are hidden in the gun groups too
+// (see the arm-hide pass after vmMap is built). Fists/melee keep their arms.
+var GUNHOLD_GROUPS = {};
 var gunHold = { clip: 'relax', t: 0.75 };   // relax mid-frame: right palm sits on the grips
 // The shared relax/grab clip leaves the LEFT (support) arm hanging at the side,
 // which reads as a detached floating hand for every gun. After posing, we swing
@@ -16587,11 +16499,13 @@ var vmPistol = new THREE.Group();
 var vmSmg = new THREE.Group();
 (function () {
   if (hasMeshyGun('tec9')) {
-    // v1.66.87: real-FPS diagonal composition (see AK), compact for the SMG.
+    // v: no-arms build — barrel points straight down-range (-z). Muzzle is
+    // authored along local -x, so yaw -PI/2 aims it forward; +cant toes it in
+    // toward center, small +x tilt levels the baked droop. Framed lower-right.
     var mg = getGunMesh('tec9', 0.72);
-    mg.position.set(0.324, -0.18, -0.495);
+    mg.position.set(0.24, -0.30, -0.52);
     mg.rotation.order = 'YXZ';
-    mg.rotation.set(-0.266, -0.871, -0.316);
+    mg.rotation.set(0.03, -Math.PI / 2 + 0.12, 0);
     vmSmg.add(mg);
     var sAr = vmArm(0.33, -0.48, -0.3, 0.18); sAr.userData.gunArm = 1; vmSmg.add(sAr);
     var sAr2 = vmArm(0.25, -0.42, -0.7, -0.3); sAr2.userData.gunArm = 1; vmSmg.add(sAr2);
@@ -16632,12 +16546,12 @@ var vmSmg = new THREE.Group();
 var vmRifle = new THREE.Group();
 (function () {
   if (hasMeshyGun('kar98k')) {
-    // v1.66.87: real-FPS diagonal composition (see AK) — stock off bottom-right,
-    // barrel diagonal up-left toward the crosshair, flat side 3/4 to camera.
+    // v: no-arms build — barrel points straight down-range (-z). yaw -PI/2 aims
+    // the -x muzzle forward; small +cant toes it toward center. Framed lower-right.
     var mg = getGunMesh('kar98k', 1.15);
-    mg.position.set(0.301, -0.233, -0.505);
+    mg.position.set(0.22, -0.30, -0.62);
     mg.rotation.order = 'YXZ';
-    mg.rotation.set(-0.258, -0.822, -0.32);
+    mg.rotation.set(0.02, -Math.PI / 2 + 0.10, 0);
     vmRifle.add(mg);
     var rAr1 = vmArm(0.34, -0.5, -0.29, 0.18); rAr1.userData.gunArm = 1; vmRifle.add(rAr1);
     var rAr2 = vmArm(0.08, -0.4, -0.78, -0.32); rAr2.userData.gunArm = 1; vmRifle.add(rAr2);
@@ -16659,15 +16573,12 @@ var vmRifle = new THREE.Group();
 var vmAuto = new THREE.Group();
 (function () {
   if (hasMeshyGun('ak47')) {
-    // v1.66.87: real-FPS composition — the rifle enters from the bottom-right
-    // (stock off-screen at the shoulder), receiver filling the lower-right, the
-    // barrel running DIAGONALLY up-and-left toward the crosshair. mg.quaternion
-    // maps the model -x (muzzle) axis onto that diagonal; position anchors the
-    // pistol grip at the bottom-right. GRIP_TGT/RIGHT_GRIP re-derived below.
+    // v: no-arms build — barrel points straight down-range (-z). yaw -PI/2 aims
+    // the -x muzzle forward; small +cant toes it toward center. Framed lower-right.
     var mg = getGunMesh('ak47', 1.12);
-    mg.position.set(0.313, -0.218, -0.458);
+    mg.position.set(0.22, -0.30, -0.60);
     mg.rotation.order = 'YXZ';
-    mg.rotation.set(-0.258, -0.822, -0.32);   // YXZ euler: barrel diagonal up-left, flat receiver 3/4 to camera
+    mg.rotation.set(0.02, -Math.PI / 2 + 0.10, 0);
     vmAuto.add(mg);
     var aAr1 = vmArm(0.31, -0.47, -0.33, 0.18); aAr1.userData.gunArm = 1; vmAuto.add(aAr1);
     var aAr2 = vmArm(0.15, -0.42, -0.78, -0.3); aAr2.userData.gunArm = 1; vmAuto.add(aAr2);
@@ -16698,14 +16609,14 @@ var rpgWarhead = null;   // the Meshy launcher's own warhead mesh (hidden while 
 (function () {
   var headCant = 0;
   if (hasMeshyGun('rpg7')) {
-    // v1.66.87: real-FPS diagonal composition (see AK) — tube over the shoulder,
-    // warhead up-left. rocketFwd/seat derive from the actual muzzle so the reload
-    // slide still tracks the tube after the re-cant.
+    // v: no-arms build — tube points straight down-range (-z). yaw -PI/2 aims the
+    // -x muzzle forward; small +cant toes it toward center. rocketFwd/seat derive
+    // from the actual muzzle so the reload slide still tracks the tube.
     var mg = getGunMesh('rpg7', 1.05);
     mg.traverse(function (o) { if (o.userData && o.userData.warhead) rpgWarhead = o; });
-    mg.position.set(0.342, -0.197, -0.42);
+    mg.position.set(0.24, -0.28, -0.58);
     mg.rotation.order = 'YXZ';
-    mg.rotation.set(-0.217, -0.956, -0.228);
+    mg.rotation.set(0.03, -Math.PI / 2 + 0.10, 0);
     vmRocket.add(mg);
     var kAr1 = vmArm(0.34, -0.46, -0.3, 0.18); kAr1.userData.gunArm = 1; vmRocket.add(kAr1);
     var kAr2 = vmArm(0.15, -0.44, -0.62, -0.3); kAr2.userData.gunArm = 1; vmRocket.add(kAr2);
@@ -16817,16 +16728,24 @@ vmMap.neon_blaster = vmNeon;
 var vmSilenced = vmPistol.clone(true);
 (function () { var supp = cyl(0.032, 0.032, 0.30, 10, darkMetalM, 0.26, -0.265, -1.02); supp.rotation.x = Math.PI / 2; vmSilenced.add(supp); })();
 vmMap.silenced = vmSilenced;
+// v: guns show ONLY the weapon mesh. Hide every capsule vmArm inside the gun
+// groups (both the meshy-path gunArm arms and the procedural-fallback arms).
+// The skinned PSX arms are no longer parented here (GUNHOLD_GROUPS is empty), so
+// this leaves each gun bare. Fists/snack/soda are item-in-hand and keep arms.
+['pistol', 'smg', 'rifle', 'auto', 'rocket', 'raygun', 'neon_blaster', 'silenced'].forEach(function (k) {
+  var g = vmMap[k]; if (!g) return;
+  g.traverse(function (o) { if (o.userData && o.userData.vmArm) o.visible = false; });
+});
 Object.keys(vmMap).forEach(function (k) { vm.add(vmMap[k]); vmMap[k].visible = false; });
 // v1.66.73: FP framing lift. The gun + skinned hands used to ride at the very
 // bottom of the frame (grip cut off at a level look). The equipped group's
 // position is rebased to this per-weapon lift each frame (see the draw block),
 // which moves gun AND arms together so the grip relationship is preserved.
-var VM_LIFT = { pistol: 0.24, smg: -0.20, rifle: -0.22, auto: -0.22, rocket: -0.12, silenced: 0.24 };   // auto/smg/rifle/rocket dropped so the weapon sits in the lower-right instead of crossing the frame (rifle hip view; vm hidden while scoped)
-// v1.66.97: per-weapon lateral shift of the whole equipped group (gun AND arms
-// together, so the grip is preserved) — nudges the AK from center toward the
-// SPEC lower-RIGHT anchor (muzzle target x=55; it was reading ~52 = "central").
-var VM_SHIFT = { auto: 0.055, smg: 0.06, rifle: 0.06, rocket: 0.05 };
+// v: no-arms build. The long guns' lower-right framing is now baked into each
+// gun mesh's own position (forward-pointing rotation), so their per-frame group
+// lift/shift is neutral. Pistol/silenced keep their lift (unchanged one-handed).
+var VM_LIFT = { pistol: 0.24, smg: 0, rifle: 0, auto: 0, rocket: 0, silenced: 0.24 };
+var VM_SHIFT = {};
 vmFists.visible = true;
 var zoomed = false;
 function setZoom(on) {
@@ -16839,6 +16758,7 @@ function setZoom(on) {
   document.getElementById('crosshair').style.display = on ? 'none' : '';
 }
 function setEquipped(w) {
+  if (kameActive) return;   // weapon switching is locked mid-Kamehameha (endKamehameha clears the flag first, then calls this)
   if (inside && w && w !== 'fists' && w !== 'snack' && w !== 'soda') playVoice('clerk_scared', 0.55, 45, { ref: clerk });
   setZoom(false);
   gunBloom = 0;
@@ -16850,15 +16770,147 @@ function setEquipped(w) {
     if (w === 'fists') { vmFists.add(psxArms.root); vmFists.rotation.set(0, 0, 0); armsPose(psxArms, 'idle', T); }
     else if (GUNHOLD_GROUPS[w]) { vmMap[w].add(psxArms.root); armsPose(psxArms, gunHold.clip, gunHold.t, true); solveSupportIK(w); gripFingers(); }
   }
-  vm.visible = !zoomed && !driving;
+  vm.visible = !zoomed && !driving && !state.dead;   // stay hidden during the death cinematic
   Object.keys(vmMap).forEach(function (k) { vmMap[k].visible = (k === w); });
   var sub = w === 'fists' ? 'punch for cash' : (w === 'rifle' ? 'right-click: scope' : (w === 'rocket' ? '5s reload' : (w === 'snack' ? 'left-click: eat (+50 hp) — x' + state.snacks : (w === 'soda' ? 'left-click: drink (+25 hp) — x' + state.sodas : 'ammo: &#8734;'))));
   document.getElementById('weaponBox').innerHTML = WEAPONS[w].name + '<br><small>' + sub + '</small>';
+  if (typeof refreshHotbarHud === 'function') refreshHotbarHud();
 }
 
 // ---------------- combat ----------------
 var raycaster = new THREE.Raycaster();
 var npcRootsAlive = [];
+// ===================== KAMEHAMEHA (rare fists easter egg) =====================
+// A 1-in-N punch with bare fists fires a Goku-style beam instead of a jab: hands
+// thrust out, a 5s redirectable blue energy blast that INSTANTLY vaporises
+// everything in its path (NPCs, cops, remote players) and detonates any vehicle
+// it touches. Weapon switching is locked until it ends, then the arms drop back
+// to fists. Voice cry + a sustained roar. Local/per-peer visual (the kills route
+// through the normal net paths so other players see the bodies drop).
+var KAME_CHANCE = 0.2;                       // TESTING = 1/5; ship value later = 0.001 (1/1000)
+var KAME_DUR = 5.0, KAME_LEN = 170, KAME_R = 3.4;   // beam length + kill radius (world units)
+var kameActive = false, kameT = 0;
+var kameBeamGrp = null, kameBeam = null, kameCore = null, kameBuf = null;
+var kameGain = null, kameNodes = null;
+var _kdir = new THREE.Vector3();
+function kameVoiceInit() {
+  if (kameBuf !== null || typeof KAME_VOICE === 'undefined' || !ac) return;
+  kameBuf = 0;   // "loading" sentinel so we only fetch once
+  fetch(KAME_VOICE).then(function (r) { return r.arrayBuffer(); }).then(function (ab) {
+    ac.decodeAudioData(ab, function (buf) { kameBuf = buf; }, function () { kameBuf = null; });
+  }).catch(function () { kameBuf = null; });
+}
+function playKameVoice() {
+  if (!ac) { return; }
+  if (!kameBuf) { kameVoiceInit(); return; }   // not decoded yet — skip (still roars)
+  var s = ac.createBufferSource(); s.buffer = kameBuf;
+  var g = ac.createGain(); g.gain.value = 1.0;
+  s.connect(g); g.connect(voiceBus || ac.destination); s.start();
+}
+function startKameSound() {
+  if (!ac) return;
+  stopKameSound();
+  var out = ac.createGain(); out.gain.value = 0.0001; out.connect(masterBus || ac.destination);
+  var o1 = ac.createOscillator(); o1.type = 'sawtooth'; o1.frequency.value = 68;
+  var o2 = ac.createOscillator(); o2.type = 'sine'; o2.frequency.value = 138;
+  var nb = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate), nd = nb.getChannelData(0);
+  for (var i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+  var ns = ac.createBufferSource(); ns.buffer = nb; ns.loop = true;
+  var bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 480; bp.Q.value = 0.5;
+  var g1 = ac.createGain(); g1.gain.value = 0.22; var g2 = ac.createGain(); g2.gain.value = 0.16; var gn = ac.createGain(); gn.gain.value = 0.55;
+  o1.connect(g1); g1.connect(out); o2.connect(g2); g2.connect(out); ns.connect(bp); bp.connect(gn); gn.connect(out);
+  var now = ac.currentTime;
+  out.gain.exponentialRampToValueAtTime(0.55, now + 0.15);
+  o1.start(); o2.start(); ns.start();
+  kameGain = out; kameNodes = [o1, o2, ns];
+}
+function stopKameSound() {
+  if (!kameGain || !ac) { kameGain = null; kameNodes = null; return; }
+  var now = ac.currentTime, g = kameGain, nodes = kameNodes;
+  try { g.gain.cancelScheduledValues(now); g.gain.setValueAtTime(g.gain.value, now); g.gain.exponentialRampToValueAtTime(0.0001, now + 0.25); } catch (e) { }
+  setTimeout(function () { if (nodes) for (var i = 0; i < nodes.length; i++) { try { nodes[i].stop(); } catch (e) { } } }, 350);
+  kameGain = null; kameNodes = null;
+}
+function buildKameVM() {
+  if (kameBeamGrp) return;
+  // energy core + beam (children of the camera -> auto-aim where you look). The
+  // HANDS are the real fists viewmodel (psxArms in vmFists), posed forward in the
+  // draw loop while kameActive — no separate arm meshes.
+  kameBeamGrp = new THREE.Group();
+  kameCore = new THREE.Mesh(new THREE.SphereGeometry(0.23, 16, 12),
+    new THREE.MeshBasicMaterial({ color: 0xdff2ff }));
+  kameCore.position.set(0, -0.34, -1.1);
+  var oz = -1.05 - KAME_LEN / 2;
+  kameBeam = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.34, KAME_LEN, 16, 1, true),
+    new THREE.MeshBasicMaterial({ color: 0x8fd2ff, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false }));
+  kameBeam.rotation.x = -Math.PI / 2; kameBeam.position.set(0, -0.34, oz);
+  var inner = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.15, KAME_LEN, 12, 1, true),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false }));
+  inner.rotation.x = -Math.PI / 2; inner.position.set(0, -0.34, oz);
+  kameBeamGrp.add(kameBeam, inner, kameCore);
+  camera.add(kameBeamGrp); kameBeamGrp.visible = false;
+}
+function startKamehameha() {
+  buildKameVM();
+  if (kameActive) return;
+  kameActive = true; kameT = T;
+  kameBeamGrp.visible = true;
+  vm.visible = true;   // keep the REAL fists hands on-screen (draw loop thrusts them forward)
+  document.getElementById('crosshair').style.display = 'none';
+  setZoom(false);
+  playKameVoice(); startKameSound();
+  popup('KAMEHAMEHA!');
+  if (state.wanted < 3) setWanted(3);
+}
+function kamePerp(tx, ty, tz, ox, oy, oz, dx, dy, dz) {
+  var vx = tx - ox, vy = ty - oy, vz = tz - oz, along = vx * dx + vy * dy + vz * dz;
+  if (along < 1 || along > KAME_LEN) return 1e9;
+  var px = ox + dx * along, py = oy + dy * along, pz = oz + dz * along;
+  return Math.sqrt((tx - px) * (tx - px) + (ty - py) * (ty - py) + (tz - pz) * (tz - pz));
+}
+function updateKamehameha(dt) {
+  if (!kameActive) return;
+  var age = T - kameT;
+  if (kameCore) kameCore.scale.setScalar(1 + 0.18 * Math.sin(T * 42));
+  if (kameBeam) kameBeam.material.opacity = 0.65 + 0.25 * Math.random();
+  camera.getWorldDirection(_kdir);
+  var ox = camera.position.x, oy = camera.position.y, oz = camera.position.z;
+  var dx = _kdir.x, dy = _kdir.y, dz = _kdir.z, i;
+  for (i = 0; i < npcs.length; i++) {
+    var n = npcs[i]; if (n.state === 'down' || n.state === 'ragdoll' || n.state === 'hidden') continue;
+    if (kamePerp(n.x, 1.1, n.z, ox, oy, oz, dx, dy, dz) < KAME_R) {
+      bloodPunch(n.x, 1.3, n.z);
+      if (isClient()) { netToHost({ t: 'dmgNpc', i: i, dmg: 999, kx: dx, kz: dz }); n.hp = 0; }
+      else damageNPC(n, 999, dx, dz);
+    }
+  }
+  for (i = 0; i < cops.length; i++) {
+    var cp = cops[i]; if (cp.state === 'down') continue;
+    if (kamePerp(cp.x, 1.1, cp.z, ox, oy, oz, dx, dy, dz) < KAME_R) damageCop(cp, 999, dx, dz);
+  }
+  for (i = 0; i < cars.length; i++) {
+    var c = cars[i]; if (c === driving || c.exploded) continue;
+    var cm = c.car.group.position;
+    if (kamePerp(cm.x, 0.8, cm.z, ox, oy, oz, dx, dy, dz) < KAME_R + 1) {
+      if (isClient()) netToHost({ t: 'carBoom', i: i });
+      explodeCar(c);
+    }
+  }
+  for (var rid in net.remotes) {
+    var rm = net.remotes[rid]; if (!rm || rm.dead) continue;
+    if (kamePerp(rm.x, 1.1, rm.z, ox, oy, oz, dx, dy, dz) < KAME_R) netSendHit(rm.id, 999, true);
+  }
+  if (age >= KAME_DUR) endKamehameha();
+}
+function endKamehameha() {
+  if (!kameActive) return;
+  kameActive = false;
+  if (kameBeamGrp) kameBeamGrp.visible = false;
+  if (vmFists) vmFists.rotation.set(0, 0, 0);   // drop the thrust — hands back to the default fist posture
+  stopKameSound();
+  setEquipped('fists');
+  if (!driving && !state.dead) { vm.visible = !zoomed; document.getElementById('crosshair').style.display = zoomed ? 'none' : ''; }
+}
 function tryAttack() {
   if (!state.running || state.menu || state.dead || driving) return;
   var w = WEAPONS[state.equipped];
@@ -16871,14 +16923,17 @@ function tryAttack() {
       state.hp = Math.min(100, state.hp + 50);
       sfx('eat');
       popup('+50 HP');
-      if (state.snacks <= 0) setEquipped('fists');
+      if (state.snacks <= 0) { pruneHotbar(); setEquipped('fists'); }   // last one eaten: drop snack off the hotbar
       else setEquipped('snack'); // refresh the counter in the HUD
+      refreshHotbarHud();
     }
     return;
   }
   if (w.melee) {
     if (T - punchT < w.rate) return;
     punchT = T; punchSide = !punchSide; punchSlap = Math.random() < 0.2; sfx('whoosh');
+    // rare Kamehameha (fists only): 1-in-N punch fires the beam instead of a jab
+    if (state.equipped === 'fists' && !kameActive && Math.random() < KAME_CHANCE) { startKamehameha(); return; }
     meleeHit = true;   // fists: damageNPC rolls fight-back + punch reacts (ranged resets this in the raycast path)
     var fx = -Math.sin(yaw), fz = -Math.cos(yaw), best = null, bestD = 99, bestCop = null;
     for (var i = 0; i < npcs.length; i++) {
@@ -17017,7 +17072,7 @@ function tryAttack() {
       // clients predict hp so the overhead bar drops on hit (mrg4gnea) — the
       // host stays authoritative for the actual kill/credit
       if (isClient()) { netToHost({ t: 'dmgNpc', i: npcs.indexOf(npcHit), dmg: w.dmg, kx: dir.x, kz: dir.z }); npcHit.hp = Math.max(0, (npcHit.hp || 100) - w.dmg); }
-      else damageNPC(npcHit, w.dmg, dir.x, dir.z, ghostActive());   // #78 Ghost: silenced kills stay silent (no star)
+      else damageNPC(npcHit, w.dmg, dir.x, dir.z, false);
     }
     else if (remoteHit) { netSendHit(remoteHit, w.dmg, true); puff(h.point, 0xd93a2a, 'blood'); }
     else if (copMHit >= 0) {
@@ -17031,7 +17086,7 @@ function tryAttack() {
     }
     else if (copHit) { damageCop(copHit, w.dmg, dir.x, dir.z); puff(h.point, 0xd93a2a, 'blood'); }
     else if (carHit) {
-      puff(h.point, 0xd8c860);
+      puff(h.point, 0xbbbbbb, 'impact');   // bullet strike on a car body: subtle dust, NOT a flame (the old warm 0xd8c860 puff routed to the fire sheet)
       if (carHit.playerDriven && carHit !== driving) {
         // ANOTHER player is driving this car — route the shot so the host
         // forwards the damage to the real driver (their client applies carHP,
@@ -17123,9 +17178,12 @@ var RESPAWN_MS = 2600, deadAt = 0, deadUntil = 0, deadTimer = null;
 function doRespawn() {
   if (!state.dead) return;
   if (deadTimer) { clearTimeout(deadTimer); deadTimer = null; }
+  endDeathCam();
   player.x = spawnX; player.z = spawnZ; player.y = EYE; yaw = 0; pitch = 0; recoilPitch = 0;
   state.hp = 100; state.dead = false;
   document.getElementById('deadScreen').classList.add('hidden');
+  document.getElementById('crosshair').style.display = '';   // always back on foot after respawn
+  if (state.running) lockPointer();
 }
 function hurtPlayer(d, sx, sz) {
   if (state.dead) return;
@@ -17139,18 +17197,38 @@ function hurtPlayer(d, sx, sz) {
   requestAnimationFrame(function () { f.style.transition = 'opacity .45s'; f.style.opacity = 0; });
   if (state.hp <= 0) {
     state.hp = 0; state.dead = true;
+    if (kameActive) endKamehameha();   // dying mid-beam: tear it down (updatePlayer stops running once dead)
+    if (rollState) endRoll();          // dying mid-roll: clean up the body/camera before the death cam
     if (state.wanted >= 2) playVoice('cop_down', 0.45, 10);
     if (driving) {
       // tell the host the car is free, or it keeps chasing our respawned ghost
       if (isClient()) { var dcp = driving.car.group; netToHost({ t: 'park', i: cars.indexOf(driving), x: dcp.position.x, z: dcp.position.z, ry: dcp.rotation.y }); }
+      driving.radio = radioSnapshot();   // keep this car's station if you come back for it
+      radioStop();   // dying in a car with the radio on left it playing through respawn — kill it here too
+      if (driving.eng) stopEngine(driving);   // ...and silence the engine/idle audio on death
       driving.pspeed = 0; driving = null; document.getElementById('crosshair').style.display = ''; vm.visible = true;
+    }
+    if (plane && plane.piloting) {
+      // dying mid-flight: drop out of the cockpit or you respawn still "piloting"
+      // (frozen controls) with the gun crosshair stuck hidden. Leave the plane to
+      // auger in pilotless.
+      plane.piloting = false; stopJet();
+      document.getElementById('crosshair').style.display = ''; vm.visible = true;
     }
     if (inside) exitStore(true);   // clean up interior cops + lockout, respawn is outside anyway
     closeMenus(false); closeChat(false); closeBug();   // dying with a panel open left it stuck (frozen after respawn) + a buy-guns-back-while-dead exploit
-    var lost = Math.floor(state.money * 0.25); state.money -= lost;
-    document.getElementById('deadInfo').textContent = lost > 0 ? 'You dropped $' + lost + ' on the pavement.' : 'At least you were already broke.';
-    document.getElementById('deadScreen').classList.remove('hidden');
-    deadAt = performance.now(); deadUntil = deadAt + RESPAWN_MS;   // drives the countdown UI
+    var lost = Math.min(500, Math.floor(state.money * 0.10)); state.money -= lost;
+    // half of what you lose actually hits the pavement as recoverable cash (2-min
+    // despawn, like dropped guns) — you can race back for it, or your killer loots
+    // it (makes PvP kills pay). The other half is gone for good.
+    var dropCash = Math.floor(lost / 2);
+    if (dropCash > 0) {
+      if (isClient()) netToHost({ t: 'atmCash', x: player.x, z: player.z, val: dropCash, life: 120 });
+      else spawnCash(player.x, player.z, dropCash, 0, 120);
+    }
+    document.getElementById('deadInfo').textContent = lost > 0 ? 'You lost $' + lost + (dropCash > 0 ? ' — $' + dropCash + ' spilled on the pavement.' : '.') : 'At least you were already broke.';
+    deadAt = performance.now();
+    startDeathCam();   // top-down zoom-out cinematic; the menu (respawn / main menu) appears when it finishes
     state.wanted = 0; state.civKills = 0; state.copKills = 0; updateStarsHUD();
     // drop everything you were carrying
     var dropped = 0;
@@ -17163,27 +17241,66 @@ function hurtPlayer(d, sx, sz) {
       state.owned[k] = false;
       dropped++;
     });
+    // lose everything else in the inventory too (consumables + scavenge bag). Only
+    // guns drop as pickups; snacks/sodas just vanish. Then wipe the hotbar down to
+    // fists so you can't still scroll to gear you no longer own (report: kept stuff).
+    state.snacks = 0; state.sodas = 0; state.bag = [];
+    if (typeof pruneHotbar === 'function') pruneHotbar();
+    if (typeof refreshHotbarHud === 'function') refreshHotbarHud();
     setEquipped('fists');
-    if (deadTimer) clearTimeout(deadTimer);
-    deadTimer = setTimeout(doRespawn, RESPAWN_MS);
+    // no auto-respawn: the player chooses RESPAWN or MAIN MENU after the cinematic
   }
 }
-// live WASTED-screen countdown + progress bar; click after a short grace to
-// respawn early. Cache last strings so we only touch the DOM on change.
-var _deadTxtLast = '', _deadBarLast = '';
-function updateDeadScreen() {
-  if (!state.dead) return;
-  var now = performance.now();
-  var rem = Math.max(0, deadUntil - now);
-  var frac = Math.max(0, Math.min(1, (now - deadAt) / RESPAWN_MS));
-  var txt = 'RESPAWNING IN ' + (Math.ceil(rem / 100) / 10).toFixed(1) + 's';
-  if (txt !== _deadTxtLast) { _deadTxtLast = txt; var dt2 = document.getElementById('deadTimer'); if (dt2) dt2.textContent = txt; }
-  var bw = Math.round(frac * 100) + '%';
-  if (bw !== _deadBarLast) { _deadBarLast = bw; var db = document.getElementById('deadBar'); if (db) db.style.width = bw; }
+// ---- death cinematic (v1.73): on death the camera pulls up to a top-down view
+// and zooms out for DEATH_ZOOM_MS over the player's fallen body, fading to black;
+// when it finishes, the respawn / main-menu prompt appears. The FP viewmodel and
+// all HUD are hidden the instant the camera detaches (fixes lingering arms). ----
+var deathCam = null, deathBody = null;
+var DEATH_ZOOM_MS = 5000;
+function startDeathCam() {
+  var bx = player.x, bz = player.z;
+  if (deathBody) { scene.remove(deathBody); deathBody = null; }
+  try {
+    deathBody = buildCharacter(playerChar || randomCharConfig());
+    deathBody.position.set(bx, 0.16, bz);
+    deathBody.rotation.set(-1.5, yaw, 0);   // laid flat where they fell, facing the last look dir
+    if (deathBody.userData && deathBody.userData.shadow) deathBody.userData.shadow.visible = false;
+    scene.add(deathBody);
+  } catch (e) { deathBody = null; }
+  vm.visible = false;                        // kill the FP arms/weapon viewmodel immediately
+  deathCam = { el: 0, x: bx, z: bz, phase: 'zoom' };
+  var df = document.getElementById('deathFade'); if (df) { df.style.transition = 'none'; df.style.opacity = '0'; }
+  document.getElementById('deadScreen').classList.add('hidden');
+  if (document.exitPointerLock) document.exitPointerLock();
 }
+function updateDeathCam(dt) {
+  if (!deathCam) return;
+  deathCam.el += dt;
+  var f = Math.min(1, deathCam.el / (DEATH_ZOOM_MS / 1000));
+  var ease = f * f * (3 - 2 * f);                       // smoothstep
+  var y = 6 + ease * 42;                                // rise 6 -> 48 (zoom out)
+  camera.position.set(deathCam.x, y, deathCam.z + y * 0.14);   // slight tilt off pure top-down
+  camera.lookAt(deathCam.x, 0.2, deathCam.z);
+  var df = document.getElementById('deathFade');
+  if (df) df.style.opacity = String(Math.max(0, Math.min(1, (f - 0.5) / 0.5)));   // fade to black over the back half
+  if (f >= 1 && deathCam.phase !== 'menu') {
+    deathCam.phase = 'menu';
+    if (df) df.style.opacity = '1';
+    document.getElementById('deadScreen').classList.remove('hidden');
+  }
+}
+function endDeathCam() {
+  deathCam = null;
+  if (deathBody) { scene.remove(deathBody); deathBody = null; }
+  var df = document.getElementById('deathFade'); if (df) { df.style.transition = 'none'; df.style.opacity = '0'; }
+  camera.rotation.z = 0;   // clear any roll left by lookAt before the FP camera resumes
+  vm.visible = true;
+}
+function returnToMainMenu() { try { if (net && net.peer) net.peer.destroy(); } catch (e) { } location.reload(); }
+function updateDeadScreen() { }   // (legacy no-op: countdown replaced by the cinematic + menu)
 (function () {
-  var ds = document.getElementById('deadScreen');
-  if (ds) ds.addEventListener('click', function () { if (state.dead && performance.now() - deadAt > 600) doRespawn(); });
+  var rb = document.getElementById('deadRespawn'); if (rb) rb.addEventListener('click', function (e) { e.stopPropagation(); doRespawn(); });
+  var mb = document.getElementById('deadMenu'); if (mb) mb.addEventListener('click', function (e) { e.stopPropagation(); returnToMainMenu(); });
 })();
 
 // ---------------- audio ----------------
@@ -17292,6 +17409,18 @@ function breakProp(b, dirX, dirZ) {
   b.broken = true; b.thudded = false; b.fallT = 0; b.respawnT = 60;
   var d = Math.sqrt(dirX * dirX + dirZ * dirZ) || 1;
   b.fx = dirX / d; b.fz = dirZ / d;
+  // roadside lamps/trees: bias the topple AWAY from the road so a car that clips
+  // one drops it on the sidewalk/grass instead of lying across the lane (reports
+  // mrn2eixk/mrn2b523/mrn2bobd "get rid of this in the middle of the road"). The
+  // off-road direction dominates; a little of the real impact dir keeps it lively.
+  if (b.type === 'light' || b.type === 'tree') {
+    var ow = roadOutward(b.x, b.z);
+    if (ow) {
+      var fbx = b.fx * 0.35 + ow.x, fbz = b.fz * 0.35 + ow.z;
+      var fbl = Math.sqrt(fbx * fbx + fbz * fbz) || 1;
+      b.fx = fbx / fbl; b.fz = fbz / fbl;
+    }
+  }
   if (b.col) b.col.active = false;   // toppled trunk stops blocking until respawn
   if (b.light) { b.light.broken = true; b.light.glow.visible = false; b.light.pool.visible = false; }
   var cols = b.type === 'tree' ? [0x4c8038, 0x3f6f2e, 0x7a5a3a]
@@ -17325,6 +17454,18 @@ var fallAxis = new THREE.Vector3(), fallQ = new THREE.Quaternion();
 function updateWorldFx(dt) {
   updateSignals(dt);   // traffic-signal cycle (corridor details section)
   updateRtPylon(dt);   // RaceTrac pylon 7-seg flicker (rare canvas repaint)
+  // ground NPCs on the top surface (feet were pinned to y=0, sinking into raised
+  // road/sidewalk). Downed/ragdolled NPCs manage their own y. skipRects fast path.
+  for (var gi = 0; gi < npcs.length; gi++) {
+    var gn = npcs[gi];
+    if (!gn.mesh || gn.state === 'down' || gn.state === 'ragdoll') continue;
+    gn.mesh.position.y = surfaceHeightAt(gn.x, gn.z, true);
+  }
+  for (var gci = 0; gci < cops.length; gci++) {
+    var gc = cops[gci];
+    if (!gc.mesh || gc.interior || gc.state === 'down') continue;   // interior cops keep their room y
+    gc.mesh.position.y = surfaceHeightAt(gc.x, gc.z, true);
+  }
   // cars snap trees & street lights (works on host and on mirrored client cars)
   for (var i = 0; i < cars.length; i++) {
     var c = cars[i];
@@ -17333,6 +17474,10 @@ function updateWorldFx(dt) {
       if (c.car.beam.visible !== bv) c.car.beam.visible = bv;
     }
     var m = c.car.group.position;
+    // ride the top surface (road/curb/lot/ramp) — tyres were pinned to y=0 and
+    // sank into every raised layer. The driven car sets its own y (updateDriving);
+    // exploded/flooded/sunk husks manage theirs.
+    if (c !== driving && !c.exploded && !c.flooding && !c.sunk) m.y = surfaceHeightAt(m.x, m.z);
     var hx = c._bx === undefined ? m.x : c._bx, hz = c._bz === undefined ? m.z : c._bz;
     var mvx = m.x - hx, mvz = m.z - hz;
     c._bx = m.x; c._bz = m.z;
@@ -17347,12 +17492,12 @@ function updateWorldFx(dt) {
     updateCarLights(c, dt, braking);
     if (c.exploded) {
       // the leftover wreck husk is solid-ish on foot, same as a parked car
-      if (c.husk && !driving && !state.dead) carShellPush(c.husk.position.x, c.husk.position.z, c.husk.rotation.y);
+      if (c.husk && !driving && !inside && !state.dead) carShellPush(c.husk.position.x, c.husk.position.z, c.husk.rotation.y);
       continue;
     }
     // parked cars are solid-ish to the on-foot player (traffic only shoves/hurts;
     // a still car you can lean on while breaking in must not be a ghost)
-    if (c.parked && !driving && !state.dead) carShellPush(m.x, m.z, c.car.group.rotation.y);
+    if (c.parked && !driving && !inside && !state.dead) carShellPush(m.x, m.z, c.car.group.rotation.y);
     var v2 = (mvx * mvx + mvz * mvz) / Math.max(dt * dt, 1e-6);
     if (v2 < 9) continue;                       // too slow to snap anything
     for (var j = 0; j < breakables.length; j++) {
@@ -17435,6 +17580,165 @@ function setupAudioBus() {
   } catch (e) { audioReal = null; masterBus = sfxBus = voiceBus = null; }
 }
 function initAudio() { if (ac) return; try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { } setupAudioBus(); decodeSfxPack(); startAmbient(); }
+
+// ---------------- car radio (player-only) ----------------
+// Each station holds ANY number of tracks (add as many MP3s as you like — no
+// per-station cap). A station is played on SHUFFLE: the first song is picked at
+// random, then the rest play from a shuffled queue so every song plays once
+// before any repeats, and a song never plays twice back-to-back across a
+// reshuffle. Only the player's own driven car has a radio; NPC/traffic cars
+// never play music. Tracks are plain local MP3s under music/ (user-supplied) —
+// list ONLY files that exist (a missing track auto-skips to the next). Uses an
+// HTMLAudioElement (not the WebAudio graph) so it streams a normal MP3 straight
+// off disk from file:// as well as over http; its volume tracks master manually.
+var RADIO_VOL = 0.75;   // radio loudness relative to the master volume
+// tracks[] grow as MP3s are dropped into music/ and listed here — no limit.
+var RADIO_STATIONS = [
+  { id: 'electronic', name: 'ELECTRONIC', tracks: ['music/electronic_pegboard_nerds_disconnected.mp3', 'music/electronic_skrillex_kill_everybody.mp3', 'music/electronic_2008.mp3', 'music/electronic_deadmau5_ghosts_n_stuff.mp3', 'music/electronic_dj_gollum_all_the_things_she_said.mp3', 'music/electronic_push_the_feeling_on.mp3', 'music/electronic_skrillex_kyoto.mp3', 'music/electronic_s3rl_trillium.mp3', 'music/electronic_alan_walker_faded.mp3'] },
+  { id: 'rap',        name: 'RAP',        tracks: ['music/rap_big_l_put_it_on.mp3', 'music/rap_chief_keef_kills.mp3', 'music/rap_mario_judah_i_miss_the_rage.mp3', 'music/rap_tayk_murder_she_wrote.mp3', 'music/rap_21_savage_metro_boomin_my_choppa_hate.mp3', 'music/rap_fat_nick_pemex.mp3', 'music/rap_schoolboy_q_collard_greens.mp3'] },
+  { id: 'chill',      name: 'CHILL',      tracks: ['music/chill_a_brighter_future.mp3', 'music/chill_home_resonance.mp3', 'music/chill_casin.mp3', 'music/chill_crumb_bones.mp3', 'music/chill_private_caller.mp3', 'music/chill_the_sundays_heres_where_the_story_ends.mp3'] },
+  { id: 'rock',       name: 'ROCK',       tracks: ['music/rock_alice_in_chains_them_bones.mp3', 'music/rock_deans_dream.mp3', 'music/rock_nirvana_lithium.mp3', 'music/rock_way_down_the_line.mp3', 'music/rock_death_from_above_1979_turn_it_out.mp3', 'music/rock_flyleaf_im_so_sick.mp3', 'music/rock_junkie.mp3', 'music/rock_queens_of_the_stone_age_go_with_the_flow.mp3'] }
+];
+var radioStation = -1;    // -1 = OFF; 0..N-1 = station index (persists across cars)
+var radioTrack = 0;       // current track index within the station's tracks[]
+var radioQueue = [];      // shuffled play order (track indices) for the current station
+var radioQPos = 0;        // cursor into radioQueue
+var radioLastTrack = -1;  // last track played — reshuffles avoid repeating it first
+var radioErr = 0;         // consecutive load errors this station (missing-file skip guard)
+var radioEl = null;       // the HTMLAudioElement doing playback
+var radioWantPlay = false; // are we supposed to be playing right now (in-car + station on)
+var radioSeekPending = 0;  // seconds to seek into the next loaded track (hijack "mid-song" illusion / resume where you left off)
+function radioInit() {
+  if (radioEl) return radioEl;
+  try {
+    radioEl = new Audio();
+    radioEl.preload = 'auto';
+    radioEl.addEventListener('ended', function () { radioErr = 0; radioNext(); });   // song finished -> next in station
+    radioEl.addEventListener('playing', function () { radioErr = 0; });               // a track loaded OK; clear the skip guard
+    radioEl.addEventListener('error', radioSkipBroken);   // missing/undecodable file: skip to the next track
+  } catch (e) { radioEl = null; }
+  return radioEl;
+}
+function radioApplyVolume() {
+  if (!radioEl) return;
+  var mv = (masterBus && masterBus.gain) ? masterBus.gain.value : 1;
+  radioEl.volume = Math.max(0, Math.min(1, mv * RADIO_VOL));
+}
+function radioLoadAndPlay() {
+  if (!radioInit() || radioStation < 0) return;
+  var st = RADIO_STATIONS[radioStation];
+  if (!st || !st.tracks || !st.tracks.length) return;   // station has no songs yet: silent
+  radioEl.src = st.tracks[radioTrack % st.tracks.length];
+  radioApplyVolume();
+  radioWantPlay = true;
+  // seek partway in once metadata is known (a hijacked NPC "already listening", or
+  // resuming your own car where you left off). Guard against tracks shorter than the seek.
+  if (radioSeekPending > 0) {
+    var seekTo = radioSeekPending; radioSeekPending = 0;
+    var onMeta = function () {
+      radioEl.removeEventListener('loadedmetadata', onMeta);
+      try { if (isFinite(radioEl.duration) && radioEl.duration > seekTo + 2) radioEl.currentTime = seekTo; } catch (e) { }
+    };
+    radioEl.addEventListener('loadedmetadata', onMeta);
+  }
+  try { var p = radioEl.play(); if (p && p.catch) p.catch(function () { }); } catch (e) { }
+}
+// Fisher-Yates shuffle of [0..n-1]; when n>1 the result never starts on `avoid`
+// (so a song can't play twice in a row across a queue reshuffle).
+function radioShuffle(n, avoid) {
+  var q = [], i;
+  for (i = 0; i < n; i++) q.push(i);
+  for (i = n - 1; i > 0; i--) { var k = (Math.random() * (i + 1)) | 0, t = q[i]; q[i] = q[k]; q[k] = t; }
+  if (n > 1 && q[0] === avoid) { var s = 1 + ((Math.random() * (n - 1)) | 0), tmp = q[0]; q[0] = q[s]; q[s] = tmp; }
+  return q;
+}
+function radioNext() {
+  if (radioStation < 0) return;
+  var st = RADIO_STATIONS[radioStation];
+  var n = (st && st.tracks) ? st.tracks.length : 0;
+  if (!n) return;
+  radioLastTrack = radioTrack;
+  radioQPos++;
+  if (radioQPos >= radioQueue.length) {                 // whole station played -> reshuffle
+    radioQueue = radioShuffle(n, radioLastTrack);
+    radioQPos = 0;
+  }
+  radioTrack = radioQueue[radioQPos];
+  radioLoadAndPlay();
+}
+// a track failed to load (missing/undecodable): skip forward, but bail if every
+// track in the station is broken so we don't spin forever.
+function radioSkipBroken() {
+  if (!radioWantPlay || radioStation < 0) return;
+  var st = RADIO_STATIONS[radioStation];
+  var n = (st && st.tracks) ? st.tracks.length : 0;
+  radioErr++;
+  if (!n || radioErr > n) { radioStop(); return; }      // all tracks bad: give up quietly
+  radioNext();
+}
+function radioSetStation(idx) {
+  radioInit();
+  radioStation = idx;
+  if (idx < 0) { radioStop(); popup('RADIO OFF'); return; }
+  var st = RADIO_STATIONS[idx];
+  var n = (st && st.tracks) ? st.tracks.length : 0;
+  radioErr = 0; radioLastTrack = -1;
+  radioQueue = radioShuffle(n, -1);                     // fresh random order — first song is random
+  radioQPos = 0;
+  radioTrack = n ? radioQueue[0] : 0;
+  radioSeekPending = 10 + Math.random() * 40;           // drop in mid-song (~10-50s) as if the station had already been playing
+  radioLoadAndPlay();
+  popup('♪ ' + st.name);
+}
+function radioCycle() {
+  // OFF -> Electronic -> Rap -> Chill -> Rock -> OFF
+  var next = radioStation + 1;
+  if (next >= RADIO_STATIONS.length) next = -1;
+  radioSetStation(next);
+}
+function radioStop() {
+  radioWantPlay = false;
+  if (radioEl) { try { radioEl.pause(); } catch (e) { } }
+}
+function radioResume() {
+  // re-entering a car resumes the selected station where it left off
+  if (radioStation >= 0) radioLoadAndPlay();
+}
+// ---- per-car radio memory -------------------------------------------------
+// Each car remembers its own station / song / playback position (c.radio), so
+// hopping out and back in picks up right where you left off. A car you've never
+// been in gets a fresh "hijack" roll instead (see radioHijackRoll).
+function radioSnapshot() {
+  return { station: radioStation, track: radioTrack, queue: radioQueue.slice(), qpos: radioQPos,
+           lastTrack: radioLastTrack, time: (radioEl ? (radioEl.currentTime || 0) : 0) };
+}
+function radioApplySnapshot(s) {
+  radioInit();
+  radioStation = (s && s.station != null) ? s.station : -1;
+  if (radioStation < 0) { radioStop(); return; }
+  var st = RADIO_STATIONS[radioStation], n = (st && st.tracks) ? st.tracks.length : 0;
+  radioTrack = s.track || 0;
+  radioQueue = (s.queue && s.queue.length) ? s.queue.slice() : radioShuffle(n, -1);
+  radioQPos = s.qpos || 0;
+  radioLastTrack = (s.lastTrack != null) ? s.lastTrack : -1;
+  radioErr = 0;
+  radioSeekPending = (s.time > 0) ? s.time : 0;
+  radioLoadAndPlay();
+}
+// fresh carjack/break-in: the previous driver's radio was either off or already
+// mid-song on some station — seed it 20-30s into a random track for the illusion.
+function radioHijackRoll() {
+  var ns = RADIO_STATIONS.length;
+  if (ns === 0 || Math.random() < 0.4) return { station: -1 };   // ~40% they had it off
+  var idx = (Math.random() * ns) | 0;
+  var st = RADIO_STATIONS[idx], n = (st && st.tracks) ? st.tracks.length : 0;
+  var q = radioShuffle(n, -1);
+  return { station: idx, track: n ? q[0] : 0, queue: q, qpos: 0, lastTrack: -1, time: 20 + Math.random() * 10 };
+}
+function radioTick() {
+  // keep the level in sync with the master-volume setting while driving
+  if (radioWantPlay) radioApplyVolume();
+}
 function startAmbient() {
   if (!ac || ambientStarted) return;
   ambientStarted = true;
@@ -17570,6 +17874,59 @@ function updateAmbient(dt) {
     if (ambCarT <= 0) { ambCarT = 26 + Math.random() * 55; if (Math.random() < 0.7) ambCarPass(); }
   }
 }
+// ---- jet engine (flyable Learjet) ----------------------------------------
+// A continuous turbine loop built ONCE (like the ambient beds): a filtered
+// noise "rumble" bed + two detuned sawtooth "whine" oscillators through a
+// bandpass. Loudness + brightness (lowpass cutoff) + whine pitch all RISE with
+// plane.throttle; a "spool" term (rate-of-change of throttle) adds extra
+// brightness/whine while accelerating and MELLOWS at steady cruise. Nodes stay
+// alive between flights — startJet/stopJet just fade the master gain. Levels
+// are smoothed in JS and written straight to .value each frame so the values
+// are deterministic under headless dt-stepping (matches updateAmbient's style).
+var jetNodes = null, jetRunning = false, jetPrevThr = 0, jetSpool = 0;
+function buildJet() {
+  if (!ac || jetNodes) return;
+  // brown-ish turbine noise bed with a touch of hiss
+  var len = ac.sampleRate * 2, buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0), last = 0;
+  for (var i = 0; i < len; i++) { var w = Math.random() * 2 - 1; last = (last + 0.06 * w) / 1.06; d[i] = last * 3 + w * 0.35; }
+  var src = ac.createBufferSource(); src.buffer = buf; src.loop = true;
+  var lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 380; lp.Q.value = 0.7;
+  var noiseGain = ac.createGain(); noiseGain.gain.value = 0.6;
+  // turbine whine: two detuned saws (~octave apart) squeezed through a bandpass
+  var w1 = ac.createOscillator(); w1.type = 'sawtooth'; w1.frequency.value = 160;
+  var w2 = ac.createOscillator(); w2.type = 'sawtooth'; w2.frequency.value = 323;
+  var bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 900; bp.Q.value = 3;
+  var whineGain = ac.createGain(); whineGain.gain.value = 0;
+  var master = ac.createGain(); master.gain.value = 0;
+  src.connect(lp); lp.connect(noiseGain); noiseGain.connect(master);
+  w1.connect(bp); w2.connect(bp); bp.connect(whineGain); whineGain.connect(master);
+  master.connect(ac.destination);
+  try { src.start(); w1.start(); w2.start(); } catch (e) { }
+  jetNodes = { master: master, lp: lp, whineGain: whineGain, w1: w1, w2: w2, bp: bp };
+}
+function startJet() { buildJet(); if (!jetNodes) return; jetRunning = true; jetPrevThr = (plane ? plane.throttle : 0); jetSpool = 0; }
+function stopJet() { jetRunning = false; if (!jetNodes || !ac) return; try { jetNodes.master.gain.setTargetAtTime(0, ac.currentTime, 0.15); } catch (e) { jetNodes.master.gain.value = 0; } }
+function updateJet(dt, throttle) {
+  if (!jetNodes || !jetRunning) return;
+  var thr = Math.max(0, Math.min(1, throttle || 0));
+  // spool = how hard the throttle is moving; eases back to 0 when it holds (cruise)
+  var dThr = (thr - jetPrevThr) / Math.max(dt, 0.001);
+  jetPrevThr = thr;
+  var spoolTarget = Math.min(1, Math.abs(dThr) * 2.2);
+  jetSpool += (spoolTarget - jetSpool) * Math.min(1, dt * 4);
+  var k = Math.min(1, dt * 6), jn = jetNodes;                 // smooth toward targets
+  var vol = 0.05 + thr * 0.32;                                 // idle bed always audible
+  var cut = 380 + thr * 3200 + jetSpool * 1400;                // brightness climbs w/ throttle + spool
+  var whineHz = 150 + thr * 620;                               // turbine whine pitch
+  var bpHz = 700 + thr * 2200;
+  var whineVol = (0.014 + thr * 0.058) * (0.6 + 0.7 * jetSpool); // prominent while spooling, mellow at cruise
+  jn.master.gain.value += (vol - jn.master.gain.value) * k;
+  jn.lp.frequency.value += (cut - jn.lp.frequency.value) * k;
+  jn.w1.frequency.value += (whineHz - jn.w1.frequency.value) * k;
+  jn.w2.frequency.value += (whineHz * 2.02 - jn.w2.frequency.value) * k;
+  jn.bp.frequency.value += (bpHz - jn.bp.frequency.value) * k;
+  jn.whineGain.gain.value += (whineVol - jn.whineGain.gain.value) * k;
+}
 // ---- PS1-crunched TTS dialogue (optional voicelines.js) ----
 var voiceBufs = {}, voiceLastT = {}, dealerMet = false, shopBought = false, clerkScaredT = -99;
 // per-peer voice-play instrumentation (dbg): local = voices this peer played
@@ -17606,30 +17963,6 @@ function playVoiceAny(ids, gain, cdKey, cd, at) {
   if (voiceGroupT[cdKey] !== undefined && T - voiceGroupT[cdKey] < cd) return;
   voiceGroupT[cdKey] = T;
   playVoice(ids[(Math.random() * ids.length) | 0], gain, 0, at);
-}
-// ---- quest dialogue (questvoices1.js #77): QUEST_VOICES[npcKey][cat][idx] is a
-// data-URL WAV. playQuestVoice plays one line at the player's ear (2D UI VO — no
-// spatialization/earshot gate, since quest lines are directed narration). idx
-// omitted -> round-robins that category. Returns the line text-less; silently
-// no-ops if the pack/line is absent, so callers can toast a text fallback.
-var qVoiceBufs = {}, qVoiceCycle = {}, qVoiceLastT = {};
-function questVoiceUrl(npcKey, cat, idx) {
-  if (typeof QUEST_VOICES === 'undefined' || !QUEST_VOICES[npcKey]) return null;
-  var c = QUEST_VOICES[npcKey][cat]; if (!c || !c.length) return null;
-  if (idx == null) { var ck = npcKey + '.' + cat; qVoiceCycle[ck] = (qVoiceCycle[ck] == null) ? 0 : (qVoiceCycle[ck] + 1) % c.length; idx = qVoiceCycle[ck]; }
-  idx = Math.max(0, Math.min(c.length - 1, idx));
-  return c[idx] || null;
-}
-function playQuestVoice(npcKey, cat, idx, gain, cd) {
-  var url = questVoiceUrl(npcKey, cat, idx); if (!url) return false;
-  var key = npcKey + '.' + cat + '.' + (idx == null ? 'rr' : idx);
-  if (qVoiceLastT[key] !== undefined && T - qVoiceLastT[key] < (cd || 1.2)) return true;
-  qVoiceLastT[key] = T;
-  if (!ac) return true;
-  function playBuf(buf) { var s = ac.createBufferSource(); s.buffer = buf; var g = ac.createGain(); g.gain.value = gain || 0.7; s.connect(g); g.connect(ac.destination); s.start(); }
-  if (qVoiceBufs[url]) { playBuf(qVoiceBufs[url]); return true; }
-  try { var bytes = b64Bytes(url.split(',')[1]); ac.decodeAudioData(bytes.buffer, function (buf) { qVoiceBufs[url] = buf; playBuf(buf); }, function () { }); } catch (e) { }
-  return true;
 }
 // voice-play instrumentation (headless verification: AudioContext is silent
 // without a user gesture, so log every dialogue CALL — role/cat + data-URL
@@ -17905,17 +18238,20 @@ function sfxPackBuf(key) {
 // loudness), r = base playbackRate, j = random rate jitter. Kinds NOT here
 // (raygun/laser zaps, UI ticks, deny/alarm, grunts, footsteps) stay synth.
 var SFX_MAP = {
-  pistol: { k: 'pistol', g: 0.6, j: 0.05 }, smg: { k: 'smg', g: 0.5, j: 0.06 },
-  rifle: { k: 'rifle', g: 0.85, j: 0.04 }, auto: { k: 'auto', g: 0.6, j: 0.06 },
-  copshot: { k: 'pistol', g: 0.38, r: 0.96, j: 0.05 }, copsmg: { k: 'smg', g: 0.3, r: 0.97, j: 0.06 },
-  rocketfire: { k: 'rocketfire', g: 0.8 }, boom: { k: 'boom', g: 1.2, j: 0.05 },
+  // gunshots (pistol/smg/rifle/auto/copshot/copsmg/rocketfire) are intentionally
+  // NOT pack-mapped — they route to the synthesized gunShot() for a sharper,
+  // punchier report (the Lyria gun clips read flat). boom stays on the pack.
+  boom: { k: 'boom', g: 1.2, j: 0.05 },
   crash: { k: 'crash', g: 0.85, j: 0.07 }, glass: { k: 'glass', g: 0.6, j: 0.06 },
   punchhit: { k: 'punch', g: 0.55, j: 0.08 }, hit: { k: 'punch', g: 0.42, r: 1.08, j: 0.08 },
   slap: { k: 'punch', g: 0.5, r: 1.35, j: 0.06 }, thud: { k: 'punch', g: 0.5, r: 0.65, j: 0.05 },
   ko: { k: 'punch', g: 0.55, r: 0.55 },
   cash: { k: 'cash', g: 0.3, j: 0.04 }, buy: { k: 'cash', g: 0.26, r: 1.18, j: 0.03 },
   eat: { k: 'eat', g: 0.38, j: 0.06 },
-  cardoor: { k: 'cardoor', g: 0.5, j: 0.05 }, ricochet: { k: 'ricochet', g: 0.32, j: 0.1 }
+  cardoor: { k: 'cardoor', g: 0.5, j: 0.05 }, ricochet: { k: 'ricochet', g: 0.32, j: 0.1 },
+  // owner-supplied car SFX (carsfx.js): braking at low speed + tyre screech on a
+  // hard stop / traction loss. Synth has no fallback for these — silent if absent.
+  brake: { k: 'brake', g: 0.55, j: 0.05 }, tirescreech: { k: 'tirescreech', g: 0.6, j: 0.04 }
 };
 function sfxLogPush(kind, pack) {
   if (!window.__sfxLog) return;
@@ -17978,6 +18314,56 @@ function fleeScream(n, kid) {
 }
 // sfx(kind) is 2D (player-sourced / UI); sfx(kind, at) places the sound in
 // the world — everything that has a source in the world should pass one.
+// ---- synthesized gunshot (replaces the flat Lyria gun clips) ----
+// Three layered elements: (1) a sharp CRACK — a very short highpassed noise
+// burst with a ~0.6ms attack + fast exponential decay; (2) a low BODY thump —
+// a sine that pitch-drops for the muzzle "boom"; (3) a report TAIL — lowpassed
+// noise that decays out. Per-class specs make bigger guns punchier + deeper.
+var GUNSPEC = {
+  pistol:  { crackHP: 1800, crackGain: 0.55, crackDur: 0.028, bodyF0: 175, bodyF1: 62, bodyGain: 0.40, bodyDur: 0.09, tailGain: 0.14, tailDur: 0.11, tailLP: 1700 },
+  smg:     { crackHP: 2200, crackGain: 0.42, crackDur: 0.020, bodyF0: 150, bodyF1: 60, bodyGain: 0.26, bodyDur: 0.06, tailGain: 0.09, tailDur: 0.07, tailLP: 2000 },
+  rifle:   { crackHP: 1300, crackGain: 0.90, crackDur: 0.042, bodyF0: 205, bodyF1: 44, bodyGain: 0.62, bodyDur: 0.17, tailGain: 0.32, tailDur: 0.30, tailLP: 1250 },
+  auto:    { crackHP: 1550, crackGain: 0.62, crackDur: 0.030, bodyF0: 185, bodyF1: 50, bodyGain: 0.46, bodyDur: 0.10, tailGain: 0.18, tailDur: 0.15, tailLP: 1550 },
+  copshot: { crackHP: 1900, crackGain: 0.42, crackDur: 0.026, bodyF0: 170, bodyF1: 62, bodyGain: 0.30, bodyDur: 0.08, tailGain: 0.11, tailDur: 0.10, tailLP: 1650 },
+  copsmg:  { crackHP: 2200, crackGain: 0.32, crackDur: 0.019, bodyF0: 150, bodyF1: 60, bodyGain: 0.20, bodyDur: 0.055, tailGain: 0.07, tailDur: 0.06, tailLP: 2000 },
+  rocket:  { crackHP: 600,  crackGain: 0.50, crackDur: 0.060, bodyF0: 260, bodyF1: 40, bodyGain: 0.72, bodyDur: 0.42, tailGain: 0.45, tailDur: 0.52, tailLP: 900 }
+};
+function gunShot(spec, at) {
+  if (!ac || !spec) return;
+  var dest = at ? voiceOut(1, at) : ac.destination;   // spatialized for cops; 2D for the player
+  var now = ac.currentTime, i, j = 0.94 + Math.random() * 0.12;   // slight per-shot pitch jitter
+  // (1) crack: fast highpassed noise burst, near-instant attack + short decay
+  var cd = spec.crackDur, cn = Math.max(1, (ac.sampleRate * cd) | 0);
+  var cb = ac.createBuffer(1, cn, ac.sampleRate), cdat = cb.getChannelData(0);
+  for (i = 0; i < cn; i++) cdat[i] = Math.random() * 2 - 1;
+  var cs = ac.createBufferSource(); cs.buffer = cb;
+  var hp = ac.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = spec.crackHP;
+  var cg = ac.createGain();
+  cg.gain.setValueAtTime(0.0001, now);
+  cg.gain.linearRampToValueAtTime(spec.crackGain, now + 0.0006);
+  cg.gain.exponentialRampToValueAtTime(0.0008, now + cd);
+  cs.connect(hp); hp.connect(cg); cg.connect(dest); cs.start(now); cs.stop(now + cd + 0.02);
+  // (2) body thump: low sine with a fast downward pitch drop
+  var o = ac.createOscillator(); o.type = 'sine'; var bd = spec.bodyDur;
+  var bg = ac.createGain();
+  o.frequency.setValueAtTime(spec.bodyF0 * j, now);
+  o.frequency.exponentialRampToValueAtTime(spec.bodyF1, now + bd);
+  bg.gain.setValueAtTime(spec.bodyGain, now);
+  bg.gain.exponentialRampToValueAtTime(0.0008, now + bd);
+  o.connect(bg); bg.connect(dest); o.start(now); o.stop(now + bd + 0.02);
+  // (3) report tail: lowpassed brown-ish noise, longer decay
+  var td = spec.tailDur;
+  if (td > 0 && spec.tailGain > 0) {
+    var tn = Math.max(1, (ac.sampleRate * td) | 0), tb = ac.createBuffer(1, tn, ac.sampleRate), tdat = tb.getChannelData(0), last = 0;
+    for (i = 0; i < tn; i++) { var wv = Math.random() * 2 - 1; last = (last + 0.1 * wv) / 1.1; tdat[i] = last * 2.2; }
+    var ts = ac.createBufferSource(); ts.buffer = tb;
+    var lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = spec.tailLP;
+    var tg = ac.createGain();
+    tg.gain.setValueAtTime(spec.tailGain, now + 0.004);
+    tg.gain.exponentialRampToValueAtTime(0.0006, now + td);
+    ts.connect(lp); lp.connect(tg); tg.connect(dest); ts.start(now); ts.stop(now + td + 0.02);
+  }
+}
 function sfx(kind, at) {
   if (!ac) return;
   if (at && !voiceEarshot(at)) return;
@@ -17986,13 +18372,13 @@ function sfx(kind, at) {
   function nb(dur, freq, gain) { noiseBurst(dur, freq, gain, at ? voiceOut(1, at) : null); }
   function bp(freq, dur, gain, type, slide) { beep(freq, dur, gain, type, slide, at ? voiceOut(1, at) : null); }
   switch (kind) {
-    case 'pistol': nb(0.14, 1700, 0.5); bp(220, 0.08, 0.12, 'square', 90); break;
-    case 'smg': nb(0.09, 2100, 0.35); break;
+    case 'pistol': gunShot(GUNSPEC.pistol, at); break;
+    case 'smg': gunShot(GUNSPEC.smg, at); break;
     case 'raygun': bp(1750, 0.14, 0.22, 'square', 420); bp(880, 0.1, 0.1, 'sawtooth', 220); break;
     case 'neon_blaster': bp(2100, 0.12, 0.2, 'square', 520); bp(1200, 0.1, 0.12, 'sawtooth', 320); break;
     case 'silenced': nb(0.05, 2600, 0.12); bp(320, 0.05, 0.05, 'sine', 120); break;   // muffled pfft
     case 'laser': bp(1350, 0.2, 0.22, 'sawtooth', 240); nb(0.06, 3000, 0.12); break;
-    case 'rifle': nb(0.3, 900, 0.8); bp(120, 0.18, 0.2, 'sawtooth', 45); break;
+    case 'rifle': gunShot(GUNSPEC.rifle, at); break;
     case 'whoosh': bp(280, 0.1, 0.1, 'sine', 90); break;
     case 'hit': bp(125 + Math.random() * 45, 0.09, 0.3, 'square', 60 + Math.random() * 25); nb(0.05, 700 + Math.random() * 450, 0.2); break;
     case 'punchhit': nb(0.07, 650 + Math.random() * 500, 0.4); bp(105 + Math.random() * 55, 0.11, 0.32, 'square', 55); break;
@@ -18003,12 +18389,12 @@ function sfx(kind, at) {
     case 'buy': bp(660, 0.09, 0.15, 'square'); setTimeout(function () { bp(990, 0.12, 0.15, 'square'); }, 80); break;
     case 'deny': bp(150, 0.2, 0.25, 'sawtooth', 110); break;
     case 'alarm': bp(760, 0.18, 0.2, 'square'); setTimeout(function () { bp(560, 0.18, 0.2, 'square'); }, 180); setTimeout(function () { bp(760, 0.18, 0.2, 'square'); }, 360); break;
-    case 'copshot': nb(0.12, 1500, 0.3); break;
-    case 'copsmg': nb(0.08, 1900, 0.22); break;
+    case 'copshot': gunShot(GUNSPEC.copshot, at); break;
+    case 'copsmg': gunShot(GUNSPEC.copsmg, at); break;
     case 'grunt': { var gf = at && at.fem; bp(gf ? 265 : 150, gf ? 0.24 : 0.28, 0.4, 'sawtooth', gf ? 130 : 55); nb(0.1, gf ? 950 : 600, gf ? 0.12 : 0.18); if (window.__voiceLog) { window.__voiceLog.push({ kind: 'grunt', role: gf ? 'F' : 'M', cat: 'grunt', len: 1, t: 0 }); if (window.__voiceLog.length > 240) window.__voiceLog.shift(); } } break;
-    case 'auto': nb(0.11, 1300, 0.5); break;
+    case 'auto': gunShot(GUNSPEC.auto, at); break;
     case 'eat': nb(0.09, 2500, 0.2); setTimeout(function () { nb(0.09, 2200, 0.18); }, 140); setTimeout(function () { nb(0.09, 2400, 0.15); }, 280); break;
-    case 'rocketfire': nb(0.5, 800, 0.7); bp(220, 0.4, 0.3, 'sawtooth', 50); break;
+    case 'rocketfire': gunShot(GUNSPEC.rocket, at); bp(190, 0.4, 0.12, 'sawtooth', 55); break;   // deep launch roar + a low whoosh
     case 'crash': nb(0.3, 900, 0.8); bp(85, 0.18, 0.35, 'square', 45); break;
     case 'splash': nb(0.22, 1900, 0.5); bp(360, 0.1, 0.09, 'sine', 150); setTimeout(function () { nb(0.16, 1200, 0.3); }, 60); setTimeout(function () { nb(0.13, 800, 0.2); }, 150); break;   // car hits the water
     case 'glass': nb(0.07, 3400, 0.5); bp(190, 0.09, 0.14, 'square', 70); setTimeout(function () { nb(0.1, 2700, 0.38); }, 70); setTimeout(function () { nb(0.14, 2100, 0.28); }, 160); break;
@@ -18027,13 +18413,13 @@ function footStep(surf, run) {
   footStepCount++;
   if (!ac) return;
   var g = run ? 1.35 : 1;   // heavier stomp at a run
-  // Lyria pack steps (asphalt reuses concrete pitched down); synth fallback
-  var fe = ({ water: ['step_water', 0.42, 1], grass: ['step_grass', 0.32, 1], interior: ['step_wood', 0.32, 1], concrete: ['step_concrete', 0.34, 1] })[surf] || ['step_concrete', 0.3, 0.85];
-  var fb = sfxPackBuf(fe[0]);
+  // one owner-supplied footstep for EVERY surface (no per-material clips) —
+  // nudge the pitch a little each step so a run doesn't sound like a metronome.
+  var fb = sfxPackBuf('step');
   if (fb) {
     var src = ac.createBufferSource(); src.buffer = fb;
-    src.playbackRate.value = fe[2] * (0.92 + Math.random() * 0.16);
-    var gg = ac.createGain(); gg.gain.value = fe[1] * g;
+    src.playbackRate.value = 0.9 + Math.random() * 0.2;   // ±~10% pitch jitter
+    var gg = ac.createGain(); gg.gain.value = 0.4 * g;
     src.connect(gg); gg.connect(ac.destination); src.start();
     return;
   }
@@ -18054,7 +18440,7 @@ function footStep(surf, run) {
 // classify the ground under (x,z) for footstep timbre. order matters:
 // interior floor > lake water > sidewalk concrete > road asphalt > grass.
 function footSurface(x, z) {
-  if (inside || qLoc) return 'interior';
+  if (inside) return 'interior';
   if (typeof inLake === 'function' && inLake(x, z)) return 'water';
   var az = x < 0 ? -x : x, aze = z < 0 ? -z : z;
   // main axis carriageways (E-W @ z=0, N-S @ x=0) + their flanking sidewalks
@@ -18076,14 +18462,14 @@ function refreshShop() {
   GUN_LIST.forEach(function (k) {
     var w = WEAPONS[k], row = document.createElement('div'); row.className = 'row';
     if (!w.price) return;   // not for sale (ray gun drops from... something)
-    var price = ghostBuy(w.price);
+    var price = w.price;
     var pl = price < w.price ? '<span class="cash">$' + price + '</span> <small style="opacity:.6;text-decoration:line-through">$' + w.price + '</small>' : '<span class="cash">$' + price + '</span>';
     var left = document.createElement('div'); left.innerHTML = '<b>' + w.name + '</b> — ' + pl + '<small>' + w.desc + '</small>'; row.appendChild(left);
     if (state.owned[k]) { var sp = document.createElement('span'); sp.className = 'owned'; sp.textContent = 'OWNED'; row.appendChild(sp); }
-    else { var btn = document.createElement('button'); btn.textContent = 'BUY'; btn.disabled = state.money < price; btn.onclick = function () { if (state.dead) return; if (state.money < price) { playVoiceAny(['dealer_nocash_1', 'dealer_nocash_2'], 0.5, 'dealerNo', 5, { ref: dealer }); sfx('deny'); return; } state.money -= price; state.owned[k] = true; shopBought = true; playVoiceAny(['dealer_buy_1', 'dealer_buy_2'], 0.5, 'dealerBuy', 4, { ref: dealer }); sfx('buy'); popup(w.name + ' purchased!'); refreshShop(); }; row.appendChild(btn); }
+    else { var btn = document.createElement('button'); btn.textContent = 'BUY'; btn.disabled = state.money < price; btn.onclick = function () { if (state.dead) return; if (state.money < price) { playVoiceAny(['dealer_nocash_1', 'dealer_nocash_2'], 0.5, 'dealerNo', 5, { ref: dealer }); sfx('deny'); return; } state.money -= price; state.owned[k] = true; hotbarAdd(k); shopBought = true; playVoiceAny(['dealer_buy_1', 'dealer_buy_2'], 0.5, 'dealerBuy', 4, { ref: dealer }); sfx('buy'); popup(w.name + ' purchased!'); refreshShop(); }; row.appendChild(btn); }
     rows.appendChild(row);
   });
-  refreshSellRows(rows);
+  // sell-junk-to-dealer feature removed with the scavenge-item system
   document.getElementById('shopCash').textContent = '$' + state.money;
 }
 // dealer buys junk & valuables out of your bag for the def's value
@@ -18103,7 +18489,7 @@ function refreshSellRows(rows) {
   for (var k = 0; k < slots.length; k++) { var s = state.bag[slots[k]]; if (!agg[s.id]) { agg[s.id] = 0; order.push(s.id); } agg[s.id] += s.n; }
   var hdr = document.createElement('div'); hdr.className = 'row'; hdr.innerHTML = '<b style="color:#ffd98a; letter-spacing:2px;">— SELL JUNK &amp; VALUABLES —</b>'; rows.appendChild(hdr);
   order.forEach(function (id) {
-    var def = itemDef(id), n = agg[id], unit = ghostSell(def.value), total = unit * n;
+    var def = itemDef(id), n = agg[id], unit = def.value, total = unit * n;
     var row = document.createElement('div'); row.className = 'row';
     var ea = unit > def.value ? '<span class="cash">$' + unit + '</span> <small style="color:#8ee87f">(+15%)</small>' : '<span class="cash">$' + unit + '</span>';
     var left = document.createElement('div'); left.innerHTML = itemIconHtml(id) + '<b>' + def.name + '</b> &times;' + n + ' — ' + ea + ' ea<small>sells for $' + total + '</small>'; row.appendChild(left);
@@ -18117,63 +18503,52 @@ function refreshSellRows(rows) {
     row.appendChild(btn); rows.appendChild(row);
   });
 }
+// TAB panel: 7x3 owned-items grid + the detached 7-slot hotbar editor.
+// Click an item to add it to the hotbar (or drag it onto a specific slot);
+// click a hotbar slot to clear it.
 function refreshInv() {
-  var rows = document.getElementById('invRows'); rows.innerHTML = '';
-  ['fists'].concat(GUN_LIST).forEach(function (k) {
-    if (k !== 'fists' && !state.owned[k]) return;
-    var w = WEAPONS[k], row = document.createElement('div'); row.className = 'row';
-    var left = document.createElement('div'); left.innerHTML = '<b class="' + (state.equipped === k ? 'equipped' : '') + '">' + w.name + (state.equipped === k ? ' &#9668; equipped' : '') + '</b>'; row.appendChild(left);
-    var btn = document.createElement('button');
-    if (state.equipped === k && k !== 'fists') { btn.textContent = 'UNEQUIP'; btn.onclick = function () { setEquipped('fists'); refreshInv(); }; }
-    else if (state.equipped !== k) { btn.textContent = 'EQUIP'; btn.onclick = function () { setEquipped(k); refreshInv(); }; }
-    else { btn.textContent = 'EQUIPPED'; btn.disabled = true; }
-    row.appendChild(btn); rows.appendChild(row);
-  });
-  if (state.snacks > 0) {
-    var srow = document.createElement('div'); srow.className = 'row';
-    var sleft = document.createElement('div');
-    sleft.innerHTML = '<b class="' + (state.equipped === 'snack' ? 'equipped' : '') + '">SNACK &times;' + state.snacks + (state.equipped === 'snack' ? ' &#9668; equipped' : '') + '</b><small>eat to restore 50 hp</small>';
-    srow.appendChild(sleft);
-    var sbtn = document.createElement('button');
-    if (state.equipped === 'snack') { sbtn.textContent = 'UNEQUIP'; sbtn.onclick = function () { setEquipped('fists'); refreshInv(); }; }
-    else { sbtn.textContent = 'EQUIP'; sbtn.onclick = function () { setEquipped('snack'); refreshInv(); }; }
-    srow.appendChild(sbtn); rows.appendChild(srow);
+  var owned = ownedItemIds();
+  var grid = document.getElementById('invGridB');
+  if (grid) {
+    grid.innerHTML = '';
+    for (var i = 0; i < INV_COLS * INV_ROWS; i++) {
+      (function (id) {
+        var cell = document.createElement('div');
+        cell.className = 'invCell2' + (id ? '' : ' empty') + (id && id === state.equipped ? ' eq' : (id && hotbarHas(id) ? ' onbar' : ''));
+        if (id) {
+          var nm = document.createElement('span'); nm.className = 'icName'; nm.textContent = itemShort(id); cell.appendChild(nm);
+          var c = itemCount(id); if (c > 0) { var cn = document.createElement('span'); cn.className = 'cnt'; cn.textContent = c; cell.appendChild(cn); }
+          cell.title = (WEAPONS[id] ? WEAPONS[id].name : id) + (hotbarHas(id) ? ' — on hotbar' : ' — click to add to hotbar');
+          cell.draggable = true;
+          cell.addEventListener('dragstart', function (e) { e.dataTransfer.setData('text/plain', id); e.dataTransfer.effectAllowed = 'move'; });
+          cell.onclick = function () { hotbarAdd(id); refreshInv(); };
+        }
+        grid.appendChild(cell);
+      })(owned[i] || null);
+    }
   }
-  sodaInvRow(rows);   // streetprops vending sodas
-  var any = GUN_LIST.some(function (k) { return state.owned[k]; });
-  if (!any) { var hint = document.createElement('div'); hint.className = 'row'; hint.innerHTML = '<small>No guns yet — earn cash and visit the dealer ($ on the minimap).</small>'; rows.appendChild(hint); }
-  refreshInvGrid();
-}
-// the 6x4 stackable item grid (below the weapons rows in the TAB panel)
-function refreshInvGrid() {
-  var grid = document.getElementById('invGrid'); if (!grid) return;
-  grid.innerHTML = '';
-  for (var i = 0; i < state.bag.length; i++) {
-    (function (i) {
-      var s = state.bag[i];
-      var cell = document.createElement('div');
-      cell.className = 'invCell' + (s ? '' : ' empty');
-      if (s) {
-        var def = itemDef(s.id);
-        var img = document.createElement('img');
-        img.src = (ITEM_ICONS && ITEM_ICONS[s.id]) || '';
-        var tip = def ? def.name : s.id;
-        if (def && def.hp) tip += '  (+' + def.hp + ' hp)';
-        else if (def && def.use === 'sell') tip += '  ($' + def.value + ' at dealer)';
-        else if (def && def.use === 'tool') tip += '  (tool)';
-        img.alt = tip; img.title = tip;
-        cell.appendChild(img);
-        if (s.n > 1) { var c = document.createElement('span'); c.className = 'cnt'; c.textContent = s.n; cell.appendChild(c); }
-        cell.onclick = function () { bagSel = i; bagUse(i); };
-        cell.oncontextmenu = function (e) { e.preventDefault(); bagSel = i; bagDrop(i); return false; };
-        cell.onmouseover = function () { bagSel = i; };
-      }
-      grid.appendChild(cell);
-    })(i);
+  var hb = document.getElementById('invHotbar');
+  if (hb) {
+    hb.innerHTML = '';
+    for (var s = 0; s < HOTBAR_SLOTS; s++) {
+      (function (s) {
+        var id = state.hotbar[s];
+        var slot = document.createElement('div');
+        slot.className = 'hbEdit' + (id ? '' : ' empty') + (id && id === state.equipped ? ' eq' : '');
+        var key = document.createElement('span'); key.className = 'hbKey'; key.textContent = (s + 1); slot.appendChild(key);
+        if (id) { var nm = document.createElement('span'); nm.className = 'icName'; nm.textContent = itemShort(id); slot.appendChild(nm); }
+        slot.addEventListener('dragover', function (e) { e.preventDefault(); slot.classList.add('drop'); });
+        slot.addEventListener('dragleave', function () { slot.classList.remove('drop'); });
+        slot.addEventListener('drop', function (e) { e.preventDefault(); slot.classList.remove('drop'); var did = e.dataTransfer.getData('text/plain'); if (did) { hotbarSet(s, did); refreshInv(); } });
+        slot.onclick = function () { if (state.hotbar[s]) { hotbarClear(s); refreshInv(); } };
+        hb.appendChild(slot);
+      })(s);
+    }
   }
 }
-function openMenu(which) { setZoom(false); state.menu = which; document.exitPointerLock && document.exitPointerLock(); if (which === 'shop') { shopBought = false; if (!dealerMet) { dealerMet = true; playVoice('dealer_hello_first', 0.5, 1, { ref: dealer }); } else playVoiceAny(['dealer_hello_1', 'dealer_hello_2'], 0.5, 'dealerHi', 18, { ref: dealer }); refreshShop(); document.getElementById('shopPanel').classList.remove('hidden'); } if (which === 'inv') { refreshInv(); document.getElementById('invPanel').classList.remove('hidden'); } if (which === 'clerk') { refreshClerk(); document.getElementById('clerkPanel').classList.remove('hidden'); } if (which === 'quest') { refreshQuestPanel(); document.getElementById('questPanel').classList.remove('hidden'); } }
-function closeMenus(relock) { if (state.menu === 'shop' && !shopBought) playVoice('dealer_bye', 0.45, 40, { ref: dealer }); state.menu = null; document.getElementById('shopPanel').classList.add('hidden'); document.getElementById('invPanel').classList.add('hidden'); document.getElementById('clerkPanel').classList.add('hidden'); var qp = document.getElementById('questPanel'); if (qp) qp.classList.add('hidden'); if (relock !== false && state.running) lockPointer(); }
+function refreshInvGrid() { }   // legacy junk-bag grid removed with the scavenge-item system
+function openMenu(which) { setZoom(false); state.menu = which; document.exitPointerLock && document.exitPointerLock(); if (which === 'shop') { shopBought = false; if (!dealerMet) { dealerMet = true; playVoice('dealer_hello_first', 0.5, 1, { ref: dealer }); } else playVoiceAny(['dealer_hello_1', 'dealer_hello_2'], 0.5, 'dealerHi', 18, { ref: dealer }); refreshShop(); document.getElementById('shopPanel').classList.remove('hidden'); } if (which === 'inv') { refreshInv(); document.getElementById('invPanel').classList.remove('hidden'); } if (which === 'clerk') { refreshClerk(); document.getElementById('clerkPanel').classList.remove('hidden'); } }
+function closeMenus(relock) { if (state.menu === 'shop' && !shopBought) playVoice('dealer_bye', 0.45, 40, { ref: dealer }); state.menu = null; document.getElementById('shopPanel').classList.add('hidden'); document.getElementById('invPanel').classList.add('hidden'); document.getElementById('clerkPanel').classList.add('hidden'); if (relock !== false && state.running) lockPointer(); }
 
 // ---------------- minimap ----------------
 var mm = document.getElementById('mm');
@@ -18389,18 +18764,10 @@ function drawMinimap() {
   }
   // cars
   mg.fillStyle = '#e8a13a'; for (var c = 0; c < cars.length; c++) { var cm = cars[c].car.group.position; mg.fillRect(sx(cm.x) - 1, sz(cm.z) - 1, 2, 2); }
-  // npcs
-  mg.fillStyle = '#eeeeee'; for (var n = 0; n < npcs.length; n++) { if (npcs[n].state === 'down' || npcs[n].state === 'hidden') continue; mg.fillRect(sx(npcs[n].x) - 1, sz(npcs[n].z) - 1, 2, 2); }
+  // npcs are intentionally NOT drawn on the minimap (owner: too cluttered)
   // cops (blue, slightly bigger)
   mg.fillStyle = '#3f8fe8'; for (var cop = 0; cop < cops.length; cop++) { if (cops[cop].state === 'down') continue; mg.fillRect(sx(cops[cop].x) - 1.5, sz(cops[cop].z) - 1.5, 3, 3); }
   for (var cop2 = 0; cop2 < copsM.length; cop2++) { mg.fillRect(sx(copsM[cop2].x) - 1.5, sz(copsM[cop2].z) - 1.5, 3, 3); }
-  // Police Scanner (q2): while wanted, ring the nearest patrol so you can route
-  // around it — turns the wanted system from surprise into strategy.
-  if (hasUnlock('scanner') && state.wanted > 0 && cops.length) {
-    var near = null, nd = 1e9;
-    for (var cs = 0; cs < cops.length; cs++) { var cc = cops[cs]; if (cc.state === 'down') continue; var ddx = cc.x - player.x, ddz = cc.z - player.z, dd = ddx * ddx + ddz * ddz; if (dd < nd) { nd = dd; near = cc; } }
-    if (near) { mg.strokeStyle = 'rgba(120,200,255,' + (0.5 + 0.4 * (Math.sin(T * 6) * 0.5 + 0.5)).toFixed(2) + ')'; mg.lineWidth = 1.4; mg.beginPath(); mg.arc(sx(near.x), sz(near.z), 5.5, 0, Math.PI * 2); mg.stroke(); }
-  }
   // other players (cyan)
   // real players as bright-green blips (match their name-tag color); dim the
   // dead, draw drivers as a slightly bigger square
@@ -18415,22 +18782,6 @@ function drawMinimap() {
   mg.fillStyle = '#ffd94a'; mg.font = 'bold 12px Courier New'; mg.fillText('$', sx(dealerPos.x), sz(dealerPos.z));
   // player heading arrow (fixed-north map -> the arrow itself shows facing)
   mg.save(); mg.translate(sx(player.x), sz(player.z)); mg.rotate(-yaw); mg.fillStyle = '#ffffff'; mg.strokeStyle = '#000'; mg.beginPath(); mg.moveTo(0, -5); mg.lineTo(3.6, 4); mg.lineTo(-3.6, 4); mg.closePath(); mg.fill(); mg.stroke(); mg.restore();
-  // active-quest waypoint: amber diamond at the current beat's waypoint; if it
-  // maps outside the minimap it clamps to the border as a pointing arrow
-  var wp = questWaypoint();
-  if (wp) {
-    var mx = sx(wp.x), my = sz(wp.z), inb = mx >= 5 && mx <= cw - 5 && my >= 5 && my <= ch - 5;
-    var blink = (Math.sin(T * 5) * 0.5 + 0.5);
-    mg.fillStyle = 'rgba(255,190,40,' + (0.55 + 0.45 * blink).toFixed(2) + ')'; mg.strokeStyle = '#3a2600'; mg.lineWidth = 1;
-    if (inb) {
-      mg.save(); mg.translate(mx, my); mg.rotate(Math.PI / 4); var dd2 = 3.4; mg.fillRect(-dd2, -dd2, dd2 * 2, dd2 * 2); mg.strokeRect(-dd2, -dd2, dd2 * 2, dd2 * 2); mg.restore();
-    } else {
-      // off-map: clamp to the border and draw a chevron pointing toward it
-      var cx = cw / 2, cy = ch / 2, ang = Math.atan2(my - cy, mx - cx);
-      var ex = Math.max(7, Math.min(cw - 7, mx)), ey = Math.max(7, Math.min(ch - 7, my));
-      mg.save(); mg.translate(ex, ey); mg.rotate(ang); mg.beginPath(); mg.moveTo(6, 0); mg.lineTo(-4, 4); mg.lineTo(-4, -4); mg.closePath(); mg.fill(); mg.stroke(); mg.restore();
-    }
-  }
   // custom waypoint blip (QoL): cyan diamond, off-map clamps to a border arrow
   if (userWP) {
     var wmx = sx(userWP.x), wmy = sz(userWP.z), winb = wmx >= 5 && wmx <= cw - 5 && wmy >= 5 && wmy <= ch - 5;
@@ -18458,1052 +18809,7 @@ function drawMinimap() {
   mg.strokeStyle = '#222'; mg.strokeRect(0.5, 0.5, cw - 1, ch - 1);
 }
 
-// ================= QUEST SYSTEM (framework) =================
-// RuneScape-style quest log: one active quest, minimap waypoint, declarative
-// beats. This is the ENGINE + UI that all 10 quests plug into. Quests are pure
-// data (QUESTS registry); beats advance on their objective type each frame.
-//   state.questLog = [{id, stage, done:[], completed, f:{}}]  (persisted)
-//   state.activeQuest = quest id | null
-//   state.unlocks = { <capability>: true }  (reward flags)
-state.questLog = state.questLog || [];
-state.activeQuest = state.activeQuest || null;
-state.unlocks = state.unlocks || {};
-
-// ---- quest item bank: quest rewards/clues reference items by id. The real
-// icon bank (quest_items.js -> QUEST_ITEM_DEFS/ICONS) is generated by a
-// separate agent and may not be wired yet, so register lightweight fallbacks
-// (using an existing icon) for any id the itemicons bank doesn't already know.
-// TODO: when quest_items.js ships QUEST_ITEM_DEFS + QUEST_ITEM_ICONS, prefer
-// those (they carry proper names + bespoke icons) over these placeholders.
-var QUEST_ITEM_FALLBACK = {   // quest id -> an existing itemicons.js icon id
-  loupe: 'flashlight', almond_vial: 'pills', guest_list: 'newspaper',
-  eviction_notice: 'newspaper', seating_chart: 'newspaper', scanner: 'flashlight',
-  lantern: 'flashlight', lockpick_set: 'crowbar', dog_whistle: 'lighter',
-  etched_lake_key: 'wrench', tunnel_fragment: 'newspaper', alien_keycard: 'smartphone'
-};
-var QUEST_ITEM_INFO = {   // minimal defs so itemDef()/bagAdd()/itemTex() work
-  loupe: { name: "Detective's Loupe", cat: 'tool', use: 'tool' },
-  almond_vial: { name: 'Bitter Almond Vial', cat: 'quirky', use: 'fun' },
-  guest_list: { name: 'Guest List', cat: 'quirky', use: 'fun' },
-  eviction_notice: { name: 'Eviction Notice', cat: 'quirky', use: 'fun' },
-  seating_chart: { name: 'Scratched Seating Chart', cat: 'quirky', use: 'fun' }
-};
-var questItemsRegistered = false;
-function questRegisterItems() {
-  if (!ITEM_BANK_OK || questItemsRegistered) return;
-  questItemsRegistered = true;
-  // Real wired bank: questitems.js ships QUEST_ITEM_DEFS (id/name/quest/use/notes)
-  // + QUEST_ITEMS (id -> 64px alpha-PNG data URL). Register defs + icons.
-  if (typeof QUEST_ITEM_DEFS !== 'undefined' && QUEST_ITEM_DEFS) {
-    for (var i = 0; i < QUEST_ITEM_DEFS.length; i++) {
-      var qd = QUEST_ITEM_DEFS[i]; if (ITEM_BY_ID[qd.id]) continue;
-      // map the quest-semantic `use` (reward/clue/key/tool/thread/entry) onto a
-      // game bag verb: rewards/tools feel 'useful'; everything else is inert flavor.
-      var gv = (qd.use === 'reward' || qd.use === 'tool') ? 'tool' : 'fun';
-      var d = { id: qd.id, name: qd.name, cat: 'quest', stackMax: 4, use: gv, hp: 0, value: 0, rarity: 2, quest: true, qUse: qd.use, notes: qd.notes };
-      ITEM_DEFS.push(d); ITEM_BY_ID[qd.id] = d;
-    }
-  }
-  if (typeof QUEST_ITEMS !== 'undefined' && QUEST_ITEMS) for (var k in QUEST_ITEMS) if (!ITEM_ICONS[k]) ITEM_ICONS[k] = QUEST_ITEMS[k];
-  // safety net: any quest id referenced by a reward/beat that the pack missed
-  // still resolves to a name + fallback icon so the bag never shows a blank.
-  for (var id in QUEST_ITEM_INFO) {
-    if (ITEM_BY_ID[id]) continue;
-    var inf = QUEST_ITEM_INFO[id];
-    var d2 = { id: id, name: inf.name, cat: inf.cat, stackMax: inf.stackMax || 4, use: inf.use, hp: 0, value: inf.value || 0, rarity: 1, quest: true };
-    ITEM_DEFS.push(d2); ITEM_BY_ID[id] = d2;
-  }
-  for (var id2 in QUEST_ITEM_FALLBACK) if (!ITEM_ICONS[id2] && ITEM_ICONS[QUEST_ITEM_FALLBACK[id2]]) ITEM_ICONS[id2] = ITEM_ICONS[QUEST_ITEM_FALLBACK[id2]];
-}
-
-// ---- QUESTS registry: each quest is pure data. beats[] drive advancement.
-// beat types: talk / reach / fetch / interact / kill / follow / timed.
-// beat fields (all optional but type): waypoint{x,z}, r (reach/POI radius),
-//   text (objective line), giver (talk target id), item+n (fetch), poi
-//   (interact target id), tag (kill target tag), secs+sub (timed),
-//   onEnter(q,beat) fired when the beat becomes active, onComplete(q,beat).
-// ---- #77 secret-POI room registry (declared before QUESTS so beat waypoints
-// can reference QPOI.<room>). Room builders/enter/exit live further below. ----
-var QPOI = {   // id -> { x, z (surface hatch), y (under-map floor), w, d, tint, ceil, name, enterMsg }
-  cellar:     { name: 'the Gains Cave', x: -132, z: 44, y: -120, w: 16, d: 12, tint: 0x6b6256, ceil: 0x2a2620, enterMsg: 'You drop into a dim stone cellar — Vlad\'s "pain temple". A bricked passage yawns at the back.' },
-  manhole:    { name: 'the Manhole Room', x: 20, z: -4, y: -128, w: 12, d: 10, tint: 0x4a4e52, ceil: 0x202226, enterMsg: 'You drop through the manhole into a concrete stash room. Stolen wallets everywhere.' },
-  hollow_oak: { name: 'the Hollow Oak', x: 165, z: 120, y: -136, w: 7, d: 7, tint: 0x5a4632, ceil: 0x241a10, enterMsg: 'You squeeze into the hollow of the old oak. A dead-drop cavity, larger than it looks.' },
-  stormdrain: { name: 'the Storm Drain', x: -238, z: -176, y: -132, w: 14, d: 8, tint: 0x3c4a52, ceil: 0x1a2228, enterMsg: 'You crawl into the box culvert. Water trickles; something was dug up in the mud.' },
-  boardroom:  { name: 'the Board Room', x: -278, z: -70, y: -150, w: 12, d: 10, tint: 0x7a2a24, ceil: 0x2a1010, enterMsg: 'The sealed door parts. A long table, five chairs, and a nameplate: A. THORNE. A cage-lift shaft drops away into the dark.' },
-  facility:   { name: 'the Sub-Lake Facility', x: -255, z: -150, y: -170, w: 24, d: 18, tint: 0x2a3a44, ceil: 0x0e1a22, enterMsg: 'Past the three locks, the facility opens: humming machines, and a tank where something enormous stirs.' },
-  // v1.65.5 prop-placement fix: bug report — the Wrong-Westchase arcade portal
-  // (a dark cabinet on a pedestal) stood mid-sidewalk, side-on, in front of the
-  // th_c row (front wall at z=23). Nudged the surface hatch back to z=22.3 so the
-  // portal sits flush against that wall (back to the wall, face to the road)
-  // instead of blocking the walkway. The under-map room + q6 beats reference this
-  // same record, so they move with it.
-  arcade:     { name: 'Wrong Westchase', x: -150, z: 22.3, y: -160, w: 22, d: 22, tint: 0x2a1050, ceil: 0x120626, enterMsg: 'INSERT COIN. The world flattens into fog and neon — a low-poly memory of the town, rendered wrong.' }
-};
-// ---- #77 quest content helpers (used by beat onEnter/onComplete hooks) ----
-function qv(npcKey, cat, idx, gain) { return playQuestVoice(npcKey, cat, idx, gain || 0.75, 0.4); }
-function qDrop(item, x, z) { questRegisterItems(); return spawnItemDrop(item, x, z, 999); }
-function qGrant(item, n) { questRegisterItems(); var left = bagAdd(item, n || 1); if (left > 0) spawnItemDrop(item, player.x, player.z, 999); var d = itemDef(item); if (d) toast(itemIconHtml(item) + ' Received <b>' + d.name + '</b>', 3200); }
-function qArm(tag) { questArmed[tag] = true; }
-function qLine(html, ms) { toast(html, ms || 3200); }
-function qSetClock(t) { try { envT = t; if (typeof updateEnv === 'function') updateEnv(0); } catch (e) { } }
-// spawn a killable hostile quest foe (a real npc with .qtag so shooting/KO'ing
-// it credits the kill beat). Uses the existing 'fight' AI (chase + jab).
-function qFoe(look, x, z, tag, hp) {
-  if (!(x === x) || !(z === z)) { x = player.x + 3; z = player.z; }   // NaN guard (room not built yet)
-  var mesh;
-  try { mesh = buildQuestChar(look) || buildPerson('#444', '#222', CSKIN[2], {}); } catch (e) { mesh = buildPerson('#444', '#222', CSKIN[2], {}); }
-  var n = { mesh: mesh, x: x, z: z, tx: x, tz: z, hp: hp || 100, state: 'fight', fightT: 99999, jabT: 0.7, animT: 0, phase: Math.random() * 9, speed: 2.6, downT: 0, hurtFlash: 0, qtag: tag, qfoe: true, vname: null, fem: false };
-  mesh.position.set(x, 0, z); mesh.userData.npc = n; scene.add(mesh); npcs.push(n);
-  return n;
-}
-var QUESTS = {
-  // ===================== QUEST 1 — A NIGHT TO DISMEMBER =====================
-  q1_dismember: {
-    id: 'q1_dismember', name: 'A Night to Dismember',
-    giver: { id: 'vivian', name: 'Vivian Crestwood', x: -196, z: -206, voice: 'q1_VIVIAN' },
-    summary: 'A murder-mystery dinner party at a lakeside townhouse turned real. Hostess Vivian Crestwood needs an investigator to name the killer before the next blackout claims another guest.',
-    reward: { item: 'loupe', n: 1, unlock: 'loupe', text: "Detective's Loupe — highlights clues & reveals trapped/false containers." },
-    beats: [
-      { type: 'talk', giver: 'vivian', waypoint: { x: -196, z: -206 }, text: 'Speak with Vivian at the townhouse door.', onEnter: function () { qv('q1_VIVIAN', 'intro', 0); } },
-      { type: 'interact', poi: 'q1_body', waypoint: { x: -191, z: -211 }, text: 'The lights cut out — search Gloria\'s body in the dining room.', onEnter: function () { qv('q1_VIVIAN', 'panic', 1); } },
-      { type: 'fetch', item: 'almond_vial', n: 1, waypoint: { x: -191, z: -211 }, text: 'Recover the Bitter Almond Vial (the murder weapon).' },
-      { type: 'fetch', item: 'seating_chart', n: 1, waypoint: { x: -203, z: -210 }, text: 'Gather clues: find the scratched-out name on the seating chart.', onEnter: function () { qDrop('eviction_notice', -191, -210); qDrop('seating_chart', -203, -210); } },
-      { type: 'follow', waypoint: { x: -206, z: -204 }, escort: true, r: 5, text: 'Second blackout — follow caterer Chet in the dark to the back door.', onEnter: function () { qv('q1_CHET', 'oily', 1); } },
-      { type: 'kill', tag: 'chet', waypoint: { x: -206, z: -204 }, text: 'Name Chet at the reveal — he draws a blade. Put him down.', onEnter: function () { qv('q1_CHET', 'cold', 0); qFoe('CHET', -204, -204, 'chet', 90); } },
-      { type: 'talk', giver: 'vivian', waypoint: { x: -196, z: -206 }, text: 'Return to Vivian. She knows more than she let on.', onEnter: function () { qv('q1_VIVIAN', 'reveal', 2); } }
-    ]
-  },
-  // ===================== QUEST 2 — SOMEONE'S WATCHING =====================
-  q2_watching: {
-    id: 'q2_watching', name: "Someone's Watching",
-    giver: { id: 'wendell', name: 'Wendell Pike', x: -210, z: -245, voice: 'q2_WENDELL' },
-    summary: 'Twitchy Wendell Pike is sure his neighbors are watching him. Prove it — tail the "watchers," connect the evidence, and stake out the lake at night. He might not be as crazy as he sounds.',
-    reward: { item: 'scanner', n: 1, unlock: 'scanner', text: 'Police Scanner — hear dispatch & mark the nearest patrol on the minimap while wanted.' },
-    beats: [
-      { type: 'talk', giver: 'wendell', waypoint: { x: -210, z: -245 }, text: 'Hear out Wendell behind the hedge.', onEnter: function () { qv('q2_WENDELL', 'intro', 0); } },
-      { type: 'follow', waypoint: { x: 150, z: -120 }, escort: true, r: 8, text: 'Daytime tail #1: follow the neighbor to the pharmacy (NE).', onEnter: function () { qv('q2_WENDELL', 'comms', 0); } },
-      { type: 'follow', waypoint: { x: -140, z: -120 }, escort: true, r: 8, text: 'Dusk tail #2: tail Don Sharp to the payphone — don\'t get made.', onEnter: function () { qSetClock(0.78); qv('q2_DON', 'call', 0); } },
-      { type: 'interact', poi: 'q2_wall', waypoint: { x: -210, z: -245 }, text: 'Back home: use clues to connect Wendell\'s evidence wall.', onEnter: function () { qv('q2_WENDELL', 'comms', 3); qDrop('binoculars', -210, -243); } },
-      { type: 'reach', waypoint: { x: -255, z: -150 }, r: 10, text: 'Late-night stakeout at the lake. Watch for the van.', onEnter: function () { qSetClock(0.95); qArm('q2_van'); qv('q2_WENDELL', 'comms', 4); } },
-      { type: 'kill', tag: 'q2_cleaner', waypoint: { x: -255, z: -150 }, text: 'A surveillance van! Two "utility workers" turn hostile — survive.', onEnter: function () { qFoe('METER_READER', -250, -150, 'q2_cleaner', 80); qFoe('METER_READER', -260, -148, 'q2_cleaner', 80); qv('q2_METER', 'hostile', 1); } },
-      { type: 'interact', poi: 'q2_photo', waypoint: { x: -255, z: -150 }, text: 'Photograph the lights over the lake, then run.', onEnter: function () { qDrop('lake_photo', -255, -148); } },
-      { type: 'talk', giver: 'wendell', waypoint: { x: -210, z: -245 }, text: 'Return to Wendell — vindicated and terrified.', onEnter: function () { qv('q2_WENDELL', 'vindicated', 1); } }
-    ]
-  },
-  // ===================== QUEST 3 — WHERE THE RED HOUSE WEEPS =====================
-  q3_redhouse: {
-    id: 'q3_redhouse', name: 'Where the Red House Weeps',
-    giver: { id: 'agatha', name: 'Agatha Holloway', x: -278, z: -72, voice: 'q3_AGATHA' },
-    summary: 'The ancient caretaker of the 5-story red-roof house needs the place "put to rest." Climb it floor by floor — each a decade the Countryway Association "assessed and removed" — to the sealed Board Room at the top.',
-    reward: { item: 'lantern', n: 1, unlock: 'lantern', text: 'Spirit Lantern — see in the dark, reveal hidden doors, part apparitions.' },
-    beats: [
-      { type: 'talk', giver: 'agatha', waypoint: { x: -278, z: -72 }, text: 'Take the cold brass lantern from Agatha.', onEnter: function () { qv('q3_AGATHA', 'intro', 0); qGrant('welcome_packet', 1); } },
-      { type: 'reach', waypoint: { x: -278, z: -78 }, r: 6, text: 'Floor 1 — the parlor. Hear the first family\'s echo.', onEnter: function () { qv('q3_AGATHA', 'reveals', 0); } },
-      { type: 'fetch', item: 'matchbook', n: 1, waypoint: { x: -282, z: -78 }, text: 'Floor 2 — the nursery. The Gray Boy gives you his matchbook.', onEnter: function () { qv('q3_GRAYBOY', 'giggles', 3); qDrop('matchbook', -282, -78); } },
-      { type: 'reach', waypoint: { x: -274, z: -78 }, r: 5, text: 'Floor 3 — the flooded floor. Light the lantern; the water parts.', onEnter: function () { qv('q3_AGATHA', 'reveals', 2); } },
-      { type: 'fetch', item: 'elevator_key', n: 1, waypoint: { x: -278, z: -82 }, text: 'Floor 4 — the study. Read the ledger, take the brass elevator key.', onEnter: function () { qv('q3_AGATHA', 'reveals', 3); qDrop('caretaker_ledger', -278, -80); qDrop('elevator_key', -278, -82); } },
-      { type: 'interact', poi: 'boardroom', waypoint: QPOI.boardroom, text: 'Floor 5 — hold the lantern to the sealed door: the BOARD ROOM.', onEnter: function () { qArm('q3_guard'); } },
-      { type: 'kill', tag: 'q3_guard', waypoint: QPOI.boardroom, text: 'A Cleaner steps from the shadow — ghost or guard? End it.', onEnter: function () { var s = QPOI.boardroom; qFoe('CONCIERGE', s.cx - 2, s.cz, 'q3_guard', 80); } },
-      { type: 'talk', giver: 'agatha', waypoint: { x: -278, z: -72 }, text: 'Return to Agatha. She can rest now.', onEnter: function () { qv('q3_AGATHA', 'farewell', 0); } }
-    ]
-  },
-  // ===================== QUEST 4 — THE COUNTRYWAY JOB =====================
-  q4_heist: {
-    id: 'q4_heist', name: 'The Countryway Job',
-    giver: { id: 'sal', name: 'Sal Marino', x: -116, z: -30, voice: 'q4_SAL' },
-    summary: 'Retired heist planner Sal Marino has a way into Regions Bank. Case the floor, gather three keys, turn the inside man, and crack the vault — the deposit boxes hide the Association\'s ledger and a strange etched key.',
-    reward: { item: 'lockpick_set', n: 1, unlock: 'lockpick', text: 'Lockpick Set — silently open locked doors, ATMs & cars; skip the break-in timer.' },
-    beats: [
-      { type: 'talk', giver: 'sal', waypoint: { x: -116, z: -30 }, text: 'Sal draws you the map at Starbucks.', onEnter: function () { qv('q4_SAL', 'recruit', 0); } },
-      { type: 'reach', waypoint: { x: 150, z: -110 }, r: 8, text: 'Case the Regions lobby (NE). Count the cameras.', onEnter: function () { qv('q4_SAL', 'coaching', 0); } },
-      { type: 'fetch', item: 'guard_key', n: 1, waypoint: { x: -116, z: 31 }, text: 'Lift the off-duty guard\'s key at the Dunkin.', onEnter: function () { qv('q4_SAL', 'coaching', 1); qDrop('guard_key', -116, 31); } },
-      { type: 'fetch', item: 'manager_key', n: 1, waypoint: { x: -40, z: -70 }, text: "Manager's key: Sal's toolkit is in the Publix false-bottom dumpster.", onEnter: function () { qv('q4_SAL', 'coaching', 2); qDrop('manager_key', -40, -70); } },
-      { type: 'fetch', item: 'timer_key', n: 1, waypoint: { x: -150, z: 20 }, text: 'Timer key: photograph the vault schedule from the roof stash.', onEnter: function () { qv('q4_SAL', 'coaching', 3); qDrop('timer_key', -150, 20); } },
-      { type: 'talk', giver: 'marcus_q4', waypoint: { x: 150, z: -112 }, text: 'Turn the inside man — Marcus, the indebted teller.', onEnter: function () { qv('q4_MARCUS', 'turn', 2); } },
-      { type: 'kill', tag: 'q4_cleaner', waypoint: { x: 152, z: -114 }, text: 'Crack the vault. The timer trips — two Cleaners guard the board box.', onEnter: function () { qv('q4_SAL', 'coaching', 5); qFoe('CONCIERGE', 152, -114, 'q4_cleaner', 90); qFoe('CONCIERGE', 148, -112, 'q4_cleaner', 90); } },
-      { type: 'interact', poi: 'q4_score', waypoint: { x: 152, z: -114 }, text: 'Grab the cash, the Association Ledger, and the Etched Lake Key.', onEnter: function () { state.money += 2000; qGrant('assoc_ledger', 1); qGrant('etched_lake_key', 1); } },
-      { type: 'talk', giver: 'sal', waypoint: { x: -116, z: -30 }, text: 'Meet Sal. He burns his name from the ledger.', onEnter: function () { qv('q4_SAL', 'payoff', 2); } }
-    ]
-  },
-  // ===================== QUEST 5 — ROADSIDE ASSISTANCE =====================
-  q5_siren: {
-    id: 'q5_siren', name: 'Roadside Assistance',
-    giver: { id: 'spouse', name: 'Worried Spouse', x: 60, z: 42, voice: 'q5_SPOUSE' },
-    summary: 'A frantic spouse\'s husband stopped to help a broken-down car on Race Track Rd and never came home. Go undercover as a mark, spring the Siren\'s trap, and dismantle the crew from their manhole stash.',
-    reward: { item: 'bait_car_keys', n: 1, unlock: 'hotwire', text: "Bait Car Keys + Slim Jim — instant hotwire on any locked car." },
-    beats: [
-      { type: 'talk', giver: 'spouse', waypoint: { x: 60, z: 42 }, text: 'Take the plea near the RaceTrac.', onEnter: function () { qv('q5_SPOUSE', 'plea', 0); } },
-      { type: 'reach', waypoint: { x: 20, z: -4 }, r: 6, text: 'Find the bait car on Race Track Rd. Approach on foot to "help".', onEnter: function () { qv('q5_DESIREE', 'lure', 0); } },
-      { type: 'kill', tag: 'q5_brick', waypoint: { x: 20, z: -4 }, text: 'The lure springs — Brick and a goon jump you. Fight free.', onEnter: function () { qv('q5_BRICK', 'menace', 0); qFoe('BRICK', 22, -4, 'q5_brick', 120); qFoe('DESIREE', 18, -2, 'q5_brick', 70); } },
-      { type: 'interact', poi: 'manhole', waypoint: QPOI.manhole, text: 'They vanished into a manhole — pry it and drop into the stash.', onEnter: function () { qDrop('stolen_wallet', QPOI.manhole.x - 2, QPOI.manhole.z); qDrop('marks_note', QPOI.manhole.x + 2, QPOI.manhole.z); } },
-      { type: 'fetch', item: 'marks_note', n: 1, waypoint: QPOI.manhole, text: 'The corkboard of "marks" includes your name — flagged for the board.' },
-      { type: 'talk', giver: 'spouse', waypoint: { x: 60, z: 42 }, text: 'Free the husband and return him to his spouse.', onEnter: function () { qv('q5_HUSBAND', 'relief', 2); qv('q5_SPOUSE', 'plea', 3); } }
-    ]
-  },
-  // ===================== QUEST 6 — INSERT COIN TO CONTINUE =====================
-  q6_arcade: {
-    id: 'q6_arcade', name: 'Insert Coin to Continue',
-    giver: { id: 'xander', name: 'Xander', x: -150, z: 26, voice: 'q6_XANDER' },
-    summary: 'Xander found an unlabeled WESTCHASE cartridge — and now Derik won\'t wake up. He\'s trapped in an 8-bit glitch dimension. Go in, beat the Arcade Warden, and pull Derik out.',
-    reward: { item: 'neon_blaster', n: 1, unlock: 'reflexes', text: 'Neon Blaster + 8-Bit Reflexes — ADS briefly slows time.' },
-    beats: [
-      { type: 'talk', giver: 'xander', waypoint: { x: -150, z: 26 }, text: 'Xander explains. Insert the cartridge.', onEnter: function () { qv('q6_XANDER', 'intro', 0); } },
-      { type: 'interact', poi: 'arcade', waypoint: QPOI.arcade, text: 'Level 1 — reach the glitching Publix in Wrong Westchase.', onEnter: function () { qv('q6_DERIK', 'trapped', 0); } },
-      { type: 'reach', waypoint: { x: QPOI.arcade.x - 6, z: QPOI.arcade.z - 6 }, r: 5, text: 'Level 2 — escape the Repeating Aisle in the right order.', onEnter: function () { qv('q6_XANDER', 'intro', 5); } },
-      { type: 'kill', tag: 'q6_warden', waypoint: { x: QPOI.arcade.x, z: QPOI.arcade.z - 4 }, text: 'Level 3 — the Arcade Warden guards Derik\'s cage. Beat it.', onEnter: function () { qv('q6_WARDEN', 'taunts', 1); var s = QPOI.arcade; qFoe('WARDEN', s.cx, s.cz - 4, 'q6_warden', 200); } },
-      { type: 'interact', poi: 'q6_cage', waypoint: { x: QPOI.arcade.x, z: QPOI.arcade.z - 6 }, text: 'Break the cage and free Derik. Grab the Neon Blaster.', onEnter: function () { qv('q6_DERIK', 'waking', 0); qDrop('cartridge', QPOI.arcade.x, QPOI.arcade.z - 5); } },
-      { type: 'talk', giver: 'xander', waypoint: { x: -150, z: 26 }, text: 'Back in the real world — Derik wakes; the cartridge is lake sand.', onEnter: function () { qv('q6_XANDER', 'relief', 0); } }
-    ]
-  },
-  // ===================== QUEST 7 — LEG DAY =====================
-  q7_legday: {
-    id: 'q7_legday', name: 'Leg Day',
-    giver: { id: 'vlad', name: 'Vlad', x: -240, z: -140, voice: 'q7_VLAD' },
-    summary: 'Vlad the lakeside fitness prophet needs a CHAMPION. Steal a rival\'s protein, carry a "boulder," sprint a smoothie, and enter his sacred Gains Cave — which turns out to be a Pact tunnel node.',
-    reward: { item: 'sprint_shoes', n: 1, unlock: 'sprint', text: "Vlad's Blessed Sneakers — faster run + a double jump." },
-    beats: [
-      { type: 'talk', giver: 'vlad', waypoint: { x: -240, z: -140 }, text: 'Take Vlad\'s absurd oath. Do NOT skip.', onEnter: function () { qv('q7_VLAD', 'oath', 0); } },
-      { type: 'fetch', item: 'protein_shaker', n: 1, waypoint: { x: -116, z: -30 }, text: "Steal cardio-boy Chad's protein shaker at Starbucks.", onEnter: function () { qv('q7_VLAD', 'dares', 0); qv('q7_CHAD', 'trash', 0); qDrop('protein_shaker', -116, -30); } },
-      { type: 'fetch', item: 'destiny_smoothie', n: 1, waypoint: { x: -210, z: -215 }, text: 'Carry the "boulder" (a garden gnome) — then sprint the Smoothie of Destiny.', onEnter: function () { qv('q7_VLAD', 'dares', 1); qDrop('destiny_smoothie', -210, -215); } },
-      { type: 'interact', poi: 'cellar', waypoint: QPOI.cellar, text: 'Enter the Gains Cave — Vlad\'s "pain temple."', onEnter: function () { qv('q7_VLAD', 'dares', 5); qArm('q7_cleaner'); } },
-      { type: 'kill', tag: 'q7_cleaner', waypoint: QPOI.cellar, text: 'Two real Cleaners are stashing crates. Clear the node.', onEnter: function () { qv('q7_VLAD', 'dares', 7); var s = QPOI.cellar; qFoe('SILAS', s.cx - 2, s.cz, 'q7_cleaner', 80); qFoe('SILAS', s.cx + 2, s.cz - 1, 'q7_cleaner', 80); } },
-      { type: 'fetch', item: 'tunnel_fragment', n: 1, waypoint: QPOI.cellar, text: 'Find the Tunnel Map Fragment pointing under the lake.', onEnter: function () { var s = QPOI.cellar; qDrop('tunnel_fragment', s.cx, s.cz - 2); } },
-      { type: 'talk', giver: 'vlad', waypoint: { x: -240, z: -140 }, text: 'Return to Vlad — champion crowned.', onEnter: function () { qv('q7_VLAD', 'crowning', 0); } }
-    ]
-  },
-  // ===================== QUEST 8 — THE CLEANERS =====================
-  q8_cleaners: {
-    id: 'q8_cleaners', name: 'The Cleaners',
-    giver: { id: 'concierge', name: 'The Concierge', x: -40, z: -70, voice: 'q8_CONCIERGE' },
-    summary: 'A black card recruits you into the Cleaners — the Pact\'s enforcement arm. Three contracts escalate from petty to a moral gut-punch, staged from the false-bottom dumpster and the Hollow Oak dead-drop.',
-    reward: { item: 'silenced_pistol', n: 1, unlock: 'ghost', text: 'Silenced Pistol + "Ghost" — clean stealth kills don\'t raise wanted; dealer discount.' },
-    beats: [
-      { type: 'interact', poi: 'q8_dumpster', waypoint: { x: -40, z: -70 }, text: 'Midnight — lift the false bottom behind Publix. The Concierge calls.', onEnter: function () { qv('q8_CONCIERGE', 'recruit', 0); qSetClock(0.98); } },
-      { type: 'fetch', item: 'dossier', n: 1, waypoint: QPOI.hollow_oak, text: 'Retrieve the dossier from the Hollow Oak dead-drop.', onEnter: function () { qv('q8_CONCIERGE', 'contracts', 2); qDrop('dossier', QPOI.hollow_oak.x, QPOI.hollow_oak.z + 2); } },
-      { type: 'kill', tag: 'q8_c1', waypoint: { x: -60, z: -40 }, text: 'Contract 1 — a "loud" newcomer. A clean takedown. Silas teaches you.', onEnter: function () { qv('q8_SILAS', 'tutorial', 1); qFoe('SILAS', -60, -40, 'q8_c1', 70); } },
-      { type: 'kill', tag: 'q8_c2', waypoint: { x: 120, z: -60 }, text: 'Contract 2 — tail and silence a "leak."', onEnter: function () { qv('q8_TARGET', 'warning', 4); qFoe('SILAS', 120, -60, 'q8_c2', 70); } },
-      { type: 'interact', poi: 'q8_c3', waypoint: { x: -40, z: -70 }, text: 'Contract 3 — the dossier names someone you helped. Make your choice.', onEnter: function () { qv('q8_TARGET', 'warning', 3); } },
-      { type: 'talk', giver: 'concierge', waypoint: { x: -40, z: -70 }, text: 'Meet the Concierge at last — a board member.', onEnter: function () { qv('q8_CONCIERGE', 'reveal', 3); state.unlocks.metConcierge = true; } }
-    ]
-  },
-  // ===================== QUEST 9 — WHERE'S BISCUIT? =====================
-  q9_biscuit: {
-    id: 'q9_biscuit', name: "Where's Biscuit?",
-    giver: { id: 'dylan', name: 'Dylan Sharp', x: -72, z: -97, voice: 'q9_DYLAN' },
-    summary: "Dylan Sharp's dog ran toward the lake and didn't come back. Track Biscuit through the town's secret nooks down to the Storm Drain — where he's dug up something that isn't from here. No combat; pure heart.",
-    reward: { item: 'dog_whistle', n: 1, unlock: 'dogwhistle', text: 'Dog Whistle — summon Biscuit: fetch, sniff out secret POIs, harass enemies.' },
-    beats: [
-      { type: 'talk', giver: 'dylan', waypoint: { x: -72, z: -97 }, text: "Hear Dylan's plea at the Publix lot.", onEnter: function () { qv('q9_DYLAN', 'plea', 0); } },
-      { type: 'talk', giver: 'champion', waypoint: { x: -90, z: -80 }, text: 'Ask the hide-and-seek champion — she knows every nook.', onEnter: function () { qv('q9_CHAMPION', 'hints', 0); } },
-      { type: 'follow', waypoint: { x: -200, z: -170 }, escort: true, r: 10, text: "Follow Biscuit's paw-prints toward the lake shore.", onEnter: function () { qv('q9_CHAMPION', 'hints', 3); } },
-      { type: 'interact', poi: 'stormdrain', waypoint: QPOI.stormdrain, text: 'Crawl into the Storm Drain where Biscuit is stuck.', onEnter: function () { qv('q9_BISCUIT', 'barks', 2); } },
-      { type: 'fetch', item: 'alien_keycard', n: 1, waypoint: QPOI.stormdrain, text: 'Take the strange metal fragment Biscuit dug up. Leash him.', onEnter: function () { var s = QPOI.stormdrain; qDrop('alien_keycard', s.cx, s.cz - 2); } },
-      { type: 'talk', giver: 'dylan', waypoint: { x: -72, z: -97 }, text: 'Return Biscuit to Dylan. Pure joy.', onEnter: function () { qv('q9_DYLAN', 'joy', 0); } }
-    ]
-  },
-  // ===================== QUEST 10 — WHAT LIES BENEATH =====================
-  q10_beneath: {
-    id: 'q10_beneath', name: 'What Lies Beneath',
-    giver: { id: 'thorne', name: 'Chairman Thorne', x: -250, z: -140, voice: 'q10_THORNE' },
-    summary: 'With the Etched Lake Key, Tunnel Fragment, and Alien Keycard — and the Concierge met — the board summons you to the water. Descend beneath the fountain, confront Chairman Thorne and the thing, and decide what Westchase becomes.',
-    reward: { item: 'whistleblower_perk', n: 1, unlock: 'ending', text: 'The finale reward — set by your choices.' },
-    gate: function () { return bagCount('etched_lake_key') > 0 && bagCount('tunnel_fragment') > 0 && bagCount('alien_keycard') > 0 && !!state.unlocks.metConcierge; },
-    beats: [
-      { type: 'interact', poi: 'facility', waypoint: QPOI.facility, text: 'Descend via any earned POI into the sub-lake tunnel.', onEnter: function () { qv('q10_DONRED', 'defection', 0); } },
-      { type: 'reach', waypoint: { x: QPOI.facility.x + 6, z: QPOI.facility.z }, r: 6, text: 'The three-lock door needs all three keys. Everything mattered.', onEnter: function () { qv('q10_ENTITY', 'assessment', 2); } },
-      { type: 'kill', tag: 'q10_cleaner', waypoint: { x: QPOI.facility.x + 6, z: QPOI.facility.z }, text: 'The board\'s remaining Cleaners make a stand.', onEnter: function () { var s = QPOI.facility; qFoe('CONCIERGE', s.cx + 6, s.cz, 'q10_cleaner', 100); qFoe('CONCIERGE', s.cx + 4, s.cz - 3, 'q10_cleaner', 100); } },
-      { type: 'talk', giver: 'thorne_in', waypoint: { x: QPOI.facility.x, z: QPOI.facility.z }, text: 'Chairman Thorne offers you the chair.', onEnter: function () { qv('q10_THORNE', 'offer', 0); } },
-      { type: 'kill', tag: 'q10_entity', waypoint: { x: QPOI.facility.x - 6, z: QPOI.facility.z }, text: 'The thing wakes. The reckoning.', onEnter: function () { qv('q10_ENTITY', 'assessment', 3); var s = QPOI.facility; qFoe('WARDEN', s.cx - 6, s.cz, 'q10_entity', 260); } },
-      { type: 'interact', poi: 'q10_choice', waypoint: { x: QPOI.facility.x - 6, z: QPOI.facility.z }, text: 'THE CHOICE: expose, burn, or inherit Westchase.', onEnter: function () { qv('q10_THORNE', 'menace', 0); } },
-      { type: 'talk', giver: 'thorne_in', waypoint: { x: QPOI.facility.x, z: QPOI.facility.z }, text: 'The town reacts to your choice. The cast pays off.', onEnter: function () { qv('q10_CAST', 'payoff', 0); } }
-    ]
-  }
-};
-var QUEST_ORDER = ['q1_dismember', 'q2_watching', 'q3_redhouse', 'q4_heist', 'q5_siren', 'q6_arcade', 'q7_legday', 'q8_cleaners', 'q9_biscuit', 'q10_beneath'];
-
-// ---- persistence (localStorage wc_quests), same pattern as wc_char ----
-function saveQuests() {
-  try { localStorage.setItem('wc_quests', JSON.stringify({ log: state.questLog, active: state.activeQuest, unlocks: state.unlocks })); } catch (e) { }
-}
-function loadQuests() {
-  try {
-    var raw = localStorage.getItem('wc_quests'); if (!raw) return;
-    var o = JSON.parse(raw);
-    if (o && o.log) state.questLog = o.log;
-    if (o && o.active) state.activeQuest = o.active;
-    if (o && o.unlocks) state.unlocks = o.unlocks;
-    // re-grant any bag reward items that don't persist in the bag itself is a
-    // content decision; capabilities live in state.unlocks and DO persist.
-  } catch (e) { }
-}
-
-// ---- registry / entry helpers ----
-function questDef(id) { return QUESTS[id] || null; }
-function questEntry(id) { for (var i = 0; i < state.questLog.length; i++) if (state.questLog[i].id === id) return state.questLog[i]; return null; }
-function activeQuestEntry() { return state.activeQuest ? questEntry(state.activeQuest) : null; }
-function questBeat(q) { var d = q && questDef(q.id); if (!d) return null; return d.beats[q.stage] || null; }
-function questFlags(q) { return q.f || (q.f = {}); }
-
-// current active beat's waypoint (for the minimap + HUD tracker)
-function questWaypoint() {
-  var q = activeQuestEntry(); if (!q || q.completed) return null;
-  var b = questBeat(q); return (b && b.waypoint) ? b.waypoint : null;
-}
-function questObjectiveText() {
-  var q = activeQuestEntry(); if (!q) return null;
-  var d = questDef(q.id); if (!d) return null;
-  if (q.completed) return { name: d.name, text: 'COMPLETE' };
-  var b = questBeat(q); return { name: d.name, text: b ? (b.text || b.type) : '' };
-}
-
-// ---- lifecycle ----
-function startQuest(id) {
-  var d = questDef(id); if (!d) return null;
-  var q = questEntry(id);
-  if (!q) { q = { id: id, stage: 0, done: [], completed: false, f: {} }; state.questLog.push(q); }
-  if (q.completed) { toast('You already finished <b>' + d.name + '</b>.', 2600); return q; }
-  if (!state.activeQuest) state.activeQuest = id;
-  beatEnter(q);
-  toast('<b style="color:#ffd98a">QUEST STARTED</b><br>' + d.name, 3600);
-  sfx('buy');
-  saveQuests();
-  return q;
-}
-function setActiveQuest(id) {
-  if (id && !questEntry(id)) return false;
-  state.activeQuest = id || null; saveQuests();
-  if (state.menu === 'quest') refreshQuestPanel();
-  return true;
-}
-// fire the current beat's onEnter hook + reset any per-beat timer
-function beatEnter(q) {
-  var b = questBeat(q); if (!b) return;
-  var f = questFlags(q); f['b' + q.stage] = false;
-  if (b.type === 'timed') q.timerEnd = T + (b.secs || 30);
-  if (typeof b.onEnter === 'function') { try { b.onEnter(q, b); } catch (e) { } }
-}
-// mark the current beat done, run onComplete, advance (or finish the quest)
-function completeBeat() {
-  var q = activeQuestEntry(); if (!q || q.completed) return false;
-  var b = questBeat(q); if (!b) return false;
-  if (q.done.indexOf(q.stage) < 0) q.done.push(q.stage);
-  if (typeof b.onComplete === 'function') { try { b.onComplete(q, b); } catch (e) { } }
-  q.stage++;
-  var d = questDef(q.id);
-  if (q.stage >= d.beats.length) { finishQuest(q.id); }
-  else { beatEnter(q); toast('<b style="color:#8ee87f">OBJECTIVE COMPLETE</b>', 1800); sfx('cash'); }
-  if (state.menu === 'quest') refreshQuestPanel();
-  saveQuests();
-  return true;
-}
-// debug/manual: skip the current beat's condition and advance
-function advanceBeat() { return completeBeat(); }
-function finishQuest(id) {
-  var q = questEntry(id), d = questDef(id); if (!q || !d) return;
-  q.completed = true; q.stage = d.beats.length;
-  if (state.activeQuest === id) state.activeQuest = null;
-  grantReward(id);
-  toast('<b style="color:#ffd98a">QUEST COMPLETE</b><br>' + d.name, 5000);
-  sfx('cash');
-  saveQuests();
-}
-// grant a quest's reward: item into the bag and/or a capability unlock flag.
-// Capability status (gated on state.unlocks[...]):
-//   lockpick (q4) / hotwire (q5)  — WORKING: skip the car break-in timer.
-//   sprint   (q7)                 — WORKING: faster run + double jump.
-//   loupe    (q1)                 — WORKING: L toggles amber clue-highlight + trap warnings.
-//   scanner  (q2)                 — WORKING: rings the nearest patrol on the minimap while wanted.
-//   lantern  (q3)                 — WORKING: G toggles the green dark-vision light + parts apparitions.
-//   reflexes (q6)                 — WORKING: ADS (right-click) slows the sim on a drainable meter.
-//   ghost    (q8)                 — WORKING: silenced-pistol kills don't raise wanted + dealer discount.
-//   dogwhistle (q9)               — WORKING: B summons/dismisses Biscuit the follow companion.
-//   ending   (q10)               — sets the finale flag; town-wide perk is future work.
-// unlock flag -> the weapon KIND it makes usable (owned + inventory-equippable)
-var UNLOCK_GUN = { reflexes: 'neon_blaster', ghost: 'silenced' };
-function grantReward(id) {
-  var d = questDef(id); if (!d || !d.reward) return;
-  // #78 finale: the Q10 reward is the ending the player chose (perk applied at
-  // choice time via applyEnding); make sure it's applied even on a direct finish.
-  if (id === 'q10_beneath') { if (typeof applyEnding === 'function') applyEnding(state.unlocks.ending || 'expose'); saveQuests(); return; }
-  var r = d.reward;
-  if (r.unlock) {
-    state.unlocks[r.unlock] = true;
-    if (UNLOCK_GUN[r.unlock]) { state.owned[UNLOCK_GUN[r.unlock]] = true; toast('New weapon in your inventory: <b>' + WEAPONS[UNLOCK_GUN[r.unlock]].name + '</b> (TAB to equip).', 4200); }
-  }
-  if (r.item) {
-    questRegisterItems();   // make sure the reward item resolves
-    var left = bagAdd(r.item, r.n || 1);
-    if (left > 0) { spawnItemDrop(r.item, player.x - Math.sin(yaw) * 2.2, player.z - Math.cos(yaw) * 2.2, 180); }   // bag full -> drop it at feet
-    var def = itemDef(r.item);
-    if (def) toast(itemIconHtml(r.item) + ' <b>REWARD:</b> ' + def.name + (r.text ? '<br><span style="opacity:.85">' + r.text + '</span>' : ''), 5200);
-  } else if (r.text) toast('<b>REWARD:</b> ' + r.text, 4200);
-  saveQuests();
-}
-function hasUnlock(k) { return !!state.unlocks[k]; }
-
-// ---- objective checkers (one per beat type). Each returns true when done. ----
-function within(wp, r) { if (!wp) return false; var dx = player.x - wp.x, dz = player.z - wp.z; r = r || 6; return dx * dx + dz * dz <= r * r; }
-var questCheck = {
-  reach: function (q, b) { return within(b.waypoint, b.r || 6); },
-  fetch: function (q, b) { return b.item ? bagCount(b.item) >= (b.n || 1) : false; },
-  talk: function (q, b) { return !!questFlags(q)['b' + q.stage]; },
-  interact: function (q, b) { return !!questFlags(q)['b' + q.stage]; },
-  kill: function (q, b) { return !!questFlags(q)['b' + q.stage]; },
-  follow: function (q, b) { var f = questFlags(q); if (f['b' + q.stage]) return true; if (b.waypoint && b.escort && within(b.waypoint, b.r || 6)) return true; return false; },
-  timed: function (q, b) { return !!questFlags(q)['b' + q.stage]; }
-};
-function questBeatDone(q, b) { var fn = questCheck[b.type]; return fn ? fn(q, b) : false; }
-
-// ---- signal helpers: called from the interaction/kill paths to satisfy a
-// beat. Each only fires if the ACTIVE beat is of the right type + target. ----
-function questFlagBeat(q) { questFlags(q)['b' + q.stage] = true; }
-function questTalk(giverId) {
-  var q = activeQuestEntry(); if (!q || q.completed) return false;
-  var b = questBeat(q); if (!b || b.type !== 'talk') return false;
-  if (b.giver && b.giver !== giverId) return false;
-  questFlagBeat(q); return true;
-}
-function questInteract(poiId) {
-  var q = activeQuestEntry(); if (!q || q.completed) return false;
-  var b = questBeat(q); if (!b || b.type !== 'interact') return false;
-  if (b.poi && b.poi !== poiId) return false;
-  questFlagBeat(q); return true;
-}
-function questKillTag(tag) {
-  var q = activeQuestEntry(); if (!q || q.completed) return false;
-  var b = questBeat(q); if (!b || b.type !== 'kill') return false;
-  if (b.tag && b.tag !== tag) return false;
-  questFlagBeat(q); return true;
-}
-function questFollowArrive() {
-  var q = activeQuestEntry(); if (!q || q.completed) return false;
-  var b = questBeat(q); if (!b || b.type !== 'follow') return false;
-  questFlagBeat(q); return true;
-}
-function questTimedSub() {
-  var q = activeQuestEntry(); if (!q || q.completed) return false;
-  var b = questBeat(q); if (!b || b.type !== 'timed') return false;
-  if (q.timerEnd && T > q.timerEnd) return false;   // too late
-  questFlagBeat(q); return true;
-}
-
-// ---- secret POIs + proximity triggers ----
-// registerQuestPOI: fire onEnter when the player comes within r; once=one-shot.
-var questPOIs = [];
-function registerQuestPOI(o) { if (!o || o.x == null) return null; o.r = o.r || 6; o._fired = false; questPOIs.push(o); return o; }
-function questPOIById(id) { for (var i = 0; i < questPOIs.length; i++) if (questPOIs[i].id === id) return questPOIs[i]; return null; }
-
-// ambush primitive: a zone (or an armed trigger) that, on entry, spawns hostile
-// actors and/or flips tagged quest NPCs hostile. Concrete danger uses the
-// existing cop actor as a stand-in for the reskinned "Cleaners".
-// TODO: swap the spawned cop stand-ins for reskinned Cleaner NPCs when wired.
-var questAmbushes = [];
-function registerAmbush(o) { if (!o) return null; o.r = o.r || 10; o._fired = false; questAmbushes.push(o); return o; }
-function triggerAmbush(a) {
-  if (!a || a._fired) return; a._fired = true;
-  // flip any tagged quest NPCs hostile (content agents wire the AI reaction)
-  if (a.tag) for (var i = 0; i < npcs.length; i++) if (npcs[i].qtag === a.tag) npcs[i].qhostile = true;
-  // concrete hostiles: spawn cop stand-ins near the player
-  var n = a.count || 2;
-  for (var c = 0; c < n; c++) { try { spawnCop(); } catch (e) { } }
-  if (typeof a.onTrigger === 'function') { try { a.onTrigger(a); } catch (e) { } }
-  toast('<b style="color:#e5533d">AMBUSH!</b> ' + (a.text || 'Hostiles closing in.'), 3000);
-  sfx('deny');
-}
-// arm a named ambush the moment a beat needs it (called from beat onEnter);
-// it then fires on the next proximity check (or immediately if already close)
-var questArmed = {};
-function questArmAmbush(tag) { questArmed[tag] = true; }
-
-// ---- generalized enterable secret sub-spaces (#77). Each POI room is a box
-// hidden under the map (like the gas interior); qLoc switches the floor height +
-// collider set in updatePlayer. A room is built lazily on first entry. Surface
-// hatches are registered in qHatches; E near one enters, E near the room's exit
-// climbs out. Rooms declare a themed floor/light + optional onEnter (drops, VO,
-// ambush) so all 10 quests reuse ONE room primitive. (QPOI itself is declared
-// above the QUESTS registry so beat waypoints can reference QPOI.<room>.)
-var qLoc = null;      // active room id | null
-var qRoom = null;     // active room spec | null
-var qHatches = [];    // surface enter points [{id,x,z}]
-for (var _qk in QPOI) qHatches.push({ id: _qk, x: QPOI[_qk].x, z: QPOI[_qk].z });
-function qAddCollider(spec, cx, cz, w, d) { spec.colliders.push({ x0: cx - w / 2, x1: cx + w / 2, z0: cz - d / 2, z1: cz + d / 2 }); }
-function buildRoom(id) {
-  var s = QPOI[id]; if (!s || s.built) return s; s.built = true;
-  s.colliders = [];
-  var Y = s.y, W = s.w, D = s.d, cx = s.x, cz = s.z;   // room centered under its surface hatch
-  s.cx = cx; s.cz = cz;
-  var stoneT = tex(64, function (g, sz) {
-    g.fillStyle = colHex(s.tint); g.fillRect(0, 0, sz, sz);
-    g.fillStyle = shade(colHex(s.tint), 0.82); for (var y = 0; y < sz; y += 12) for (var x = ((y / 12) & 1) ? 8 : 0; x < sz; x += 16) g.fillRect(x, y, 14, 10);
-    noise(g, sz, 90, 0.06, 0.05);
-  }, W / 3, D / 3);
-  var floor = new THREE.Mesh(new THREE.PlaneGeometry(W, D), lamb2(stoneT));
-  floor.rotation.x = -Math.PI / 2; floor.position.set(cx, Y, cz); scene.add(floor);
-  var ceil = new THREE.Mesh(new THREE.PlaneGeometry(W, D), lamb({ color: s.ceil })); ceil.rotation.x = Math.PI / 2; ceil.position.set(cx, Y + 3.4, cz); scene.add(ceil);
-  var wallM = lamb2(stoneT);
-  function wall(x, z, w, d) { var m = box(w, 3.4, d, wallM, x, Y + 1.7, z); scene.add(m); solidMeshes.push(m); qAddCollider(s, x, z, w, d); }
-  wall(cx, cz - D / 2 - 0.3, W + 1.2, 0.6); wall(cx, cz + D / 2 + 0.3, W + 1.2, 0.6);
-  wall(cx - W / 2 - 0.3, cz, 0.6, D + 1.2); wall(cx + W / 2 + 0.3, cz, 0.6, D + 1.2);
-  var lamp = new THREE.PointLight(id === 'arcade' ? 0xff40d0 : 0xffd090, id === 'facility' ? 1.3 : 0.9, 40); lamp.position.set(cx, Y + 2.8, cz); scene.add(lamp);
-  s.exit = { x: cx, z: cz + D / 2 - 1.5 };   // near the entry wall — stand here + E to climb out
-  // a couple of cheap prop hints per room
-  scene.add(box(1.4, 0.5, 0.6, lamb({ color: 0x33373f }), cx - W / 4, Y + 0.25, cz + 1.5));
-  scene.add(box(0.9, 0.9, 0.9, lamb({ color: 0x6b5a3a }), cx + W / 4, Y + 0.45, cz - 1.5));
-  qDressRoom(id, s);   // #78: place the quest set-dressing props for this room
-  return s;
-}
-// ---- #78 quest 3D prop placement (questprops.js meshes as set-dressing) ----
-// getEnvProp() builds a QUEST_PROPS mesh exactly like a street/env prop. We
-// ground it (base at y=0), face it, optionally add a collider. For POI-room
-// interiors the collider goes to the room's own list (blocks only in-room);
-// for surface props it goes to the world colliders. Flat floor hatches
-// (trapdoor/manhole_cover) skip colliders so the player can stand + press E.
-var qClueMeshes = [];   // #78: quest props the Detective's Loupe can highlight
-function qProp(name, x, z, ry, y, opts) {
-  if (typeof getEnvProp !== 'function' || typeof ENV_BY_NAME === 'undefined') return null;
-  var e = ENV_BY_NAME[name]; if (!e) return null;
-  var g = getEnvProp(name); if (!g) return null;
-  opts = opts || {}; ry = ry || 0;
-  var sc = opts.scale || 1;
-  g.position.set(x, y || 0, z); g.rotation.y = ry; if (sc !== 1) g.scale.set(sc, sc, sc);
-  scene.add(g);
-  if (opts.clue !== false) qClueMeshes.push({ mesh: g, x: x, z: z });
-  if (e.solid && !opts.noCol) {
-    solidMeshes.push(g);
-    var hw = e.dims[0] / 2 * sc, hd = e.dims[2] / 2 * sc;
-    if (opts.roomCols) {
-      var c = Math.abs(Math.cos(ry)), s = Math.abs(Math.sin(ry));
-      var ax = hw * c + hd * s, az = hw * s + hd * c;
-      opts.roomCols.push({ x0: x - ax, x1: x + ax, z0: z - az, z1: z + az });
-    } else if (typeof addColliderOBB === 'function') addColliderOBB(x, z, hw, hd, ry);
-  }
-  return g;
-}
-// interior set-dressing per POI room (called at the end of buildRoom)
-function qDressRoom(id, s) {
-  if (!s || typeof getEnvProp !== 'function') return;
-  var cx = s.cx, cz = s.cz, Y = s.y, W = s.w, D = s.d, RC = s.colliders;
-  try {
-    if (id === 'boardroom') {
-      // the sealed vault-style door on the back wall + the cage-lift shaft down
-      qProp('vault_door', cx, cz - D / 2 + 0.7, 0, Y, { roomCols: RC });
-      qProp('cage_lift', cx + W / 2 - 1.2, cz + D / 2 - 2, Math.PI / 2, Y, { roomCols: RC });
-      qProp('seance_table', cx, cz, 0, Y, { roomCols: RC });   // long board table
-    } else if (id === 'facility') {
-      // sub-lake facility: tile the interior module along the back + a lift out
-      qProp('facility_module', cx - 4.2, cz - D / 2 + 1.2, 0, Y, { roomCols: RC });
-      qProp('facility_module', cx + 4.2, cz - D / 2 + 1.2, 0, Y, { roomCols: RC });
-      qProp('cage_lift', cx, cz + D / 2 - 2.2, 0, Y, { roomCols: RC });
-    } else if (id === 'arcade') {
-      qProp('arcade_portal', cx, cz - D / 2 + 1, 0, Y, { roomCols: RC });
-    }
-  } catch (e2) { }
-}
-// surface set-dressing at the POI entrances / quest sites (placed once at load)
-function placeQuestSurfaceProps() {
-  if (typeof QUEST_PROPS === 'undefined' || typeof getEnvProp !== 'function') return;
-  try {
-    qProp('trapdoor', QPOI.cellar.x, QPOI.cellar.z, 0, 0, { noCol: true });          // Gains Cave hatch
-    qProp('trapdoor', -40, -70, 0.6, 0, { noCol: true });                             // false-bottom dumpster (Q4/Q8)
-    qProp('manhole_cover', QPOI.manhole.x, QPOI.manhole.z, 0, 0.02, { noCol: true }); // Manhole Room entrance
-    qProp('hollow_oak', QPOI.hollow_oak.x, QPOI.hollow_oak.z, 0.4, 0);                // Hollow Oak exterior
-    qProp('arcade_portal', QPOI.arcade.x, QPOI.arcade.z, Math.PI, 0);                 // Wrong-Westchase portal
-    qProp('seance_table', -191, -211, 0, 0);                                          // Q1 murder-dinner set
-  } catch (e) { }
-}
-function colHex(n) { return '#' + ('000000' + (n >>> 0).toString(16)).slice(-6); }
-function enterPOI(id) {
-  var s = QPOI[id]; if (!s) return false;
-  buildRoom(id);
-  qLoc = id; qRoom = s;
-  inside = false;   // mutually exclusive with the gas interior
-  player.x = s.cx; player.z = s.cz + s.d / 2 - 1.5; player.y = s.y + EYE;
-  player.vy = 0; player.grounded = true;
-  questInteract(id);
-  if (typeof s.onEnter === 'function') { try { s.onEnter(s); } catch (e) { } }
-  toast(s.enterMsg || ('You enter ' + s.name + '.'), 3600);
-  sfx('whoosh');
-  return true;
-}
-function exitPOI() {
-  if (!qLoc || !qRoom) return false;
-  var s = qRoom; qLoc = null; qRoom = null;
-  player.x = s.x; player.z = s.z + 2; player.y = EYE; player.vy = 0; player.grounded = true;
-  toast('You climb back out into the open air.', 2400);
-  return true;
-}
-function nearestHatch() {   // closest surface hatch within ~3.5u, or null
-  var best = null, bd = 12.25;
-  for (var i = 0; i < qHatches.length; i++) { var h = qHatches[i], dx = player.x - h.x, dz = player.z - h.z, d = dx * dx + dz * dz; if (d < bd) { bd = d; best = h; } }
-  return best;
-}
-
-// ---- per-frame quest update: POIs, ambushes, active-beat completion ----
-function updateQuests(dt) {
-  if (!state.running || state.dead) return;
-  // proximity POIs
-  for (var i = 0; i < questPOIs.length; i++) {
-    var p = questPOIs[i]; if (p._fired && p.once) continue;
-    var dx = player.x - p.x, dz = player.z - p.z;
-    if (dx * dx + dz * dz <= p.r * p.r) {
-      if (!p._inside) { p._inside = true; if (typeof p.onEnter === 'function') { try { p.onEnter(p); } catch (e) { } } p._fired = true; }
-    } else p._inside = false;
-  }
-  // ambush zones
-  for (var a = 0; a < questAmbushes.length; a++) {
-    var az = questAmbushes[a]; if (az._fired) continue;
-    var adx = player.x - az.x, adz = player.z - az.z;
-    if (adx * adx + adz * adz <= az.r * az.r) triggerAmbush(az);
-  }
-  // active-beat advancement
-  var q = activeQuestEntry(); if (!q || q.completed) return;
-  var b = questBeat(q); if (!b) return;
-  // pseudo-interact beats (a "search here" spot, not a room hatch) auto-satisfy
-  // on proximity so they never soft-lock; room-hatch interacts fire on enterPOI.
-  if (b.type === 'interact' && b.poi && b.poi !== 'q10_choice' && !QPOI[b.poi] && !questFlags(q)['b' + q.stage] && within(b.waypoint, b.r || 5)) questFlagBeat(q);
-  if (b.type === 'timed' && q.timerEnd && T > q.timerEnd && !questFlags(q)['b' + q.stage]) {
-    // ran out of time — restart the timed window (fail-forward, not a hard fail)
-    q.timerEnd = T + (b.secs || 30);
-    toast('<b style="color:#e5533d">TIME\'S UP</b> — try that again.', 2400);
-  }
-  if (questBeatDone(q, b)) completeBeat();
-}
-
-// ---- quest-giver interaction (E near a giver) ----
-function questGiverNear() {
-  var best = null, bestD = 1e9;
-  for (var i = 0; i < QUEST_ORDER.length; i++) {
-    var d = QUESTS[QUEST_ORDER[i]]; if (!d || !d.giver) continue;
-    var dx = player.x - d.giver.x, dz = player.z - d.giver.z, dd = dx * dx + dz * dz;
-    if (dd < 36 && dd < bestD) { bestD = dd; best = d; }
-  }
-  return best;
-}
-function questGiverTalk(d) {
-  if (!d) return false;
-  var q = questEntry(d.id);
-  // finale gate: Q10 (and any quest carrying a gate fn) refuses to start early.
-  if (!q && typeof d.gate === 'function' && !d.gate()) {
-    toast('<b>' + d.giver.name + ':</b> "You are not ready. Bring the key, the map, and the card — and know the Concierge first."', 4200);
-    return true;
-  }
-  if (!q) { startQuest(d.id); if (state.activeQuest !== d.id) setActiveQuest(d.id); questTalk(d.giver.id); return true; }
-  if (q.completed) { toast('<b>' + d.giver.name + ':</b> "Thank you again for everything."', 3000); return true; }
-  if (state.activeQuest !== d.id) setActiveQuest(d.id);
-  var b = questBeat(q);
-  if (b && b.type === 'talk' && (!b.giver || b.giver === d.giver.id)) { questTalk(d.giver.id); return true; }
-  toast('<b>' + d.giver.name + ':</b> "' + (b ? (b.text || 'Please, hurry.') : 'Please, hurry.') + '"', 3200);
-  return true;
-}
-
-// ---- quest log panel (PS1-style; toggled with J) ----
-var questSel = null;   // selected quest id in the panel
-function questStatus(id) {
-  var q = questEntry(id);
-  if (q && q.completed) return 'completed';
-  if (q) return (state.activeQuest === id) ? 'active' : 'started';
-  return 'available';
-}
-function refreshQuestPanel() {
-  var listEl = document.getElementById('questList'), detEl = document.getElementById('questDetail');
-  if (!listEl || !detEl) return;
-  if (!questSel || !QUESTS[questSel]) questSel = state.activeQuest || QUEST_ORDER[0];
-  // left column: quest list
-  listEl.innerHTML = '';
-  for (var i = 0; i < QUEST_ORDER.length; i++) {
-    (function (id) {
-      var d = QUESTS[id], st = questStatus(id);
-      var row = document.createElement('div');
-      row.className = 'qItem' + (id === questSel ? ' sel' : '') + ' ' + st;
-      var tag = st === 'completed' ? '✔' : (st === 'active' ? '◆' : (st === 'started' ? '•' : '·'));
-      row.innerHTML = '<span class="qTag">' + tag + '</span>' + d.name;
-      row.onclick = function () { questSel = id; refreshQuestPanel(); };
-      listEl.appendChild(row);
-    })(QUEST_ORDER[i]);
-  }
-  // right column: selected quest detail
-  var d = QUESTS[questSel]; if (!d) { detEl.innerHTML = ''; return; }
-  var q = questEntry(questSel), st = questStatus(questSel);
-  var html = '<div class="qName">' + d.name + '</div>';
-  html += '<div class="qState ' + st + '">' + (st === 'completed' ? 'COMPLETED' : st === 'active' ? 'ACTIVE' : st === 'started' ? 'IN PROGRESS' : 'AVAILABLE') + '</div>';
-  if (d.giver) html += '<div class="qGiver">Given by ' + d.giver.name + '</div>';
-  html += '<div class="qSummary">' + d.summary + '</div>';
-  html += '<div class="qBeats">';
-  for (var b = 0; b < d.beats.length; b++) {
-    var beat = d.beats[b], mark, cls;
-    if (st === 'completed' || (q && q.done.indexOf(b) >= 0)) { mark = '✔'; cls = 'done'; }
-    else if (q && q.stage === b) { mark = '▶'; cls = 'cur'; }
-    else { mark = '○'; cls = 'todo'; }
-    // hide the text of not-yet-reached beats to avoid spoilers, show current+done
-    var show = (cls === 'todo' && !(q && b <= q.stage)) ? '???' : (beat.text || beat.type);
-    html += '<div class="qBeat ' + cls + '"><span class="qbm">' + mark + '</span>' + show + '</div>';
-  }
-  html += '</div>';
-  if (d.reward) html += '<div class="qReward"><b>REWARD:</b> ' + (d.reward.text || (d.reward.item || '')) + '</div>';
-  html += '<div class="qActions">';
-  if (st === 'available') html += '<button id="qActStart">START (find ' + (d.giver ? d.giver.name : 'the giver') + ')</button>';
-  else if (st !== 'completed') html += '<button id="qActSet"' + (state.activeQuest === questSel ? ' disabled' : '') + '>SET ACTIVE</button>';
-  html += '</div>';
-  detEl.innerHTML = html;
-  var setB = document.getElementById('qActSet'); if (setB) setB.onclick = function () { setActiveQuest(questSel); refreshQuestPanel(); };
-  var startB = document.getElementById('qActStart'); if (startB) startB.onclick = function () { toast('Find <b>' + (d.giver ? d.giver.name : 'the quest giver') + '</b> on the map (amber beacon) and press E to begin.', 4000); };
-}
-
-// (questBeacons moved BELOW the quest-placement clearance pass — beacons must
-// read giver positions AFTER any road-clearance snap; see mrf7rsmq)
-
-// ---- #77 placed quest NPCs (visible, interactive bodies). Givers are talked to
-// via the giver path (checked first); non-giver actors (Marcus, the champion,
-// Thorne-inside) advance talk beats through questActorTalk. Meshes are idle-posed.
-var qActors = [];
-var QACTOR_DEFS = [
-  { id: 'vivian', name: 'Vivian Crestwood', look: { char: 'VIVIAN' }, x: -196, z: -206, yaw: 2.4 },
-  { id: 'wendell', name: 'Wendell Pike', look: { char: 'WENDELL' }, x: -210, z: -245, yaw: 0.3 },
-  { id: 'agatha', name: 'Agatha Holloway', look: { char: 'AGATHA' }, x: -278, z: -72, yaw: 3.1 },
-  { id: 'sal', name: 'Sal Marino', look: { char: 'SAL' }, x: -116, z: -30, yaw: 1.6 },
-  { id: 'vlad', name: 'Vlad', look: { char: 'VLAD' }, x: -240, z: -140, yaw: 0.8 },
-  { id: 'concierge', name: 'The Concierge', look: { char: 'CONCIERGE' }, x: -40, z: -70, yaw: 2.0 },
-  { id: 'thorne', name: 'Chairman Thorne', look: { char: 'THORNE' }, x: -250, z: -140, yaw: 1.2, quest: 'q10_beneath' },
-  { id: 'marcus_q4', name: 'Marcus', look: { person: ['#245', '#222', 2] }, x: 150, z: -112, yaw: 3.0 },
-  { id: 'champion', name: 'Hide-and-Seek Champ', look: { kid: true }, x: -90, z: -80, yaw: 1.0 },
-  { id: 'spouse', name: 'Worried Spouse', look: { person: ['#8a3a5a', '#333', 3] }, x: 60, z: 42, yaw: 2.6 },
-  { id: 'xander', name: 'Xander', look: { person: ['#3a6ea5', '#222', 1] }, x: -150, z: 26, yaw: 1.4 },
-  { id: 'dylan', name: 'Dylan Sharp', look: { kid: true }, x: -72, z: -97, yaw: 0.5 },
-  { id: 'thorne_in', name: 'Chairman Thorne', look: { char: 'THORNE' }, x: -255, z: -150, y: QPOI.facility.y, yaw: 1.0 }
-];
-
-// ---- quest-placement road clearance (bug mrf7rsmq) ----
-// Quest NPC spots were authored against the LEGACY axis roads; on the remap
-// several land on the new diagonals' asphalt (the Worried Spouse stood in the
-// middle of Countryway Blvd with traffic swerving around her). At load, any
-// giver/actor standing on road asphalt (or a junction pad) snaps to the
-// nearest clear spot — outward ring search; sidewalks/lawns are fine, venue
-// footprints / the lake / house footprints are not. Beat waypoints that
-// pointed at a moved NPC follow it, and questBeacons (below) runs after this
-// pass so the beacon stays glued to the NPC.
-function questSpotClear(x, z) {
-  if (!remapPointClear(x, z, 0.8)) return false;
-  if (typeof inLake === 'function' && inLake(x, z)) return false;
-  if (typeof remapInClear === 'function' && remapInClear(x, z, 0.4)) return false;
-  if (typeof houseBlocksSpot === 'function' && houseBlocksSpot(x, z)) return false;
-  return true;
-}
-function questSnapClear(x, z) {
-  if (questSpotClear(x, z)) return null;   // already fine — don't move
-  for (var r = 2; r <= 30; r += 2) {
-    var n = Math.max(8, Math.round(r * 2.5));
-    for (var i = 0; i < n; i++) {
-      var a = i / n * Math.PI * 2;
-      var px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r;
-      if (questSpotClear(px, pz)) return [Math.round(px * 10) / 10, Math.round(pz * 10) / 10];
-    }
-  }
-  return null;   // no clear spot within 30u — leave authored position
-}
-(function questPlacementClearance() {
-  if (!WC_REMAP) return;   // legacy axis world matches the authored spots
-  var moved = [], k, d, i, m;
-  function movedFor(x, z) {
-    for (var j = 0; j < moved.length; j++) if (Math.abs(moved[j][0] - x) < 0.6 && Math.abs(moved[j][1] - z) < 0.6) return moved[j];
-    return null;
-  }
-  for (k in QUESTS) {
-    d = QUESTS[k];
-    if (!d.giver || d.giver.x == null) continue;
-    var s = questSnapClear(d.giver.x, d.giver.z);
-    if (s) { moved.push([d.giver.x, d.giver.z, s[0], s[1]]); d.giver.x = s[0]; d.giver.z = s[1]; }
-  }
-  for (i = 0; i < QACTOR_DEFS.length; i++) {
-    var q = QACTOR_DEFS[i];
-    if (q.y) continue;   // under-map interior actors — surface roads don't apply
-    var prev = movedFor(q.x, q.z);   // reuse the giver's snap so actor+beacon agree
-    var s2 = prev ? [prev[2], prev[3]] : questSnapClear(q.x, q.z);
-    if (s2) { if (!prev) moved.push([q.x, q.z, s2[0], s2[1]]); q.x = s2[0]; q.z = s2[1]; }
-  }
-  // retarget beat waypoints that pointed at a moved NPC spot (never QPOI rooms
-  // — those aren't NPC positions, so they can't match a moved entry)
-  for (k in QUESTS) {
-    d = QUESTS[k];
-    if (!d.beats) continue;
-    for (i = 0; i < d.beats.length; i++) {
-      var w = d.beats[i].waypoint;
-      if (!w || w.x == null) continue;
-      m = movedFor(w.x, w.z);
-      if (m) { w.x = m[2]; w.z = m[3]; }
-    }
-  }
-})();
-
-// visible amber beacons at givers + the cellar hatch (so the framework is
-// eyeball-able before the real quest NPCs/props exist)
-(function questBeacons() {
-  function beacon(x, z, col) {
-    // FLOATS above head height so a quest-giver ped never stands "inside" the
-    // marker (mree10qu: worried-spouse giver clipped through the ground pole).
-    var g = new THREE.Group();
-    var mat = new THREE.MeshBasicMaterial({ color: col });
-    var pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 2.2, 6), mat);
-    pole.position.y = 4.4; g.add(pole);   // spans y 3.3 .. 5.5, clear of any NPC
-    var orb = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 6), mat);
-    orb.position.y = 5.7; g.add(orb);
-    var ptr = new THREE.Mesh(new THREE.ConeGeometry(0.36, 0.8, 6), mat);
-    ptr.position.y = 2.9; ptr.rotation.x = Math.PI; g.add(ptr);   // tip points down at the giver
-    g.position.set(x, 0, z); scene.add(g); return g;
-  }
-  for (var i = 0; i < QUEST_ORDER.length; i++) { var d = QUESTS[QUEST_ORDER[i]]; if (d && d.giver) beacon(d.giver.x, d.giver.z, 0xffcf4a); }
-})();
-function qActorMesh(look) {
-  try {
-    if (look.char) return buildQuestChar(look.char);
-    if (look.reskin) return buildQuestChar(look.reskin);
-    if (look.kid && typeof buildKid === 'function' && typeof KID_LOOKS !== 'undefined' && KID_LOOKS.length) return buildKid((Math.random() * KID_LOOKS.length) | 0);
-    if (look.person) return buildPerson(look.person[0], look.person[1], CSKIN[look.person[2] || 2], {});
-  } catch (e) { }
-  return buildPerson('#555', '#333', CSKIN[2], {});
-}
-(function placeQActors() {
-  for (var i = 0; i < QACTOR_DEFS.length; i++) {
-    var s = QACTOR_DEFS[i];
-    var m = qActorMesh(s.look);
-    m.position.set(s.x, s.y || 0, s.z); m.rotation.y = s.yaw || 0;
-    scene.add(m);
-    qActors.push({ id: s.id, name: s.name, mesh: m, x: s.x, z: s.z, quest: s.quest, yaw0: s.yaw || 0 });
-  }
-})();
-function questActorNear() {
-  var best = null, bd = 30;   // ~5.5u
-  for (var i = 0; i < qActors.length; i++) { var a = qActors[i], dx = player.x - a.x, dz = player.z - a.z, d = dx * dx + dz * dz; if (d < bd) { bd = d; best = a; } }
-  return best;
-}
-function questActorTalk() {
-  var a = questActorNear(); if (!a) return false;
-  // let the giver path own giver actors (it started/advances those)
-  var d = QUESTS[state.activeQuest];
-  var fired = questTalk(a.id);
-  if (!fired) toast('<b>' + a.name + ':</b> "…"', 1600);
-  return true;
-}
-// hatch gating: a POI is only enterable once the player has reason to know it.
-// cellar/manhole/hollow_oak/stormdrain/arcade open freely (their quests point
-// you there); boardroom needs the lantern; facility needs the three keys.
-function questHatchUnlocked(id) {
-  if (state.unlocks && state.unlocks.perk_signet) return true;   // #78 inherit: every secret door stays open
-  if (id === 'facility') return bagCount('etched_lake_key') > 0 && bagCount('tunnel_fragment') > 0 && bagCount('alien_keycard') > 0;
-  if (id === 'boardroom') return hasUnlock('lantern') || (state.activeQuest === 'q3_redhouse');
-  return true;
-}
-
-loadQuests();
-questRegisterItems();
-placeQuestSurfaceProps();   // #78: quest set-dressing props at the POI entrances
 loadLocalProgress();        // restore offline/guest money+guns+consumables (cloud login overrides later)
-
-// ================= #78 QUEST REWARD CAPABILITIES =================
-// The five stubbed rewards, made real. Each gated on its state.unlocks flag;
-// grant still fires the item + toast. Toggles bind to keys and __wc hooks.
-
-// ---- Detective's Loupe (Q1): highlight clues / reveal trapped containers ----
-var loupeOn = false, _loupeTinted = [];
-// known "trap"/false-bottom spots the Loupe warns about before you open them
-var qTraps = [{ x: -40, z: -70, name: 'false-bottom dumpster' }, { x: -132, z: 44, name: 'rigged liquor cabinet' }];
-var _loupeTrapT = 0;
-function tintClue(obj, hex) {
-  obj.traverse(function (o) {
-    if (o.isMesh && o.material && o.material.emissive) {
-      if (o.userData._emSaved === undefined) { o.userData._emSaved = o.material.emissive.getHex(); o.userData._emiSaved = o.material.emissiveIntensity || 0; }
-      o.material.emissive.setHex(hex); o.material.emissiveIntensity = 0.55 + 0.35 * Math.sin(T * 4);
-      _loupeTinted.push(o);
-    }
-  });
-}
-function clearLoupeTint() {
-  for (var i = 0; i < _loupeTinted.length; i++) { var o = _loupeTinted[i]; if (o.userData._emSaved !== undefined) { o.material.emissive.setHex(o.userData._emSaved); o.material.emissiveIntensity = o.userData._emiSaved; } }
-  _loupeTinted.length = 0;
-}
-function toggleLoupe(v) {
-  if (!hasUnlock('loupe')) { toast('You don\'t have the <b>Detective\'s Loupe</b> yet (Quest 1).', 2000); return false; }
-  loupeOn = (v == null) ? !loupeOn : !!v;
-  if (!loupeOn) clearLoupeTint();
-  toast(loupeOn ? '<b style="color:#ffcf6a">LOUPE UP</b> — clues glow amber; traps flagged.' : 'Loupe stowed.', 1600);
-  sfx(loupeOn ? 'buy' : 'whoosh');
-  return loupeOn;
-}
-function updateLoupe(dt) {
-  clearLoupeTint();
-  if (!loupeOn || !hasUnlock('loupe')) return;
-  var R2 = 26 * 26;
-  for (var i = 0; i < drops.length; i++) {
-    var d = drops[i]; if (!d.item) continue; var def = itemDef(d.itemId); if (!(def && def.quest)) continue;
-    var dx = d.mesh.position.x - player.x, dz = d.mesh.position.z - player.z; if (dx * dx + dz * dz > R2) continue;
-    tintClue(d.mesh, 0xffb020);
-  }
-  for (i = 0; i < qClueMeshes.length; i++) {
-    var c = qClueMeshes[i], cx = c.x - player.x, cz = c.z - player.z; if (cx * cx + cz * cz > R2) continue;
-    tintClue(c.mesh, 0xffb020);
-  }
-  // trap warning: within 5u of a flagged container, ping once every few sec
-  if (T - _loupeTrapT > 4) for (i = 0; i < qTraps.length; i++) {
-    var tp = qTraps[i], tx = tp.x - player.x, tz = tp.z - player.z;
-    if (tx * tx + tz * tz < 25) { toast('<b style="color:#e5533d">TRAP:</b> ' + tp.name + ' is rigged — the Loupe makes it safe to open.', 2600); _loupeTrapT = T; break; }
-  }
-}
-
-// ---- Spirit Lantern (Q3): dark-vision + reveal hidden doors/apparitions ----
-var lanternOn = false, lanternLight = null;
-function toggleLantern(v) {
-  if (!hasUnlock('lantern')) { toast('You don\'t have the <b>Spirit Lantern</b> yet (Quest 3).', 2000); return false; }
-  lanternOn = (v == null) ? !lanternOn : !!v;
-  if (lanternOn && !lanternLight) { lanternLight = new THREE.PointLight(0x9dffbe, 0, 40); scene.add(lanternLight); }
-  toast(lanternOn ? '<b style="color:#8effc0">SPIRIT LANTERN</b> — the dark parts before you; sealed doors reveal.' : 'The green flame gutters out.', 1800);
-  sfx(lanternOn ? 'buy' : 'whoosh');
-  return lanternOn;
-}
-function updateLantern(dt) {
-  if (!lanternLight) return;
-  var tgt = lanternOn && hasUnlock('lantern') ? 2.6 : 0;
-  lanternLight.intensity += (tgt - lanternLight.intensity) * Math.min(1, dt * 6);
-  lanternLight.position.set(player.x, player.y + 0.5, player.z);
-  lanternLight.visible = lanternLight.intensity > 0.03;
-  // part scripted apparitions: nudge quest foes back + stagger them while lit
-  if (lanternLight.intensity > 1.5) for (var i = 0; i < npcs.length; i++) {
-    var n = npcs[i]; if (!n.qfoe) continue;
-    var dx = n.x - player.x, dz = n.z - player.z, d2 = dx * dx + dz * dz;
-    if (d2 < 25 && d2 > 0.01) { var d = Math.sqrt(d2); n.x += (dx / d) * dt * 2.4; n.z += (dz / d) * dt * 2.4; n.jabT = Math.max(n.jabT, 0.5); }
-  }
-}
-
-// ---- 8-Bit Reflexes (Q6): ADS bullet-time on a drainable meter/cooldown ----
-var reflex = { active: false, meter: 1, cd: 0 };
-var adsDown = false;   // right-hold ADS (any weapon) for the reflexes bullet-time
-function reflexScale() { return reflex.active ? 0.34 : 1; }
-function setBulletTime(on) { reflex.forced = !!on; }   // debug/manual override
-function updateReflex(dt) {
-  var want = reflex.forced || (hasUnlock('reflexes') && (zoomed || adsDown) && reflex.meter > 0.03 && reflex.cd <= 0);
-  reflex.active = want;
-  if (want) { reflex.meter = Math.max(0, reflex.meter - dt * 0.55); if (reflex.meter <= 0) { reflex.cd = 3.5; reflex.active = false; } }
-  else { if (reflex.cd > 0) reflex.cd -= dt; reflex.meter = Math.min(1, reflex.meter + dt * 0.4); }
-}
-
-// ---- Biscuit the dog companion (Q9 Dog Whistle) ----
-var biscuit = null;   // { mesh, x, z, ... } — a following, non-harmable dog
-function summonBiscuit() {
-  if (!hasUnlock('dogwhistle')) { toast('You don\'t have the <b>Dog Whistle</b> yet (Quest 9).', 2000); return false; }
-  if (biscuit) { toast('Biscuit is already at your heel. <b>(B)</b> again to send him home.', 1800); return biscuit; }
-  var mesh = null;
-  try { if (typeof getAccessory === 'function') { var acc = getAccessory('dog'); if (acc && acc.mesh) mesh = acc.mesh; } } catch (e) { }
-  if (!mesh) { try { mesh = box(0.5, 0.4, 0.9, lamb({ color: 0x6b4a2e }), 0, 0.2, 0); } catch (e2) { mesh = new THREE.Group(); } }
-  var bx = player.x - Math.sin(yaw) * 2, bz = player.z - Math.cos(yaw) * 2;
-  mesh.position.set(bx, 0, bz); scene.add(mesh);
-  biscuit = { mesh: mesh, x: bx, z: bz, yaw: yaw, phase: 0, bark: 0 };
-  try { playQuestVoice('q9_BISCUIT', 'barks', 0, 0.8, 0.4); } catch (e3) { }
-  toast('<b style="color:#ffd98a">You whistle.</b> Biscuit bounds to your side! Good boy.', 2600);
-  sfx('cash');
-  return biscuit;
-}
-function dismissBiscuit() {
-  if (!biscuit) return false;
-  try { scene.remove(biscuit.mesh); } catch (e) { }
-  biscuit = null; toast('Biscuit trots off home. Blow the whistle to call him back.', 2200);
-  return true;
-}
-function toggleBiscuit() { return biscuit ? dismissBiscuit() : summonBiscuit(); }
-function updateBiscuit(dt) {
-  if (!biscuit) return;
-  var b = biscuit;
-  // heel target: just behind-left of the player (combat-exempt; never harmed)
-  var tx = player.x - Math.sin(yaw) * 2.1 - Math.cos(yaw) * 1.0;
-  var tz = player.z - Math.cos(yaw) * 2.1 + Math.sin(yaw) * 1.0;
-  var dx = tx - b.x, dz = tz - b.z, d = Math.sqrt(dx * dx + dz * dz);
-  var spd = d > 6 ? 7.5 : (d > 1.2 ? 4.2 : 0);   // sprint to catch up, trot near
-  if (spd > 0 && d > 0.01) { b.x += (dx / d) * spd * dt; b.z += (dz / d) * spd * dt; b.yaw = Math.atan2(dx, dz); }
-  b.phase += dt * (spd > 0 ? 9 : 2);
-  var y = qLoc && qRoom ? qRoom.y : (inside && curInterior ? curInterior.box.y : 0);
-  b.mesh.position.set(b.x, y + Math.abs(Math.sin(b.phase)) * (spd > 4 ? 0.12 : 0.03), b.z);
-  b.mesh.rotation.y = b.yaw;
-  // fetch nearby dropped cash toward the player (best-boy utility)
-  for (var i = 0; i < cashes.length; i++) {
-    var cs = cashes[i]; if (!cs || cs.taken) continue;
-    var cp = cs.mesh ? cs.mesh.position : cs;
-    var cdx = cp.x - b.x, cdz = cp.z - b.z, cd2 = cdx * cdx + cdz * cdz;
-    if (cd2 < 4 && cd2 > 0.01) { var cd = Math.sqrt(cd2); cp.x -= (cdx / cd) * dt * 3; cp.z -= (cdz / cd) * dt * 3; if (cs.x !== undefined) { cs.x = cp.x; cs.z = cp.z; } }
-  }
-}
-
-// ---- ghost (Q8): stealth kills via the silenced pistol don't raise wanted ----
-function ghostActive() { return hasUnlock('ghost') && state.equipped === 'silenced'; }
-// Cleaners fence connection: buy -10%, sell +15% once Ghost is unlocked
-function ghostBuy(p) { return hasUnlock('ghost') ? Math.max(0, Math.round(p * 0.9)) : p; }
-function ghostSell(v) { return hasUnlock('ghost') ? Math.round(v * 1.15) : v; }
-
-// ---- quest-NPC idle animation (C): the placed qActors are static-posed;
-// drive the standard idle (animPerson spd=0 → skinned idle clip / limb rest)
-// so they breathe and shift like every other townsperson. Near-camera only.
-function updateQActors(dt) {
-  if (typeof qActors === 'undefined' || !qActors) return;
-  for (var i = 0; i < qActors.length; i++) {
-    var a = qActors[i]; if (!a.mesh) continue;
-    if (a.phase === undefined) a.phase = Math.random() * 6.28;
-    var dx = a.x - player.x, dz = a.z - player.z; var d2 = dx * dx + dz * dz; if (d2 > 130 * 130) continue;
-    a.phase += dt * 3.4;
-    // turn to face the player when they're close (mrg4iels), ease back to the
-    // authored home yaw once they leave — shortest-angle lerp, ~4 rad/s cap
-    var tgt = d2 < 49 ? Math.atan2(player.x - a.x, player.z - a.z) : (a.yaw0 || 0);
-    var cur = a.mesh.rotation.y, dyaw = Math.atan2(Math.sin(tgt - cur), Math.cos(tgt - cur));
-    a.mesh.rotation.y = cur + dyaw * Math.min(1, dt * 4);
-    try { animPerson(a.mesh, 0, dt, a.phase); } catch (e) { }
-  }
-}
-// ---- Q10 ending forks (D): expose / burn / inherit. The finale choice beat
-// (interact poi 'q10_choice') no longer auto-satisfies; the player selects an
-// ending (keys 1/2/3 or __wc.chooseEnding), which applies a distinct town-perk,
-// reward, and denouement toast, then advances the quest to its payoff beat.
-var q10Prompted = false;
-function q10ChoiceActive() {
-  var q = activeQuestEntry(); if (!q || q.completed || q.id !== 'q10_beneath') return false;
-  var b = questBeat(q); return !!(b && b.type === 'interact' && b.poi === 'q10_choice');
-}
-function applyEnding(kind) {
-  if (kind !== 'expose' && kind !== 'burn' && kind !== 'inherit') return false;
-  state.unlocks.ending = kind;
-  if (kind === 'expose') {
-    state.unlocks.perk_leniency = true;
-    toast('<b style="color:#8ee87f">THE WHISTLEBLOWER.</b> You surface the records. The lights over the lake go dark and Westchase becomes an ordinary town — cops run a star cooler and every shop greets a hero.', 8000);
-  } else if (kind === 'burn') {
-    state.unlocks.perk_scorched = true; state.owned.rocket = true;
-    try { if (typeof boomAt === 'function') boomAt(new THREE.Vector3(QPOI.facility.cx || QPOI.facility.x, (QPOI.facility.y || 0) + 1.4, QPOI.facility.cz || QPOI.facility.z), 7); } catch (e) { }
-    toast('<b style="color:#ff6a3d">SCORCHED EARTH.</b> You blow the facility and the thing with it. The Pact ends in fire — the Rocket Launcher is yours, and the town runs wilder now.', 8000);
-  } else {
-    state.unlocks.perk_signet = true;
-    for (var i = 0; i < GUN_LIST.length; i++) state.owned[GUN_LIST[i]] = true;   // free dealer stock tier
-    toast('<b style="color:#ffd24a">THE BOARD SIGNET.</b> You take Thorne\'s chair. You run Westchase now: cops look away, the dealer\'s whole stock is yours, every secret door stays open, and the lights over the lake answer to you.', 8000);
-  }
-  sfx('cash'); saveQuests();
-  return kind;
-}
-function chooseEnding(kind) {
-  if (!q10ChoiceActive()) { toast('There is no choice to make right now.', 1600); return false; }
-  var ok = applyEnding(kind); if (!ok) return false;
-  q10Prompted = false;
-  var q = activeQuestEntry(); if (q) questFlagBeat(q);   // advance past the choice beat
-  return ok;
-}
-// ---- master capability update (called from the loop + __wc.tick) ----
-function updateQuestCaps(dt) {
-  updateLoupe(dt); updateLantern(dt); updateReflex(dt); updateBiscuit(dt); updateQActors(dt);
-  // present the finale choice prompt once the player reaches the choice beat
-  if (q10ChoiceActive()) {
-    if (!q10Prompted) { q10Prompted = true; toast('<b style="color:#ffd98a">THE CHOICE — press a key:</b><br><b>[1] EXPOSE</b> the Pact · <b>[2] BURN</b> it down · <b>[3] INHERIT</b> the chair', 9000); }
-  } else q10Prompted = false;
-}
-// debug: force-grant a capability (and its item) without playing the quest
-function giveUnlock(flag) {
-  state.unlocks[flag] = true;
-  if (UNLOCK_GUN[flag]) state.owned[UNLOCK_GUN[flag]] = true;
-  saveQuests();
-  return state.unlocks;
-}
-
-// ================= END QUEST SYSTEM =================
 
 // ---------------- input ----------------
 var canvas = renderer.domElement;
@@ -19520,7 +18826,7 @@ function startGame() {
   retintPSXArms();
   startScreen.classList.add('hidden');
   state.running = true;
-  seedLitter();   // scatter scavengeable junk around the dumpsters
+  seedHotbar();   // auto-fill the hotbar from owned items (fists + any guns)
   lockPointer();
   toast('Welcome to <b>Westchase</b>. Punch people for cash, rob the gas station (the <b style="color:#e05a3a">G</b> on your minimap), and buy guns from the dealer (the gold <b style="color:#ffd94a">$</b>). <b>TAB</b> = inventory.', 11000);
 }
@@ -19672,36 +18978,11 @@ function makeTag(text, kind) {
 var npcTagPool = [];
 var NPC_TAG_MAX = 10, NPC_TAG_RANGE = 26;
 function updateNpcTags() {
-  var pool = npcTagPool, i;
-  // singleplayer gets NPC tags too (bug report: "name plates only show in
-  // multiplayer") — only gameplay-state gates remain
-  if (!state.running || inside || state.dead) { for (i = 0; i < pool.length; i++) pool[i].visible = false; return; }
-  var px = player.x, pz = player.z, R2 = NPC_TAG_RANGE * NPC_TAG_RANGE, cands = [];
-  for (i = 0; i < npcs.length; i++) { var n = npcs[i]; if (n.state === 'down' || n.state === 'ragdoll' || n.state === 'hidden') continue; var d2 = (n.x - px) * (n.x - px) + (n.z - pz) * (n.z - pz); if (d2 < R2) cands.push({ e: n, d2: d2, kind: 'npc', by: 0 }); }
-  for (i = 0; i < cops.length; i++) { var cp = cops[i]; if (cp.state === 'down' || cp.interior) continue; var cd2 = (cp.x - px) * (cp.x - px) + (cp.z - pz) * (cp.z - pz); if (cd2 < R2) cands.push({ e: cp, d2: cd2, kind: 'cop', by: cp.baseY || 0 }); }
-  // clients mirror street cops in copsM (their `cops` array is empty) — no hp
-  // on the wire, so the bar shows the locally-PREDICTED hp (hpM, decremented
-  // where dmgCop is sent; reset on slot reuse — mrg4gnea)
-  for (i = 0; i < copsM.length; i++) { var cm = copsM[i]; if (cm.down) continue; var md2 = (cm.x - px) * (cm.x - px) + (cm.z - pz) * (cm.z - pz); if (md2 < R2) cands.push({ e: { x: cm.x, z: cm.z, hp: cm.hpM !== undefined ? cm.hpM : 100, vname: 'POLICE' }, d2: md2, kind: 'cop', by: 0 }); }
-  cands.sort(function (a, b) { return a.d2 - b.d2; });
-  var nShow = Math.min(cands.length, NPC_TAG_MAX);
-  for (i = 0; i < NPC_TAG_MAX; i++) {
-    var tag = pool[i];
-    if (!tag) { tag = pool[i] = makeTag('', 'npc'); tag.scale.set(2.2, 0.6, 1); scene.add(tag); }
-    if (i < nShow) {
-      var cc = cands[i], e = cc.e;
-      var label = cc.kind === 'cop' ? 'POLICE' : (e.vname || 'CIVILIAN');
-      var hp = Math.max(0, Math.round(e.hp || 0));
-      if (tag.userData._lbl !== label || tag.userData._hp !== hp || tag.userData._k !== cc.kind) {
-        tag.userData._lbl = label; tag.userData._hp = hp; tag.userData._k = cc.kind;
-        tag.userData.draw(label, hp, cc.kind);
-      }
-      var d = Math.sqrt(cc.d2);
-      tag.material.opacity = d > NPC_TAG_RANGE - 5 ? Math.max(0, (NPC_TAG_RANGE - d) / 5) : 1;
-      tag.position.set(e.x, cc.by + 2.35, e.z);
-      tag.visible = true;
-    } else tag.visible = false;
-  }
+  // NPC/cop nameplates removed by request — only real players get overhead
+  // name + health tags (drawn per-remote in updateRemotes). Keep any pooled
+  // tags hidden in case the pool was ever populated.
+  var pool = npcTagPool;
+  for (var i = 0; i < pool.length; i++) if (pool[i]) pool[i].visible = false;
 }
 function hashStr(s) { var h = 0; for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h); }
 function ensureRemote(id) {
@@ -19924,7 +19205,9 @@ function handleNet(m, conn) {
       if (!dup) {
         recentAtmCash.push({ x: acx, z: acz, t: T });
         if (recentAtmCash.length > 24) recentAtmCash.shift();
-        spawnCash(acx, acz, clampf(m.val, 1, 200) | 0);
+        // val up to 250 covers a death drop (half of the $500 loss cap); optional
+        // life lets a dying client's cash get the same 2-min despawn as the host's
+        spawnCash(acx, acz, clampf(m.val, 1, 250) | 0, 0, m.life ? clampf(m.life, 1, 120) : 40);
       }
     } else if (m.t === 'takeCash') {
       var bi = -1, bd2 = 6;
@@ -20343,7 +19626,7 @@ function applyWorldSnap(dt) {
       ensureEngine(c);
       if (c.eng) engineTickMirror(c, dt);   // speed estimated from mirrored motion
     } else if (c.eng) c.eng.g.gain.value = 0;
-    if (!driving && !c.stolen && !c.parked && Math.abs(edx) < 2.6 && Math.abs(edz) < 2.6 && !state.dead) {
+    if (!driving && !inside && !c.stolen && !c.parked && Math.abs(edx) < 2.6 && Math.abs(edz) < 2.6 && !state.dead) {   // !inside: surface cars can't hit you in the under-map interior
       var dd = ed || 1;
       player.x += (edx / dd) * 2.4; player.z += (edz / dd) * 2.4;
       if (T - state.lastCarHit > 0.8) { state.lastCarHit = T; hurtPlayer(12, m.position.x, m.position.z); sfx('thud'); }
@@ -20435,7 +19718,7 @@ function applyWorldSnap(dt) {
     for (i = 0; i < s.cfx.length; i++) {
       var fe = s.cfx[i];
       var mzv = new THREE.Vector3(fe[0] / 10, fe[1] / 10, fe[2] / 10);
-      puff(mzv, 0xffe08a);
+      puff(mzv, 0xffe08a, 'muzzle');
       sfx((fe[3] & 1) ? 'copsmg' : 'copshot', { x: mzv.x, z: mzv.z, y: mzv.y, range: 150 });
       if ((fe[3] & 2) && fe.length >= 7) puff(new THREE.Vector3(fe[4] / 10, fe[5] / 10, fe[6] / 10), 0xd93a2a, 'blood');
     }
@@ -20771,7 +20054,7 @@ if (location.hash.indexOf('#join=') === 0) {
 // dead state (no menu, free mouse) when the browser refused the re-lock
 // inside its post-Esc cooldown (mrg4egvx)
 pauseScreen.addEventListener('click', function () { lockPointer(); });
-document.addEventListener('pointerlockchange', function () { var locked = document.pointerLockElement === canvas; if (!locked && photoMode) exitPhotoMode(); if (!locked && state.running && !state.menu && !chatOpen && !bugOpen) pauseScreen.classList.remove('hidden'); else if (locked) pauseScreen.classList.add('hidden'); });
+document.addEventListener('pointerlockchange', function () { var locked = document.pointerLockElement === canvas; if (!locked && photoMode) exitPhotoMode(); if (!locked && state.running && !state.menu && !chatOpen && !bugOpen && !state.dead) pauseScreen.classList.remove('hidden'); else if (locked) pauseScreen.classList.add('hidden'); });
 document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 document.addEventListener('mousemove', function (e) {
   if (document.pointerLockElement !== canvas || state.menu) return;
@@ -20789,36 +20072,83 @@ document.addEventListener('mousedown', function (e) {
   if (e.button === 0) { mouseDown = true; tryAttack(); }
   else if (e.button === 2 && !state.dead && !driving) {
     if (state.equipped === 'rifle') setZoom(true);
-    else adsDown = true;   // #78: right-hold = ADS (drives 8-Bit Reflexes bullet-time)
   }
 });
 document.addEventListener('mouseup', function (e) {
   if (e.button === 0) mouseDown = false;
-  else if (e.button === 2) { setZoom(false); adsDown = false; }
+  else if (e.button === 2) { setZoom(false); }
 });
-function cycleEquip(dir) {
-  // quick-swap through everything you own; TAB inventory still works too
-  if (!state.running || state.menu || state.dead || driving) return;
+// ---------------- hotbar + inventory (v1.72) ----------------
+// The player OWNS items (fists + purchased guns + snack). The 7x3 TAB inventory
+// lists everything owned; the detached 7-slot HOTBAR is the quick-select bar you
+// fill from it (drag or click). Scroll wheel / number keys 1-7 cycle the hotbar
+// in-game, and it renders bottom-center (#hotbarHud). Future food/drink items
+// slot in as more owned items automatically.
+var HOTBAR_SLOTS = 7, INV_COLS = 7, INV_ROWS = 3;
+var ITEM_SHORT = { fists: 'FISTS', pistol: 'PISTOL', smg: 'SMG', rifle: 'RIFLE', auto: 'AK-47', rocket: 'RPG', raygun: 'RAY GUN', neon_blaster: 'NEON', silenced: 'SILENCED', snack: 'SNACK', soda: 'SODA' };
+if (!state.hotbar) state.hotbar = [null, null, null, null, null, null, null];
+function itemShort(id) { return ITEM_SHORT[id] || (WEAPONS[id] ? WEAPONS[id].name : id); }
+function itemCount(id) { return id === 'snack' ? state.snacks : (id === 'soda' ? state.sodas : 0); }
+function ownedItemIds() {
   var list = ['fists'];
   for (var i = 0; i < GUN_LIST.length; i++) if (state.owned[GUN_LIST[i]]) list.push(GUN_LIST[i]);
   if (state.snacks > 0) list.push('snack');
   if (state.sodas > 0) list.push('soda');
-  if (list.length < 2) return;
-  var idx = list.indexOf(state.equipped);
-  if (idx < 0) idx = 0;
-  setEquipped(list[(idx + dir + list.length) % list.length]);
+  return list;
 }
-// QoL: number-key direct weapon select. Slot n (1-based) = position in the same
-// owned list cycleEquip walks (1=fists, then owned guns, then snack/soda). Keys
-// for slots you don't own are ignored.
-function selectWeaponSlot(n) {
+function hotbarHas(id) { return state.hotbar.indexOf(id) >= 0; }
+function hotbarAdd(id) {   // first empty slot, no dupes
+  if (!id || hotbarHas(id)) return -1;
+  for (var i = 0; i < HOTBAR_SLOTS; i++) if (!state.hotbar[i]) { state.hotbar[i] = id; refreshHotbarHud(); return i; }
+  return -1;
+}
+function hotbarSet(slot, id) {   // drag-drop into a specific slot (move if already elsewhere)
+  if (slot < 0 || slot >= HOTBAR_SLOTS || !id) return;
+  var old = state.hotbar.indexOf(id);
+  if (old >= 0) state.hotbar[old] = null;
+  state.hotbar[slot] = id;
+  refreshHotbarHud();
+}
+function hotbarClear(slot) { if (slot >= 0 && slot < HOTBAR_SLOTS) { state.hotbar[slot] = null; refreshHotbarHud(); } }
+function seedHotbar() {   // auto-fill from owned items (called at game start)
+  state.hotbar = [null, null, null, null, null, null, null];
+  var ids = ownedItemIds();
+  for (var i = 0; i < ids.length && i < HOTBAR_SLOTS; i++) state.hotbar[i] = ids[i];
+  refreshHotbarHud();
+}
+function pruneHotbar() {   // drop items no longer owned (e.g. last snack eaten)
+  var owned = ownedItemIds(), changed = false;
+  for (var i = 0; i < HOTBAR_SLOTS; i++) if (state.hotbar[i] && owned.indexOf(state.hotbar[i]) < 0) { state.hotbar[i] = null; changed = true; }
+  if (changed) refreshHotbarHud();
+}
+function hotbarFilled() { var f = []; for (var i = 0; i < HOTBAR_SLOTS; i++) if (state.hotbar[i]) f.push(state.hotbar[i]); return f; }
+function refreshHotbarHud() {
+  var el = document.getElementById('hotbarHud'); if (!el) return;
+  el.innerHTML = '';
+  for (var i = 0; i < HOTBAR_SLOTS; i++) {
+    var id = state.hotbar[i];
+    var slot = document.createElement('div');
+    slot.className = 'hbSlot' + (id && id === state.equipped ? ' on' : '') + (id ? '' : ' empty');
+    var key = document.createElement('span'); key.className = 'hbKey'; key.textContent = (i + 1); slot.appendChild(key);
+    if (id) {
+      var lbl = document.createElement('span'); lbl.className = 'hbName'; lbl.textContent = itemShort(id); slot.appendChild(lbl);
+      var c = itemCount(id); if (c > 0) { var cn = document.createElement('span'); cn.className = 'hbCnt'; cn.textContent = c; slot.appendChild(cn); }
+    }
+    el.appendChild(slot);
+  }
+}
+function cycleEquip(dir) {   // scroll wheel: cycle non-empty hotbar slots
   if (!state.running || state.menu || state.dead || driving) return;
-  var list = ['fists'];
-  for (var i = 0; i < GUN_LIST.length; i++) if (state.owned[GUN_LIST[i]]) list.push(GUN_LIST[i]);
-  if (state.snacks > 0) list.push('snack');
-  if (state.sodas > 0) list.push('soda');
-  if (n < 1 || n > list.length) return;
-  if (list[n - 1] !== state.equipped) setEquipped(list[n - 1]);
+  var filled = hotbarFilled();
+  if (!filled.length) return;
+  var idx = filled.indexOf(state.equipped); if (idx < 0) idx = 0;
+  setEquipped(filled[(idx + dir + filled.length) % filled.length]);
+}
+function selectWeaponSlot(n) {   // number keys 1-7 select that hotbar slot directly
+  if (!state.running || state.menu || state.dead || driving) return;
+  if (n < 1 || n > HOTBAR_SLOTS) return;
+  var id = state.hotbar[n - 1];
+  if (id && id !== state.equipped) setEquipped(id);
 }
 document.addEventListener('wheel', function (e) {
   if (document.pointerLockElement !== canvas) return;
@@ -20954,8 +20284,8 @@ var bugOpen = false;
 function bugServerUrl() { return (WC_SERVER_URL || '').replace(/^ws/, 'http').replace(/\/$/, ''); }
 
 // ---------------- accounts: name+PIN progress saves on the relay ----------------
-// Register-on-first-login. Progress = money, guns, snacks/sodas, bag, look,
-// quest log. Autosaves every 10s while signed in and playing, plus a
+// Register-on-first-login. Progress = money, guns, snacks/sodas, bag, look.
+// Autosaves every 10s while signed in and playing, plus a
 // sendBeacon on tab close. Blank PIN = guest, nothing saved.
 var acct = { token: null, name: null, lastSaved: '' };
 function acctStatus(msg, cls) {
@@ -20967,8 +20297,7 @@ function acctBuildSave() {
   return {
     money: state.money | 0, owned: state.owned,
     snacks: state.snacks | 0, sodas: state.sodas | 0,
-    bag: state.bag, cc: cc,
-    quests: { log: state.questLog, active: state.activeQuest, unlocks: state.unlocks }
+    bag: state.bag, cc: cc
   };
 }
 function acctApplySave(s) {
@@ -20985,19 +20314,13 @@ function acctApplySave(s) {
     try { localStorage.setItem('wc_char', s.cc); } catch (e) { }
     var pc = decodeCC(s.cc); if (pc) playerChar = pc;
   }
-  if (s.quests) {
-    if (s.quests.log) state.questLog = s.quests.log;
-    if (s.quests.active !== undefined) state.activeQuest = s.quests.active;
-    if (s.quests.unlocks) state.unlocks = s.quests.unlocks;
-    saveQuests();
-  }
   updateHUD();
 }
 // ---------------- offline/guest local save (localStorage 'wc_save') ----------------
 // The account system above only persists to the relay when signed in with a
 // PIN. For file:// / guest / offline play, money + owned guns + snacks/sodas +
-// bag would reset every reload — so we also mirror them to localStorage. Char,
-// settings and quests already persist under their own keys; this fills the gap.
+// bag would reset every reload — so we also mirror them to localStorage. Char
+// and settings already persist under their own keys; this fills the gap.
 // Applied once at boot (a later cloud sign-in overrides via acctApplySave).
 // NOTE: the key is inlined as a literal, not a `var` — loadLocalProgress runs
 // at boot ABOVE this section, where a hoisted-but-unassigned var would be
@@ -21216,8 +20539,6 @@ document.addEventListener('keydown', function (e) {
   }
   if ((e.code === 'Enter' || e.code === 'NumpadEnter') && state.running && !state.menu && netActive()) { e.preventDefault(); openChat(); return; }
   if (e.code === 'Tab') { e.preventDefault(); if (!state.running || state.dead) return; if (state.menu === 'inv') closeMenus(); else { closeMenus(false); openMenu('inv'); } }
-  // J: quest journal toggle (restored — was temporarily taken by the plane test).
-  if (e.code === 'KeyJ' && !e.repeat) { e.preventDefault(); if (!state.running || state.dead) return; if (state.menu === 'quest') closeMenus(); else if (!state.menu) openMenu('quest'); return; }
   // PLANE TEST HARNESS: K spawns the Learjet in front of the player + boards as
   // pilot (single plane — re-spawns/replaces any existing one). Temporary test
   // key — this whole spawn-on-keypress goes away once airports exist.
@@ -21230,18 +20551,10 @@ document.addEventListener('keydown', function (e) {
   }
   // QoL: M drops/clears a personal waypoint at whatever you're looking at
   if (e.code === 'KeyM' && !e.repeat && state.running && !state.menu && !state.dead) { e.preventDefault(); toggleWaypointAtLook(); return; }
-  // #78 quest-reward capability toggles (only while playing, no menu)
+  // R: cycle the car radio (OFF -> Electronic -> Rap -> Chill -> Rock -> OFF) — only while driving.
+  if (e.code === 'KeyR' && !e.repeat && state.running && !state.menu && !state.dead && driving) { e.preventDefault(); radioCycle(); return; }
+  // QoL: number-key direct weapon select (1..9, 0 = slot 10).
   if (!e.repeat && state.running && !state.menu && !state.dead) {
-    if (e.code === 'KeyL' && hasUnlock('loupe')) { toggleLoupe(); return; }
-    if (e.code === 'KeyG' && hasUnlock('lantern')) { toggleLantern(); return; }
-    if (e.code === 'KeyB' && hasUnlock('dogwhistle')) { toggleBiscuit(); return; }
-    if (q10ChoiceActive()) {
-      if (e.code === 'Digit1' || e.code === 'Numpad1') { chooseEnding('expose'); return; }
-      if (e.code === 'Digit2' || e.code === 'Numpad2') { chooseEnding('burn'); return; }
-      if (e.code === 'Digit3' || e.code === 'Numpad3') { chooseEnding('inherit'); return; }
-    }
-    // QoL: number-key direct weapon select (1..9, 0 = slot 10). Skipped above if
-    // a quest ending choice owns the digits this frame.
     var wslot = -1;
     if (e.code.length === 6 && e.code.indexOf('Digit') === 0) wslot = e.code.charCodeAt(5) - 48;
     else if (e.code.length === 7 && e.code.indexOf('Numpad') === 0) { var nc = e.code.charCodeAt(6) - 48; if (nc >= 0 && nc <= 9) wslot = nc; }
@@ -21261,7 +20574,6 @@ document.addEventListener('keydown', function (e) {
       if (pbdx * pbdx + pbdz * pbdz < 14 * 14) { boardPlane(); return; }
     }
     if (driving) { exitCar(); return; }
-    if (qLoc && qRoom) { exitPOI(); return; }   // inside a quest sub-space — E climbs back out
     if (inside) {
       if (curInterior) { interiorInteractE(); return; }   // generalized interiors (Publix etc.)
       var cdx = player.x - clerkPos.x, cdz = player.z - clerkPos.z;
@@ -21270,18 +20582,12 @@ document.addEventListener('keydown', function (e) {
       else if (xdx * xdx + xdz * xdz < 7) exitStore();
       return;
     }
-    var qgv = questGiverNear();
-    if (qgv) { questGiverTalk(qgv); return; }
-    if (questActorTalk()) return;              // E near a placed quest NPC (Chet, Sal, Vlad…)
-    var qh = nearestHatch();
-    if (qh && questHatchUnlocked(qh.id)) { enterPOI(qh.id); return; }
     var ddx = player.x - dealerPos.x, ddz = player.z - dealerPos.z;
     if (ddx * ddx + ddz * ddz < 36) { openMenu('shop'); return; }
     var gdx = player.x - gasRob.x, gdz = player.z - gasRob.z;
     if (gdx * gdx + gdz * gdz < 40) { enterStore(); return; }
     var idr = nearInteriorDoor();
     if (idr) { enterInterior(idr.id); return; }   // Publix (and future shop interiors)
-    if (petCat(nearestPetCat())) return;   // pet a nearby stray cat (wholesome, local-only)
     if (streetPropInteract()) return;   // vending / payphone / ATM / newsbox / dumpster / kick / mailbox
     if (envPropInteract()) return;      // env props: sit / drink / buy / play / vend / read / mailbox
     if (bushRummage()) return;          // rummage a bush/hedge for lost items
@@ -21313,11 +20619,14 @@ document.addEventListener('pointerlockchange', function () { if (document.pointe
 var stepPhase = 0;   // footstep cadence accumulator (#47)
 function updatePlayer(dt) {
   if (state.menu || state.dead) return;
+  if (rollState) { updateRoll(dt); return; }   // tuck-and-roll cinematic owns the camera until it finishes
+  updateKamehameha(dt);   // rare fists beam: aim/sweep/expire (no-op unless active)
   if (driving) {
     updateDriving(dt);
+    radioTick();   // keep the radio level synced to the master volume while driving
     if (state.hp < 100 && T - state.lastHurt > 5) state.hp = Math.min(100, state.hp + 5 * dt);
     if (flashT > 0) { flashT -= dt; if (flashT <= 0) flash.visible = false; }
-    document.getElementById('prompt').textContent = '[E] EXIT CAR';
+    document.getElementById('prompt').textContent = '';   // no driving control prompt on the HUD (controls live in the pause-menu CONTROLS tab)
     rocketCdEl.classList.add('hidden');   // the vm/reload block below is skipped while driving — don't leave the bar stuck
     return;
   }
@@ -21350,16 +20659,14 @@ function updatePlayer(dt) {
       if (prog >= 1) { resolveDive(diveState.p); diveState = null; }
     }
   }
-  // Vlad's Sprint Shoes (q7): faster run + a mid-air double jump.
-  var sprintOn = (typeof hasUnlock === 'function' && hasUnlock('sprint'));
-  var spd = (keys['ShiftLeft'] || keys['ShiftRight'] ? 8.4 : 5.2) * (sprintOn ? 1.28 : 1);
+  var spd = (keys['ShiftLeft'] || keys['ShiftRight'] ? 8.4 : 5.2);
+  var _preMvX = player.x, _preMvZ = player.z;   // horizontal start-of-frame position (for swept collision below)
   if (f || s) { var inv = spd / Math.sqrt(f * f + s * s); var fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw); player.x += (fx * f + rx * s) * inv * dt; player.z += (fz * f + rz * s) * inv * dt; }
-  var spaceDown = !!keys['Space'], spaceEdge = spaceDown && !player._spaceWas; player._spaceWas = spaceDown;
-  if (spaceDown && player.grounded) { player.vy = 5.6; player.grounded = false; player._jumps = 1; }
-  else if (sprintOn && spaceEdge && !player.grounded && (player._jumps || 0) < 2) { player.vy = 5.2; player._jumps = 2; }
+  var spaceDown = !!keys['Space']; player._spaceWas = spaceDown;
+  if (spaceDown && player.grounded) { player.vy = 6.4; player.grounded = false; }   // ~1.28u apex — clears kerbs + lets you hop onto waist-high props (dumpsters, benches)
   var wasAirborne = !player.grounded;
   player.vy -= GRAV * dt; player.y += player.vy * dt;
-  var eyeFloor = (inside ? (curInterior ? curInterior.box.y : INT.y) : (qRoom ? qRoom.y : lakeBedY(player.x, player.z))) + EYE;
+  var eyeFloor = (inside ? (curInterior ? curInterior.box.y : INT.y) : surfaceHeightAt(player.x, player.z, false, player.y - EYE)) + EYE;
   if (player.y <= eyeFloor) {
     // fall damage: a hard downward landing hurts, scaled by impact; a big drop
     // (e.g. bailing out of the plane at altitude) is lethal. Small hops are safe.
@@ -21369,11 +20676,31 @@ function updatePlayer(dt) {
     }
     player.y = eyeFloor; player.vy = 0; player.grounded = true;
   }
-  player.x = Math.max(-HALF + 1.2, Math.min(HALF - 1.2, player.x)); player.z = Math.max(-HALF + 1.2, Math.min(HALF - 1.2, player.z));
+  // world-boundary clamp only OUTDOORS — several shop interiors sit past ±HALF
+  // (Dunkin/Starbucks/Sakura/DollarTree/Bank), and their own wall colliders
+  // confine the player; clamping inside chopped off the far half of those rooms.
+  if (!inside) { player.x = Math.max(-HALF + 1.2, Math.min(HALF - 1.2, player.x)); player.z = Math.max(-HALF + 1.2, Math.min(HALF - 1.2, player.z)); }
   if (!landColliders) landColliders = colliders.filter(function (cc) { return !cc.lake; });
-  var p = pushOut(player.x, player.z, 0.55, inside ? (curInterior ? curInterior.colliders : intColliders) : (qRoom ? qRoom.colliders : landColliders)); player.x = p.x; player.z = p.z;
+  // swept, sub-stepped collision: resolve from the start-of-frame position toward
+  // the target in chunks no bigger than ~0.4·radius, so a large per-frame step (low
+  // framerate, sprinting) can't tunnel through a collider and strand you on the far
+  // side — that tunneling was the one-way "invisible barrier" in the shop interiors.
+  var _colList = inside ? (curInterior ? curInterior.colliders : intColliders) : landColliders;
+  var _mvx = player.x - _preMvX, _mvz = player.z - _preMvZ, _mdist = Math.sqrt(_mvx * _mvx + _mvz * _mvz);
+  if (_mdist > 0.22) {
+    // advance from the RESOLVED position each sub-step (true sweep) so hitting a
+    // collider stops/slides you at its face instead of sampling past it.
+    var _nsub = Math.ceil(_mdist / 0.22), _sx = _mvx / _nsub, _sz = _mvz / _nsub, _cx = _preMvX, _cz = _preMvZ;
+    for (var _ss = 0; _ss < _nsub; _ss++) {
+      var _q = pushOut(_cx + _sx, _cz + _sz, 0.55, _colList, player.y - EYE);
+      _cx = _q.x; _cz = _q.z;
+    }
+    player.x = _cx; player.z = _cz;
+  } else {
+    var p = pushOut(player.x, player.z, 0.55, _colList, player.y - EYE); player.x = p.x; player.z = p.z;
+  }
   // pedestrians are solid-ish: you shoulder past them, not through them
-  if (!inside && !qLoc && !state.dead) for (var pci = 0; pci < npcs.length; pci++) {
+  if (!inside && !state.dead) for (var pci = 0; pci < npcs.length; pci++) {
     var pcn = npcs[pci];
     if (pcn.state === 'down' || pcn.state === 'ragdoll' || pcn.state === 'hidden') continue;
     var pcx = player.x - pcn.x, pcz = player.z - pcn.z, pc2 = pcx * pcx + pcz * pcz;
@@ -21384,7 +20711,7 @@ function updatePlayer(dt) {
     }
   }
   // cops are solid too — but they hold the line (player gives most of the ground)
-  if (!qLoc && !state.dead) for (var cci = 0; cci < cops.length; cci++) {
+  if (!state.dead) for (var cci = 0; cci < cops.length; cci++) {
     var ccc = cops[cci];
     if (ccc.state === 'down') continue;
     if (inside ? !ccc.interior : ccc.interior) continue;   // interior cops share x/z space at another floor
@@ -21395,7 +20722,7 @@ function updatePlayer(dt) {
       ccc.x -= ccx / ccd * ccp * 0.2; ccc.z -= ccz / ccd * ccp * 0.2;   // cops barely budge
     }
   }
-  if (!inside && !qLoc && !state.dead && isClient()) for (var cmi = 0; cmi < copsM.length; cmi++) {
+  if (!inside && !state.dead && isClient()) for (var cmi = 0; cmi < copsM.length; cmi++) {
     var cmc = copsM[cmi];
     if (cmc.down) continue;
     var cmx = player.x - cmc.x, cmz = player.z - cmc.z, cm2 = cmx * cmx + cmz * cmz;
@@ -21513,7 +20840,12 @@ function updatePlayer(dt) {
   } else rocketCdEl.classList.add('hidden');
   var pt = T - punchT;
   if (WEAPONS[state.equipped].melee) {
-    if (psxArms) {
+    if (kameActive && psxArms) {
+      // Kamehameha: hold the REAL fists rig thrust up/forward so both hands frame
+      // the energy core (no jab animation while the beam is firing)
+      armsPose(psxArms, 'idle', T);
+      vmFists.rotation.set(-1.15, 0, 0);
+    } else if (psxArms) {
       // 1 in 5 swings is an open-hand BITCH SLAP: jabR silhouette swept
       // horizontally across the screen by rolling the whole fists group
       var jabWant = punchSlap && psxArms.clips.jabR ? 'jabR' : (punchSide ? 'jabR' : 'jabL');
@@ -21541,7 +20873,6 @@ function updatePlayer(dt) {
   // context prompt
   var prompt = document.getElementById('prompt');
   if (state.menu) { prompt.textContent = ''; }
-  else if (qLoc) { prompt.textContent = '[E] CLIMB OUT'; }
   else if (inside) {
     if (curInterior) { prompt.textContent = interiorPrompt(); }
     else {
@@ -21554,22 +20885,14 @@ function updatePlayer(dt) {
   } else {
     var ddx = player.x - dealerPos.x, ddz = player.z - dealerPos.z;
     var gdx = player.x - gasRob.x, gdz = player.z - gasRob.z;
-    var qgv2 = questGiverNear();
-    var qa2 = questActorNear();
-    var qh2 = nearestHatch();
     var idr2 = nearInteriorDoor();
     if (ddx * ddx + ddz * ddz < 36) prompt.textContent = '[E] BUY GUNS';
     else if (gdx * gdx + gdz * gdz < 40) prompt.textContent = (T < gasClosedUntil) ? 'STORE CLOSED' : '[E] ENTER GAS STATION';
     else if (idr2) prompt.textContent = '[E] ENTER ' + idr2.label;
-    else if (qgv2) prompt.textContent = '[E] TALK TO ' + qgv2.giver.name.toUpperCase();
-    else if (qa2) prompt.textContent = '[E] TALK TO ' + (qa2.name || 'THEM').toUpperCase();
-    else if (qh2 && questHatchUnlocked(qh2.id)) prompt.textContent = '[E] ENTER ' + (QPOI[qh2.id].name || 'HATCH').toUpperCase();
     else {
-      var petc = breakIn ? null : (typeof nearestPetCat === 'function' ? nearestPetCat() : null);
-      var spp = (breakIn || petc) ? null : (streetPropPrompt() || envPropPrompt() || bushPrompt());   // street + env + bush E-prompts
-      var nsc = spp || petc || breakIn ? null : nearestStealableCar();
+      var spp = breakIn ? null : (streetPropPrompt() || envPropPrompt() || bushPrompt());   // street + env + bush E-prompts
+      var nsc = spp || breakIn ? null : nearestStealableCar();
       if (breakIn) prompt.textContent = 'BREAKING IN…';
-      else if (petc) prompt.textContent = (petc.petCD > 0 ? '' : '[E] PET THE CAT');
       else if (spp) prompt.textContent = spp;
       else if (nsc) prompt.textContent = carDrivenByPlayer(nsc) ? '[E] HIJACK CAR' : (nsc.parked ? '[E] BREAK IN' : '[E] STEAL CAR');
       else prompt.textContent = '';
@@ -21766,6 +21089,7 @@ function drawCompass(W, H) {
 function drawHudCanvas() {
   var W = hudW, H = hudH, M = 14;
   hudCx.clearRect(0, 0, W, H);
+  if (state.dead) return;   // death cinematic: keep the screen clean (no crosshair/weapon/health/etc.)
   drawCrosshair(W, H);
   if (settings && settings.compass && state.running) drawCompass(W, H);
   // ---- hitmarker: four short diagonal ticks that flick out from the reticle
@@ -21844,11 +21168,11 @@ function drawHudCanvas() {
     hudText('☠ ' + kfe.txt, W - M, kfy, 12, kfe.col, 'right');
     hudCx.globalAlpha = 1;
   }
-  // ---- wanted stars: top-center (lit gold, unlit dark silhouettes) ----
+  // ---- wanted stars: top-left corner (lit gold, unlit dark silhouettes) ----
   var sw = state.wanted | 0, spx = 2, sgap = 9 * spx + 6;
   var starY = (settings && settings.compass) ? M + 30 : M;   // clear the compass ribbon
   for (var i = 0; i < 5; i++)
-    drawSprite(SPR_STAR, W / 2 + (i - 2.5) * sgap + 3, starY, spx, i < sw ? '#ffd200' : '#242b38');
+    drawSprite(SPR_STAR, M + 3 + i * sgap, starY, spx, i < sw ? '#ffd200' : '#242b38');
   // ---- health: big retro numerals + heart, bottom-left ----
   var hp = Math.max(0, Math.min(100, Math.round(state.hp)));
   var hcol = hp > 60 ? '#46e05e' : (hp > 30 ? '#ffd200' : '#ff3b28');
@@ -21857,25 +21181,6 @@ function drawHudCanvas() {
   var hy = H - M - 30;
   drawSprite(SPR_HEART, M, hy + 5, 2, '#ff3b56');
   drawPix('' + hp, M + 24, hy, 4, hcol, 'left');
-  // ---- active-quest tracker (left edge, BELOW the top bar: the compass strip
-  // sits topmost, wanted stars under it, and the tracker clears both — its old
-  // M+10 anchor put the panel across the compass' left half and the star row
-  // on long objective lines, report mrg4brvw) ----
-  var qo = questObjectiveText();
-  if (qo) {
-    var qy = starY + 34;   // stars end at starY+18; 8px gap above the panel plate
-    var qtx = qo.text.length > 30 ? qo.text.slice(0, 29) + '\u2026' : qo.text;   // cap plate width (mrgb92wa)
-    var otxt = (qo.text === 'COMPLETE') ? '✔ COMPLETE' : ('◆ ' + qtx);
-    hudCx.font = 'bold 11px "Courier New",monospace';
-    var qtw = hudCx.measureText(otxt).width;
-    var qnw = qo.name.length * 12 - 2;                    // drawPix px=2 advance
-    var qpw = Math.min(200, Math.max(qnw, qtw) + 20);
-    hudCx.fillStyle = '#000'; hudCx.fillRect(M - 8, qy - 8, qpw + 4, 38);
-    hudCx.fillStyle = 'rgba(10,13,20,0.78)'; hudCx.fillRect(M - 6, qy - 6, qpw, 34);
-    hudCx.fillStyle = '#ffb428'; hudCx.fillRect(M - 6, qy - 6, 3, 34);   // amber accent bar
-    drawPix(qo.name, M + 4, qy - 1, 2, '#ffd98a', 'left');
-    hudText(otxt, M + 4, qy + 22, 11, (qo.text === 'COMPLETE') ? '#8ee87f' : '#cfe6ff', 'left');
-  }
   // ---- weapon (bottom-right): bitmap name, small flavor line under it ----
   var wb = document.getElementById('weaponBox'), main = '', sub = '';
   if (wb) {
@@ -21930,33 +21235,14 @@ function drawHudCanvas() {
     hudCx.restore();
     hudText(wdtxt, wmx2, wmy2 - 12, 12, '#bfefff', 'center');
   }
-  // ---- QoL: speedometer while driving — MPH readout + speed bar, bottom-center.
-  // driving.pspeed is world u/s (capped ~26); SPEEDO_MPH scales it to a believable
-  // top speed near 70 mph. Reverse shows an 'R' tag and the bar still fills. ----
-  if (driving && !inside) {
-    var absS = Math.abs(driving.pspeed || 0);
-    var mph = Math.round(absS * SPEEDO_MPH);
-    var sfrac = Math.max(0, Math.min(1, absS / 26));
-    var sbw = 128, scxs = Math.round(W / 2), sby = H - M - 4;
-    hudCx.fillStyle = '#000'; hudCx.fillRect(scxs - sbw / 2 - 2, sby - 44, sbw + 4, 48);
-    hudCx.fillStyle = 'rgba(10,13,20,0.82)'; hudCx.fillRect(scxs - sbw / 2, sby - 42, sbw, 44);
-    var scol = mph < 35 ? '#8ee87f' : (mph < 60 ? '#ffd200' : '#ff5a3a');
-    drawPix('' + mph, scxs + 4, sby - 34, 4, scol, 'right');
-    hudText('MPH', scxs + 12, sby - 12, 12, '#b9b19a', 'left');
-    if ((driving.pspeed || 0) < -0.5) drawPix('R', scxs - sbw / 2 + 8, sby - 34, 3, '#ff5a3a', 'left');
-    hudBar(scxs - sbw / 2 + 10, sby - 10, sbw - 20, 5, sfrac, scol, 0);
-  } else if (state.running && !state.dead && (!settings || settings.quickbar)) {
-    // on foot: weapon quick-bar occupies the same bottom-center strip as the speedo
-    drawQuickBar(W, H);
-  }
-  // ---- FPS / perf readout (QoL, settings.fps): left edge, clear of the quest
-  // tracker (top) and health (bottom). renderer.info reflects last frame. ----
+  // (driving speedometer removed v1.76.4 — no on-screen MPH/controls while driving)
+  // (on-foot weapon quick-bar is now the DOM hotbar #hotbarHud — v1.72)
+  // ---- FPS / perf readout (QoL, settings.fps): left edge, clear of the
+  // minimap (top) and health (bottom). renderer.info reflects last frame. ----
   if (settings && settings.fps) {
     var fv = Math.round(fpsVal);
     var fcol = fv >= 50 ? '#8ee87f' : (fv >= 30 ? '#ffd200' : '#ff5a3a');
-    // below the minimap line AND below the quest tracker (which now hangs
-    // under the top bar on the same left edge — mrg4brvw layout pass)
-    var fy = Math.max(hudMmB + 6, qo ? qy + 52 : 0);
+    var fy = hudMmB + 6;
     hudText('FPS ' + (fv || '--'), M, fy, 13, fcol, 'left');
     var ri = (renderer && renderer.info && renderer.info.render) ? renderer.info.render : null;
     if (ri) {
@@ -21984,7 +21270,7 @@ function updateLowHpVig() {
   }
   if (op !== lowHpVigLast) { lowHpVigLast = op; lowHpVigEl.style.opacity = op; }
 }
-function updateHUD() { document.getElementById('money').textContent = '$' + state.money; document.getElementById('hpBar').style.width = Math.max(0, state.hp) + '%'; updateLowHpVig(); if (state.dead) updateDeadScreen(); drawHudCanvas(); }
+function updateHUD() { document.getElementById('money').textContent = '$' + state.money; document.getElementById('hpBar').style.width = Math.max(0, state.hp) + '%'; var hbEl = document.getElementById('hotbarHud'); if (hbEl) hbEl.style.display = (state.running && !driving && !state.dead) ? 'flex' : 'none'; var mmEl = document.getElementById('mm'); if (mmEl) mmEl.style.display = state.dead ? 'none' : ''; updateLowHpVig(); drawHudCanvas(); }
 
 // ---------------- QoL: photo mode ----------------
 // P toggles a free-fly camera for screenshots: HUD + first-person arms hidden,
@@ -22044,9 +21330,9 @@ function loop(now) {
   // flies a free camera for screenshots — no T advance, no update calls.
   if (photoMode) { updatePhotoCam(dt); renderer.render(scene, camera); return; }
   T += dt;
-  updateReflex(dt);                       // 8-Bit Reflexes: sets the slow-mo factor
-  var sdt = dt * reflexScale();           // world sim dt (bullet-time scales it)
-  updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateWildlife(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); updateQuestCaps(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
+  var sdt = dt;
+  updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
+  if (state.dead) updateDeathCam(dt);   // top-down zoom-out cinematic drives the camera while dead
   renderer.render(scene, camera);
 }
 setEquipped('fists');
@@ -22136,6 +21422,9 @@ window.__wc = {
   setPitch: function (p2) { pitch = p2; camera.rotation.x = pitch; },
   teleport: function (x, z) { player.x = x; player.z = z; },
   tryAttack: tryAttack, setEquipped: setEquipped, cycleEquip: cycleEquip,
+  startKame: function () { startKamehameha(); }, isKame: function () { return kameActive; },
+  hotbarAdd: hotbarAdd, seedHotbar: seedHotbar, refreshHotbarHud: refreshHotbarHud, refreshInv: refreshInv, updateHUD: updateHUD, hotbar: function () { return state.hotbar; },
+  updateDeathCam: updateDeathCam, doRespawn: doRespawn, vm: vm,
   enterStore: enterStore, exitStore: exitStore, refreshClerk: refreshClerk, animPerson: animPerson, animPersonClip: animPersonClip, playVoice: playVoice, oak: oak, bush: bush, getPackProp: getPackProp,
   enterInterior: enterInterior, enterPublix: function () { enterInterior('publix'); }, exitInterior: exitInterior,
   enterDunkin: function () { enterInterior('dunkin'); }, enterStarbucks: function () { enterInterior('starbucks'); },
@@ -22145,6 +21434,7 @@ window.__wc = {
   envVendors: function () { return envVendors.map(function (v) { return { voice: v.voice, x: Math.round(v.x * 10) / 10, z: Math.round(v.z * 10) / 10, px: v.px, pz: v.pz }; }); },
   voiceLog: function () { return window.__voiceLog || []; },
   interiorState: function () { return { inside: inside, id: curInterior ? curInterior.id : (inside ? 'gas' : null), staff: curInterior ? curInterior.staff.length : 0, colliders: curInterior ? curInterior.colliders.length : 0, box: curInterior ? curInterior.box : null }; },
+  curInteriorRef: function () { return curInterior; }, intCollidersRef: function () { return intColliders; },
   shopPopulation: function () { return shopCust.length; },
   spawnCustomer: function () { return !!spawnCustomer(true); },
   listShopNpcs: function () { return shopCust.map(function (c) { return { state: c.state, x: Math.round(c.x * 10) / 10, z: Math.round(c.z * 10) / 10, lane: c.lane, qi: c.qi, beats: c.beats }; }); },
@@ -22232,6 +21522,7 @@ window.__wc = {
   enterCar: enterCar, exitCar: exitCar, nearestStealableCar: nearestStealableCar,
   isDriving: function () { return !!driving; }, drivingCar: function () { return driving; },
   pressKey: function (code, down) { keys[code] = down; },
+  surfaceHeightAt: function (x, z, sk, fy) { return surfaceHeightAt(x, z, sk, fy); },
   // --- easter-egg / secret test hooks ---
   stashes: function () { return SECRET_STASHES; },
   secretState: function () { var left = 0; for (var i = 0; i < SECRET_STASHES.length; i++) if (!SECRET_STASHES[i].taken) left++; return { stashesLeft: left, stashTotal: SECRET_STASHES.length, confetti: confetti.length, comboIdx: konamiIdx }; },
@@ -22376,36 +21667,8 @@ window.__wc = {
   settingsView: function () { return { lookSens: lookSens, lookInvert: lookInvert, baseFov: baseFov, camFov: camera.fov, viewDistScale: viewDistScale, crt: CRT_FX, crtHidden: (document.getElementById('crtFx') || {}).className, settingsOpen: settingsOpen }; },
   getPlayerChar: function () { return playerChar; },
   setPlayerChar: function (c) { playerChar = c; },
-  // --- quest system debug hooks ---
-  QUESTS: QUESTS, questLog: function () { return state.questLog; },
-  startQuest: startQuest, setActiveQuest: setActiveQuest, advanceBeat: advanceBeat, completeBeat: completeBeat,
-  finishQuest: finishQuest, grantReward: grantReward, hasUnlock: hasUnlock,
-  questState: function () { var q = activeQuestEntry(); return { active: state.activeQuest, stage: q ? q.stage : -1, beat: q ? questBeat(q) : null, obj: questObjectiveText(), waypoint: questWaypoint(), log: state.questLog, unlocks: state.unlocks }; },
-  questWaypoint: questWaypoint, questObjectiveText: questObjectiveText, questBeatDone: function () { var q = activeQuestEntry(); return q ? questBeatDone(q, questBeat(q)) : false; },
-  questTalk: questTalk, questInteract: questInteract, questKillTag: questKillTag, questFollowArrive: questFollowArrive, questTimedSub: questTimedSub,
-  registerQuestPOI: registerQuestPOI, questPOIById: questPOIById, registerAmbush: registerAmbush, triggerAmbush: triggerAmbush,
-  enterPOI: enterPOI, exitPOI: exitPOI, questLoc: function () { return qLoc; },
-  qProp: qProp, placeQuestSurfaceProps: placeQuestSurfaceProps, buildRoom: buildRoom,
-  // #78 reward capabilities
-  giveUnlock: giveUnlock,
-  toggleLoupe: toggleLoupe, loupeState: function () { return { on: loupeOn, tinted: _loupeTinted.length, clues: qClueMeshes.length }; },
-  toggleLantern: toggleLantern, lanternState: function () { return { on: lanternOn, intensity: lanternLight ? Math.round(lanternLight.intensity * 100) / 100 : 0 }; },
-  setBulletTime: setBulletTime, reflexState: function () { return { active: reflex.active, meter: Math.round(reflex.meter * 100) / 100, cd: Math.round(reflex.cd * 100) / 100, scale: reflexScale() }; },
-  summonBiscuit: summonBiscuit, dismissBiscuit: dismissBiscuit, toggleBiscuit: toggleBiscuit,
-  biscuitState: function () { return biscuit ? { x: Math.round(biscuit.x * 10) / 10, z: Math.round(biscuit.z * 10) / 10, dist: Math.round(Math.sqrt((biscuit.x - player.x) * (biscuit.x - player.x) + (biscuit.z - player.z) * (biscuit.z - player.z)) * 10) / 10 } : null; },
-  ghostActive: ghostActive, ghostBuy: ghostBuy, ghostSell: ghostSell,
-  qActorsRef: function () { return qActors; }, updateQActors: updateQActors,
-  chooseEnding: chooseEnding, applyEnding: applyEnding, q10ChoiceActive: q10ChoiceActive,
-  endingState: function () { return { ending: state.unlocks.ending || null, leniency: !!state.unlocks.perk_leniency, scorched: !!state.unlocks.perk_scorched, signet: !!state.unlocks.perk_signet, maxWanted: maxWanted() }; },
   ownWeapon: function (k) { if (WEAPONS[k]) { state.owned[k] = true; return true; } return false; },
-  setAdsDown: function (v) { adsDown = !!v; },
-  questGiverNear: questGiverNear, questGiverTalk: questGiverTalk, refreshQuestPanel: refreshQuestPanel,
-  openQuestLog: function () { openMenu('quest'); }, saveQuests: saveQuests, loadQuests: loadQuests,
-  // --- #77 quest-asset wiring test hooks ---
-  buildQuestChar: buildQuestChar, playQuestVoice: playQuestVoice, getEnvProp: getEnvProp,
-  questRegisterItems: questRegisterItems, itemDef: itemDef, itemTex: itemTex, bagAdd: bagAdd, bagCount: bagCount,
-  questAssets: function () { return { chars: Object.keys(QUEST_IDX), reskins: Object.keys(QUEST_RESKIN_IDX), props: (typeof QUEST_PROPS !== 'undefined') ? QUEST_PROPS.map(function (p) { return p.n; }) : [], items: (typeof QUEST_ITEM_DEFS !== 'undefined') ? QUEST_ITEM_DEFS.length : 0, voices: (typeof QUEST_VOICES !== 'undefined') ? Object.keys(QUEST_VOICES).length : 0 }; },
-  wildlife: wildlife, wildlifeCounts: wildlifeCounts, updateWildlife: updateWildlife, initWildlife: initWildlife, nearestPetCat: nearestPetCat, petCat: petCat,
+  getEnvProp: getEnvProp, itemDef: itemDef, itemTex: itemTex, bagAdd: bagAdd, bagCount: bagCount,
   // --- flyable plane (Learjet) — local/singleplayer test hooks ---
   spawnPlane: function () { return spawnPlane(); },
   plane: function () { return plane; },
@@ -22428,11 +21691,19 @@ window.__wc = {
   planeMouse: function (dx, dy) { if (plane && plane.piloting) { plane.mElev = Math.max(-1.4, Math.min(1.4, plane.mElev + dy * PLANE_MOUSE_SENS)); plane.mAil = Math.max(-1.4, Math.min(1.4, plane.mAil - dx * PLANE_MOUSE_SENS)); } },
   planeProps: function () { return { debris: planeDebris.length, scorch: planeScorch.length }; },
   updatePlaneWorld: updatePlaneWorld,
+  // jet-engine audio debug: gain rises with throttle (headless verification hook)
+  jetInfo: function () { return jetNodes ? { running: jetRunning, gain: jetNodes.master.gain.value, cutoff: jetNodes.lp.frequency.value, whine: jetNodes.w1.frequency.value, spool: jetSpool } : { running: false, gain: 0, cutoff: 0, whine: 0, spool: 0 }; },
   updateCars: function (dt) { updateCars(dt); },
+  // car radio (player-only) test hooks
+  initAudio: function () { initAudio(); },
+  enterCar: function (c) { enterCar(c); }, exitCar: function (h) { exitCar(h); }, explodeCar: function (c) { explodeCar(c); },
+  radioCycle: radioCycle, radioSetStation: radioSetStation, radioStop: radioStop, radioNext: radioNext,
+  radioFireEnded: function () { if (radioEl) radioEl.dispatchEvent(new Event('ended')); },
+  radioState: function () { return { station: radioStation, stationName: radioStation >= 0 ? RADIO_STATIONS[radioStation].name : 'OFF', track: radioTrack, src: radioEl ? radioEl.src : '', playing: radioWantPlay, paused: radioEl ? radioEl.paused : true, stations: RADIO_STATIONS.length }; },
   // lightweight physics step (no render, no NPC/cop/car sim) — fast headless
   // stepping for plane/fall tests. Renders only when you call renderer yourself.
   stepLite: function (dt) { T += dt; updatePlayer(dt); updatePlaneWorld(dt); },
-  tick: function (dt) { T += dt; updateReflex(dt); var sdt = dt * reflexScale(); updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateWildlife(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateQuests(dt); updateQuestCaps(dt); updateSecrets(sdt); renderer.render(scene, camera); }
+  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
 };
 
 // ---------------- boot screen handoff + menu cover art ----------------

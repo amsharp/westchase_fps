@@ -44,13 +44,13 @@ steal each other's wheels: press **E** on a car a friend is driving to
 hijacked again for 15 seconds, so make your getaway count.
 
 **Keep your progress.** Type a **PIN (4-8 digits)** under your name before
-pressing PLAY ONLINE and your progress — cash, guns, snacks, your item bag,
-your look, and your quest log — is saved to the server under that name+PIN
+pressing PLAY ONLINE and your progress — cash, guns, snacks,
+and your look — is saved to the server under that name+PIN
 and comes back on any browser or device. First sign-in creates the account;
 leave the PIN blank to play as a guest — but even guests keep their progress
-**locally on this browser** now (cash, guns, snacks/sodas, and item bag are
+**locally on this browser** now (cash, guns, and snacks are
 mirrored to local storage and restored on your next visit, so offline
-singleplayer no longer resets every reload; your look, settings, and quests
+singleplayer no longer resets every reload; your look and settings
 already persisted). A PIN is what makes that progress follow you to *other*
 devices. Progress autosaves every few seconds while you play. Add an
 **email** and you can recover a
@@ -124,7 +124,43 @@ shallows, and a hollow tap indoors. They speed up when you sprint.
 Engines got real too: every car runs a layered synth with gears — revs
 climb as it accelerates, drop on each upshift, and settle to a low
 idle rumble at a stop. Your own stolen ride is louder and richer, and
-answers the throttle.
+answers the throttle. Brakes talk back: a soft chirp when you ease to a
+low-speed stop, and **tyres screech** when you stand on the brakes at speed
+or the back end breaks loose in a slide. Every car shares the same beefier
+horn now, too.
+
+Cars **drive** with real weight now. They build speed gradually — a
+strong pull off the line that tapers as you climb toward a **high top
+speed** — and they **carry their momentum**: lift off the gas and the car
+coasts for a long time instead of stopping dead. Steering gets a little
+**heavier the faster you go**, so it's less twitchy at speed. The body
+**leans into corners** (a hard right throws it left), and if you take a
+corner too fast and **hold it too long** the tyres let go: the slide
+builds until the back end steps out and the car **spins out**. Ease off or
+scrub speed to catch it. Cars also **climb** ramps and kerbs. Hit a real
+**ramp** with a run-up and the car **launches along the ramp's angle** and
+sails through the air, keeping its momentum until it lands — the faster
+you're going, the further it flies. Little **kerbs and sidewalk edges** only
+give a small hop now (they used to fling you skyward). And crashing
+**into a solid wall at speed hurts** — hit a building fast enough and it's a
+fatal, fiery wreck. **Wooden jump ramps** are scattered along the roads — big
+right-triangle kickers built from real planks, in a mix of sizes (little ones
+for a quick pop, big ones for serious air). Each sits on a straightaway with
+room to build speed into it and open road to land on: line one up, floor it,
+and fly.
+
+Everything now **rides on top of the ground** instead of sinking into
+it: people, police, and vehicles sit on whichever layer is under them —
+grass, road, sidewalk, parking lot, or ramp — so feet and tyres meet the
+surface instead of clipping through the raised road and kerb. Drive a car
+up onto a **kerb** and it steps up onto the sidewalk; you can walk (and
+jump) up ramps and raised layers on foot too.
+
+Collision is **2.5D** now: solid props have a real top, so if you can
+**jump high enough you land on top of them** — hop up onto a dumpster,
+bench, or barrier and stand there — while they still wall you off at
+ground level. Your jump is a little higher to make that reachable. Low
+kerbs and steps you just walk straight up.
 
 ## The town talks (and swings back)
 
@@ -228,29 +264,6 @@ the dog slips away, a pushed stroller is just left standing where it was, and
 a carried item falls from the hand. (All of this is local colour — it isn't
 streamed over the network, so it stays smooth without adding traffic.)
 
-## Wildlife
-
-The suburb is alive with small critters — the visible source of the birdsong
-and nature sounds drifting over the neighbourhood:
-
-- **Ground birds** (pigeons, sparrows, robins) peck and hop on the sidewalks
-  and parking lots. Walk up on one, or drive a car past, and the flock
-  **flutters up and flies off** to resettle somewhere quieter — with a real
-  wing-flutter and the occasional chirp.
-- **Ducks** paddle around the **lake**, drifting between spots on the water,
-  bobbing and dipping their heads, with a soft quack now and then.
-- **Squirrels** scurry on the ground around the big **oaks**. Get close and one
-  **darts up the nearest trunk** and freezes, clinging, until you back off — then
-  it climbs back down.
-- **Stray cats** amble along the sidewalks and yards. They're **skittish** — move
-  in too fast and one bolts a short way — but approach gently and you can press
-  **[E] to pet it**: a meow, a purr, and a little heart. Wholesome.
-
-Like the kids and dogs, **every critter is off-limits** — weapons, cars and
-blasts pass right through, and they never count toward your wanted level. It's
-all local colour (not streamed in multiplayer), and only a small handful stay
-active near you at a time, so it never costs the framerate.
-
 ## The loop
 
 You spawn **with no gun**. Punch pedestrians (they drop cash) — just walk
@@ -292,140 +305,24 @@ Grab a wad of loose cash and a green **"+$" floats up from the spot** it
 was lying and fades — a little hit of feedback anchored to the world, not
 just a number ticking up in the corner.
 
-## Quests & the quest log
+## Inventory & hotbar
 
-Westchase has **stories to work through**. Quest-givers stand around town
-under a soft **amber beacon** — walk up and press **E** to hear them out and
-take the job. You can only actively track **one quest at a time**.
+Open your **inventory** with **Tab**. It's a **7×3 grid** holding everything
+you own — your fists, every gun you've bought or picked up, and your snacks —
+with room to spare for the food and drink items coming later.
 
-Open the **quest log with J**. On the left is every quest you've found
-(available, in-progress, or completed); click one to read its summary and
-its **objective checklist** on the right. Hit **SET ACTIVE** to track a
-quest — its current objective then shows in the **top-left HUD tracker**, and
-an **amber diamond marks the next waypoint on your minimap** (with an arrow
-pointing the way if it's far off).
+Below the grid, detached, is your **hotbar**: **7 slots** you fill from the
+inventory for quick access in the field.
 
-Objectives come in a few flavors — **talk** to someone, **reach** a spot,
-**find** an item, **search/interact** with a place, take out a **target**,
-**escort** someone, or beat a **timer**. Some quests send you into hidden
-places the town keeps quiet — a cellar hatch behind the Dunkin, a manhole in
-the road, a hollow oak, a storm drain, the top floor of the red house, and
-somewhere under the lake. Press **E** at a hatch to drop in, **E** again to
-climb out. Finish a quest and you keep the **reward**: a new item in your bag
-and/or a lasting **capability**. Your progress is saved between sessions.
+- **Click an item** in the grid to drop it into the next open hotbar slot, or
+  **drag it** onto a specific slot.
+- **Click a hotbar slot** to clear it.
+- In the field the hotbar sits at the **bottom-center of the screen**. Roll the
+  **scroll wheel** to cycle through it, or press **1–7** to jump straight to a
+  slot. The item you land on is equipped.
 
-### The Countryway Pact — 10 quests
-
-An old rumor at the Dunkin says people who get rich start seeing lights over
-the lake. They're right. Ten linked quests slowly uncover why — the secret
-HOA board that's run Westchase for two generations, and the thing they feed
-beneath the fountain. Each drops one tile of the story and grants a tool:
-
-1. **A Night to Dismember** *(Vivian, lakeside townhouse)* — a murder-mystery
-   dinner turns real. Name the killer. → **Detective's Loupe**.
-2. **Someone's Watching** *(Wendell, townhouse row)* — tail the "watchers,"
-   stake out the lake at night. He's not as crazy as he sounds. → **Police
-   Scanner** (rings the nearest patrol on your minimap while wanted).
-3. **Where the Red House Weeps** *(Agatha, the red house at night)* — climb
-   the 5-story house to the sealed Board Room. → **Spirit Lantern**.
-4. **The Countryway Job** *(Sal, Starbucks — needs a gun)* — a four-phase bank
-   heist on Regions. → **Lockpick Set** (skip car break-in timers) + the
-   **Etched Lake Key**.
-5. **Roadside Assistance** *(the worried spouse, RaceTrac)* — bust the Siren's
-   roadside-lure crew from their manhole stash. → **Bait Car keys** (instant
-   hotwire).
-6. **Insert Coin to Continue** *(Xander, the arcade)* — dive into a cursed
-   cartridge to pull Derik out of an 8-bit glitch world. → **Neon Blaster**.
-7. **Leg Day** *(Vlad, lakeside)* — absurd fitness dares that lead to the
-   Gains Cave, a Pact tunnel node. → **Sprint Shoes** (faster run + double
-   jump) + the **Tunnel Map Fragment**.
-8. **The Cleaners** *(the Concierge)* — recruited into the Pact's enforcers;
-   three contracts, then a choice. → **Silenced Pistol + "Ghost."**
-9. **Where's Biscuit?** *(Dylan, Publix lot)* — find a lost dog down at the
-   storm drain, where he's dug up something not from here. No combat, all
-   heart. → **Dog Whistle** + the **Alien Keycard**.
-10. **What Lies Beneath** *(the finale)* — with the Etched Lake Key, Tunnel
-    Fragment, and Alien Keycard — and having met the Concierge — descend under
-    the lake, face the board and the thing, and decide what Westchase becomes.
-
-Quests 1, 2, 5, 7 and 9 open early with no prerequisites; the finale only
-unlocks once you're holding all three keys.
-
-### Earned capabilities — how to use them
-
-Each reward is a real, usable power once you finish its quest:
-
-- **Detective's Loupe** (Q1) — press **L** to toggle. Nearby quest clues and
-  interactable props glow amber, and rigged/false-bottom containers get a trap
-  warning before you open them.
-- **Police Scanner** (Q2) — passive: rings the nearest patrol on your minimap
-  whenever you're wanted.
-- **Spirit Lantern** (Q3) — press **G** to toggle a green dark-vision light that
-  follows you, lights the sealed rooms, and pushes scripted apparitions back.
-- **Lockpick Set** (Q4) / **Bait Car + Slim Jim** (Q5) — silent openings and
-  instant hotwiring; no jimmy timer on locked cars.
-- **Neon Blaster + 8-Bit Reflexes** (Q6) — a ray-tech blaster in your inventory
-  (**Tab** to equip); **hold right-mouse to aim** and time slows on a drainable
-  meter (recharges when you let go).
-- **Sprint Shoes** (Q7) — faster run + a double jump.
-- **Silenced Pistol + "Ghost"** (Q8) — a suppressed pistol (**Tab** to equip);
-  clean kills with it **don't raise your wanted level**, and the dealer gives you
-  a Cleaners fence discount (buy −10%, sell +15%).
-- **Dog Whistle → Biscuit** (Q9) — press **B** to whistle Biscuit to your side;
-  he heels, catches up when you run, and noses dropped cash toward you. Press
-  **B** again to send him home. He can't be harmed.
-
-**The finale, three ways.** At the end of *What Lies Beneath* you choose an
-ending — press **[1] EXPOSE**, **[2] BURN**, or **[3] INHERIT**:
-
-- **Expose (The Whistleblower)** — the Pact ends honestly; cops run a star
-  cooler town-wide.
-- **Burn (Scorched Earth)** — you blow the facility; you keep the Rocket
-  Launcher and the town runs wilder.
-- **Inherit (The Board Signet)** — you take the chair: cops ignore minor crimes,
-  the dealer's whole stock is yours, and every secret door stays open.
-
-## Items & your bag
-
-Beyond guns, the world is full of **loose items** — food, drinks, medkits,
-junk, jewelry, tools and oddball novelties. Open your bag with **Tab** and
-you'll find a **6×4 grid** below your weapons. Items **stack** (but only
-reasonably: junk piles deep, food and drinks eight to a slot, medkits four,
-valuables just two, tools one).
-
-- **Click an item** to use it. Food, drinks and medkits restore health;
-  novelties do their own quirky thing (shake the Magic 8-Ball, scratch a
-  lottery ticket, set off a firework).
-- **Right-click** an item — or hover it and press **Q** — to **drop one** on
-  the ground. Walk back over it to pick it up again (it despawns after two
-  minutes).
-- **Junk and valuables sell** at the gun dealer — his shop grows a
-  *Sell junk & valuables* section listing everything he'll buy.
-
-Where do items come from? **Snacks and sodas** you buy now go straight into
-your bag (the gas-station burger heals, the vending sodas quench). **Knocked-out
-pedestrians** sometimes drop an item along with their cash, and there's
-**litter to scavenge around the dumpsters** out back of the strip malls and
-Publix — mostly junk, but keep an eye out for a dropped wallet or phone. Your
-bag is yours alone — in multiplayer, items you knock loose aren't shared yet.
-
-### Dumpster diving & scavenging
-
-Press **E** on any **dumpster** to roll up your sleeves and dig in. A short
-rummage (head down in the bin, trash flying) turns up… something — usually
-junk, often food (gross, but hey, it heals — *still warm?*), sometimes a
-tossed-out wallet or phone, and once in a blue moon a **gold watch, chain or
-cash wad** somebody threw away. Every so often a **startled rat** shoots out,
-or a **grumpy sleeper** erupts to shove you off his bed. Each dumpster needs
-~90 seconds to refill (the buzzing flies tell you it's ready again).
-
-The whole town is scavengeable, in fact: **newspaper boxes** hand out today's
-paper, **kick over a trash can or wheelie bin** (E) to spill its junk, the
-**claw machine** grabs a real toy for your bag, the **mailboxes** at the
-townhouses hold junk mail (and, rarely, a mis-delivered package — pocket it,
-but not while a cop's watching), and you can **rummage the bushes** for the odd
-lost trinket (mind the birds). All of it drops straight into your bag; a full
-bag spills the overflow at your feet.
+Guns you buy or pick up, and snacks you buy, are added to your hotbar
+automatically as long as there's an open slot.
 
 ## The gas station
 
@@ -433,8 +330,8 @@ Press **E** at the RaceTrac door to walk inside (a real interior with
 snack aisles, drink fridges, a coffee maker, and a clerk at the register).
 Talk to the clerk with **E**:
 
-- **Buy a hot burger — $20.** It goes into your TAB bag — click it there to
-  eat it for +30 hp.
+- **Buy a snack — $20.** Add it to your hotbar, equip it, and left-click to
+  eat it for +50 hp.
 - **Rob the register** — only works with a gun in your hands ($100–$300,
   instant 2 stars). Try it bare-knuckled and the clerk hits the panic
   button: police storm the store to kill you.
@@ -498,7 +395,7 @@ off-limits.) All of this is personal and local, like the interiors themselves.
 
 ## Wanted system
 
-Crimes earn GTA-style stars (max 5, shown top-center), and each star costs
+Crimes earn GTA-style stars (max 5, shown in the top-left corner), and each star costs
 double the mayhem the last one did:
 
 - Robbing the register at gunpoint → instantly 2 stars.
@@ -519,8 +416,8 @@ your wanted level.
 
 ## Traffic & driving
 
-Cars hum with engine noise as they pass — and the pitch bends as they
-close in and blow by, like the real thing. Don't stand in the road —
+Cars rumble with a plain engine note as they pass — and the pitch bends as
+they close in and blow by, like the real thing. Don't stand in the road —
 getting run over ragdolls pedestrians sky-high with a blood splatter (and
 hurts you too). Shoot a moving car for ~3 seconds and it loses control,
 floors it, and explodes on whatever it hits — killing anything nearby,
@@ -546,11 +443,28 @@ any other: park it wherever, lose it, blow it up — a wrecked lot car gets
 
 Press **E** next to a passing car to carjack it — the driver bails and
 runs off screaming (and yes, that's a crime). Driving is third-person:
-WASD to drive, **E** to get out. A **speedometer** lights up on the HUD
-while you're behind the wheel — a big MPH readout and a speed bar that
-greens up at a cruise and reddens as you floor it. You can't shoot from the driver's seat,
+WASD to drive, **E** to get out (the controls all live in the pause-menu
+**CONTROLS** tab — the driving view itself stays clean, no on-screen speedo
+or button prompts). Tap **R** to flip on the
+**car radio** and cycle its stations — **Electronic, Rap, Chill, Rock**, or
+off. Each station plays a set of tracks on a loop; the music is yours alone
+(other cars stay quiet), and it cuts out the moment you step out, wreck, or
+die. Every car remembers **its own** radio: hop out and back into the same
+ride and it's right where you left it, same station and song. But **jack a
+fresh car** and you inherit whatever the last driver had going — often the
+radio's off, and when it's on you drop in **partway through** a random song,
+like they'd been listening the whole time. The
+engine note dies with it too — step out or get wasted and the idle goes
+silent. You can't shoot from the driver's seat,
 but the car itself is the weapon — mow down pedestrians and cops, and
 ram traffic to send it spinning out of control like you'd shot it up.
+**Bail out at speed and the car keeps rolling** — it coasts on down its
+path driverless, flattening anyone in the way and **exploding** on the first
+solid thing it hits if it's still moving fast. Jump out going fast enough
+and your character **tuck-and-rolls** out along the car's heading — the view
+swings to third person, tumbles you across the pavement, then zooms back into
+your head and hands you control — so you can line a car up on a target, leap
+clear, and let it fly. (Ease out slowly instead and it just coasts to a stop.)
 Trees and street lights snap and topple if you plow through them, in a
 shower of leaves or sparks — they grow back about a minute later. Fences
 break the same way, one panel at a time: plow a car through a picket,
@@ -581,7 +495,10 @@ and deliberately arcade — forgiving and fun, not a study sim:
 - **Mouse** — the yoke: push the mouse **DOWN to climb** and up to descend
   (yoke-style, intentionally inverted from the on-foot look), and **left /
   right to roll**. Bank into a turn and the plane carves around.
-- **E** — get out.
+- **E** — get out (and, once parked, **[E] near the plane climbs back in**).
+
+The turbines **spool up as you feed in throttle** and settle to a steady
+whine at cruise, so you can fly by ear as much as by the speed readout.
 
 Hold the runway with the throttle open; once you're past takeoff speed and
 pull the nose up, the jet **rotates and lifts off**. Below takeoff speed
@@ -754,11 +671,7 @@ the same quiet noise bed as before, and the SFX volume slider controls it.
 - **Tab** — inventory: equip/unequip weapons + your 6×4 item grid (click an
   item to use it, right-click or **Q** to drop one)
 - **K** — spawn the **Learjet** in front of you and hop in as pilot (see
-  **Flying**). *(This test build binds the plane to J; the quest log button on
-  the pause/menu still opens the journal.)*
-- **L / G / B** — toggle earned quest gear (Detective's Loupe / Spirit Lantern /
-  whistle Biscuit), once you've unlocked them
-- **1 / 2 / 3** — pick your ending at the Q10 finale (Expose / Burn / Inherit)
+  **Flying**)
 - **Enter** — open text chat (multiplayer), **Esc** to cancel
 - **Hold V** — push-to-talk voice chat (multiplayer)
 - **F8** — report a bug (grabs a screenshot + your note, sent for triage —
@@ -777,7 +690,7 @@ Publix, **DD** Dunkin, **SB** Starbucks, **BK** banks, **RX** pharmacy, **SU**
 sushi, **SCH** the school, **DT** Dollar Tree — plus the **LAKE** and a crosshair
 on the main intersection. Live blips overlay the map: cars (amber), pedestrians
 (white), cops (blue), other players (green), cash (green), dropped weapons
-(magenta), and your active quest waypoint (blinking amber). Zoom with **`[` / `]`**
+(magenta), and your personal waypoint (blinking cyan). Zoom with **`[` / `]`**
 (or Ctrl+scroll): the WIDE level shows the whole town, and NORMAL / CLOSE scale in
 and follow you for detail work.
 
@@ -822,6 +735,13 @@ finish — well. Try it standing still sometime and see what falls out of the
 air. Every so often, if you're just wandering, you might also catch a stray
 knot of **party balloons** that got away from somebody, drifting up over the
 rooftops and gone. Wave if you see them.
+
+And once in a great while — no gun, just your **bare fists** — a punch comes
+out *wrong*. Your hands snap forward, cupped, and a roaring blue-white **energy
+beam** tears out of them for five seconds. Sweep it across the street and
+whatever it touches — people, cops, cars — is simply gone. You can't switch
+weapons while it's firing; when it fades your hands drop back to fists like
+nothing happened. Keep throwing hands and you'll see it eventually.
 
 ## Notes
 
@@ -873,6 +793,8 @@ rooftops and gone. Wave if you see them.
   for the deep Florida lots).
 - The map is finite — a wall rings the city.
 - Watch for traffic; cars hurt.
-- Getting knocked out costs you 25% of your cash.
+- Getting knocked out costs you 10% of your cash (capped at $500). Half of what
+  you lose spills onto the pavement as cash you (or your killer) can grab within
+  2 minutes before it despawns; the other half is gone. Your guns drop too.
 - `serve.ps1` is only there so the dev preview can host the game locally;
   the game itself doesn't need it.

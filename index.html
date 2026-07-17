@@ -49,15 +49,20 @@
   #netErr { margin-top:14px; color:#e5533d; font-size:14px; }
   #gameVer { position:absolute; left:18px; bottom:14px; color:#8a8470; font-size:15px; letter-spacing:2px; text-shadow:2px 2px 0 #000; }
 
-  #pauseScreen, #deadScreen { background:rgba(6,10,18,0.78); color:#fff; text-align:center; cursor:pointer; }
+  #pauseScreen { background:rgba(6,10,18,0.78); color:#fff; text-align:center; cursor:pointer; }
   #pauseScreen h1 { font-size:56px; letter-spacing:12px; text-shadow:4px 4px 0 #000, 8px 8px 0 rgba(0,0,0,.4); }
   #pauseScreen p { margin-top:14px; font-size:20px; letter-spacing:2px; text-shadow:2px 2px 0 #000; }
-  #deadScreen h1 { font-size:70px; letter-spacing:14px; color:#e5533d; text-shadow:4px 4px 0 #400, 8px 8px 0 rgba(0,0,0,.5); }
-  #deadScreen p { margin-top:18px; color:#d8ccb0; font-size:22px; letter-spacing:2px; text-shadow:2px 2px 0 #000; }
-  #deadTimer { margin-top:26px; font-size:17px; letter-spacing:3px; color:#ffcf6a; text-shadow:2px 2px 0 #000; }
-  #deadBarOuter { margin-top:12px; width:300px; max-width:70vw; height:14px; background:#1a0e10; border:2px solid #b48; box-shadow:0 0 0 2px #000; }
-  #deadBar { height:100%; width:0%; background:linear-gradient(90deg,#7a1410,#e5533d); }
-  #deadHint { margin-top:20px !important; font-size:14px !important; color:#8a8f9c !important; letter-spacing:2px; }
+  /* death cinematic: full-screen black fade the camera zoom-out ramps up, then the menu */
+  #deathFade { position:fixed; inset:0; background:#000; opacity:0; z-index:40; pointer-events:none; }
+  #deadScreen { background:#000; color:#fff; text-align:center; z-index:55; }
+  #deadScreen h1 { font-size:74px; letter-spacing:14px; color:#e5533d; text-shadow:4px 4px 0 #400, 8px 8px 0 rgba(0,0,0,.5); }
+  #deadScreen p { margin-top:16px; color:#d8ccb0; font-size:20px; letter-spacing:2px; text-shadow:2px 2px 0 #000; }
+  .deadBtns { margin-top:38px; display:flex; flex-direction:column; gap:16px; align-items:center; }
+  .deadBtn { font-family:inherit; font-size:22px; letter-spacing:4px; cursor:pointer; width:440px; max-width:82vw;
+    background:#2b3242; color:#fff; border:4px solid #cfc7b0; outline:4px solid #000; box-shadow:6px 6px 0 rgba(0,0,0,.5);
+    padding:15px 0; text-shadow:2px 2px 0 #000; text-transform:uppercase; }
+  .deadBtn:hover { background:#3d465c; }
+  .deadBtn:active { transform:translate(3px,3px); box-shadow:3px 3px 0 rgba(0,0,0,.5); }
 
   /* ---------- HUD ----------
      PS1-on-a-TV pixelation mechanism: the money/hp/weapon/stars/prompt/rocket
@@ -188,6 +193,32 @@
     color:#fff; text-shadow:2px 2px 0 #000, -1px 1px 0 #000, 1px -1px 0 #000, -1px -1px 0 #000; }
   #toast img { image-rendering:pixelated; }
 
+  /* ---------- inventory grid (7x3) + hotbar editor (v1.72) ---------- */
+  #invGridB, #invHotbar { display:grid; grid-template-columns:repeat(7, 70px); gap:8px; }
+  .invCell2, .hbEdit { position:relative; width:70px; height:70px; background:#0d1017;
+    border:3px solid #2a3040; box-shadow:inset 2px 2px 0 #1c2130, inset -2px -2px 0 #05070b;
+    display:flex; align-items:center; justify-content:center; text-align:center; user-select:none; }
+  .invCell2 { cursor:grab; }
+  .invCell2.empty, .hbEdit.empty { cursor:default; opacity:.45; }
+  .invCell2.eq, .hbEdit.eq { border-color:#8ee87f; }
+  .invCell2.onbar { border-color:#5a6480; }
+  .invCell2:not(.empty):hover, .hbEdit:not(.empty):hover { border-color:#ffd98a; background:#1a2030; }
+  .hbEdit.drop { border-color:#ffd98a; background:#20283a; }
+  .icName { font-size:12px; font-weight:bold; color:#dfe6f2; letter-spacing:1px; text-shadow:1px 1px 0 #000; padding:0 3px; line-height:1.15; }
+  .invCell2 .cnt { position:absolute; right:4px; bottom:2px; font-size:15px; font-weight:bold; color:#8ee87f; text-shadow:1px 1px 0 #000; }
+  .hbKey { position:absolute; left:4px; top:2px; font-size:12px; font-weight:bold; color:#8a8470; }
+  .hbHdr { color:#ffd98a; font-size:15px; letter-spacing:3px; margin:20px 0 10px; border-top:3px solid #3a3f4d; padding-top:14px; }
+  .hbHdr small { color:#8a8470; letter-spacing:1px; font-size:13px; }
+  /* bottom-center hotbar HUD shown during gameplay */
+  #hotbarHud { position:absolute; left:50%; bottom:16px; transform:translateX(-50%); display:none; gap:6px; z-index:9; pointer-events:none; }
+  .hbSlot { position:relative; width:62px; height:46px; background:rgba(10,13,20,.66);
+    border:3px solid #2a3040; box-shadow:2px 2px 0 rgba(0,0,0,.4); display:flex; align-items:center; justify-content:center; }
+  .hbSlot.on { border-color:#ffd200; background:rgba(30,34,44,.82); }
+  .hbSlot.empty { opacity:.4; }
+  .hbSlot .hbName { font-size:12px; font-weight:bold; color:#dfe6f2; letter-spacing:1px; text-shadow:1px 1px 0 #000; padding:0 2px; }
+  .hbSlot.on .hbName { color:#ffe36b; }
+  .hbSlot .hbCnt { position:absolute; right:3px; bottom:0; font-size:13px; font-weight:bold; color:#8ee87f; text-shadow:1px 1px 0 #000; }
+
   /* ---------- character creator ---------- */
   #charPanel { min-width:760px; }
   #charCanvas { width:236px; height:310px; image-rendering:pixelated; border:4px solid #4a4436; outline:3px solid #000; background:#10141c; flex:none; }
@@ -200,39 +231,6 @@
   .crow button:hover { background:#3d465c; }
   .crow button:active { transform:translate(1px,1px); box-shadow:1px 1px 0 rgba(0,0,0,.5); }
   .swatch { display:inline-block; width:46px; height:17px; border:2px solid #000; vertical-align:middle; }
-
-  /* ---------- quest log (PS1-style; toggled with J) ---------- */
-  #questPanel { min-width:780px; max-width:94vw; }
-  #questWrap { display:flex; gap:20px; align-items:stretch; }
-  #questList { width:260px; flex:none; border:3px solid #3a3f4d; background:#0d1017;
-    box-shadow:inset 2px 2px 0 #05070b; padding:6px; max-height:56vh; overflow-y:auto; }
-  .qItem { display:flex; align-items:center; gap:8px; padding:9px 10px; font-size:16px; letter-spacing:1px;
-    color:#cfc9b4; cursor:pointer; border-bottom:2px solid #1c2130; text-shadow:1px 1px 0 #000; }
-  .qItem:hover { background:#1a2030; }
-  .qItem.sel { background:#243049; color:#fff; box-shadow:inset 3px 0 0 #ffb428; }
-  .qItem.completed { color:#7f9a86; }
-  .qItem.active .qTag { color:#ffd94a; }
-  .qItem .qTag { width:16px; text-align:center; color:#8fd0e8; font-weight:bold; }
-  .qItem.completed .qTag { color:#8ee87f; }
-  #questDetail { flex:1; padding:4px 6px; max-height:56vh; overflow-y:auto; }
-  #questDetail .qName { font-size:23px; letter-spacing:3px; color:#ffd98a; text-shadow:2px 2px 0 #000; }
-  #questDetail .qState { display:inline-block; margin:8px 0; font-size:13px; letter-spacing:2px; padding:3px 10px;
-    border:2px solid #4a4436; color:#8fd0e8; }
-  #questDetail .qState.active { color:#ffd94a; border-color:#ffd94a; }
-  #questDetail .qState.completed { color:#8ee87f; border-color:#3a7a4a; }
-  #questDetail .qGiver { color:#8a8470; font-size:13px; letter-spacing:1px; margin-bottom:8px; }
-  #questDetail .qSummary { color:#cfc9b4; font-size:14px; line-height:1.5; margin-bottom:14px;
-    border-left:3px solid #3a3f4d; padding-left:10px; }
-  #questDetail .qBeats { margin:8px 0; }
-  .qBeat { display:flex; gap:9px; align-items:flex-start; padding:6px 4px; font-size:15px; line-height:1.35;
-    border-bottom:2px solid #1c2130; }
-  .qBeat .qbm { width:18px; flex:none; text-align:center; }
-  .qBeat.done { color:#7f9a86; } .qBeat.done .qbm { color:#8ee87f; }
-  .qBeat.cur { color:#fff; } .qBeat.cur .qbm { color:#ffd94a; }
-  .qBeat.todo { color:#6a6656; } .qBeat.todo .qbm { color:#4a4436; }
-  #questDetail .qReward { margin-top:14px; color:#8ee87f; font-size:14px; letter-spacing:1px;
-    border-top:2px solid #3a3f4d; padding-top:10px; }
-  #questDetail .qActions { margin-top:14px; }
 
   /* ---------- CRT overlay (scanlines + vignette); JS const CRT_FX toggles it ---------- */
   #crtFx { position:fixed; inset:0; pointer-events:none; z-index:70;
@@ -257,6 +255,7 @@
   <div id="weaponBox">FISTS<br><small>&nbsp;</small></div>
   <canvas id="mm" width="170" height="170"></canvas>
   <div id="prompt"></div>
+  <div id="hotbarHud"></div>
   <div id="toast" class="hidden"></div>
   <div id="popups"></div>
 </div>
@@ -324,7 +323,8 @@
 </div>
 
 <div id="pauseScreen" class="overlay hidden"><h1>PAUSED</h1><p style="margin-top:10px">click to resume</p><button class="menuBtn" id="btnPauseHelp" style="width:320px; margin-top:22px">CONTROLS</button><button class="menuBtn" id="btnPauseSettings" style="width:320px; margin-top:13px">SETTINGS</button></div>
-<div id="deadScreen" class="overlay hidden"><h1>KNOCKED OUT</h1><p id="deadInfo"></p><div id="deadTimer"></div><div id="deadBarOuter"><div id="deadBar"></div></div><p id="deadHint">click to get up now</p></div>
+<div id="deathFade"></div>
+<div id="deadScreen" class="overlay hidden"><h1>WASTED</h1><p id="deadInfo"></p><div class="deadBtns"><button id="deadRespawn" class="deadBtn">RESPAWN</button><button id="deadMenu" class="deadBtn">RETURN TO MAIN MENU</button></div></div>
 
 <div id="shopPanel" class="panel hidden">
   <h1>WESTCHASE GUNS &amp; AMMO</h1>
@@ -334,9 +334,12 @@
 
 <div id="invPanel" class="panel hidden">
   <h1>INVENTORY</h1>
-  <div id="invRows"></div>
-  <div class="invSection"><div class="hdr">ITEMS</div><div id="invGrid"></div></div>
-  <div class="footer">[TAB] close &nbsp;·&nbsp; click an item to use &nbsp;·&nbsp; right-click / [Q] to drop one</div>
+  <div id="invGridB"></div>
+  <div class="hbHdr">HOTBAR &nbsp;<small>drag items here &middot; scroll wheel or [1–7] to equip in game</small></div>
+  <div id="invHotbar"></div>
+  <div id="invRows" class="hidden"></div>
+  <div class="invSection hidden"><div class="hdr">ITEMS</div><div id="invGrid"></div></div>
+  <div class="footer">[TAB] close &nbsp;·&nbsp; click an item to add it to the hotbar &nbsp;·&nbsp; click a hotbar slot to clear it</div>
 </div>
 
 <div id="charPanel" class="panel hidden">
@@ -350,15 +353,6 @@
     <button id="btnCharDone">DONE</button>
     &nbsp;·&nbsp; your look is saved and shown to friends in multiplayer
   </div>
-</div>
-
-<div id="questPanel" class="panel hidden">
-  <h1>QUEST LOG</h1>
-  <div id="questWrap">
-    <div id="questList"></div>
-    <div id="questDetail"></div>
-  </div>
-  <div class="footer">[J] close &nbsp;·&nbsp; click a quest to view &nbsp;·&nbsp; SET ACTIVE to track it on your minimap</div>
 </div>
 
 <div id="clerkPanel" class="panel hidden">
@@ -378,8 +372,9 @@
   <div class="row"><span class="desc">SELECT WEAPON</span><span>1 &ndash; 0</span></div>
   <div class="row"><span class="desc">CYCLE WEAPON</span><span>MOUSE WHEEL</span></div>
   <div class="row"><span class="desc">INVENTORY</span><span>TAB</span></div>
-  <div class="row"><span class="desc">QUEST LOG</span><span>J</span></div>
   <div class="row"><span class="desc">INTERACT&nbsp;<small>dealer / store / car / doors</small></span><span>E</span></div>
+  <div class="row"><span class="desc">DRIVE&nbsp;<small>enter / exit a car with E</small></span><span>W A S D</span></div>
+  <div class="row"><span class="desc">CAR RADIO&nbsp;<small>next station while driving</small></span><span>R</span></div>
   <div class="row"><span class="desc">HORN&nbsp;<small>while driving</small></span><span>H</span></div>
   <div class="row"><span class="desc">MINIMAP ZOOM</span><span>[&nbsp;&nbsp;]&nbsp;&middot;&nbsp;CTRL+WHEEL</span></div>
   <div class="row"><span class="desc">WAYPOINT&nbsp;<small>mark / clear where you look</small></span><span>M</span></div>
@@ -413,7 +408,7 @@
   <div id="bootLabel">warming up the engine…</div>
 </div>
 <script>
-var wcBootDone = 0, WC_BOOT_TOTAL = 73.35;   // = SUM of the wcTick weights below — re-sum when adding scripts (grep wcTick | add)
+var wcBootDone = 0, WC_BOOT_TOTAL = 55.75;   // = SUM of the wcTick weights below — re-sum when adding scripts (grep wcTick | add)
 function wcTick(w, nextLabel) {
   wcBootDone += w;
   var b = document.getElementById('bootBar');
@@ -433,6 +428,9 @@ function wcTick(w, nextLabel) {
 <script src="meshyguns.js" onload="wcTick(0.3,'loading fx…')"></script>
 <script src="muzzleflash.js" onload="wcTick(0.1,'loading the sound pack…')"></script>
 <script src="soundfx.js" onload="wcTick(0.7,'loading signage…')"></script>
+<script src="carsfx.js"></script>
+<script src="rampwood.js"></script>
+<script src="kamevoice.js"></script>
 <!-- AI storefront sign + VFX sprite sheets; game.js guards typeof PUBLIX_SIGN /
      VFX_SMOKE / VFX_FIRE so it still boots (canvas sign + flat puffs) if absent -->
 <script src="publixsign.js" onload="wcTick(0.1,'loading fx sheets…')"></script>
@@ -459,14 +457,6 @@ function wcTick(w, nextLabel) {
 <!-- street-vendor voiced dialogue (lemonade kid + ice-cream truck; reports
      mreehkm9/mreeipmy); game.js guards with typeof/window.VEND_VOICES -->
 <script src="vendvoices.js" onload="wcTick(0.1,'stocking the freezer…')"></script>
-<!-- quest content pack (#77): 11 quest NPCs + 6 reskins, 36 item icons, 8 props,
-     279 dialogue lines. questchars.js loads AFTER meshychars.js + kidchars.js
-     (reskins clone those bases). game.js guards typeof QUEST_CHARS / QUEST_ITEMS
-     / QUEST_PROPS / QUEST_VOICES so it still boots if any pack is absent. -->
-<script src="questchars.js" onload="wcTick(4.0,'briefing the cast…')"></script>
-<script src="questprops.js" onload="wcTick(2.5,'digging the tunnels…')"></script>
-<script src="questitems.js" onload="wcTick(0.4,'sealing the evidence…')"></script>
-<script src="questvoices1.js" onload="wcTick(11.0,'recording the dialogue…')"></script>
 <script src="voicelines.js" onload="wcTick(1.0,'loading decals…')"></script>
 <script src="blooddecals.js" onload="wcTick(0.2,'loading street furniture…')"></script>
 <script src="streetprops.js" onload="wcTick(0.5,'loading the map…')"></script>

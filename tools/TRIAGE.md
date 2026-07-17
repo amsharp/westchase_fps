@@ -552,24 +552,87 @@ Root cause: NPC_COUNT was doubled to 440 with a note that frustum-cull makes it 
 - mrgmsvpb (27,240) arm clipping — OPEN@v1.67.12. Identified: the northern residential area (27,240) is populated ENTIRELY by SKINNED Meshy civilians (buildMeshySkinned). Examined 6+ nearby chars front + side across walk poses; the wider/muscular Meshy builds hang thick upper arms against a wide torso (closest to intersecting), but no single clear, reproducible arm-through-torso frame was isolated in budget. Arm-drop is rotation.z ±1.42 for the rigid path, but these are skinned (bone-driven walk clips), so a blind clip/adduction tune risks regressing the walk animation. Honest OPEN with character class + likely mechanism (Meshy walk-swing adduction on wide builds) identified. NEXT: systematic per-frame arm-vs-torso penetration sweep across the Meshy walk clip to isolate the offending frame, then clamp adduction.
 - mrgn7702 (-63,-8) floating prop — OPEN@v1.67.12. Exhaustive probing at (-63,-8): the ONLY discrete objects are (1) a wildlife SQUIRREL (buildSquirrel, tail+head), sitting EXACTLY at the report coord (-62.8,-8.4) — measured whole-group bbox y0=-0.018, body-sphere bottom ~0.005 = GROUNDED; (2) parked traffic cars (their small detail planes float at y0~0.6 but that's normal car geometry); (3) streetprops (trashcan/newsbox/vending) at y0=0.13 sitting on the 0.12 sidewalk; (4) crepe-myrtle pink blooms on thin (r0.045-0.085) trunks that read as floating from a distance. NO static prop measured as genuinely floating (foliage scan: 1006 grounded at y0=0, the ~99 at y0>0.3 are all crepe-myrtle canopies). The legless squirrel body sits above its contact shadow, which reads as hovering at close range, but it is geometrically grounded on flat terrain. Could not reproduce a real Y-offset float; honest OPEN with the squirrel identified as the most likely subject + thin-trunk crepe-myrtle as an alternative reading.
 
-## CONTENT — new Meshy characters (v1.68.3, opus/fable session)
-- User request: add a fiery/clown/evil + furry set; clarified live to CLOWN +
-  FURRY (person in a fursuit) + EVIL (grounded cult/occult figure, no fantasy
-  glow). Fiery was a "furry" misspelling — dropped.
-- Shipped 3 skinned Meshy civilians via tools/chargen (gpt-image-1 seed ->
-  Meshy image-to-3d+rig -> genskin --clips-from shared): GIGGLES (sinister
-  harlequin clown, 1658 tris), RUFUS (teal wolf fursuit, 1635 tris), MORTIS
-  (hooded cult figure, 1663 tris). All 24-joint, shared walk/run clips.
-  meshychars.js now 50 chars. Verified in-engine (tools/_newcharshot.js:
-  silhouette/texture/limbs all clean). Meshy spend ~135cr (balance 364).
+## Round (v1.74.16 — owner "Alex" drive-through, 16 reports, triaged 2026-07-16)
+Reporter drove the whole map flagging issues; positions cluster in the WIP remap
+east side (x 140..290) + one OOB (-575,-231). Dispositions:
+
+### Black-shadow patches — FIXED@v1.74.17
+- mrn27gm9 (156,119), mrn27pzp (194,134), mrn2ad8g (255,-49 "invis barrier and
+  weird black shadows") — the shadow part FIXED. ROOT: forestFloorCover() laid an
+  OPAQUE dark litter quad over every mapForest rect; on the sparse remap forest
+  patches (forestPatch 120..210/74..158) the canopy didn't cover it, so a hard
+  dark rectangle sat on open grass. Fix: rebuilt the cover with a per-vertex ALPHA
+  border (full interior → 0 at the rim, transparent+vertexColors+depthWrite:false)
+  so each rect feathers into the grass instead of reading as a black slab. Verified
+  by top-down render at (156,119): hard squares gone, soft forest-floor shade.
+  (mrn2ad8g's invis-barrier half is OPEN — see below.)
+
+### Invisible barriers — OPEN (needs barrier scanner + OOB pass; deferred)
+- mrn2fm6s (-575,-231 "huge invis barrier") — car deep in OOB forest at the map
+  edge; this is the pending "Phase 4e: out-of-bounds visible barriers" task, not an
+  orphan collider. The forest/perimeter colliders are legit; they just aren't
+  VISIBLE walls yet.
+- mrn28mvc (242,37), mrn28cte (241,58), mrn281sk (229,118), mrn26f20 (143,113),
+  mrn25yea (143,29), mrn2ad8g (255,-49) — INVESTIGATED, NO ORPHANS (v1.74.20 sweep).
+  Raycast/render probing of every nearby active collider: the houses are backed by
+  real 5-6u buildings (top-hit y 4.9-5.8), and the forest:tile colliders sit inside
+  DENSE alpha-card forest (ground render at the "empty-looking" 200..206/77..93 tiles
+  = solid canopy). These are the CAR hitting legitimate forest + house yards while
+  driven off-road in the dense residential remap grid — working as designed, not
+  removable orphans. (mrn253sm 28,5 was the bus shelter, FIXED@v1.74.19.) Caveats
+  that fooled simpler probes: merged houses = one giant AABB; alpha-card forest =
+  vertical billboards a top-down ray passes through. The real UX fix is the pending
+  OOB visible-barrier feature (#42) so the forest/perimeter edge SHOWS why you stop,
+  plus mrn2fm6s (-575,-231 OOB). A definitive map-wide sweep still wants the
+  instancing+billboard-aware scanner rebuilt (deferred, big).
+  READABILITY FIX@v1.74.21 (owner chose this over removing legit colliders): a
+  forestBrush() pass now FILLS every residential-scale forest rect with a bed of
+  shrubs that grow BIGGER toward the middle (eased edge->core, ~0.6 rim -> ~2.75
+  core, v1.74.22), so the tree line LOOKS impassable and lines up with where the
+  colliders already stop you — you see a
+  wall of brush before you hit it. Pass-through (no colliders added); batched via
+  lbake. Skips slivers (<8u) and the huge fogged perimeter walls (>170u).
+
+### Props on/near the road — OPEN (owner decision + remap placement)
+- mrn2eixk (-157,135), mrn2b523 (200,-99), mrn2bobd (198,-155) — FIXED@v1.74.20
+  (owner opted for topple-off-road). These were toppled breakables from the
+  reporter's driving lying across the lane. breakProp() now biases roadside
+  lamps/trees to fall AWAY from the nearest road via new roadOutward(x,z): fall dir
+  = normalize(impact*0.35 + outward), so a clipped pole lands on the sidewalk/grass
+  instead of the lane. Verified: worst-case along-road impacts now yield
+  fallDotOutward ~0.94 (falls outward). Props >25u from any road keep natural fall.
+- mrn25ep0 (26,5) + mrn253sm (28,5) — FIXED@v1.74.19. The procedural per-arterial
+  busshelter placer landed at the main-intersection crosswalk: it clears
+  remapPointClear(2) yet sits just past the junction-pad edge (pads r=hw*1.5). Added
+  a nearJunction(x,z,m) guard (dist to the nearest RM.pad) and gated placement on
+  !nearJunction(bsx,bsz,12), so the slide-along-polyline search skips junction
+  throats and lands the shelter on a clear sidewalk stretch. Verified: no shelter
+  within 42u of origin (was ~26u on the crosswalk), 3 still placed, all off-asphalt.
+
+### Other — OPEN
+- mrn2d489 (219,-199 "car headlights don't shine on the road") — FIXED@v1.74.18.
+  The beam existed (game.js 2198) but was a 0.5 alpha-blend warm wash, nearly
+  invisible on dark asphalt. Now ADDITIVE-blended (glows on the road), opacity 0.8,
+  and a larger/longer pool (9.0x4.4 @ 6.6u ahead). Reads as a real headlight pool
+  at night; still gated lampsOn && !parked. Verified by night render (beam_pool.jpg).
+- mrn2auzo (292,-103 "weird curve at the end of the road") — remap road geometry at
+  a map-edge terminus; part of the in-progress remap (#38).
+
+## CONTENT — new Meshy characters (v1.76.14, opus/fable session)
+- User asked for a clown + furry (person in a fursuit) + evil (grounded
+  cult/occult figure, no fantasy glow). Shipped 3 skinned Meshy civilians via
+  tools/chargen (gpt-image-1 seed -> Meshy image-to-3d+rig -> genskin
+  --clips-from shared): GIGGLES (harlequin clown, 1658 tris), RUFUS (teal wolf
+  fursuit, 1635 tris), MORTIS (hooded cult figure, 1663 tris). All 24-joint,
+  shared walk/run clips. meshychars.js now 50 chars, joined the civ pool.
+  Verified in-engine (tools/_newcharshot.js). Meshy spend ~135cr (bal 364).
   Seed gotcha: gpt-image-1 kept emitting front+back turnarounds w/ arms down;
   fixed via square canvas + fixed left-region crop (work/fixedcrop.js).
-- Relates to report mrgmxjux ("outdated npc, make a new meshy one, apply
-  everywhere") — this adds fresh variety to the civ pool.
+  Relates to report mrgmxjux ("outdated npc, make a new meshy one").
 
 ## BUG-STORE RECONCILE (note)
 - /health bug count jumped 146 -> 340 after a relay redeploy (stored reports
-  reconciled, not a spam flood). The ~194 "new" ones are legit playtest
-  reports dated 07-11..07-17 (invisible barriers, black-shadow decals,
-  parking-line flicker, NPC death-audio delay, "make a new meshy npc", etc.).
-  Baseline for the count monitor is now 340. Triage of the backlog pending.
+  reconciled, NOT a spam flood). The ~194 "new" ones are legit playtest reports
+  dated 07-11..07-17 (invisible barriers, black-shadow decals, parking-line
+  flicker, NPC death-audio delay, "make a new meshy npc", etc.). Count-monitor
+  baseline is now 340. Backlog triage pending.
