@@ -122,7 +122,10 @@ shallows, and a hollow tap indoors. They speed up when you sprint.
 Engines got real too: every car runs a layered synth with gears — revs
 climb as it accelerates, drop on each upshift, and settle to a low
 idle rumble at a stop. Your own stolen ride is louder and richer, and
-answers the throttle.
+answers the throttle. Brakes talk back: a soft chirp when you ease to a
+low-speed stop, and **tyres screech** when you stand on the brakes at speed
+or the back end breaks loose in a slide. Every car shares the same beefier
+horn now, too.
 
 Cars **drive** with real weight now. They build speed gradually — a
 strong pull off the line that tapers as you climb toward a **high top
