@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.0';
+var GAME_VERSION = 'v1.76.1';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -12548,6 +12548,7 @@ function updateDriving(dt) {
   if (!airborne && latAcc > GRIP && asp > 8) c.slid += (latAcc / GRIP - 1) * dt * 2.0;
   else c.slid = Math.max(0, c.slid - dt * 1.4);
   c.slid = Math.min(c.slid, 3.5);
+  if (c.slid > 0.3) c.pspeed *= Math.max(0, 1 - c.slid * 0.28 * dt);   // sliding tyres scrub speed -> a slide/spin bleeds momentum
   if (steer !== 0) c.spinDir = yawRate >= 0 ? 1 : -1;
   var ctrl = Math.max(0.1, 1 - c.slid * 0.55), loose = Math.max(0, c.slid - 1);
   h += (yawRate * ctrl + loose * (c.spinDir || 1) * 3.0) * dt;   // past slid>1 the rear breaks loose -> full spin-out
@@ -12589,8 +12590,8 @@ function updateDriving(dt) {
     c.cvy -= 20 * dt; c.cy += c.cvy * dt;                    // ballistic arc
     if (c.cy <= surf) { c.cy = surf; c.cvy = 0; c.airborne = false; sfx('crash', { x: p.x, z: p.z, range: 70 }); }
   } else {
-    c.rampV = Math.max(groundRise, (c.rampV || 0) - dt * 30);   // remember recent upward ground speed (a ramp)
-    if (groundRise < 1 && c.rampV > 6 && asp > 15) {            // ground stopped rising = crest -> take off with the stored up-velocity
+    c.rampV = Math.max(groundRise, (c.rampV || 0) * 0.9);      // hold the recent upward ground speed (a ramp), decay slowly
+    if (groundRise < 1.5 && c.rampV > 4 && asp > 15) {         // ground stopped rising = crest -> take off with the stored up-velocity
       c.airborne = true; c.cvy = Math.min(c.rampV, 15); c.rampV = 0;
     } else {
       c.cy += (surf - c.cy) * Math.min(1, 12 * dt);
