@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.20';
+var GAME_VERSION = 'v1.76.21';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -44,6 +44,7 @@ var NE_EXIT_Z = -200, SE_EXIT_X = 278;
 
 var WEAPONS = {
   fists:  { name: 'FISTS',  melee: true, dmg: 34, rate: 0.42, range: 2.4 },
+  axe:    { name: 'AXE',    price: 400, melee: true, dmg: 200, rate: 0.62, range: 2.8, bisect: true, desc: 'Heavy chopping axe — a solid hit cleaves a body clean in half.' },
   pistol: { name: 'PISTOL', price: 150, dmg: 40, rate: 0.2, auto: false, spread: 0.014, desc: '9mm sidearm. Reliable.', flashAt: [0.26, -0.265, -0.9] },
   smg:    { name: 'SMG',    price: 400, dmg: 15, rate: 0.065, auto: true, spread: 0.008, spreadMax: 0.05, bloomPerShot: 0.006, desc: 'First shots on target. Then it sprays.', flashAt: [0.26, -0.262, -1.2] },
   rifle:  { name: 'RIFLE',  price: 600, dmg: 95, rate: 0.8,  auto: false, spread: 0.004, desc: 'One shot, one nap. Right-click to scope.', flashAt: [0.24, -0.235, -1.38] },
@@ -57,13 +58,13 @@ var WEAPONS = {
   snack:  { name: 'SNACK', snack: true, rate: 0.8 },
   soda:   { name: 'SODA', snack: true, rate: 0.6 }   // vending machines (streetprops)
 };
-var GUN_LIST = ['pistol', 'smg', 'shotgun', 'rifle', 'auto', 'rocket', 'raygun', 'neon_blaster', 'silenced'];
+var GUN_LIST = ['pistol', 'smg', 'shotgun', 'rifle', 'auto', 'axe', 'rocket', 'raygun', 'neon_blaster', 'silenced'];
 
 // ---------------- state ----------------
 var state = {
   running: false, menu: null,
   money: 400, hp: 100, dead: false,
-  owned: { pistol: false, smg: false, rifle: false, auto: false, rocket: false, raygun: false, neon_blaster: false, silenced: false },
+  owned: { pistol: false, smg: false, shotgun: false, axe: false, rifle: false, auto: false, rocket: false, raygun: false, neon_blaster: false, silenced: false },
   equipped: 'fists',
   lastHurt: -99, lastCarHit: -99, lastRob: -99,
   wanted: 0, civKills: 0, copKills: 0, snacks: 0
@@ -14977,6 +14978,7 @@ function updateNPCs(dt) {
       n.downT -= dt; m.rotation.x = Math.max(-1.45, m.rotation.x - dt * 7);
       if (n.downT <= 0) {
         restoreHead(n);   // decapitated corpse respawns with its head back on (mesh is reused)
+        restoreBisect(n); // bisected corpse's hidden mesh comes back for the reused NPC
         if (npcDoors.length) {
           // replacement pedestrian WALKS OUT of a building entrance instead of
           // popping into existence: brief hidden dwell, then the door emit below.
@@ -16732,7 +16734,51 @@ var vmShotgun = new THREE.Group();
   var stock = box(0.07, 0.14, 0.34, woodM, 0.24, -0.33, -0.3); stock.rotation.x = 0.24; vmShotgun.add(stock);          // wood stock
   var guard = new THREE.Mesh(new THREE.TorusGeometry(0.034, 0.008, 6, 10, Math.PI * 1.1), darkMetalM); guard.position.set(0.24, -0.335, -0.5); guard.rotation.y = Math.PI / 2; vmShotgun.add(guard);
 })();
-var vmMap = { fists: vmFists, pistol: vmPistol, smg: vmSmg, shotgun: vmShotgun, rifle: vmRifle, auto: vmAuto, rocket: vmRocket, raygun: vmRaygun, snack: vmSnack };
+// axe: user-supplied GLB (axedata.js). Decode the quantized geo + texture into a
+// Mesh; `len` scales the handle to a first-person size. Shared by the viewmodel
+// and (unused otherwise) — models authored ~30 units tall along local Y.
+var _axeCache = null;
+function getAxeMesh(len) {
+  if (typeof AXE_DATA === 'undefined') return null;
+  if (_axeCache) return _axeCache.clone();
+  var e = AXE_DATA;
+  var qp = new Int16Array(b64Bytes(e.p).buffer), qu = new Uint16Array(b64Bytes(e.u).buffer);
+  var fp = new Float32Array(qp.length), fu = new Float32Array(qu.length);
+  for (var i = 0; i < qp.length; i++) fp[i] = qp[i] / e.q;
+  for (i = 0; i < qu.length; i += 2) { fu[i] = qu[i] / 8192; fu[i + 1] = 1 - qu[i + 1] / 8192; }
+  var im = new Image();
+  var tx = new THREE.Texture(im);
+  tx.magFilter = THREE.NearestFilter; tx.minFilter = THREE.LinearMipmapLinearFilter;
+  im.onload = function () { tx.needsUpdate = true; };
+  im.src = e.tex;
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(fp, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(fu, 2));
+  if (e.i) geo.setIndex(new THREE.BufferAttribute(new Uint16Array(b64Bytes(e.i).buffer), 1));
+  geo.computeVertexNormals();
+  var m = new THREE.Mesh(geo, lamb({ map: tx }));
+  var s = (len || 0.62) / (e.dims && e.dims[1] || 1);   // scale by authored height (Y)
+  m.scale.set(s, s, s);
+  _axeCache = m;
+  return m.clone();
+}
+// axe viewmodel: the model in the right hand, blade forward, held two-handed
+// (the psxArms reparent here when equipped, like fists).
+var vmAxe = new THREE.Group();
+(function () {
+  var mg = getAxeMesh(0.62);
+  if (mg) {
+    // authored: handle along +Y, head at top, blade spread in Z. Cant it so the
+    // handle drops toward the lower-right grip and the blade points up-forward.
+    mg.rotation.order = 'YXZ';
+    mg.rotation.z = -0.42;   // handle tilts down to the right
+    mg.rotation.x = -0.62;   // head leans forward into view
+    mg.rotation.y = 0.28;
+    mg.position.set(0.3, -0.34, -0.58);   // ride higher in the frame so the head reads
+    vmAxe.add(mg);
+  }
+})();
+var vmMap = { fists: vmFists, pistol: vmPistol, shotgun: vmShotgun, axe: vmAxe, smg: vmSmg, rifle: vmRifle, auto: vmAuto, rocket: vmRocket, raygun: vmRaygun, snack: vmSnack };
 // streetprops soda: red can in hand (registered before the add/hide pass below)
 var vmSoda = new THREE.Group();
 (function () {
@@ -16795,6 +16841,7 @@ function setEquipped(w) {
   // draw/reload animations move the hands with the gun
   if (psxArms) {
     if (w === 'fists') { vmFists.add(psxArms.root); vmFists.rotation.set(0, 0, 0); armsPose(psxArms, 'idle', T); }
+    else if (w === 'axe') { vmAxe.add(psxArms.root); vmAxe.rotation.set(0, 0, 0); armsPose(psxArms, 'idle', T); }
     else if (GUNHOLD_GROUPS[w]) { vmMap[w].add(psxArms.root); armsPose(psxArms, gunHold.clip, gunHold.t, true); solveSupportIK(w); gripFingers(); }
   }
   vm.visible = !zoomed && !driving && !state.dead;   // stay hidden during the death cinematic
@@ -16855,6 +16902,134 @@ function decapitateNPC(n, dx, dz) {
   sfx('crash', { x: n.x, z: n.z, range: 42 });
   if (isClient()) { netToHost({ t: 'dmgNpc', i: npcs.indexOf(n), dmg: 999, kx: dx, kz: dz }); n.hp = 0; }
   else damageNPC(n, 999, dx, dz, false);
+}
+// ===================== AXE: bisection gore =====================
+// A solid axe hit cleaves an NPC in half down the sagittal plane. The current
+// posed mesh is baked to world-space triangle soup (skinned via boneTransform,
+// PSX via child world matrices), partitioned into left/right by the body's
+// local-X sign, and the two halves fly apart as static gib meshes (gravity +
+// tumble, lots of blood). The whole character mesh hides until it respawns.
+var halves = [];
+var _bkV = new THREE.Vector3(), _bkInv = new THREE.Matrix4();
+function _pushTri(L, R, wp, lx, uv, pv) {
+  // reject NaN or spike verts: some Meshy characters carry a handful of vertices
+  // with degenerate skin weights that boneTransform flings metres from the body.
+  // Baked in, they become giant stretched shards; drop the whole tri (a few
+  // missing surface tris are invisible in fast-flying gore).
+  for (var k = 0; k < 3; k++) {
+    var rx = wp[k * 3] - pv.x, ry = wp[k * 3 + 1] - pv.y, rz = wp[k * 3 + 2] - pv.z;
+    if (!isFinite(rx) || !isFinite(ry) || !isFinite(rz)) return;
+    if (rx * rx + rz * rz > 6.25 || ry * ry > 6.25) return;   // >2.5m from the body center
+  }
+  var cx = (lx[0] + lx[1] + lx[2]) / 3, dst = cx < 0 ? L : R, j;
+  for (j = 0; j < 3; j++) { dst.p.push(wp[j * 3] - pv.x, wp[j * 3 + 1] - pv.y, wp[j * 3 + 2] - pv.z); }
+  for (j = 0; j < 6; j++) dst.u.push(uv[j]);
+}
+function bakeBodyHalves(m, pv) {
+  m.updateMatrixWorld(true);
+  _bkInv.copy(m.matrixWorld).invert();   // world -> body-local (split axis)
+  var L = { p: [], u: [] }, R = { p: [], u: [] }, mat = null;
+  var smesh = null;
+  m.traverse(function (o) { if (o.isSkinnedMesh && !smesh) smesh = o; });
+  function emit(pos, uv, idx, xform) {
+    var count = idx ? idx.length : pos.count;
+    function vert(vi) {
+      xform(vi, _bkV);
+      var wx = _bkV.x, wy = _bkV.y, wz = _bkV.z;
+      _bkV.applyMatrix4(_bkInv);
+      return { wx: wx, wy: wy, wz: wz, lx: _bkV.x, u: uv ? uv.getX(vi) : 0, v: uv ? uv.getY(vi) : 0 };
+    }
+    for (var t = 0; t < count; t += 3) {
+      var a = idx ? idx[t] : t, b = idx ? idx[t + 1] : t + 1, c = idx ? idx[t + 2] : t + 2;
+      var va = vert(a), vb = vert(b), vc = vert(c);
+      _pushTri(L, R, [va.wx, va.wy, va.wz, vb.wx, vb.wy, vb.wz, vc.wx, vc.wy, vc.wz], [va.lx, vb.lx, vc.lx], [va.u, va.v, vb.u, vb.v, vc.u, vc.v], pv);
+    }
+  }
+  if (smesh) {
+    mat = smesh.material; smesh.updateMatrixWorld(true);
+    var g = smesh.geometry;
+    emit(g.attributes.position, g.attributes.uv, g.index ? g.index.array : null, function (vi, out) {
+      smesh.boneTransform(vi, out); out.applyMatrix4(smesh.matrixWorld);
+    });
+  } else {
+    m.traverse(function (o) {
+      if (!o.isMesh || o.isSkinnedMesh || o === m.userData.shadow) return;
+      var gg = o.geometry, pos = gg && gg.attributes.position; if (!pos) return;
+      if (!mat && o.material && o.material.map) mat = o.material;
+      o.updateMatrixWorld(true);
+      emit(pos, gg.attributes.uv, gg.index ? gg.index.array : null, function (vi, out) {
+        out.fromBufferAttribute(pos, vi).applyMatrix4(o.matrixWorld);
+      });
+    });
+  }
+  if (!L.p.length && !R.p.length) return null;
+  L.mat = mat; R.mat = mat;
+  return { left: L, right: R };
+}
+function _halfMesh(side, mat) {
+  if (!side.p.length) return null;
+  var g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(side.p), 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(side.u), 2));
+  g.computeVertexNormals();
+  var mm = new THREE.Mesh(g, mat || lamb({ color: 0x8a4a3a }));
+  mm.frustumCulled = false;
+  return mm;
+}
+function bisectNPC(n, fx, fz) {
+  var m = n.mesh;
+  var pivot = new THREE.Vector3(); m.getWorldPosition(pivot); pivot.y += 0.9;
+  var parts = bakeBodyHalves(m, pivot);
+  var rq = new THREE.Quaternion(); m.getWorldQuaternion(rq);
+  var rgt = new THREE.Vector3(1, 0, 0).applyQuaternion(rq); rgt.y = 0; if (rgt.lengthSq() < 1e-4) rgt.set(1, 0, 0); rgt.normalize();
+  if (parts) {
+    var pieces = [[parts.left, -1], [parts.right, 1]];
+    for (var pi2 = 0; pi2 < pieces.length; pi2++) {
+      var mm = _halfMesh(pieces[pi2][0], parts.left.mat || parts.right.mat);
+      if (!mm) continue;
+      mm.position.copy(pivot); scene.add(mm);
+      var sgn = pieces[pi2][1];
+      // each half is thrown firmly out to ITS side (down the cut normal) and
+      // topples outward around the forward axis — reads as two body-halves
+      // flopping apart, not a spinning shard cloud.
+      halves.push({
+        mesh: mm,
+        vx: rgt.x * sgn * 3.4 + fx * 0.7,
+        vy: 1.5 + Math.random() * 0.8,
+        vz: rgt.z * sgn * 3.4 + fz * 0.7,
+        spinX: fx * sgn * 2.2 + (Math.random() - 0.5) * 0.6,   // topple over the travel axis
+        spinZ: fz * sgn * 2.2 + (Math.random() - 0.5) * 0.6,
+        life: 9
+      });
+    }
+  }
+  for (var i = 0; i < 7; i++) bloodPunch(n.x + (Math.random() - 0.5) * 0.5, 0.5 + Math.random() * 1.3, n.z + (Math.random() - 0.5) * 0.5);
+  puff(new THREE.Vector3(n.x, 1.0, n.z), 0x8f1512, 'blood');
+  for (i = 0; i < 6; i++) bloodDecal(n.x + (Math.random() - 0.5) * 2.0, n.z + (Math.random() - 0.5) * 2.0);
+  sfx('cut', { x: n.x, z: n.z, range: 46 });
+  n._bisected = true;
+  m.visible = false; if (m.userData.shadow) m.userData.shadow.visible = false;
+  if (isClient()) { netToHost({ t: 'dmgNpc', i: npcs.indexOf(n), dmg: 999, kx: fx, kz: fz }); n.hp = 0; }
+  else damageNPC(n, 999, fx, fz, false);
+}
+function restoreBisect(n) {
+  if (!n || !n._bisected) return;
+  n._bisected = false;
+  if (n.mesh) { n.mesh.visible = true; if (n.mesh.userData.shadow) n.mesh.userData.shadow.visible = true; }
+}
+function updateHalves(dt) {
+  for (var i = halves.length - 1; i >= 0; i--) {
+    var h = halves[i]; h.life -= dt;
+    h.vy -= 15 * dt;
+    var mp = h.mesh.position;
+    mp.x += h.vx * dt; mp.y += h.vy * dt; mp.z += h.vz * dt;
+    h.mesh.rotation.x += h.spinX * dt; h.mesh.rotation.z += h.spinZ * dt;
+    if (mp.y < 0.35 && h.vy < 0) {
+      mp.y = 0.35; h.vy *= -0.24; h.vx *= 0.5; h.vz *= 0.5; h.spinX *= 0.35; h.spinZ *= 0.35;
+      if (Math.random() < 0.5) bloodDecal(mp.x, mp.z);
+    }
+    if (h.life <= 0) { scene.remove(h.mesh); if (h.mesh.geometry) h.mesh.geometry.dispose(); halves.splice(i, 1); }
+  }
 }
 // fire one shotgun blast: a cone of pellets, per-pellet range falloff, head-off on
 // a close head hit. Reuses the main raycast target set.
@@ -17073,12 +17248,18 @@ function tryAttack() {
       if (rd < w.range && (rdx * fx + rdz * fz) / (rd || 1) > 0.55 && rd < bestD) { bestRemote = rm; best = null; bestCop = null; bestCopM = -1; bestD = rd; }
     }
     if (best) {
+      // AXE: a solid hit cleaves the body in half down the middle (gore) — never
+      // on kids (they're excluded from the target scan above)
+      if (w.bisect && !best._bisected && best.state !== 'down' && best.state !== 'hidden') {
+        bisectNPC(best, fx, fz);
+      } else {
       bloodPunch(best.x - fx * 0.45, 1.35, best.z - fz * 0.45);   // punchy fist-hit spray + impact star (mrg52jt3)
       // clients predict hp locally so the overhead tag bar moves on hit
       // (mrg4gnea: host resolves the damage but never snapshots NPC hp, so
       // online bars sat at full forever); host confirms kills via 'kill'+state
       if (isClient()) { netToHost({ t: 'dmgNpc', i: npcs.indexOf(best), dmg: w.dmg, kx: fx, kz: fz }); best.hp = Math.max(0, (best.hp || 100) - w.dmg); }
       else damageNPC(best, w.dmg, fx, fz);
+      }
     }
     else if (bestCop) { damageCop(bestCop, w.dmg, fx, fz); bloodPunch(bestCop.x - fx * 0.45, 1.35, bestCop.z - fz * 0.45); }
     else if (bestCopM >= 0) {
@@ -17093,7 +17274,9 @@ function tryAttack() {
     else if (bestRemote) { netSendHit(bestRemote.id, w.dmg, true); bloodPunch(bestRemote.x - fx * 0.45, 1.35, bestRemote.z - fz * 0.45); }
     // connecting sounds different from swinging — and a slap CRACKS
     var meleeAt = best ? best : (bestCop ? bestCop : (bestCopM >= 0 ? copsM[bestCopM] : bestRemote));
-    if (meleeAt) { sfx(punchSlap ? 'slap' : 'punchhit', { x: meleeAt.x, z: meleeAt.z, range: 45 }); hitMark(false); }
+    // the axe plays its own 'cut' sound in bisectNPC — don't double up with a punch crack
+    if (meleeAt && !(w.bisect && best)) { sfx(punchSlap ? 'slap' : 'punchhit', { x: meleeAt.x, z: meleeAt.z, range: 45 }); hitMark(false); }
+    else if (meleeAt) hitMark(false);
     return;
   }
   if (T - (lastShotBy[state.equipped] || -99) < w.rate) return;
@@ -18366,7 +18549,10 @@ var SFX_MAP = {
   cardoor: { k: 'cardoor', g: 0.5, j: 0.05 }, ricochet: { k: 'ricochet', g: 0.32, j: 0.1 },
   // owner-supplied car SFX (carsfx.js): braking at low speed + tyre screech on a
   // hard stop / traction loss. Synth has no fallback for these — silent if absent.
-  brake: { k: 'brake', g: 0.55, j: 0.05 }, tirescreech: { k: 'tirescreech', g: 0.6, j: 0.04 }
+  brake: { k: 'brake', g: 0.55, j: 0.05 }, tirescreech: { k: 'tirescreech', g: 0.6, j: 0.04 },
+  // owner-supplied axe cut (carsfx.js SFX_PACK.cut): the meaty chop when the axe
+  // cleaves an NPC in half. Synth has no fallback — silent if the pack is absent.
+  cut: { k: 'cut', g: 0.95, j: 0.05 }
 };
 function sfxLogPush(kind, pack) {
   if (!window.__sfxLog) return;
@@ -20956,7 +21142,20 @@ function updatePlayer(dt) {
     }
   } else rocketCdEl.classList.add('hidden');
   var pt = T - punchT;
-  if (WEAPONS[state.equipped].melee) {
+  if (state.equipped === 'axe') {
+    // AXE: an overhead chop — swing the whole viewmodel (the arms are parented
+    // into vmAxe) down and through on each attack, then settle back to a ready hold.
+    if (psxArms) {
+      var axd = psxArms.clips.jabR ? psxArms.clips.jabR.d : 0.34;
+      if (pt >= 0 && pt < axd) armsPose(psxArms, psxArms.clips.jabR ? 'jabR' : 'idle', pt, true);
+      else armsPose(psxArms, 'idle', T);
+    }
+    if (pt >= 0 && pt < 0.36) {
+      var ck = Math.sin((pt / 0.36) * Math.PI);   // 0 -> 1 -> 0 chop arc
+      vmAxe.rotation.x = -ck * 1.15;              // blade drops toward the target
+      vmAxe.rotation.z = ck * 0.28;
+    } else { vmAxe.rotation.set(0, 0, 0); }
+  } else if (WEAPONS[state.equipped].melee) {
     if (kameActive && psxArms) {
       // Kamehameha: hold the REAL fists rig thrust up/forward so both hands frame
       // the energy core (no jab animation while the beam is firing)
@@ -21448,7 +21647,7 @@ function loop(now) {
   if (photoMode) { updatePhotoCam(dt); renderer.render(scene, camera); return; }
   T += dt;
   var sdt = dt;
-  updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
+  updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
   if (state.dead) updateDeathCam(dt);   // top-down zoom-out cinematic drives the camera while dead
   renderer.render(scene, camera);
 }
@@ -21573,6 +21772,7 @@ window.__wc = {
   isInside: function () { return inside; },
   storeState: function () { return { robbed: robbedVisit, copsCalled: copsCalledVisit, closedUntil: gasClosedUntil, now: T }; },
   resetCooldowns: function () { punchT = -99; lastShot = -99; lastShotBy = {}; },
+  halves: halves,
   gunBloom: function () { return gunBloom; },
   setGunHold: function (c, t) { gunHold.clip = c; gunHold.t = t; },   // debug: tune the arms hold pose
   dbgArm: function (ov) { dbgArmOv = ov; },   // debug: override support-arm eulers [[x,y,z]x bones 24-27]
@@ -21820,7 +22020,7 @@ window.__wc = {
   // lightweight physics step (no render, no NPC/cop/car sim) — fast headless
   // stepping for plane/fall tests. Renders only when you call renderer yourself.
   stepLite: function (dt) { T += dt; updatePlayer(dt); updatePlaneWorld(dt); },
-  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
+  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
 };
 
 // ---------------- boot screen handoff + menu cover art ----------------
