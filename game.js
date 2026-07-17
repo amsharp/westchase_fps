@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.22';
+var GAME_VERSION = 'v1.76.23';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -16841,7 +16841,8 @@ function setEquipped(w) {
   // draw/reload animations move the hands with the gun
   if (psxArms) {
     if (w === 'fists') { vmFists.add(psxArms.root); vmFists.rotation.set(0, 0, 0); armsPose(psxArms, 'idle', T); }
-    else if (w === 'axe') { vmAxe.add(psxArms.root); vmAxe.rotation.set(0, 0, 0); armsPose(psxArms, 'idle', T); }
+    // axe: NO first-person hands — just the swinging axe (psxArms stays parented
+    // to the hidden vmFists group, so it's invisible while the axe is out)
     else if (GUNHOLD_GROUPS[w]) { vmMap[w].add(psxArms.root); armsPose(psxArms, gunHold.clip, gunHold.t, true); solveSupportIK(w); gripFingers(); }
   }
   vm.visible = !zoomed && !driving && !state.dead;   // stay hidden during the death cinematic
@@ -21112,18 +21113,15 @@ function updatePlayer(dt) {
   } else rocketCdEl.classList.add('hidden');
   var pt = T - punchT;
   if (state.equipped === 'axe') {
-    // AXE: an overhead chop — swing the whole viewmodel (the arms are parented
-    // into vmAxe) down and through on each attack, then settle back to a ready hold.
-    if (psxArms) {
-      var axd = psxArms.clips.jabR ? psxArms.clips.jabR.d : 0.34;
-      if (pt >= 0 && pt < axd) armsPose(psxArms, psxArms.clips.jabR ? 'jabR' : 'idle', pt, true);
-      else armsPose(psxArms, 'idle', T);
-    }
+    // AXE: a big, exaggerated two-handed chop — wind the blade up over the
+    // shoulder, then SLAM it down through the target and lunge forward, then
+    // settle back to a ready hold. No first-person hands (arms are hidden).
     if (pt >= 0 && pt < 0.36) {
       var ck = Math.sin((pt / 0.36) * Math.PI);   // 0 -> 1 -> 0 chop arc
       vmAxe.rotation.x = -ck * 1.15;              // blade drops toward the target
       vmAxe.rotation.z = ck * 0.28;
-    } else { vmAxe.rotation.set(0, 0, 0); }
+    }
+    // when not mid-swing the earlier draw block already rebased vmAxe (idle/equip anim)
   } else if (WEAPONS[state.equipped].melee) {
     if (kameActive && psxArms) {
       // Kamehameha: hold the REAL fists rig thrust up/forward so both hands frame
