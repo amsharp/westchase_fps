@@ -6,9 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.3';
-// QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
-var SPEEDO_MPH = 2.7;
+var GAME_VERSION = 'v1.76.4';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -12396,7 +12394,7 @@ function enterCar(c) {
   yaw = Math.atan2(-Math.cos(hh), Math.sin(hh));
   pitch = 0;
   document.getElementById('crosshair').style.display = 'none';
-  document.getElementById('weaponBox').innerHTML = 'DRIVING<br><small>[E] get out &middot; WASD drive &middot; mouse looks around &middot; [R] radio</small>';
+  document.getElementById('weaponBox').innerHTML = '';   // no driving HUD text — controls live in the pause-menu CONTROLS tab
   radioResume();   // resume the selected radio station (music stopped when you last got out)
 }
 function exitCar(hijacked) {
@@ -12418,6 +12416,7 @@ function exitCar(hijacked) {
     driving.pspeed = 0;
     if (isClient()) netToHost({ t: 'park', i: cars.indexOf(driving), x: Math.round(g.position.x * 10) / 10, z: Math.round(g.position.z * 10) / 10, ry: Math.round(h * 100) / 100 });
   }
+  if (driving.eng) stopEngine(driving);   // kill the engine / idle rumble the moment you step out (was lingering after exit)
   driving = null;
   vm.visible = true;
   sfx('cardoor');   // door slam on the way out too
@@ -12578,28 +12577,48 @@ function updateDriving(dt) {
     }
     c.pspeed *= -0.15;
   }
-  // ---- vertical: ride the surface; a ramp/bump taken too fast throws the car
-  // airborne (no control in the air, momentum carried; landing regains control
-  // and thuds with the crash sound). Air time + distance scale with speed. ----
+  // ---- vertical: ride the surface. Two distinct ways to catch air, kept apart so
+  // curbs no longer over-launch (report: "air too exaggerated on little curbs"):
+  //   1) RAMP jump — a real addRamp incline. We track the along-heading up-grade
+  //      while climbing; at the crest the car flies off ALONG the ramp angle,
+  //      keeping its momentum (cvy = horizontal speed * grade => trajectory matches
+  //      the ramp). This is the big, satisfying jump.
+  //   2) CURB / bump — a sharp one-frame surface step (sidewalk edge). Gives only a
+  //      small, hard-capped hop (~half the old amount), never a ramp-sized launch.
+  var gs = driveSurfaceAt(p.x, p.z), rgx = -fz, rgz = fx;   // car's right vector
+  var rampGrad = gs.gx * fx + gs.gz * fz;                   // along-travel grade (>0 climbing a ramp, <0 descending)
   var surf = surfaceHeightAt(p.x, p.z);
   if (c.cy === undefined) c.cy = surf;
   if (c.csurf === undefined) c.csurf = surf;
-  var groundRise = (surf - c.csurf) / dt; c.csurf = surf;   // vertical speed of the ground under the car
+  var groundRise = (surf - c.csurf) / dt; c.csurf = surf;   // vertical speed of the ground under the car (curb steps spike this)
   c.cvy = c.cvy || 0;
+  if (gs.h > 0.05 && rampGrad > 0.02) c.onRampGrad = rampGrad;   // remember the up-grade of the ramp we're climbing
   if (airborne) {
     c.cvy -= 20 * dt; c.cy += c.cvy * dt;                    // ballistic arc
     if (c.cy <= surf) { c.cy = surf; c.cvy = 0; c.airborne = false; sfx('crash', { x: p.x, z: p.z, range: 70 }); }
   } else {
-    c.rampV = Math.max(groundRise, (c.rampV || 0) * 0.9);      // hold the recent upward ground speed (a ramp), decay slowly
-    if (groundRise < 1.5 && c.rampV > 4 && asp > 15) {         // ground stopped rising = crest -> take off with the stored up-velocity
-      c.airborne = true; c.cvy = Math.min(c.rampV, 15); c.rampV = 0;
-    } else {
-      c.cy += (surf - c.cy) * Math.min(1, 12 * dt);
+    var launched = false;
+    // 1) RAMP LAUNCH: we were climbing a ramp and the grade just fell away (crest /
+    //    lip) -> fly off along that angle, momentum intact. cvy = speed * grade.
+    if ((c.onRampGrad || 0) > 0.05 && rampGrad < c.onRampGrad * 0.5 && asp > 12) {
+      c.airborne = true; c.cvy = Math.min(asp * c.onRampGrad, 22);
+      c.cy = Math.max(c.cy, surf);   // start the arc AT the crest (cy lags below while climbing) so we fly over the ramp top, not snap-land on it
+      c.onRampGrad = 0; c.rampV = 0; launched = true;
+    }
+    if (gs.h < 0.05) c.onRampGrad = 0;                       // fully off any ramp -> reset
+    if (!launched) {
+      // 2) CURB / BUMP: a small sharp step -> tiny hop only, hard-capped so curbs
+      //    can't throw the car (was launching with the full step velocity).
+      c.rampV = Math.max(groundRise, (c.rampV || 0) * 0.9);
+      if (groundRise < 1.5 && c.rampV > 6 && asp > 18) {
+        c.airborne = true; c.cvy = Math.min(c.rampV * 0.5, 4.5); c.rampV = 0;
+      } else {
+        c.cy += (surf - c.cy) * Math.min(1, 12 * dt);
+      }
     }
   }
   g.position.set(p.x, c.cy, p.z);
   g.rotation.y = h;
-  var gs = driveSurfaceAt(p.x, p.z), rgx = -fz, rgz = fx;   // car's right vector
   if (c.airborne) { c.slopePitch = Math.atan2(c.cvy, Math.max(4, asp)); c.slopeRoll = (c.slopeRoll || 0) * 0.9; }   // nose tracks the arc
   else { c.slopePitch = Math.atan(gs.gx * fx + gs.gz * fz); c.slopeRoll = -Math.atan(gs.gx * rgx + gs.gz * rgz); }
   lakeCarPhysics(c, dt);   // flood / sink / stall once the car drives into deep water
@@ -13723,6 +13742,7 @@ function removeHusk(c) { if (c.husk) { scene.remove(c.husk); c.husk = null; } }
 function explodeCar(c) {
   if (c.exploded) return;
   c.exploded = true; c.berserk = false; c.dmgT = 0; c.burning = false;
+  if (c.eng) stopEngine(c);   // a wrecked car makes no engine noise
   var pos = c.car.group.position;
   if (driving === c) {
     // blown out of your own ride
@@ -16822,6 +16842,8 @@ function hurtPlayer(d, sx, sz) {
     if (driving) {
       // tell the host the car is free, or it keeps chasing our respawned ghost
       if (isClient()) { var dcp = driving.car.group; netToHost({ t: 'park', i: cars.indexOf(driving), x: dcp.position.x, z: dcp.position.z, ry: dcp.rotation.y }); }
+      radioStop();   // dying in a car with the radio on left it playing through respawn — kill it here too
+      if (driving.eng) stopEngine(driving);   // ...and silence the engine/idle audio on death
       driving.pspeed = 0; driving = null; document.getElementById('crosshair').style.display = ''; vm.visible = true;
     }
     if (plane && plane.piloting) {
@@ -20194,7 +20216,7 @@ function updatePlayer(dt) {
     radioTick();   // keep the radio level synced to the master volume while driving
     if (state.hp < 100 && T - state.lastHurt > 5) state.hp = Math.min(100, state.hp + 5 * dt);
     if (flashT > 0) { flashT -= dt; if (flashT <= 0) flash.visible = false; }
-    document.getElementById('prompt').textContent = '[E] EXIT CAR';
+    document.getElementById('prompt').textContent = '';   // no driving control prompt on the HUD (controls live in the pause-menu CONTROLS tab)
     rocketCdEl.classList.add('hidden');   // the vm/reload block below is skipped while driving — don't leave the bar stuck
     return;
   }
@@ -20731,11 +20753,11 @@ function drawHudCanvas() {
     hudText('☠ ' + kfe.txt, W - M, kfy, 12, kfe.col, 'right');
     hudCx.globalAlpha = 1;
   }
-  // ---- wanted stars: top-center (lit gold, unlit dark silhouettes) ----
+  // ---- wanted stars: top-left corner (lit gold, unlit dark silhouettes) ----
   var sw = state.wanted | 0, spx = 2, sgap = 9 * spx + 6;
   var starY = (settings && settings.compass) ? M + 30 : M;   // clear the compass ribbon
   for (var i = 0; i < 5; i++)
-    drawSprite(SPR_STAR, W / 2 + (i - 2.5) * sgap + 3, starY, spx, i < sw ? '#ffd200' : '#242b38');
+    drawSprite(SPR_STAR, M + 3 + i * sgap, starY, spx, i < sw ? '#ffd200' : '#242b38');
   // ---- health: big retro numerals + heart, bottom-left ----
   var hp = Math.max(0, Math.min(100, Math.round(state.hp)));
   var hcol = hp > 60 ? '#46e05e' : (hp > 30 ? '#ffd200' : '#ff3b28');
@@ -20798,22 +20820,7 @@ function drawHudCanvas() {
     hudCx.restore();
     hudText(wdtxt, wmx2, wmy2 - 12, 12, '#bfefff', 'center');
   }
-  // ---- QoL: speedometer while driving — MPH readout + speed bar, bottom-center.
-  // driving.pspeed is world u/s (capped ~26); SPEEDO_MPH scales it to a believable
-  // top speed near 70 mph. Reverse shows an 'R' tag and the bar still fills. ----
-  if (driving && !inside) {
-    var absS = Math.abs(driving.pspeed || 0);
-    var mph = Math.round(absS * SPEEDO_MPH);
-    var sfrac = Math.max(0, Math.min(1, absS / 26));
-    var sbw = 128, scxs = Math.round(W / 2), sby = H - M - 4;
-    hudCx.fillStyle = '#000'; hudCx.fillRect(scxs - sbw / 2 - 2, sby - 44, sbw + 4, 48);
-    hudCx.fillStyle = 'rgba(10,13,20,0.82)'; hudCx.fillRect(scxs - sbw / 2, sby - 42, sbw, 44);
-    var scol = mph < 35 ? '#8ee87f' : (mph < 60 ? '#ffd200' : '#ff5a3a');
-    drawPix('' + mph, scxs + 4, sby - 34, 4, scol, 'right');
-    hudText('MPH', scxs + 12, sby - 12, 12, '#b9b19a', 'left');
-    if ((driving.pspeed || 0) < -0.5) drawPix('R', scxs - sbw / 2 + 8, sby - 34, 3, '#ff5a3a', 'left');
-    hudBar(scxs - sbw / 2 + 10, sby - 10, sbw - 20, 5, sfrac, scol, 0);
-  }
+  // (driving speedometer removed v1.76.4 — no on-screen MPH/controls while driving)
   // (on-foot weapon quick-bar is now the DOM hotbar #hotbarHud — v1.72)
   // ---- FPS / perf readout (QoL, settings.fps): left edge, clear of the
   // minimap (top) and health (bottom). renderer.info reflects last frame. ----

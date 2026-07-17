@@ -132,9 +132,11 @@ coasts for a long time instead of stopping dead. Steering gets a little
 **leans into corners** (a hard right throws it left), and if you take a
 corner too fast and **hold it too long** the tyres let go: the slide
 builds until the back end steps out and the car **spins out**. Ease off or
-scrub speed to catch it. Cars also **climb** ramps and kerbs — and if you
-hit a ramp or bump **fast enough you catch air**, flying with no steering
-until you land (the faster you're going, the bigger the jump). And crashing
+scrub speed to catch it. Cars also **climb** ramps and kerbs. Hit a real
+**ramp** with a run-up and the car **launches along the ramp's angle** and
+sails through the air, keeping its momentum until it lands — the faster
+you're going, the further it flies. Little **kerbs and sidewalk edges** only
+give a small hop now (they used to fling you skyward). And crashing
 **into a solid wall at speed hurts** — hit a building fast enough and it's a
 fatal, fiery wreck. (A test ramp sits on the road just east of the Publix
 spawn — get a run-up and launch it.)
@@ -385,7 +387,7 @@ off-limits.) All of this is personal and local, like the interiors themselves.
 
 ## Wanted system
 
-Crimes earn GTA-style stars (max 5, shown top-center), and each star costs
+Crimes earn GTA-style stars (max 5, shown in the top-left corner), and each star costs
 double the mayhem the last one did:
 
 - Robbing the register at gunpoint → instantly 2 stars.
@@ -433,14 +435,15 @@ any other: park it wherever, lose it, blow it up — a wrecked lot car gets
 
 Press **E** next to a passing car to carjack it — the driver bails and
 runs off screaming (and yes, that's a crime). Driving is third-person:
-WASD to drive, **E** to get out. A **speedometer** lights up on the HUD
-while you're behind the wheel — a big MPH readout and a speed bar that
-greens up at a cruise and reddens as you floor it. Tap **R** to flip on the
+WASD to drive, **E** to get out (the controls all live in the pause-menu
+**CONTROLS** tab — the driving view itself stays clean, no on-screen speedo
+or button prompts). Tap **R** to flip on the
 **car radio** and cycle its stations — **Electronic, Rap, Chill, Rock**, or
 off. Each station plays a set of tracks on a loop; the music is yours alone
-(other cars stay quiet), it cuts out the moment you step out or the car goes
-up, and it picks the station back up when you climb into your next ride. You
-can't shoot from the driver's seat,
+(other cars stay quiet), it cuts out the moment you step out, wreck, or die,
+and it picks the station back up when you climb into your next ride. The
+engine note dies with it too — step out or get wasted and the idle goes
+silent. You can't shoot from the driver's seat,
 but the car itself is the weapon — mow down pedestrians and cops, and
 ram traffic to send it spinning out of control like you'd shot it up.
 Trees and street lights snap and topple if you plow through them, in a
