@@ -199,5 +199,20 @@
   "ref": "8c67d2ba6cb74355b37583ae65212335",
   "title": "user-picked",
   "why": "reference id supplied directly by the user (fish.audio/m/8c67d2ba...); gamer, close friends with DERIK"
+ },
+ "GIGGLES": {
+  "ref": "4ca0d1bc90324e7c8b81685b04f25a94",
+  "title": "Pennywise the Dancing Clown",
+  "why": "sinister playful clown, perfect for a creepy harlequin"
+ },
+ "RUFUS": {
+  "ref": "7c4766b794b84e16b1575ee96c975667",
+  "title": "Friendly Young Gamer",
+  "why": "warm enthusiastic young man, fits a wholesome furry con-goer"
+ },
+ "MORTIS": {
+  "ref": "b837eabb65f94ce5b32b0be9b712cf30",
+  "title": "creepy (deep calm measured)",
+  "why": "deep authoritative measured ominous male, cult-leader tone"
  }
 }

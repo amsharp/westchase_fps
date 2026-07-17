@@ -2570,5 +2570,123 @@
    "So I put on Echoes at the lake at sunset, full side, twenty-three minutes, man. And the fountain synced up. Not close — SYNCED. Every splash on the downbeat. By the end, three strangers were sitting with me, nobody talking. That's church, man. That's the whole thing.",
    "The night the green light crossed the water, man, I didn't run. I held up my lighter. Slow sway, total respect. It dimmed twice, like it KNEW the song. Great gig in the sky, man, and we were the opening act. I'm still processing it. I'll be processing it forever."
   ]
+ },
+ "GIGGLES": {
+  "bump": [
+   "(laughing) Oopsie! Watch your step, friend.",
+   "Hehehe, careful now, accidents happen.",
+   "You bumped my flower! It squirts, you know.",
+   "Tut tut. Clumsy, clumsy little one."
+  ],
+  "hit": [
+   "(angry) Ow! That is not funny! Well, maybe a little.",
+   "(shouting) Hey! Only I get to do the slapstick!",
+   "(laughing) Do that again and I will bite.",
+   "Owie. You will regret that, giggles or not."
+  ],
+  "gunscared": [
+   "(scared) Whoa whoa, no need for that, funny man!",
+   "(scared) A clown never runs. Okay, this clown runs!"
+  ],
+  "chat": [
+   "Would you like a balloon? They are very special.",
+   "The circus left town without me. So rude.",
+   "I have got a joke that just kills.",
+   "Everybody floats down here eventually."
+  ],
+  "quirk": [
+   "(laughing) Honk honk!",
+   "Wanna see a magic trick? You will not like it.",
+   "Why so serious, friend?",
+   "I smell cotton candy. Or is that fear?",
+   "(laughing) Send in the clowns! Oh wait, I am here."
+  ],
+  "chatQ": [
+   "Do you believe in the balloon man? You really should.",
+   "Have you seen my red nose? It answers to Squeaky."
+  ],
+  "chatA": [
+   "(laughing) Oh that is delightful, tell me more!",
+   "Hehehe, you are funnier than a pie to the face.",
+   "No no no, that one is too scary even for me."
+  ]
+ },
+ "RUFUS": {
+  "bump": [
+   "Oh gosh, sorry! The eyeholes are super tiny.",
+   "Oops! My tail has a total mind of its own.",
+   "Sorry sorry! The big paws make me clumsy.",
+   "Ack, my bad, dude!"
+  ],
+  "hit": [
+   "(scared) Ow, hey! This suit was not cheap!",
+   "(angry) Not the fursuit, man! Do you know how hot these get?!",
+   "Ow! That is gonna leave a mark under the fur."
+  ],
+  "gunscared": [
+   "(scared) Whoa whoa, I am just a guy in a wolf costume!",
+   "(scared) Please dont, I have got a convention to get to!"
+  ],
+  "chat": [
+   "It is like ninety degrees in here but so worth it.",
+   "The commission for this suit took eight whole months.",
+   "Anyone got a fan? I am absolutely cooking in here.",
+   "Awoo! Sorry. Force of habit."
+  ],
+  "quirk": [
+   "Awoooooo!",
+   "Yeah, I made the tail myself, thanks for noticing!",
+   "The headpad is soaked but the vibes are immaculate.",
+   "OwO, what is this? Kidding. Mostly.",
+   "Free hugs! The fur is really, really soft."
+  ],
+  "chatQ": [
+   "Are you going to the con this weekend too?",
+   "Wanna see my badge? I drew the artwork myself."
+  ],
+  "chatA": [
+   "Dude, no way, that is so cool!",
+   "Aw, that is wholesome, I love that so much.",
+   "Oh gosh, really? That is wild."
+  ]
+ },
+ "MORTIS": {
+  "bump": [
+   "Watch your step. The path is narrow.",
+   "You disturb the ritual. Unwise.",
+   "Mind yourself. The end draws near regardless.",
+   "Careful. Nothing here is an accident."
+  ],
+  "hit": [
+   "(angry) You will regret laying hands on the faithful.",
+   "Pain is temporary. The reckoning is not.",
+   "(angry) Strike me. It changes nothing at all."
+  ],
+  "gunscared": [
+   "(scared) Your weapon means nothing to the covenant.",
+   "(scared) Death comes for us all. Yet not today, please."
+  ],
+  "chat": [
+   "The stars are almost aligned.",
+   "Have you made your peace with the void?",
+   "We gather at midnight. You are welcome to kneel.",
+   "The old ones are stirring. Can you feel it?"
+  ],
+  "quirk": [
+   "The end is nigh.",
+   "Join us, and know true purpose.",
+   "Soon the veil will grow thin.",
+   "We do not fear the dark. We are the dark.",
+   "All shall kneel before the awakening."
+  ],
+  "chatQ": [
+   "Do you hear the whispers too? Or is it only me?",
+   "Have you seen the signs? They are everywhere now."
+  ],
+  "chatA": [
+   "As it was foretold.",
+   "The prophecy speaks of this. Continue.",
+   "Yes. The darkness agrees with you."
+  ]
  }
 }
