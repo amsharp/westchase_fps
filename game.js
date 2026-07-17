@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.8';
+var GAME_VERSION = 'v1.76.9';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -4885,9 +4885,32 @@ if (WC_REMAP) (function r3Junction() {
 // surface, then pitches/rolls the body to the local grade. No collider (you
 // drive onto it, not into it); on-foot players don't climb it yet.
 var driveRamps = [];
-function addRamp(ax, az, dirDeg, len, rise, topLen, wid) {
+// wood plank texture for the jump ramps (rampwood.js, AI-generated, 256px).
+// Built once + repeat-wrapped; falls back to a flat wood color if absent.
+var _rampWoodTex = null, _rampMat = null;
+function rampWoodTex() {
+  if (_rampWoodTex) return _rampWoodTex;
+  if (typeof RAMP_WOOD_TEX === 'undefined') return null;
+  var img = new Image(), tx = new THREE.Texture(img);
+  tx.wrapS = tx.wrapT = THREE.RepeatWrapping; tx.anisotropy = 4;
+  img.onload = function () { tx.needsUpdate = true; };
+  img.src = RAMP_WOOD_TEX;
+  return (_rampWoodTex = tx);
+}
+function rampMat() {
+  if (_rampMat) return _rampMat;
+  var t = rampWoodTex();
+  _rampMat = t ? new THREE.MeshLambertMaterial({ map: t }) : lamb({ color: 0x9a6a3a });
+  _rampMat.side = THREE.DoubleSide;
+  return _rampMat;
+}
+// RIGHT-TRIANGLE launch ramp: drive up the incline (length `len`, rising to
+// `rise`) and fly off the top lip — a vertical back face drops straight down, so
+// there's no flat top or down-slope like the old hump. dirDeg points UP the
+// incline (the direction you drive onto it). Bigger len+rise = bigger jump.
+function addRamp(ax, az, dirDeg, len, rise, wid) {
   var a = dirDeg * Math.PI / 180;
-  var r = { ax: ax, az: az, ux: Math.cos(a), uz: Math.sin(a), len: len, rise: rise, topLen: topLen, wid: wid, grad: rise / len };
+  var r = { ax: ax, az: az, ux: Math.cos(a), uz: Math.sin(a), len: len, rise: rise, wid: wid, grad: rise / len };
   driveRamps.push(r); buildRampMesh(r); return r;
 }
 var _ds = { h: 0, gx: 0, gz: 0 };
@@ -4897,34 +4920,57 @@ function driveSurfaceAt(x, z) {
     var r = driveRamps[i], dx = x - r.ax, dz = z - r.az;
     var s = dx * r.ux + dz * r.uz, t = -dx * r.uz + dz * r.ux;
     if (Math.abs(t) > r.wid / 2) continue;
-    var end = 2 * r.len + r.topLen, hh, sl = 0;
-    if (s < 0 || s > end) continue;
-    if (s <= r.len) { hh = r.grad * s; sl = r.grad; }               // up slope
-    else if (s <= r.len + r.topLen) { hh = r.rise; sl = 0; }        // flat top
-    else { hh = r.rise - r.grad * (s - r.len - r.topLen); sl = -r.grad; }  // down slope
-    if (hh > h) { h = hh; gx = sl * r.ux; gz = sl * r.uz; }
+    if (s < 0 || s > r.len) continue;                 // only the incline is drivable; past the lip you're airborne
+    var hh = r.grad * s;
+    if (hh > h) { h = hh; gx = r.grad * r.ux; gz = r.grad * r.uz; }
   }
   _ds.h = h; _ds.gx = gx; _ds.gz = gz; return _ds;
 }
 function buildRampMesh(r) {
-  var W = r.wid, prof = [[0, 0], [r.len, r.rise], [r.len + r.topLen, r.rise], [2 * r.len + r.topLen, 0]];
-  var pos = [], idx = [], v = 0;
+  var W = r.wid, L = r.len, H = r.rise, US = 1 / 3;   // wood tiles ~ every 3 world units
+  var pos = [], uv = [], idx = [], v = 0;
   function P(s, y, t) { return [r.ax + r.ux * s - r.uz * t, y, r.az + r.uz * s + r.ux * t]; }
-  function quad(A, B, C, D) { pos.push(A[0], A[1], A[2], B[0], B[1], B[2], C[0], C[1], C[2], D[0], D[1], D[2]); idx.push(v, v + 1, v + 2, v, v + 2, v + 3); v += 4; }
-  for (var i = 0; i < prof.length - 1; i++) {
-    var s0 = prof[i][0], y0 = prof[i][1], s1 = prof[i + 1][0], y1 = prof[i + 1][1];
-    quad(P(s0, y0, -W / 2), P(s1, y1, -W / 2), P(s1, y1, W / 2), P(s0, y0, W / 2));    // top surface
-    quad(P(s0, 0, -W / 2), P(s1, 0, -W / 2), P(s1, y1, -W / 2), P(s0, y0, -W / 2));    // left skirt
-    quad(P(s0, y0, W / 2), P(s1, y1, W / 2), P(s1, 0, W / 2), P(s0, 0, W / 2));        // right skirt
+  function tri(A, B, C, ua, ub, uc) {
+    pos.push(A[0], A[1], A[2], B[0], B[1], B[2], C[0], C[1], C[2]);
+    uv.push(ua[0], ua[1], ub[0], ub[1], uc[0], uc[1]);
+    idx.push(v, v + 1, v + 2); v += 3;
   }
+  function quad(A, B, C, D, ua, ub, uc, ud) { tri(A, B, C, ua, ub, uc); tri(A, C, D, ua, uc, ud); }
+  var hyp = Math.sqrt(L * L + H * H);
+  quad(P(0, 0, -W / 2), P(L, H, -W / 2), P(L, H, W / 2), P(0, 0, W / 2),
+       [0, 0], [hyp * US, 0], [hyp * US, W * US], [0, W * US]);                    // incline (drive surface)
+  quad(P(L, 0, -W / 2), P(L, 0, W / 2), P(L, H, W / 2), P(L, H, -W / 2),
+       [0, 0], [W * US, 0], [W * US, H * US], [0, H * US]);                        // vertical back face at the lip
+  tri(P(0, 0, -W / 2), P(L, 0, -W / 2), P(L, H, -W / 2), [0, 0], [L * US, 0], [L * US, H * US]);   // left side
+  tri(P(0, 0, W / 2), P(L, H, W / 2), P(L, 0, W / 2), [0, 0], [L * US, H * US], [L * US, 0]);       // right side
+  quad(P(0, 0, -W / 2), P(0, 0, W / 2), P(L, 0, W / 2), P(L, 0, -W / 2),
+       [0, 0], [W * US, 0], [W * US, L * US], [0, L * US]);                        // bottom
   var geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uv), 2));
   geo.setIndex(idx); geo.computeVertexNormals();
-  var mat = lamb({ color: 0x8f9296 }); mat.side = THREE.DoubleSide;
-  var mesh = new THREE.Mesh(geo, mat); scene.add(mesh);
+  var mesh = new THREE.Mesh(geo, rampMat()); scene.add(mesh);
+  r.mesh = mesh;
 }
-// TEMP test ramp on the road just east of spawn (-63,4) — drive east onto it.
-if (WC_REMAP) addRamp(-46, 3, 8, 9, 3.2, 7, 9);
+// Jump ramps around town — aligned with the roads so there's a straight run-up to
+// build speed and open road to land on. Mixed sizes: small kickers -> big launches.
+// (ax,az, dirDeg points up the incline, len, rise, wid). Placed/verified below.
+// [ax, az, dirDeg(up the incline), len, rise, wid]. Spots verified on clear road
+// with run-up + landing room (roadprobe): west arterial south lane, and the N-S
+// cross road's north & south straightaways. Sizes mixed small kicker -> big air.
+var RAMP_SPOTS = [
+  [-188, -9, 180, 14, 3.4, 7],   // BIG   — west main road, south lane, launch west
+  [6, 198, 90, 11, 2.6, 7],      // MED   — cross road north, launch north
+  [8, 262, 90, 6, 1.4, 7],       // SMALL — cross road north (combo after the MED)
+  [-6, -150, 270, 12, 3.0, 7],   // BIG   — cross road south, launch south
+  [-6, -232, 270, 6, 1.4, 7]     // SMALL — cross road south (combo after the BIG)
+];
+function placeRamps() {
+  if (typeof WC_REMAP === 'undefined' || !WC_REMAP) return;
+  var R = RAMP_SPOTS;
+  for (var i = 0; i < R.length; i++) addRamp(R[i][0], R[i][1], R[i][2], R[i][3], R[i][4], R[i][5]);
+}
+placeRamps();
 
 // Top walkable/drivable surface height at (x,z): people + cars ride ON the
 // highest layer (grass 0 / road .05 / lot .10 / sidewalk .12 / pad .13 /

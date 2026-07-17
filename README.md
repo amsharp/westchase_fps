@@ -141,8 +141,11 @@ sails through the air, keeping its momentum until it lands — the faster
 you're going, the further it flies. Little **kerbs and sidewalk edges** only
 give a small hop now (they used to fling you skyward). And crashing
 **into a solid wall at speed hurts** — hit a building fast enough and it's a
-fatal, fiery wreck. (A test ramp sits on the road just east of the Publix
-spawn — get a run-up and launch it.)
+fatal, fiery wreck. **Wooden jump ramps** are scattered along the roads — big
+right-triangle kickers built from real planks, in a mix of sizes (little ones
+for a quick pop, big ones for serious air). Each sits on a straightaway with
+room to build speed into it and open road to land on: line one up, floor it,
+and fly.
 
 Everything now **rides on top of the ground** instead of sinking into
 it: people, police, and vehicles sit on whichever layer is under them —
