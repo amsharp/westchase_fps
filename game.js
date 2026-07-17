@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.12';
+var GAME_VERSION = 'v1.76.13';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -12246,6 +12246,9 @@ function updateCars(dt) {
       }
       continue;
     }
+    // driverless runaway: a car you bailed out of at speed coasts on its heading
+    // (updateCoastCar handles decel + run-overs + crash-explode), then settles.
+    if (c.coast) { updateCoastCar(c, dt, i); continue; }
     // parked lot cars: no driver, no traffic AI, engine dead silent —
     // they only move if something rams them (shove physics still applies)
     if (c.parked) {
@@ -12468,32 +12471,147 @@ function enterCar(c) {
   if (c.radio) radioApplySnapshot(c.radio);
   else { c.radio = radioHijackRoll(); radioApplySnapshot(c.radio); }
 }
+// ===================== BAIL-OUT: momentum + tuck-and-roll =====================
+// Leaving a car no longer stops it dead — it keeps its momentum and coasts on its
+// heading, slowing gradually, mowing down anyone in the way and (if it's still
+// moving fast) exploding on the first solid thing it hits. Bail at speed and your
+// character tumbles out along the car's path in a quick third-person roll that
+// zooms back into first person — so you can aim a car at a target, jump out, and
+// let it fly. Host/SP only (MP clients still do a plain park).
+var COAST_MIN = 3, COAST_BOOM = 12, ROLL_MIN = 14;
+function startCoast(c, tvx, tvz, asp) {
+  var m = c.car.group;
+  c.coast = true; c.berserk = false; c.shoveT = 0;
+  c.bx = m.position.x; c.bz = m.position.z;
+  c.bvx = tvx * asp; c.bvz = tvz * asp;
+  c.pspeed = 0; c.speed = 0; c.stolen = true; c.parked = false;
+}
+function coastParkCar(c) {
+  c.coast = false; c.bvx = 0; c.bvz = 0; c.pspeed = 0; c.speed = 0;
+  if (c.slot) { c.parked = true; }   // lot car settles as parked; street car stays a stopped stolen car
+}
+function updateCoastCar(c, dt, i) {
+  var m = c.car.group, cs = Math.sqrt(c.bvx * c.bvx + c.bvz * c.bvz);
+  c.bvx *= Math.max(0, 1 - 1.0 * dt); c.bvz *= Math.max(0, 1 - 1.0 * dt);   // rolling resistance
+  c.bx += c.bvx * dt; c.bz += c.bvz * dt;
+  c.bx = Math.max(-HALF + 2, Math.min(HALF - 2, c.bx));
+  c.bz = Math.max(-HALF + 2, Math.min(HALF - 2, c.bz));
+  m.position.set(c.bx, 0, c.bz);   // heading (m.rotation.y) stays as it was on exit
+  var spin = (cs * dt) / 0.34;
+  for (var wi = 0; wi < 4; wi++) c.car.wheels[wi].rotation.y -= spin;
+  updateCarFeel(c, dt, cs, 0, 0);
+  var hh = m.rotation.y, hfx = Math.cos(hh), hfz = -Math.sin(hh);
+  // mow down pedestrians in the path
+  for (var ni = 0; ni < npcs.length; ni++) {
+    var n = npcs[ni]; if (n.state === 'down' || n.state === 'ragdoll' || n.state === 'hidden') continue;
+    var dxx = n.x - c.bx, dzz = n.z - c.bz, lon = dxx * hfx + dzz * hfz, lat = -dxx * hfz + dzz * hfx;
+    if (Math.abs(lon) < 2.8 && Math.abs(lat) < 1.5) {
+      sfx('crash', { x: n.x, z: n.z, range: 90 });
+      killNpcRagdoll(n, hfx, hfz, 8 + cs * 0.55);
+    }
+  }
+  // solid props / other cars: crash -> explode if still fast, else just stop
+  var hit = false;
+  for (var b = 0; b < colliders.length; b++) {
+    var bb = colliders[b]; if (bb.active === false || bb.lake) continue;
+    var qx = Math.max(bb.x0, Math.min(c.bx, bb.x1)), qz = Math.max(bb.z0, Math.min(c.bz, bb.z1));
+    var qdx = c.bx - qx, qdz = c.bz - qz;
+    if (qdx * qdx + qdz * qdz < 4.5) { hit = true; break; }
+  }
+  if (!hit) for (var j = 0; j < cars.length; j++) {
+    if (cars[j] === c || cars[j].exploded) continue;
+    var om = cars[j].car.group.position;
+    if (Math.abs(om.x - c.bx) < 4 && Math.abs(om.z - c.bz) < 4) {
+      if (cs > COAST_BOOM && !cars[j].stolen && !cars[j].drivenBy) explodeCar(cars[j]);
+      hit = true; break;
+    }
+  }
+  if (hit) { if (cs > COAST_BOOM) { explodeCar(c); return; } coastParkCar(c); return; }
+  if (cs < 2.5) coastParkCar(c);   // rolled to a gentle stop
+}
+// ---- tuck & roll: third-person tumble out along the car's path, zoom to head ----
+var rollState = null;
+function startRoll(x, z, tvx, tvz, asp) {
+  var body = null;
+  try {
+    body = buildCharacter(playerChar || randomCharConfig());
+    if (body.userData && body.userData.shadow) body.userData.shadow.visible = false;
+    scene.add(body);
+  } catch (e) { body = null; }
+  rollState = { t: 0, dur: 1.25, x: x, z: z, dx: tvx, dz: tvz, v: Math.min(20, asp * 0.55), body: body,
+                face: Math.atan2(tvx, -tvz) };
+  vm.visible = false;
+  document.getElementById('crosshair').style.display = 'none';
+}
+function updateRoll(dt) {
+  if (!rollState) return;
+  var r = rollState; r.t += dt;
+  var f = Math.min(1, r.t / r.dur);
+  r.v *= Math.max(0, 1 - 2.4 * dt);
+  var step = r.v * dt;
+  var p = pushOut(r.x + r.dx * step, r.z + r.dz * step, 0.5);
+  r.x = p.x; r.z = p.z; player.x = r.x; player.z = r.z; player.y = EYE;
+  if (r.body) {
+    var bob = Math.abs(Math.sin(r.t * 11)) * 0.28;
+    r.body.position.set(r.x, 0.32 + bob * (1 - f), r.z);
+    r.body.rotation.order = 'YXZ';
+    r.body.rotation.set(r.t * 12 * (1 - f * 0.4), r.face, 0);   // tumble forward, settling as it ends
+    if (f > 0.85) { var st = 1 - (f - 0.85) / 0.15; r.body.rotation.x *= st; }   // land on feet
+  }
+  var eyeY = 1.6;
+  if (f < 0.72) {
+    var back = 4.5 - f * 1.5, up = 2.8 - f * 0.9;
+    camera.position.set(r.x - r.dx * back, up, r.z - r.dz * back);
+    camera.lookAt(r.x, 1.0, r.z);
+  } else {
+    var g2 = (f - 0.72) / 0.28;                       // 0..1 blend into first person
+    var back = (4.5 - 0.72 * 1.5) * (1 - g2);
+    var cy = (2.8 - 0.72 * 0.9) * (1 - g2) + eyeY * g2;
+    camera.position.set(r.x - r.dx * back, cy, r.z - r.dz * back);
+    camera.lookAt(r.x + r.dx * (0.5 + g2 * 3), (1.0) * (1 - g2) + eyeY * g2, r.z + r.dz * (0.5 + g2 * 3));
+  }
+  if (f >= 1) endRoll();
+}
+function endRoll() {
+  var r = rollState; rollState = null;
+  if (r && r.body) scene.remove(r.body);
+  if (r) yaw = Math.atan2(-r.dx, -r.dz);   // face the way you rolled (the car's path)
+  pitch = 0; recoilPitch = 0;
+  player.y = EYE; player.vy = 0; camera.rotation.z = 0;
+  vm.visible = true;
+  document.getElementById('crosshair').style.display = '';
+  setEquipped(state.equipped);
+  if (state.running && document.pointerLockElement !== canvas) lockPointer();
+}
 function exitCar(hijacked) {
   if (!driving) return;
-  driving.radio = radioSnapshot();   // remember this car's station/song/position for next time you get in
-  radioStop();   // music stops the moment you leave the car
-  var g = driving.car.group;
-  var h = g.rotation.y;
+  var c = driving, g = c.car.group, h = g.rotation.y;
+  var asp = Math.abs(c.pspeed || 0);
+  var swamped = c.sunk || c.flooding;
+  // travel direction (falls back to the nose heading if the car wasn't drifting)
+  var tvx = c.mvx, tvz = c.mvz;
+  if (tvx === undefined || (tvx === 0 && tvz === 0)) { tvx = Math.cos(h); tvz = -Math.sin(h); }
+  var tl = Math.sqrt(tvx * tvx + tvz * tvz) || 1; tvx /= tl; tvz /= tl;
+  c.radio = radioSnapshot(); radioStop();
+  if (c.eng) stopEngine(c);
+  if (swamped && !landColliders) landColliders = colliders.filter(function (cc) { return !cc.lake; });
   var px = g.position.x + Math.cos(h + Math.PI / 2) * 2.6;
   var pz = g.position.z - Math.sin(h + Math.PI / 2) * 2.6;
-  // bailing out of a swamped car drops you INTO the lake (the swim/underwater
-  // system takes over) — use the lake-filtered list so pushOut doesn't shove you
-  // back to shore. Normal exits keep the full collider list.
-  var swamped = driving.sunk || driving.flooding;
-  if (swamped && !landColliders) landColliders = colliders.filter(function (cc) { return !cc.lake; });
   var p = pushOut(px, pz, 0.55, swamped ? landColliders : undefined);
-  player.x = p.x; player.z = p.z; player.y = EYE; player.vy = 0;
-  // when we got hijacked the car belongs to the thief now — don't park it
-  if (!hijacked) {
-    driving.pspeed = 0;
-    if (isClient()) netToHost({ t: 'park', i: cars.indexOf(driving), x: Math.round(g.position.x * 10) / 10, z: Math.round(g.position.z * 10) / 10, ry: Math.round(h * 100) / 100 });
+  var coastable = !hijacked && !swamped && !isClient() && asp > COAST_MIN;
+  if (coastable) startCoast(c, tvx, tvz, asp);
+  else if (!hijacked) {
+    if (!isClient()) c.pspeed = 0;
+    else netToHost({ t: 'park', i: cars.indexOf(c), x: Math.round(g.position.x * 10) / 10, z: Math.round(g.position.z * 10) / 10, ry: Math.round(h * 100) / 100 });
   }
-  if (driving.eng) stopEngine(driving);   // kill the engine / idle rumble the moment you step out (was lingering after exit)
   driving = null;
+  sfx('cardoor');
+  // fast bail -> tuck & roll (handles player pos + camera + vm restore itself)
+  if (coastable && asp > ROLL_MIN) { startRoll(p.x, p.z, tvx, tvz, asp); return; }
+  player.x = p.x; player.z = p.z; player.y = EYE; player.vy = 0;
   vm.visible = true;
-  sfx('cardoor');   // door slam on the way out too
   document.getElementById('crosshair').style.display = '';
-  setEquipped(state.equipped);   // restores viewmodel + weapon HUD
+  setEquipped(state.equipped);
 }
 // ---- breaking into parked cars: E starts a 0.9s window-jimmy, then you're in ----
 var breakIn = null;   // {c, t}
@@ -17080,6 +17198,7 @@ function hurtPlayer(d, sx, sz) {
   if (state.hp <= 0) {
     state.hp = 0; state.dead = true;
     if (kameActive) endKamehameha();   // dying mid-beam: tear it down (updatePlayer stops running once dead)
+    if (rollState) endRoll();          // dying mid-roll: clean up the body/camera before the death cam
     if (state.wanted >= 2) playVoice('cop_down', 0.45, 10);
     if (driving) {
       // tell the host the car is free, or it keeps chasing our respawned ghost
@@ -20500,6 +20619,7 @@ document.addEventListener('pointerlockchange', function () { if (document.pointe
 var stepPhase = 0;   // footstep cadence accumulator (#47)
 function updatePlayer(dt) {
   if (state.menu || state.dead) return;
+  if (rollState) { updateRoll(dt); return; }   // tuck-and-roll cinematic owns the camera until it finishes
   updateKamehameha(dt);   // rare fists beam: aim/sweep/expire (no-op unless active)
   if (driving) {
     updateDriving(dt);

@@ -456,6 +456,13 @@ engine note dies with it too — step out or get wasted and the idle goes
 silent. You can't shoot from the driver's seat,
 but the car itself is the weapon — mow down pedestrians and cops, and
 ram traffic to send it spinning out of control like you'd shot it up.
+**Bail out at speed and the car keeps rolling** — it coasts on down its
+path driverless, flattening anyone in the way and **exploding** on the first
+solid thing it hits if it's still moving fast. Jump out going fast enough
+and your character **tuck-and-rolls** out along the car's heading — the view
+swings to third person, tumbles you across the pavement, then zooms back into
+your head and hands you control — so you can line a car up on a target, leap
+clear, and let it fly. (Ease out slowly instead and it just coasts to a stop.)
 Trees and street lights snap and topple if you plow through them, in a
 shower of leaves or sparks — they grow back about a minute later. Fences
 break the same way, one panel at a time: plow a car through a picket,
