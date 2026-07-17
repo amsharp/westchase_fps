@@ -551,3 +551,25 @@ Root cause: NPC_COUNT was doubled to 440 with a note that frustum-cull makes it 
 - mrgmtcce (5,140) reversed sign — PARTIAL@v1.67.12. Fixed the two explicit DoubleSide text-sign builders — signPlane() and publixSign() — to two-front-planes back-to-back (greenSign pattern; a single DoubleSide plane mirrors text from behind). These cover storage()'s SELF STORAGE call (line ~1230), shop/stripMall/farnell fascias, ROAD CLOSED, ICE, PUBLIX wordmark, etc. HONEST RESIDUAL: live probing the running (REMAP) build found the VISIBLE storage placard at (12.7,5.4,120) is a SEPARATE single DoubleSide plane (w19.2/h4.2) from an unidentified REMAP facade/fascia path — NOT signPlane (which makes w12 FrontSide planes; a w12 search returned 0 in-scene, so the REMAP venue sign path bypasses signPlane). ~30 such w19-38 DoubleSide venue-fascia planes exist at y~4.5-7 across venues. The 135deg venue rotation defeated a clean true-back capture (oblique back view read non-mirrored). NEXT: find the REMAP venue-name fascia builder and apply the two-plane fix there; the signPlane/publixSign fixes are correct and shipped regardless.
 - mrgmsvpb (27,240) arm clipping — OPEN@v1.67.12. Identified: the northern residential area (27,240) is populated ENTIRELY by SKINNED Meshy civilians (buildMeshySkinned). Examined 6+ nearby chars front + side across walk poses; the wider/muscular Meshy builds hang thick upper arms against a wide torso (closest to intersecting), but no single clear, reproducible arm-through-torso frame was isolated in budget. Arm-drop is rotation.z ±1.42 for the rigid path, but these are skinned (bone-driven walk clips), so a blind clip/adduction tune risks regressing the walk animation. Honest OPEN with character class + likely mechanism (Meshy walk-swing adduction on wide builds) identified. NEXT: systematic per-frame arm-vs-torso penetration sweep across the Meshy walk clip to isolate the offending frame, then clamp adduction.
 - mrgn7702 (-63,-8) floating prop — OPEN@v1.67.12. Exhaustive probing at (-63,-8): the ONLY discrete objects are (1) a wildlife SQUIRREL (buildSquirrel, tail+head), sitting EXACTLY at the report coord (-62.8,-8.4) — measured whole-group bbox y0=-0.018, body-sphere bottom ~0.005 = GROUNDED; (2) parked traffic cars (their small detail planes float at y0~0.6 but that's normal car geometry); (3) streetprops (trashcan/newsbox/vending) at y0=0.13 sitting on the 0.12 sidewalk; (4) crepe-myrtle pink blooms on thin (r0.045-0.085) trunks that read as floating from a distance. NO static prop measured as genuinely floating (foliage scan: 1006 grounded at y0=0, the ~99 at y0>0.3 are all crepe-myrtle canopies). The legless squirrel body sits above its contact shadow, which reads as hovering at close range, but it is geometrically grounded on flat terrain. Could not reproduce a real Y-offset float; honest OPEN with the squirrel identified as the most likely subject + thin-trunk crepe-myrtle as an alternative reading.
+
+## CONTENT — new Meshy characters (v1.68.3, opus/fable session)
+- User request: add a fiery/clown/evil + furry set; clarified live to CLOWN +
+  FURRY (person in a fursuit) + EVIL (grounded cult/occult figure, no fantasy
+  glow). Fiery was a "furry" misspelling — dropped.
+- Shipped 3 skinned Meshy civilians via tools/chargen (gpt-image-1 seed ->
+  Meshy image-to-3d+rig -> genskin --clips-from shared): GIGGLES (sinister
+  harlequin clown, 1658 tris), RUFUS (teal wolf fursuit, 1635 tris), MORTIS
+  (hooded cult figure, 1663 tris). All 24-joint, shared walk/run clips.
+  meshychars.js now 50 chars. Verified in-engine (tools/_newcharshot.js:
+  silhouette/texture/limbs all clean). Meshy spend ~135cr (balance 364).
+  Seed gotcha: gpt-image-1 kept emitting front+back turnarounds w/ arms down;
+  fixed via square canvas + fixed left-region crop (work/fixedcrop.js).
+- Relates to report mrgmxjux ("outdated npc, make a new meshy one, apply
+  everywhere") — this adds fresh variety to the civ pool.
+
+## BUG-STORE RECONCILE (note)
+- /health bug count jumped 146 -> 340 after a relay redeploy (stored reports
+  reconciled, not a spam flood). The ~194 "new" ones are legit playtest
+  reports dated 07-11..07-17 (invisible barriers, black-shadow decals,
+  parking-line flicker, NPC death-audio delay, "make a new meshy npc", etc.).
+  Baseline for the count monitor is now 340. Triage of the backlog pending.

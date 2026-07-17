@@ -100,7 +100,9 @@ clothes, shoes — pre-generated offline and embedded in the game (no
 network needed), plus a growing roster of fully AI-generated 3D
 characters (unique meshes and outfits, graphic tees and all) built
 offline through an image-to-3D pipeline. Some pedestrians wear all of
-these too.
+these too — including a few oddballs you'll spot around town: a creepy
+harlequin clown, someone in a blue wolf fursuit, and a hooded cult
+figure.
 
 ## Sound with a place in the world
 
