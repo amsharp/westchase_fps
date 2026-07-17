@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.19';
+var GAME_VERSION = 'v1.76.20';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -14976,6 +14976,7 @@ function updateNPCs(dt) {
     if (n.state === 'down') {
       n.downT -= dt; m.rotation.x = Math.max(-1.45, m.rotation.x - dt * 7);
       if (n.downT <= 0) {
+        restoreHead(n);   // decapitated corpse respawns with its head back on (mesh is reused)
         if (npcDoors.length) {
           // replacement pedestrian WALKS OUT of a building entrance instead of
           // popping into existence: brief hidden dwell, then the door emit below.
@@ -16834,6 +16835,12 @@ function spawnBloodGib(x, y, z, dx, dz) {
   if (!_gibHeadGeo) { _gibHeadGeo = new THREE.SphereGeometry(0.14, 8, 6); _gibHeadMat = lamb({ color: 0x8a4a3a }); }
   var gm = new THREE.Mesh(_gibHeadGeo, _gibHeadMat); gm.position.set(x, y, z); scene.add(gm);
   gibs.push({ mesh: gm, vx: dx * 2.5 + (Math.random() - 0.5) * 3, vy: 4.5 + Math.random() * 2.5, vz: dz * 2.5 + (Math.random() - 0.5) * 3, spin: (Math.random() - 0.5) * 16, life: 6 });
+}
+function restoreHead(n) {   // put the head back when a decapitated NPC respawns (mesh is reused)
+  if (!n || !n._headless) return;
+  n._headless = false;
+  var u = n.mesh && n.mesh.userData ? n.mesh.userData : null;
+  if (u) { if (u.head) u.head.visible = true; if (u.headBone) u.headBone.scale.set(1, 1, 1); }
 }
 function decapitateNPC(n, dx, dz) {
   n._headless = true;
