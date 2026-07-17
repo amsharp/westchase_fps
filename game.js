@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.17';
+var GAME_VERSION = 'v1.76.18';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -16799,7 +16799,7 @@ var npcRootsAlive = [];
 // it touches. Weapon switching is locked until it ends, then the arms drop back
 // to fists. Voice cry + a sustained roar. Local/per-peer visual (the kills route
 // through the normal net paths so other players see the bodies drop).
-var KAME_CHANCE = 0.2;                       // TESTING = 1/5; ship value later = 0.001 (1/1000)
+var KAME_CHANCE = 1 / 500;                    // rare punch easter egg — 1 in 500 bare-fist swings
 var KAME_DUR = 5.0, KAME_LEN = 170, KAME_R = 3.4;   // beam length + kill radius (world units)
 var kameActive = false, kameT = 0;
 var kameBeamGrp = null, kameBeam = null, kameCore = null, kameBuf = null;
