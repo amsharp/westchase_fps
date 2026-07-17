@@ -113,7 +113,58 @@ function processBody(flipNose) {
   let deckY = -1e9;
   for (let v = 0; v < n; v++) { const x = pos[v * 3], y = pos[v * 3 + 1]; if (x < -0.28 * L && x > -0.45 * L && Math.abs(pos[v * 3 + 2]) < 0.3 * W && y > deckY) deckY = y; }
   const mount = [rd(-0.34 * L), rd(deckY), 0];
-  return { q, wheels, mount, rawTex: g.tex, rotated, L, H, W, r };
+  return { q, wheels, mount, rawTex: g.tex, rotated, L, H, W, r, pos, uv: g.uv };
+}
+
+// --- tail texel projection: find rearward-facing triangles at the tail, raster
+// them in UV space at S px, and map each texel's interpolated 3D (z,y) into
+// tail-design space (du across the tail, dv top->bottom). The taillight band +
+// Carrera 2 script are then BAKED into the atlas per colour variant (the old
+// floating decal quad never sat right on the curved tail). ---
+function collectTailTexels(body, S) {
+  const { pos, uv, L, H, W } = body;
+  const nTri = pos.length / 9;
+  const keep = [];
+  let yMin = 1e9, yMax = -1e9;
+  for (let t = 0; t < nTri; t++) {
+    const o = t * 9;
+    const ax = pos[o], ay = pos[o + 1], az = pos[o + 2];
+    const bx = pos[o + 3], by = pos[o + 4], bz = pos[o + 5];
+    const cx2 = pos[o + 6], cy = pos[o + 7], cz = pos[o + 8];
+    const e1x = bx - ax, e1y = by - ay, e1z = bz - az, e2x = cx2 - ax, e2y = cy - ay, e2z = cz - az;
+    let nx = e1y * e2z - e1z * e2y, ny = e1z * e2x - e1x * e2z, nz = e1x * e2y - e1y * e2x;
+    const nl = Math.hypot(nx, ny, nz) || 1; nx /= nl;
+    const mx2 = (ax + bx + cx2) / 3, my = (ay + by + cy) / 3;
+    // fascia tris face hard rearward; the engine-lid slope (where the Carrera 2
+    // script sits, above the band) tilts up so its nx is softer — accept it in
+    // the upper zone only, so flat deck tris (nx~0) stay out
+    if (mx2 < -0.40 * L && my < 0.70 * H && (nx < -0.30 || (nx < -0.13 && my > 0.28))) {
+      keep.push(t);
+      yMin = Math.min(yMin, ay, by, cy); yMax = Math.max(yMax, ay, by, cy);
+    }
+  }
+  const texels = [];   // flat [px,py,duQ,dvQ,...] (du/dv quantized *4096)
+  for (const t of keep) {
+    const o = t * 9, u0 = uv[t * 6] * S, v0 = uv[t * 6 + 1] * S, u1 = uv[t * 6 + 2] * S, v1 = uv[t * 6 + 3] * S, u2 = uv[t * 6 + 4] * S, v2 = uv[t * 6 + 5] * S;
+    const x0 = Math.max(0, Math.floor(Math.min(u0, u1, u2)) - 1), x1 = Math.min(S - 1, Math.ceil(Math.max(u0, u1, u2)) + 1);
+    const y0 = Math.max(0, Math.floor(Math.min(v0, v1, v2)) - 1), y1 = Math.min(S - 1, Math.ceil(Math.max(v0, v1, v2)) + 1);
+    const den = (v1 - v2) * (u0 - u2) + (u2 - u1) * (v0 - v2);
+    if (Math.abs(den) < 1e-9) continue;
+    for (let py = y0; py <= y1; py++) for (let px = x0; px <= x1; px++) {
+      const fx = px + 0.5, fy = py + 0.5;
+      const w0 = ((v1 - v2) * (fx - u2) + (u2 - u1) * (fy - v2)) / den;
+      const w1 = ((v2 - v0) * (fx - u2) + (u0 - u2) * (fy - v2)) / den;
+      const w2 = 1 - w0 - w1;
+      const eps = -1.2 / Math.sqrt(Math.abs(den));            // ~1px tolerance to close seams
+      if (w0 < eps || w1 < eps || w2 < eps) continue;
+      const y3 = w0 * pos[o + 1] + w1 * pos[o + 4] + w2 * pos[o + 7];
+      const z3 = w0 * pos[o + 2] + w1 * pos[o + 5] + w2 * pos[o + 8];
+      const du = (z3 + W / 2) / W, dv = 1 - (y3 - yMin) / (yMax - yMin || 1);
+      texels.push(px, py, Math.max(0, Math.min(4095, du * 4096 | 0)), Math.max(0, Math.min(4095, dv * 4096 | 0)));
+    }
+  }
+  console.log('tail bake:', keep.length, 'tris,', texels.length / 4, 'texels, y', yMin.toFixed(3), '..', yMax.toFixed(3));
+  return texels;
 }
 // --- WHEEL: axle (thin axis) -> +Y, center ---
 function processWheel() {
@@ -143,19 +194,80 @@ function processSpoiler() {
 (async () => {
   const FLIP = process.argv.includes('--flip');
   const body = processBody(FLIP), wheel = processWheel(), spoiler = processSpoiler();
-  // textures via headless canvas: body -> 256px + recolor variants; wheel/spoiler -> 256px as-is
+  const BODY_S = 512;   // body atlas res: tail text must stay legible after the bake
+  const tailTexels = collectTailTexels(body, BODY_S);
+  // textures via headless canvas: body -> 512px recolor variants + tail bake; wheel 128 / spoiler 256
   const browser = await pw.chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--no-sandbox'] });
   const page = await browser.newPage();
   async function down(src, size) { return src ? page.evaluate(o => new Promise((res, rej) => { const img = new Image(); img.onload = () => { const c = document.createElement('canvas'); c.width = o.s; c.height = o.s; const g = c.getContext('2d'); g.imageSmoothingEnabled = false; g.drawImage(img, 0, 0, o.s, o.s); res(c.toDataURL('image/png')); }; img.onerror = () => rej(new Error('decode')); img.src = o.src; }), { src, s: size }) : null; }
-  // recolor: mask blue body paint -> target color (game getVehMat logic), keep windows/tires/lights
-  async function recolor(src, tgt) { return page.evaluate(o => new Promise((res, rej) => { const img = new Image(); img.onload = () => { const c = document.createElement('canvas'); c.width = 256; c.height = 256; const g = c.getContext('2d'); g.imageSmoothingEnabled = false; g.drawImage(img, 0, 0, 256, 256); const d = g.getImageData(0, 0, 256, 256), px = d.data; for (let j = 0; j < px.length; j += 4) { const r = px[j], gg = px[j + 1], b = px[j + 2]; if (b > r * 1.15 && b > gg * 1.1 && b > 50) { const lum = (r * 0.35 + gg * 0.45 + b * 0.35) / 148; px[j] = Math.min(255, o.t[0] * lum); px[j + 1] = Math.min(255, o.t[1] * lum); px[j + 2] = Math.min(255, o.t[2] * lum); } } g.putImageData(d, 0, 0); res(c.toDataURL('image/png')); }; img.onerror = () => rej(new Error('decode')); img.src = o.src; }), { src, t: tgt }); }
+  // recolor: mask blue body paint -> target color (game getVehMat logic), keep windows/tires/lights.
+  // For the body (o.tail set) also BAKE the taillight band + Carrera 2 design:
+  // each tail texel is overwritten with the design sampled at its projected (du,dv).
+  async function recolor(src, tgt, size, tail, dark) {
+    return page.evaluate(o => new Promise((res, rej) => {
+      const img = new Image();
+      img.onload = () => {
+        const S = o.s, c = document.createElement('canvas'); c.width = S; c.height = S;
+        const g = c.getContext('2d'); g.imageSmoothingEnabled = false; g.drawImage(img, 0, 0, S, S);
+        const d = g.getImageData(0, 0, S, S), px = d.data;
+        for (let j = 0; j < px.length; j += 4) {
+          const r = px[j], gg = px[j + 1], b = px[j + 2];
+          if (b > r * 1.15 && b > gg * 1.1 && b > 50) {
+            const lum = (r * 0.35 + gg * 0.45 + b * 0.35) / 148;
+            px[j] = Math.min(255, o.t[0] * lum); px[j + 1] = Math.min(255, o.t[1] * lum); px[j + 2] = Math.min(255, o.t[2] * lum);
+          }
+        }
+        if (o.tail && o.tail.length) {
+          // ---- tail design canvas (512x256): field + Carrera 2 + light band ----
+          const DW = 512, DH = 256, D = document.createElement('canvas'); D.width = DW; D.height = DH;
+          const q = D.getContext('2d');
+          const shade = (t2, f) => 'rgb(' + Math.min(255, t2[0] * f | 0) + ',' + Math.min(255, t2[1] * f | 0) + ',' + Math.min(255, t2[2] * f | 0) + ')';
+          const gr = q.createLinearGradient(0, 0, 0, DH);
+          gr.addColorStop(0, shade(o.t, 1.05)); gr.addColorStop(0.7, shade(o.t, 0.92)); gr.addColorStop(1, shade(o.t, 0.72));
+          q.fillStyle = gr; q.fillRect(0, 0, DW, DH);
+          // layout, dv top->bottom: 0-0.25 lid slope (script), 0.25-0.46 band, rest bumper
+          q.fillStyle = o.dark ? '#e2ded8' : '#160a08';
+          q.font = 'italic bold 30px cursive'; q.textAlign = 'center';
+          q.fillText('Carrera 2', 256, 44);
+          const sx = 8, sw = 496, sy = 64, sh = 52, ac = 84;
+          q.fillStyle = '#0a0606'; q.fillRect(sx - 4, sy - 4, sw + 8, sh + 8);
+          q.fillStyle = '#e0851a'; q.fillRect(sx, sy, ac, sh); q.fillRect(sx + sw - ac, sy, ac, sh);
+          q.strokeStyle = 'rgba(110,55,0,0.55)'; q.lineWidth = 2;
+          for (let i = 1; i < 4; i++) {
+            const a = sx + ac * i / 4, b2 = sx + sw - ac + ac * i / 4;
+            q.beginPath(); q.moveTo(a, sy); q.lineTo(a, sy + sh); q.moveTo(b2, sy); q.lineTo(b2, sy + sh); q.stroke();
+          }
+          q.fillStyle = '#6e1210'; q.fillRect(sx + ac, sy, sw - ac * 2, sh);
+          q.strokeStyle = 'rgba(0,0,0,0.35)'; q.lineWidth = 1;
+          for (let hy = sy + 8; hy < sy + sh; hy += 9) { q.beginPath(); q.moveTo(sx + ac, hy); q.lineTo(sx + sw - ac, hy); q.stroke(); }
+          q.font = 'bold 30px Arial'; q.textAlign = 'center';
+          q.fillStyle = 'rgba(0,0,0,0.6)'; q.fillText('P O R S C H E', 258, sy + sh / 2 + 11);
+          q.fillStyle = '#dcd2c6'; q.fillText('P O R S C H E', 256, sy + sh / 2 + 10);
+          q.fillStyle = '#17110f'; q.fillRect(8, 226, 496, 9);   // bumper rub strip
+          const dd = q.getImageData(0, 0, DW, DH).data;
+          const T = o.tail;
+          for (let k = 0; k < T.length; k += 4) {
+            const tx2 = T[k], ty2 = T[k + 1];
+            const dx2 = Math.min(DW - 1, (T[k + 2] / 4096 * DW) | 0), dy2 = Math.min(DH - 1, (T[k + 3] / 4096 * DH) | 0);
+            const si = (dy2 * DW + dx2) * 4, di = (ty2 * S + tx2) * 4;
+            px[di] = dd[si]; px[di + 1] = dd[si + 1]; px[di + 2] = dd[si + 2];
+          }
+        }
+        g.putImageData(d, 0, 0);
+        res(c.toDataURL('image/png'));
+      };
+      img.onerror = () => rej(new Error('decode'));
+      img.src = o.src;
+    }), { src, t: tgt, s: size || 256, tail: tail || null, dark: !!dark });
+  }
   const RED = [200, 32, 30], SILVER = [176, 180, 186], BLACK = [30, 32, 36], WHITE = [225, 226, 224], YELLOW = [226, 190, 30];
+  const COLS = [RED, RED, RED, SILVER, BLACK, WHITE, YELLOW];   // RED x3 = prevalent
   const texs = [];
-  for (const c of [RED, RED, RED, SILVER, BLACK, WHITE, YELLOW]) texs.push(await recolor(body.rawTex, c));   // RED x3 = prevalent
+  for (const c of COLS) texs.push(await recolor(body.rawTex, c, BODY_S, tailTexels, c === BLACK));
   const wheelTex = await down(wheel.rawTex, 128);
   // spoiler recolored to match each body variant (blue paint -> color, black grille stays)
   const stexs = [];
-  for (const c of [RED, RED, RED, SILVER, BLACK, WHITE, YELLOW]) stexs.push(await recolor(spoiler.rawTex, c));
+  for (const c of COLS) stexs.push(await recolor(spoiler.rawTex, c, 256));
   await browser.close();
 
   const V = {

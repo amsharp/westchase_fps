@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.24';
+var GAME_VERSION = 'v1.76.25';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2238,7 +2238,7 @@ function staticCar(x, z, ry) { var c = makeCar(); c.group.position.set(x, 0, z);
 // ---- Porsche 964 hero car (optional porsche.js): wheel-less body + separate
 // Cup1 wheel (spins/steers) + retractable spoiler (deploys with a rotate+
 // translate 4-bar motion). Self-contained non-indexed geo like MESHY_VEHS.
-var _porGeoC = null, _porWhGeo = null, _porSpGeo = null, _porMatC = {}, _porWhMat = null, _porSpMatC = {}, _porBand = null;
+var _porGeoC = null, _porWhGeo = null, _porSpGeo = null, _porMatC = {}, _porWhMat = null, _porSpMatC = {};
 function _porGeo(pack) {   // {q,p,u} non-indexed -> BufferGeometry
   var qp = new Int16Array(b64Bytes(pack.p).buffer), qu = new Uint16Array(b64Bytes(pack.u).buffer);
   var fp = new Float32Array(qp.length), fu = new Float32Array(qu.length);
@@ -2262,52 +2262,6 @@ function getPorscheMat(ci) { if (!_porMatC[ci]) _porMatC[ci] = _porTexMat(PORSCH
 function getPorscheSpoilerMat(ci) { var t = (PORSCHE_VEH.stexs || [PORSCHE_VEH.stex]); var k = Math.min(ci, t.length - 1); if (!_porSpMatC[k]) _porSpMatC[k] = _porTexMat(t[k]); return _porSpMatC[k]; }
 // red is prevalent: texs 0..2 = red, 3 silver, 4 black, 5 white, 6 yellow
 function porscheColorPick() { var n = PORSCHE_VEH.texs.length; return (Math.random() * n) | 0; }
-// body field colour per variant, so the tail decal blends into the paint
-var _PORSCHE_FIELD = ['#8f1414', '#8f1414', '#8f1414', '#8a8f96', '#242629', '#c9cbc8', '#b89416'];
-var _porTailC = {};
-function makePorscheTailDecal(ci) {
-  if (!_porTailC[ci]) {
-    var field = _PORSCHE_FIELD[ci] || '#8f1414', dark = (ci === 4);
-    var W = 320, H = 150, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
-    var g = cv.getContext('2d');
-    g.fillStyle = field; g.fillRect(0, 0, W, H);                 // paint field (blends into tail)
-    // "Carrera 2" cursive script above the band
-    g.fillStyle = dark ? '#e8e8e8' : '#1c0a08'; g.textAlign = 'center';
-    g.font = 'italic bold 30px "Brush Script MT", "Segoe Script", cursive';
-    g.fillText('Carrera 2', W / 2, 46);
-    // taillight strip
-    var sx = 16, sw = W - 32, sy = 80, sh = 44;
-    g.fillStyle = '#0a0505'; g.fillRect(sx - 3, sy - 3, sw + 6, sh + 6);   // black surround
-    var ac = 62;   // amber cluster width
-    // amber corners (with rib lines)
-    g.fillStyle = '#e0851a'; g.fillRect(sx, sy, ac, sh); g.fillRect(sx + sw - ac, sy, ac, sh);
-    g.strokeStyle = 'rgba(120,60,0,0.5)'; g.lineWidth = 1;
-    for (var rr = 1; rr < 4; rr++) { var rxL = sx + ac * rr / 4, rxR = sx + sw - ac + ac * rr / 4; g.beginPath(); g.moveTo(rxL, sy); g.lineTo(rxL, sy + sh); g.moveTo(rxR, sy); g.lineTo(rxR, sy + sh); g.stroke(); }
-    // red reflector centre with horizontal ribbing
-    var cxs = sx + ac, cw = sw - ac * 2;
-    g.fillStyle = '#6e1210'; g.fillRect(cxs, sy, cw, sh);
-    g.strokeStyle = 'rgba(0,0,0,0.35)';
-    for (var hy = sy + 6; hy < sy + sh; hy += 7) { g.beginPath(); g.moveTo(cxs, hy); g.lineTo(cxs + cw, hy); g.stroke(); }
-    // PORSCHE, embossed
-    g.textAlign = 'center'; g.font = 'bold 22px "Arial Narrow", Arial, sans-serif';
-    g.fillStyle = 'rgba(0,0,0,0.55)'; g.fillText('P O R S C H E', W / 2 + 1, sy + sh / 2 + 9);
-    g.fillStyle = '#d9cfc4'; g.fillText('P O R S C H E', W / 2, sy + sh / 2 + 8);
-    // feather the outer margins to transparent so the panel melts into the paint
-    // (leaves the Carrera 2 script, band and PORSCHE fully opaque)
-    g.globalCompositeOperation = 'destination-out';
-    var gr;
-    gr = g.createLinearGradient(0, 0, 0, 24); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, W, 24);
-    gr = g.createLinearGradient(0, H, 0, H - 20); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, H - 20, W, 20);
-    gr = g.createLinearGradient(0, 0, 12, 0); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, 12, H);
-    gr = g.createLinearGradient(W, 0, W - 12, 0); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(W - 12, 0, 12, H);
-    g.globalCompositeOperation = 'source-over';
-    var tx = new THREE.CanvasTexture(cv); tx.magFilter = THREE.LinearFilter; tx.minFilter = THREE.LinearFilter; tx.generateMipmaps = false;
-    _porTailC[ci] = lamb({ map: tx, transparent: true });   // lit like the body, no glow
-  }
-  return new THREE.Mesh(_porUnitPlane(), _porTailC[ci]);
-}
-var _porUP = null;
-function _porUnitPlane() { if (!_porUP) _porUP = new THREE.PlaneGeometry(1, 1); return _porUP; }
 function buildPorsche(ci) {
   if (typeof PORSCHE_VEH === 'undefined') return makeCar();   // graceful fallback
   if (ci === undefined) ci = porscheColorPick();
@@ -2359,15 +2313,8 @@ function buildPorsche(ci) {
     vq.rotation.x = -Math.PI / 2; vq.position.set(mX, deckY + 0.005, 0);
     body.add(vq);
   }
-  // rear taillight panel decal — matches the approved concept: amber corner
-  // clusters + a dark-red reflector centre carrying the PORSCHE script, on a
-  // body-red field that blends into the tail and hides the baked-in Meshy lights.
-  // "Carrera 2" cursive sits above it on the engine lid. Painted per body colour.
-  var band = makePorscheTailDecal(ci);
-  var tailX = -P.body.dims[0] / 2 * s, bw = P.body.dims[2] * s, bh = P.body.dims[1] * s;
-  band.rotation.y = -Math.PI / 2; band.position.set(tailX - 0.015, bh * 0.50, 0);
-  band.scale.set(bw * 0.80, bh * 0.60, 1);
-  body.add(band);
+  // (taillight band + Carrera 2 script are BAKED into the body atlas by
+  // genporsche.js — projected onto the tail-facing triangles per colour variant)
   g.add(blobShadow(2.4, 1.15, 0.1)); scene.add(g);
   return { group: g, body: body, wheels: wheels, pivots: pivots, spoiler: spoiler, vname: 'PORSCHE964', bodyMesh: bm, isPorsche: true, beam: null, head1: null, head2: null, tail1: null, tail2: null, tailM: null, tailS: 0.15 };
 }
