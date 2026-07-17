@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.18';
+var GAME_VERSION = 'v1.76.19';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -48,6 +48,7 @@ var WEAPONS = {
   smg:    { name: 'SMG',    price: 400, dmg: 15, rate: 0.065, auto: true, spread: 0.008, spreadMax: 0.05, bloomPerShot: 0.006, desc: 'First shots on target. Then it sprays.', flashAt: [0.26, -0.262, -1.2] },
   rifle:  { name: 'RIFLE',  price: 600, dmg: 95, rate: 0.8,  auto: false, spread: 0.004, desc: 'One shot, one nap. Right-click to scope.', flashAt: [0.24, -0.235, -1.38] },
   auto:   { name: 'AK-47',  price: 1000, dmg: 34, rate: 0.11, auto: true, spread: 0.012, desc: 'Full auto, long range.', flashAt: [0.26, -0.255, -1.2] },
+  shotgun: { name: 'SHOTGUN', price: 500, dmg: 17, rate: 0.85, auto: false, pellets: 9, spread: 0.06, falloff: 34, desc: 'Pump-action. Point-blank headshots take the head clean off.', flashAt: [0.24, -0.25, -1.0], flashScale: 1.25 },
   rocket: { name: 'ROCKET LAUNCHER', price: 2000, rate: 5, rocket: true, desc: 'Danger close. 5s reload.', flashAt: [0.3, -0.28, -1.0] },
   raygun: { name: 'RAY GUN', price: 0, dmg: 70, rate: 0.22, auto: false, spread: 0, laser: true, desc: 'Alien tech. Semi-auto. Never misses.', flashAt: [0.26, -0.25, -0.95] },
   // #78 quest-reward guns (not purchasable; granted by Q6 / Q8)
@@ -56,7 +57,7 @@ var WEAPONS = {
   snack:  { name: 'SNACK', snack: true, rate: 0.8 },
   soda:   { name: 'SODA', snack: true, rate: 0.6 }   // vending machines (streetprops)
 };
-var GUN_LIST = ['pistol', 'smg', 'rifle', 'auto', 'rocket', 'raygun', 'neon_blaster', 'silenced'];
+var GUN_LIST = ['pistol', 'smg', 'shotgun', 'rifle', 'auto', 'rocket', 'raygun', 'neon_blaster', 'silenced'];
 
 // ---------------- state ----------------
 var state = {
@@ -5838,6 +5839,7 @@ function buildMeshyChar(cfg, mi) {
   var legL = pivotGroup('legL', 0), legR = pivotGroup('legR', 0);
   var armL = pivotGroup('armL', -1.42), armR = pivotGroup('armR', 1.42);
   g.add(torso, head, legL, legR, armL, armR);
+  g.userData.head = head;   // for shotgun decapitation gore
   var shadow = blobShadow(0.42, 0.42, 0.16); g.add(shadow);
   g.userData.limbs = { legL: legL, legR: legR, armL: armL, armR: armR };
   g.userData.shadow = shadow;
@@ -6100,6 +6102,7 @@ function buildMeshySkinned(cfg, mi) {
   g.userData.skin = sk;
   meshyPose(sk, 'walk', 0);   // natural stance instead of T-pose
   g.userData.limbs = { armL: bones[bi.LeftArm], armR: bones[bi.RightArm], legL: bones[bi.LeftUpLeg], legR: bones[bi.RightUpLeg] };
+  g.userData.headBone = bones[bi.Head] || null;   // shotgun decapitation: shrink to nothing (skinned head is a bone, not a mesh)
   g.userData.spine = bones[bi.Spine] || bones[bi.Spine01] || null;   // slouch pivot (walker accessory)
   g.userData.handR = bones[bi.RightHand] || bones[bi.RightForeArm] || bones[bi.RightArm];
   g.userData.handL = bones[bi.LeftHand] || bones[bi.LeftForeArm] || bones[bi.LeftArm];   // walker grip aim
@@ -6264,6 +6267,7 @@ function buildCharacter(cfg) {
   var legL = pivotGroup('legL', 0), legR = pivotGroup('legR', 0);
   var armL = pivotGroup('armL', -1.42), armR = pivotGroup('armR', 1.42);
   g.add(torso, head, legL, legR, armL, armR);
+  g.userData.head = head;   // for shotgun decapitation gore
   // give PSX / painted-preset avatars a right-hand gun mount (skinned-Meshy
   // chars get one from their bones) so their held weapon is visible to OTHER
   // players — without this a preset player firing looks empty-handed to peers.
@@ -16717,7 +16721,17 @@ if (typeof MUZZLE_FLASH !== 'undefined') {
 }
 flash.visible = false; vm.add(flash); var flashT = 0;
 var rocketCdEl = document.getElementById('rocketCd'), rocketCdBar = document.getElementById('rocketCdBar');
-var vmMap = { fists: vmFists, pistol: vmPistol, smg: vmSmg, rifle: vmRifle, auto: vmAuto, rocket: vmRocket, raygun: vmRaygun, snack: vmSnack };
+// pump-action shotgun viewmodel (procedural — long barrel, receiver, wood stock + pump forend)
+var vmShotgun = new THREE.Group();
+(function () {
+  var brl = cyl(0.02, 0.024, 0.72, 8, darkMetalM, 0.24, -0.24, -1.05); brl.rotation.x = Math.PI / 2; vmShotgun.add(brl);
+  var mag = cyl(0.018, 0.018, 0.6, 8, metalM, 0.24, -0.285, -1.0); mag.rotation.x = Math.PI / 2; vmShotgun.add(mag);   // tube magazine under the barrel
+  vmShotgun.add(box(0.07, 0.1, 0.34, metalM, 0.24, -0.255, -0.55));                                                    // receiver
+  var pump = box(0.06, 0.07, 0.22, woodM, 0.24, -0.3, -0.86); vmShotgun.add(pump);                                     // wood forend
+  var stock = box(0.07, 0.14, 0.34, woodM, 0.24, -0.33, -0.3); stock.rotation.x = 0.24; vmShotgun.add(stock);          // wood stock
+  var guard = new THREE.Mesh(new THREE.TorusGeometry(0.034, 0.008, 6, 10, Math.PI * 1.1), darkMetalM); guard.position.set(0.24, -0.335, -0.5); guard.rotation.y = Math.PI / 2; vmShotgun.add(guard);
+})();
+var vmMap = { fists: vmFists, pistol: vmPistol, smg: vmSmg, shotgun: vmShotgun, rifle: vmRifle, auto: vmAuto, rocket: vmRocket, raygun: vmRaygun, snack: vmSnack };
 // streetprops soda: red can in hand (registered before the add/hide pass below)
 var vmSoda = new THREE.Group();
 (function () {
@@ -16744,7 +16758,7 @@ vmMap.silenced = vmSilenced;
 // groups (both the meshy-path gunArm arms and the procedural-fallback arms).
 // The skinned PSX arms are no longer parented here (GUNHOLD_GROUPS is empty), so
 // this leaves each gun bare. Fists/snack/soda are item-in-hand and keep arms.
-['pistol', 'smg', 'rifle', 'auto', 'rocket', 'raygun', 'neon_blaster', 'silenced'].forEach(function (k) {
+['pistol', 'smg', 'shotgun', 'rifle', 'auto', 'rocket', 'raygun', 'neon_blaster', 'silenced'].forEach(function (k) {
   var g = vmMap[k]; if (!g) return;
   g.traverse(function (o) { if (o.userData && o.userData.vmArm) o.visible = false; });
 });
@@ -16756,7 +16770,7 @@ Object.keys(vmMap).forEach(function (k) { vm.add(vmMap[k]); vmMap[k].visible = f
 // v: no-arms build. The long guns' lower-right framing is now baked into each
 // gun mesh's own position (forward-pointing rotation), so their per-frame group
 // lift/shift is neutral. Pistol/silenced keep their lift (unchanged one-handed).
-var VM_LIFT = { pistol: 0.24, smg: 0, rifle: 0, auto: 0, rocket: 0, silenced: 0.24 };
+var VM_LIFT = { pistol: 0.24, smg: 0, shotgun: 0, rifle: 0, auto: 0, rocket: 0, silenced: 0.24 };
 var VM_SHIFT = {};
 vmFists.visible = true;
 var zoomed = false;
@@ -16792,6 +16806,87 @@ function setEquipped(w) {
 // ---------------- combat ----------------
 var raycaster = new THREE.Raycaster();
 var npcRootsAlive = [];
+// ===================== SHOTGUN + gore =====================
+// Pellet spread with range falloff; a point-blank shot to the head takes it clean
+// off in a burst of blood. Head gib tumbles with gravity; kids aren't in the hit
+// list so they can never be gored.
+var gibs = [];
+var _gibV = new THREE.Vector3(), _gibQ = new THREE.Quaternion(), _gibS = new THREE.Vector3();
+function spawnHeadGib(head, dx, dz) {
+  head.getWorldPosition(_gibV); head.getWorldQuaternion(_gibQ); head.getWorldScale(_gibS);
+  var gm = new THREE.Mesh(head.geometry, head.material);
+  gm.position.copy(_gibV); gm.quaternion.copy(_gibQ); gm.scale.copy(_gibS);
+  scene.add(gm);
+  gibs.push({ mesh: gm, vx: dx * 2.5 + (Math.random() - 0.5) * 3, vy: 4.5 + Math.random() * 2.5, vz: dz * 2.5 + (Math.random() - 0.5) * 3, spin: (Math.random() - 0.5) * 16, life: 6 });
+}
+function updateGibs(dt) {
+  for (var i = gibs.length - 1; i >= 0; i--) {
+    var g = gibs[i]; g.life -= dt;
+    g.vy -= 17 * dt;
+    g.mesh.position.x += g.vx * dt; g.mesh.position.y += g.vy * dt; g.mesh.position.z += g.vz * dt;
+    if (g.mesh.position.y < 0.12) { g.mesh.position.y = 0.12; g.vy *= -0.32; g.vx *= 0.55; g.vz *= 0.55; if (Math.random() < 0.5) bloodDecal(g.mesh.position.x, g.mesh.position.z); }
+    g.mesh.rotation.x += g.spin * dt; g.mesh.rotation.z += g.spin * 0.6 * dt;
+    if (g.life <= 0) { scene.remove(g.mesh); gibs.splice(i, 1); }
+  }
+}
+var _gibHeadGeo = null, _gibHeadMat = null;
+function spawnBloodGib(x, y, z, dx, dz) {
+  if (!_gibHeadGeo) { _gibHeadGeo = new THREE.SphereGeometry(0.14, 8, 6); _gibHeadMat = lamb({ color: 0x8a4a3a }); }
+  var gm = new THREE.Mesh(_gibHeadGeo, _gibHeadMat); gm.position.set(x, y, z); scene.add(gm);
+  gibs.push({ mesh: gm, vx: dx * 2.5 + (Math.random() - 0.5) * 3, vy: 4.5 + Math.random() * 2.5, vz: dz * 2.5 + (Math.random() - 0.5) * 3, spin: (Math.random() - 0.5) * 16, life: 6 });
+}
+function decapitateNPC(n, dx, dz) {
+  n._headless = true;
+  var u = n.mesh && n.mesh.userData ? n.mesh.userData : null;
+  var hx = n.x, hy = 1.55, hz = n.z;
+  if (u && u.head && u.head.visible) { u.head.getWorldPosition(_gibV); hx = _gibV.x; hy = _gibV.y; hz = _gibV.z; u.head.visible = false; spawnHeadGib(u.head, dx, dz); }
+  else if (u && u.headBone) { u.headBone.getWorldPosition(_gibV); hx = _gibV.x; hy = _gibV.y; hz = _gibV.z; u.headBone.scale.set(0.01, 0.01, 0.01); spawnBloodGib(hx, hy, hz, dx, dz); }
+  // blood explosion at the stump
+  for (var i = 0; i < 3; i++) bloodPunch(hx + (Math.random() - 0.5) * 0.3, hy - 0.05, hz + (Math.random() - 0.5) * 0.3);
+  puff(new THREE.Vector3(hx, hy, hz), 0x8f1512, 'blood');
+  bloodDecal(n.x, n.z); bloodDecal(n.x + (Math.random() - 0.5) * 1.6, n.z + (Math.random() - 0.5) * 1.6);
+  sfx('crash', { x: n.x, z: n.z, range: 42 });
+  if (isClient()) { netToHost({ t: 'dmgNpc', i: npcs.indexOf(n), dmg: 999, kx: dx, kz: dz }); n.hp = 0; }
+  else damageNPC(n, 999, dx, dz, false);
+}
+// fire one shotgun blast: a cone of pellets, per-pellet range falloff, head-off on
+// a close head hit. Reuses the main raycast target set.
+function fireShotgun(w) {
+  var base = new THREE.Vector3(); camera.getWorldDirection(base);
+  var origin = camera.position;
+  npcRootsAlive.length = 0;
+  for (var k = 0; k < npcs.length; k++) if (npcs[k].state !== 'down' && npcs[k].state !== 'hidden') npcRootsAlive.push(npcs[k].mesh);
+  for (k = 0; k < cops.length; k++) if (cops[k].state !== 'down') npcRootsAlive.push(cops[k].mesh);
+  if (isClient()) for (k = 0; k < copsM.length; k++) npcRootsAlive.push(copsM[k].mesh);
+  for (k = 0; k < cars.length; k++) if (!cars[k].exploded) npcRootsAlive.push(cars[k].car.group);
+  for (var rid in net.remotes) { var rr = net.remotes[rid]; if (rr.dead) continue; npcRootsAlive.push(rr.drv && rr.car ? rr.car.group : rr.mesh); }
+  var targets = npcRootsAlive.concat(solidMeshes), hitAny = false;
+  for (var pel = 0; pel < w.pellets; pel++) {
+    var d = base.clone();
+    d.x += (Math.random() - 0.5) * w.spread * 2; d.y += (Math.random() - 0.5) * w.spread * 2; d.z += (Math.random() - 0.5) * w.spread * 2; d.normalize();
+    raycaster.set(origin.clone(), d); raycaster.far = 70;
+    var hits = raycaster.intersectObjects(targets, true);
+    if (!hits.length) continue;
+    var h = hits[0], o = h.object, npcHit = null, copHit = null, carHit = null, remoteHit = null, copMHit = -1, atmHit = null;
+    while (o) { var u = o.userData; if (u) { if (u.npc) { npcHit = u.npc; break; } if (u.cop) { copHit = u.cop; break; } if (u.copM !== undefined) { copMHit = u.copM; break; } if (u.remoteId) { remoteHit = u.remoteId; break; } if (u.trafficCar) { carHit = u.trafficCar; break; } if (u.atm) { atmHit = u.atm; break; } } o = o.parent; }
+    var dmg = Math.round(w.dmg * Math.max(0.25, 1 - h.distance / w.falloff));
+    if (npcHit) {
+      hitAny = true;
+      var uu = npcHit.mesh && npcHit.mesh.userData ? npcHit.mesh.userData : null;
+      var canBehead = uu && !npcHit._headless && ((uu.head && uu.head.visible) || uu.headBone);
+      if (h.point.y > 1.42 && h.distance < 9 && canBehead) decapitateNPC(npcHit, d.x, d.z);
+      else { puff(h.point, 0xd93a2a, 'blood'); if (isClient()) { netToHost({ t: 'dmgNpc', i: npcs.indexOf(npcHit), dmg: dmg, kx: d.x, kz: d.z }); npcHit.hp = Math.max(0, (npcHit.hp || 100) - dmg); } else damageNPC(npcHit, dmg, d.x, d.z, false); }
+    }
+    else if (copHit) { hitAny = true; damageCop(copHit, dmg, d.x, d.z); puff(h.point, 0xd93a2a, 'blood'); }
+    else if (copMHit >= 0) { hitAny = true; puff(h.point, 0xd93a2a, 'blood'); netToHost({ t: 'dmgCop', id: copsM[copMHit] ? copsM[copMHit].nid : undefined, dmg: dmg, kx: d.x, kz: d.z }); if (copsM[copMHit]) { copsM[copMHit].hpM = Math.max(0, (copsM[copMHit].hpM !== undefined ? copsM[copMHit].hpM : 100) - dmg); if (!copsM[copMHit].down) { if (state.wanted < 1) setWanted(1); lastCrimeT = T; } } }
+    else if (remoteHit) { hitAny = true; netSendHit(remoteHit, dmg, true); puff(h.point, 0xd93a2a, 'blood'); }
+    else if (carHit) { puff(h.point, 0xbbbbbb, 'impact'); if (!isClient()) { carHit.dmgT = (carHit.dmgT || 0) + w.rate * 0.5; if (carHit.dmgT >= 1.5 && goBerserk(carHit)) { popup('WRECKED!'); creditCivKill('car'); } } else netToHost({ t: 'shootCar', i: cars.indexOf(carHit), rate: w.rate }); }
+    else if (atmHit) shootAtm(atmHit, h.point);
+    else { puff(h.point, 0xbbbbbb, 'impact'); bulletHole(h); }
+  }
+  if (hitAny) hitMark(false);
+  recoilPitch += 0.06;
+}
 // ===================== KAMEHAMEHA (rare fists easter egg) =====================
 // A 1-in-N punch with bare fists fires a Goku-style beam instead of a jab: hands
 // thrust out, a 5s redirectable blue energy blast that INSTANTLY vaporises
@@ -17021,6 +17116,7 @@ function tryAttack() {
   if (flashTexs.length) flash.material.map = flashTexs[(Math.random() * flashTexs.length) | 0];
   else if (flash.material.color) flash.material.color.setHSL(0.09 + Math.random() * 0.06, 1, 0.6 + Math.random() * 0.25);
   sfx(state.equipped);
+  if (w.pellets) { fireShotgun(w); return; }   // shotgun: cone of pellets + gore (own resolve)
   var dir = new THREE.Vector3(); camera.getWorldDirection(dir);
   // bloom weapons (SMG): tight while tapping, blossoms under sustained fire
   var sp = w.spread;
@@ -18338,7 +18434,8 @@ var GUNSPEC = {
   auto:    { crackHP: 1550, crackGain: 0.62, crackDur: 0.030, bodyF0: 185, bodyF1: 50, bodyGain: 0.46, bodyDur: 0.10, tailGain: 0.18, tailDur: 0.15, tailLP: 1550 },
   copshot: { crackHP: 1900, crackGain: 0.42, crackDur: 0.026, bodyF0: 170, bodyF1: 62, bodyGain: 0.30, bodyDur: 0.08, tailGain: 0.11, tailDur: 0.10, tailLP: 1650 },
   copsmg:  { crackHP: 2200, crackGain: 0.32, crackDur: 0.019, bodyF0: 150, bodyF1: 60, bodyGain: 0.20, bodyDur: 0.055, tailGain: 0.07, tailDur: 0.06, tailLP: 2000 },
-  rocket:  { crackHP: 600,  crackGain: 0.50, crackDur: 0.060, bodyF0: 260, bodyF1: 40, bodyGain: 0.72, bodyDur: 0.42, tailGain: 0.45, tailDur: 0.52, tailLP: 900 }
+  rocket:  { crackHP: 600,  crackGain: 0.50, crackDur: 0.060, bodyF0: 260, bodyF1: 40, bodyGain: 0.72, bodyDur: 0.42, tailGain: 0.45, tailDur: 0.52, tailLP: 900 },
+  shotgun: { crackHP: 900,  crackGain: 0.85, crackDur: 0.050, bodyF0: 220, bodyF1: 45, bodyGain: 0.70, bodyDur: 0.22, tailGain: 0.40, tailDur: 0.34, tailLP: 1100 }
 };
 function gunShot(spec, at) {
   if (!ac || !spec) return;
@@ -18405,6 +18502,7 @@ function sfx(kind, at) {
     case 'copsmg': gunShot(GUNSPEC.copsmg, at); break;
     case 'grunt': { var gf = at && at.fem; bp(gf ? 265 : 150, gf ? 0.24 : 0.28, 0.4, 'sawtooth', gf ? 130 : 55); nb(0.1, gf ? 950 : 600, gf ? 0.12 : 0.18); if (window.__voiceLog) { window.__voiceLog.push({ kind: 'grunt', role: gf ? 'F' : 'M', cat: 'grunt', len: 1, t: 0 }); if (window.__voiceLog.length > 240) window.__voiceLog.shift(); } } break;
     case 'auto': gunShot(GUNSPEC.auto, at); break;
+    case 'shotgun': gunShot(GUNSPEC.shotgun, at); break;
     case 'eat': nb(0.09, 2500, 0.2); setTimeout(function () { nb(0.09, 2200, 0.18); }, 140); setTimeout(function () { nb(0.09, 2400, 0.15); }, 280); break;
     case 'rocketfire': gunShot(GUNSPEC.rocket, at); bp(190, 0.4, 0.12, 'sawtooth', 55); break;   // deep launch roar + a low whoosh
     case 'crash': nb(0.3, 900, 0.8); bp(85, 0.18, 0.35, 'square', 45); break;
@@ -21343,7 +21441,7 @@ function loop(now) {
   if (photoMode) { updatePhotoCam(dt); renderer.render(scene, camera); return; }
   T += dt;
   var sdt = dt;
-  updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
+  updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
   if (state.dead) updateDeathCam(dt);   // top-down zoom-out cinematic drives the camera while dead
   renderer.render(scene, camera);
 }
@@ -21715,7 +21813,7 @@ window.__wc = {
   // lightweight physics step (no render, no NPC/cop/car sim) — fast headless
   // stepping for plane/fall tests. Renders only when you call renderer yourself.
   stepLite: function (dt) { T += dt; updatePlayer(dt); updatePlaneWorld(dt); },
-  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
+  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
 };
 
 // ---------------- boot screen handoff + menu cover art ----------------
