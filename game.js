@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.7';
+var GAME_VERSION = 'v1.76.8';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -6781,6 +6781,7 @@ function detachAccessory(a, i) {
       a.mesh.getWorldPosition(_accV); a.mesh.getWorldQuaternion(_accQ);
       a.mesh.parent.remove(a.mesh); scene.add(a.mesh);
       a.mesh.position.copy(_accV); a.mesh.position.y = 0; a.mesh.quaternion.copy(_accQ);
+      droppedProps.push({ mesh: a.mesh, t: T, baseScale: a.mesh.scale.clone() });   // track for a ~30s despawn (was orphaned forever)
     }
     a.dropped = true;   // now inert scenery; leave it (never re-owned)
   } else {   // hand: the item drops from the hand and vanishes
@@ -6848,11 +6849,32 @@ function updateRainUmbrellas(dt) {
     }
   }
 }
+// ---- dropped carried props (strollers / walkers / bikes) despawn ------------
+// When an owner dies the pushed/side prop is left standing (detachAccessory).
+// These used to linger on the sidewalk forever; track each one and clear it
+// ~30s later with a quick shrink-and-sink so the world tidies itself. Per-peer
+// local, like the accessories themselves — no netcode.
+var droppedProps = [];
+var DROP_PROP_TTL = 30;   // seconds a dropped prop stays before despawning
+function updateDroppedProps(dt) {
+  for (var i = droppedProps.length - 1; i >= 0; i--) {
+    var d = droppedProps[i], age = T - d.t;
+    if (age >= DROP_PROP_TTL) {
+      if (d.mesh && d.mesh.parent) d.mesh.parent.remove(d.mesh);
+      droppedProps.splice(i, 1);
+    } else if (age > DROP_PROP_TTL - 0.6 && d.mesh) {   // final 0.6s: shrink + sink into the ground, then remove
+      var s = Math.max(0.02, (DROP_PROP_TTL - age) / 0.6);
+      d.mesh.scale.copy(d.baseScale).multiplyScalar(s);
+      d.mesh.position.y = -(1 - s) * 0.5;
+    }
+  }
+}
 // per-frame accessory driver — called from updateNPCs after animPerson has posed
 // every NPC this frame (so hand items ride the freshly-posed arm)
 var _accFace = function (dx, dz) { return Math.atan2(dz, -dx); };   // authored front -x -> world dir
 function updateAccessories(dt) {
   updateRainUmbrellas(dt);   // rain rollout: peds raise colored umbrellas (mrg53h5l)
+  updateDroppedProps(dt);    // dropped strollers/bikes fade out after ~30s (report: never despawned)
   for (var i = accessories.length - 1; i >= 0; i--) {
     var a = accessories[i];
     if (a.dropped) continue;                 // detached scenery, nothing to do
