@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.5';
+var GAME_VERSION = 'v1.76.6';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -17329,6 +17329,7 @@ function radioSetStation(idx) {
   radioQueue = radioShuffle(n, -1);                     // fresh random order — first song is random
   radioQPos = 0;
   radioTrack = n ? radioQueue[0] : 0;
+  radioSeekPending = 10 + Math.random() * 40;           // drop in mid-song (~10-50s) as if the station had already been playing
   radioLoadAndPlay();
   popup('♪ ' + st.name);
 }
