@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.11';
+var GAME_VERSION = 'v1.76.12';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -16672,7 +16672,7 @@ var npcRootsAlive = [];
 var KAME_CHANCE = 0.2;                       // TESTING = 1/5; ship value later = 0.001 (1/1000)
 var KAME_DUR = 5.0, KAME_LEN = 170, KAME_R = 3.4;   // beam length + kill radius (world units)
 var kameActive = false, kameT = 0;
-var kameVM = null, kameBeamGrp = null, kameBeam = null, kameCore = null, kameBuf = null;
+var kameBeamGrp = null, kameBeam = null, kameCore = null, kameBuf = null;
 var kameGain = null, kameNodes = null;
 var _kdir = new THREE.Vector3();
 function kameVoiceInit() {
@@ -16714,25 +16714,14 @@ function stopKameSound() {
   kameGain = null; kameNodes = null;
 }
 function buildKameVM() {
-  if (kameVM) return;
-  var skin = lamb({ color: 0xe8b88a }), band = lamb({ color: 0x1c3f88 });
-  kameVM = new THREE.Group();
-  function arm(side) {
-    var g = new THREE.Group();
-    var fore = cyl(0.055, 0.07, 0.52, 8, skin, 0, 0, -0.26); fore.rotation.x = Math.PI / 2; g.add(fore);
-    g.add(cyl(0.075, 0.075, 0.09, 8, band, 0, 0, -0.04));      // blue wristband
-    g.add(box(0.14, 0.06, 0.15, skin, 0, 0, -0.54));           // cupped hand
-    g.position.set(side * 0.17, -0.30, -0.5);
-    g.rotation.y = -side * 0.55; g.rotation.x = 0.12;
-    return g;
-  }
-  kameVM.add(arm(-1)); kameVM.add(arm(1));
-  camera.add(kameVM); kameVM.visible = false;
-  // energy core + beam (children of the camera -> auto-aim where you look)
+  if (kameBeamGrp) return;
+  // energy core + beam (children of the camera -> auto-aim where you look). The
+  // HANDS are the real fists viewmodel (psxArms in vmFists), posed forward in the
+  // draw loop while kameActive — no separate arm meshes.
   kameBeamGrp = new THREE.Group();
   kameCore = new THREE.Mesh(new THREE.SphereGeometry(0.23, 16, 12),
     new THREE.MeshBasicMaterial({ color: 0xdff2ff }));
-  kameCore.position.set(0, -0.36, -1.15);
+  kameCore.position.set(0, -0.34, -1.1);
   var oz = -1.05 - KAME_LEN / 2;
   kameBeam = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.34, KAME_LEN, 16, 1, true),
     new THREE.MeshBasicMaterial({ color: 0x8fd2ff, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false }));
@@ -16747,8 +16736,8 @@ function startKamehameha() {
   buildKameVM();
   if (kameActive) return;
   kameActive = true; kameT = T;
-  kameVM.visible = true; kameBeamGrp.visible = true;
-  vm.visible = false;
+  kameBeamGrp.visible = true;
+  vm.visible = true;   // keep the REAL fists hands on-screen (draw loop thrusts them forward)
   document.getElementById('crosshair').style.display = 'none';
   setZoom(false);
   playKameVoice(); startKameSound();
@@ -16798,10 +16787,10 @@ function updateKamehameha(dt) {
 function endKamehameha() {
   if (!kameActive) return;
   kameActive = false;
-  if (kameVM) kameVM.visible = false;
   if (kameBeamGrp) kameBeamGrp.visible = false;
+  if (vmFists) vmFists.rotation.set(0, 0, 0);   // drop the thrust — hands back to the default fist posture
   stopKameSound();
-  setEquipped('fists');   // hands drop back to the default fist posture
+  setEquipped('fists');
   if (!driving && !state.dead) { vm.visible = !zoomed; document.getElementById('crosshair').style.display = zoomed ? 'none' : ''; }
 }
 function tryAttack() {
@@ -20731,7 +20720,12 @@ function updatePlayer(dt) {
   } else rocketCdEl.classList.add('hidden');
   var pt = T - punchT;
   if (WEAPONS[state.equipped].melee) {
-    if (psxArms) {
+    if (kameActive && psxArms) {
+      // Kamehameha: hold the REAL fists rig thrust up/forward so both hands frame
+      // the energy core (no jab animation while the beam is firing)
+      armsPose(psxArms, 'idle', T);
+      vmFists.rotation.set(-1.15, 0, 0);
+    } else if (psxArms) {
       // 1 in 5 swings is an open-hand BITCH SLAP: jabR silhouette swept
       // horizontally across the screen by rolling the whole fists group
       var jabWant = punchSlap && psxArms.clips.jabR ? 'jabR' : (punchSide ? 'jabR' : 'jabL');
