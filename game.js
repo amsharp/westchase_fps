@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.23';
+var GAME_VERSION = 'v1.76.24';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -16521,8 +16521,8 @@ var vmSmg = new THREE.Group();
     // v: no-arms build — barrel points straight down-range (-z). Muzzle is
     // authored along local -x, so yaw -PI/2 aims it forward; +cant toes it in
     // toward center, small +x tilt levels the baked droop. Framed lower-right.
-    var mg = getGunMesh('tec9', 0.72);
-    mg.position.set(0.24, -0.30, -0.52);
+    var mg = getGunMesh('tec9', 0.46);
+    mg.position.set(0.24, -0.28, -0.5);
     mg.rotation.order = 'YXZ';
     mg.rotation.set(0.03, -Math.PI / 2 + 0.12, 0);
     vmSmg.add(mg);
