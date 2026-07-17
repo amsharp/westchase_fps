@@ -727,6 +727,13 @@ air. Every so often, if you're just wandering, you might also catch a stray
 knot of **party balloons** that got away from somebody, drifting up over the
 rooftops and gone. Wave if you see them.
 
+And once in a great while — no gun, just your **bare fists** — a punch comes
+out *wrong*. Your hands snap forward, cupped, and a roaring blue-white **energy
+beam** tears out of them for five seconds. Sweep it across the street and
+whatever it touches — people, cops, cars — is simply gone. You can't switch
+weapons while it's firing; when it fades your hands drop back to fists like
+nothing happened. Keep throwing hands and you'll see it eventually.
+
 ## Notes
 
 - Some vehicles (station wagon, sedan, taxi, step van, and the burned

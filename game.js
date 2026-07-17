@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.10';
+var GAME_VERSION = 'v1.76.11';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -16640,6 +16640,7 @@ function setZoom(on) {
   document.getElementById('crosshair').style.display = on ? 'none' : '';
 }
 function setEquipped(w) {
+  if (kameActive) return;   // weapon switching is locked mid-Kamehameha (endKamehameha clears the flag first, then calls this)
   if (inside && w && w !== 'fists' && w !== 'snack' && w !== 'soda') playVoice('clerk_scared', 0.55, 45, { ref: clerk });
   setZoom(false);
   gunBloom = 0;
@@ -16661,6 +16662,148 @@ function setEquipped(w) {
 // ---------------- combat ----------------
 var raycaster = new THREE.Raycaster();
 var npcRootsAlive = [];
+// ===================== KAMEHAMEHA (rare fists easter egg) =====================
+// A 1-in-N punch with bare fists fires a Goku-style beam instead of a jab: hands
+// thrust out, a 5s redirectable blue energy blast that INSTANTLY vaporises
+// everything in its path (NPCs, cops, remote players) and detonates any vehicle
+// it touches. Weapon switching is locked until it ends, then the arms drop back
+// to fists. Voice cry + a sustained roar. Local/per-peer visual (the kills route
+// through the normal net paths so other players see the bodies drop).
+var KAME_CHANCE = 0.2;                       // TESTING = 1/5; ship value later = 0.001 (1/1000)
+var KAME_DUR = 5.0, KAME_LEN = 170, KAME_R = 3.4;   // beam length + kill radius (world units)
+var kameActive = false, kameT = 0;
+var kameVM = null, kameBeamGrp = null, kameBeam = null, kameCore = null, kameBuf = null;
+var kameGain = null, kameNodes = null;
+var _kdir = new THREE.Vector3();
+function kameVoiceInit() {
+  if (kameBuf !== null || typeof KAME_VOICE === 'undefined' || !ac) return;
+  kameBuf = 0;   // "loading" sentinel so we only fetch once
+  fetch(KAME_VOICE).then(function (r) { return r.arrayBuffer(); }).then(function (ab) {
+    ac.decodeAudioData(ab, function (buf) { kameBuf = buf; }, function () { kameBuf = null; });
+  }).catch(function () { kameBuf = null; });
+}
+function playKameVoice() {
+  if (!ac) { return; }
+  if (!kameBuf) { kameVoiceInit(); return; }   // not decoded yet — skip (still roars)
+  var s = ac.createBufferSource(); s.buffer = kameBuf;
+  var g = ac.createGain(); g.gain.value = 1.0;
+  s.connect(g); g.connect(voiceBus || ac.destination); s.start();
+}
+function startKameSound() {
+  if (!ac) return;
+  stopKameSound();
+  var out = ac.createGain(); out.gain.value = 0.0001; out.connect(masterBus || ac.destination);
+  var o1 = ac.createOscillator(); o1.type = 'sawtooth'; o1.frequency.value = 68;
+  var o2 = ac.createOscillator(); o2.type = 'sine'; o2.frequency.value = 138;
+  var nb = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate), nd = nb.getChannelData(0);
+  for (var i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+  var ns = ac.createBufferSource(); ns.buffer = nb; ns.loop = true;
+  var bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 480; bp.Q.value = 0.5;
+  var g1 = ac.createGain(); g1.gain.value = 0.22; var g2 = ac.createGain(); g2.gain.value = 0.16; var gn = ac.createGain(); gn.gain.value = 0.55;
+  o1.connect(g1); g1.connect(out); o2.connect(g2); g2.connect(out); ns.connect(bp); bp.connect(gn); gn.connect(out);
+  var now = ac.currentTime;
+  out.gain.exponentialRampToValueAtTime(0.55, now + 0.15);
+  o1.start(); o2.start(); ns.start();
+  kameGain = out; kameNodes = [o1, o2, ns];
+}
+function stopKameSound() {
+  if (!kameGain || !ac) { kameGain = null; kameNodes = null; return; }
+  var now = ac.currentTime, g = kameGain, nodes = kameNodes;
+  try { g.gain.cancelScheduledValues(now); g.gain.setValueAtTime(g.gain.value, now); g.gain.exponentialRampToValueAtTime(0.0001, now + 0.25); } catch (e) { }
+  setTimeout(function () { if (nodes) for (var i = 0; i < nodes.length; i++) { try { nodes[i].stop(); } catch (e) { } } }, 350);
+  kameGain = null; kameNodes = null;
+}
+function buildKameVM() {
+  if (kameVM) return;
+  var skin = lamb({ color: 0xe8b88a }), band = lamb({ color: 0x1c3f88 });
+  kameVM = new THREE.Group();
+  function arm(side) {
+    var g = new THREE.Group();
+    var fore = cyl(0.055, 0.07, 0.52, 8, skin, 0, 0, -0.26); fore.rotation.x = Math.PI / 2; g.add(fore);
+    g.add(cyl(0.075, 0.075, 0.09, 8, band, 0, 0, -0.04));      // blue wristband
+    g.add(box(0.14, 0.06, 0.15, skin, 0, 0, -0.54));           // cupped hand
+    g.position.set(side * 0.17, -0.30, -0.5);
+    g.rotation.y = -side * 0.55; g.rotation.x = 0.12;
+    return g;
+  }
+  kameVM.add(arm(-1)); kameVM.add(arm(1));
+  camera.add(kameVM); kameVM.visible = false;
+  // energy core + beam (children of the camera -> auto-aim where you look)
+  kameBeamGrp = new THREE.Group();
+  kameCore = new THREE.Mesh(new THREE.SphereGeometry(0.23, 16, 12),
+    new THREE.MeshBasicMaterial({ color: 0xdff2ff }));
+  kameCore.position.set(0, -0.36, -1.15);
+  var oz = -1.05 - KAME_LEN / 2;
+  kameBeam = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.34, KAME_LEN, 16, 1, true),
+    new THREE.MeshBasicMaterial({ color: 0x8fd2ff, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false }));
+  kameBeam.rotation.x = -Math.PI / 2; kameBeam.position.set(0, -0.34, oz);
+  var inner = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.15, KAME_LEN, 12, 1, true),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false }));
+  inner.rotation.x = -Math.PI / 2; inner.position.set(0, -0.34, oz);
+  kameBeamGrp.add(kameBeam, inner, kameCore);
+  camera.add(kameBeamGrp); kameBeamGrp.visible = false;
+}
+function startKamehameha() {
+  buildKameVM();
+  if (kameActive) return;
+  kameActive = true; kameT = T;
+  kameVM.visible = true; kameBeamGrp.visible = true;
+  vm.visible = false;
+  document.getElementById('crosshair').style.display = 'none';
+  setZoom(false);
+  playKameVoice(); startKameSound();
+  popup('KAMEHAMEHA!');
+  if (state.wanted < 3) setWanted(3);
+}
+function kamePerp(tx, ty, tz, ox, oy, oz, dx, dy, dz) {
+  var vx = tx - ox, vy = ty - oy, vz = tz - oz, along = vx * dx + vy * dy + vz * dz;
+  if (along < 1 || along > KAME_LEN) return 1e9;
+  var px = ox + dx * along, py = oy + dy * along, pz = oz + dz * along;
+  return Math.sqrt((tx - px) * (tx - px) + (ty - py) * (ty - py) + (tz - pz) * (tz - pz));
+}
+function updateKamehameha(dt) {
+  if (!kameActive) return;
+  var age = T - kameT;
+  if (kameCore) kameCore.scale.setScalar(1 + 0.18 * Math.sin(T * 42));
+  if (kameBeam) kameBeam.material.opacity = 0.65 + 0.25 * Math.random();
+  camera.getWorldDirection(_kdir);
+  var ox = camera.position.x, oy = camera.position.y, oz = camera.position.z;
+  var dx = _kdir.x, dy = _kdir.y, dz = _kdir.z, i;
+  for (i = 0; i < npcs.length; i++) {
+    var n = npcs[i]; if (n.state === 'down' || n.state === 'ragdoll' || n.state === 'hidden') continue;
+    if (kamePerp(n.x, 1.1, n.z, ox, oy, oz, dx, dy, dz) < KAME_R) {
+      bloodPunch(n.x, 1.3, n.z);
+      if (isClient()) { netToHost({ t: 'dmgNpc', i: i, dmg: 999, kx: dx, kz: dz }); n.hp = 0; }
+      else damageNPC(n, 999, dx, dz);
+    }
+  }
+  for (i = 0; i < cops.length; i++) {
+    var cp = cops[i]; if (cp.state === 'down') continue;
+    if (kamePerp(cp.x, 1.1, cp.z, ox, oy, oz, dx, dy, dz) < KAME_R) damageCop(cp, 999, dx, dz);
+  }
+  for (i = 0; i < cars.length; i++) {
+    var c = cars[i]; if (c === driving || c.exploded) continue;
+    var cm = c.car.group.position;
+    if (kamePerp(cm.x, 0.8, cm.z, ox, oy, oz, dx, dy, dz) < KAME_R + 1) {
+      if (isClient()) netToHost({ t: 'carBoom', i: i });
+      explodeCar(c);
+    }
+  }
+  for (var rid in net.remotes) {
+    var rm = net.remotes[rid]; if (!rm || rm.dead) continue;
+    if (kamePerp(rm.x, 1.1, rm.z, ox, oy, oz, dx, dy, dz) < KAME_R) netSendHit(rm.id, 999, true);
+  }
+  if (age >= KAME_DUR) endKamehameha();
+}
+function endKamehameha() {
+  if (!kameActive) return;
+  kameActive = false;
+  if (kameVM) kameVM.visible = false;
+  if (kameBeamGrp) kameBeamGrp.visible = false;
+  stopKameSound();
+  setEquipped('fists');   // hands drop back to the default fist posture
+  if (!driving && !state.dead) { vm.visible = !zoomed; document.getElementById('crosshair').style.display = zoomed ? 'none' : ''; }
+}
 function tryAttack() {
   if (!state.running || state.menu || state.dead || driving) return;
   var w = WEAPONS[state.equipped];
@@ -16682,6 +16825,8 @@ function tryAttack() {
   if (w.melee) {
     if (T - punchT < w.rate) return;
     punchT = T; punchSide = !punchSide; punchSlap = Math.random() < 0.2; sfx('whoosh');
+    // rare Kamehameha (fists only): 1-in-N punch fires the beam instead of a jab
+    if (state.equipped === 'fists' && !kameActive && Math.random() < KAME_CHANCE) { startKamehameha(); return; }
     meleeHit = true;   // fists: damageNPC rolls fight-back + punch reacts (ranged resets this in the raycast path)
     var fx = -Math.sin(yaw), fz = -Math.cos(yaw), best = null, bestD = 99, bestCop = null;
     for (var i = 0; i < npcs.length; i++) {
@@ -16945,6 +17090,7 @@ function hurtPlayer(d, sx, sz) {
   requestAnimationFrame(function () { f.style.transition = 'opacity .45s'; f.style.opacity = 0; });
   if (state.hp <= 0) {
     state.hp = 0; state.dead = true;
+    if (kameActive) endKamehameha();   // dying mid-beam: tear it down (updatePlayer stops running once dead)
     if (state.wanted >= 2) playVoice('cop_down', 0.45, 10);
     if (driving) {
       // tell the host the car is free, or it keeps chasing our respawned ghost
@@ -20365,6 +20511,7 @@ document.addEventListener('pointerlockchange', function () { if (document.pointe
 var stepPhase = 0;   // footstep cadence accumulator (#47)
 function updatePlayer(dt) {
   if (state.menu || state.dead) return;
+  updateKamehameha(dt);   // rare fists beam: aim/sweep/expire (no-op unless active)
   if (driving) {
     updateDriving(dt);
     radioTick();   // keep the radio level synced to the master volume while driving
@@ -21161,6 +21308,7 @@ window.__wc = {
   setPitch: function (p2) { pitch = p2; camera.rotation.x = pitch; },
   teleport: function (x, z) { player.x = x; player.z = z; },
   tryAttack: tryAttack, setEquipped: setEquipped, cycleEquip: cycleEquip,
+  startKame: function () { startKamehameha(); }, isKame: function () { return kameActive; },
   hotbarAdd: hotbarAdd, seedHotbar: seedHotbar, refreshHotbarHud: refreshHotbarHud, refreshInv: refreshInv, updateHUD: updateHUD, hotbar: function () { return state.hotbar; },
   updateDeathCam: updateDeathCam, doRespawn: doRespawn, vm: vm,
   enterStore: enterStore, exitStore: exitStore, refreshClerk: refreshClerk, animPerson: animPerson, animPersonClip: animPersonClip, playVoice: playVoice, oak: oak, bush: bush, getPackProp: getPackProp,
