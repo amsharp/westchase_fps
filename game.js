@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.28';
+var GAME_VERSION = 'v1.76.29';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2303,9 +2303,9 @@ function buildPorsche(ci) {
     sp.position.set(-(P.spoiler.dims[0] * sc) / 2, 0, 0);
     pivot.add(sp);
     pivot.userData.baseX = pivot.position.x; pivot.userData.baseY = pivot.position.y; pivot.userData.deploy = 0;
-    pivot.userData.travel = P.spoiler.dims[0] * sc * 0.55;   // rearward translate at full deploy
-    pivot.userData.rise = 0.10 * s;                           // vertical lift at full deploy
-    pivot.userData.riseRot = 0.42;                            // radians of tilt at full deploy
+    pivot.userData.travel = P.spoiler.dims[0] * sc * 0.50;   // rearward translate at full deploy
+    pivot.userData.rise = 0.045 * s;                          // vertical lift at full deploy (blade stays BELOW the rear window)
+    pivot.userData.riseRot = 0.24;                            // radians of tilt at full deploy
     body.add(pivot); spoiler = pivot;
     // black void quad in the deck footprint under the spoiler
     var vw = P.spoiler.dims[0] * sc * 1.05, vd = P.spoiler.dims[2] * sc * 1.02;

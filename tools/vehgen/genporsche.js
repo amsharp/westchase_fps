@@ -58,6 +58,16 @@ function processBody(flipNose) {
   bb = bbox(pos);
   const cx = (bb.mn[0] + bb.mx[0]) / 2, cz = (bb.mn[2] + bb.mx[2]) / 2;
   for (let v = 0; v < n; v++) { pos[v * 3] -= cx; pos[v * 3 + 1] -= bb.mn[1]; pos[v * 3 + 2] -= cz; }
+  // squash the junk fins Meshy raised around the spoiler recess: flatten the
+  // whole deck zone onto a smooth plane (recess level at the tail rising to
+  // the window base) so nothing pokes up beside the black void + spoiler
+  for (let v = 0; v < n; v++) {
+    const x = pos[v * 3], y = pos[v * 3 + 1], az = Math.abs(pos[v * 3 + 2]);
+    if (x > -0.80 && x < -0.44 && az < 0.34 && y > 0.30) {
+      const cap = 0.34 + (x + 0.80) * 0.1806;   // 0.34 @ x=-0.80 -> 0.405 @ x=-0.44
+      if (y > cap) pos[v * 3 + 1] = cap;
+    }
+  }
   const q = quant(pos, g.uv);
   const L = q.dims[0], H = q.dims[1], W = q.dims[2];
   // ---- arch detection ----
@@ -145,9 +155,45 @@ function remapTailUVs(pos, uv, L, H, W) {
       yMin = Math.min(yMin, ay, by, cy); yMax = Math.max(yMax, ay, by, cy);
     }
   }
+  const yr = yMax - yMin || 1;
+  // Build the strip->ORIGINAL-uv resample map first (before mutating uvs): each
+  // strip texel inside a tail triangle's planar footprint remembers where that
+  // surface point sampled the original atlas. The strip is then filled from the
+  // recoloured atlas itself, so the tail blends seamlessly with the baked paint
+  // (real shading, no flat colour field) and only the design draws on top.
+  const map = new Int32Array(ATLAS_S * TAIL_H).fill(-1);
+  function stripXY(y3, z3) {
+    return [4 + (z3 + W / 2) / W * (ATLAS_S - 8), 4 + (1 - (y3 - yMin) / yr) * (TAIL_H - 8)];
+  }
+  for (const t of keep) {
+    const o = t * 9, p0 = stripXY(pos[o + 1], pos[o + 2]), p1 = stripXY(pos[o + 4], pos[o + 5]), p2 = stripXY(pos[o + 7], pos[o + 8]);
+    const den = (p1[1] - p2[1]) * (p0[0] - p2[0]) + (p2[0] - p1[0]) * (p0[1] - p2[1]);
+    if (Math.abs(den) < 1e-9) continue;
+    const x0 = Math.max(0, Math.floor(Math.min(p0[0], p1[0], p2[0])) - 1), x1 = Math.min(ATLAS_S - 1, Math.ceil(Math.max(p0[0], p1[0], p2[0])) + 1);
+    const y0 = Math.max(0, Math.floor(Math.min(p0[1], p1[1], p2[1])) - 1), y1 = Math.min(TAIL_H - 1, Math.ceil(Math.max(p0[1], p1[1], p2[1])) + 1);
+    for (let py = y0; py <= y1; py++) for (let px2 = x0; px2 <= x1; px2++) {
+      const fx = px2 + 0.5, fy = py + 0.5;
+      const w0 = ((p1[1] - p2[1]) * (fx - p2[0]) + (p2[0] - p1[0]) * (fy - p2[1])) / den;
+      const w1 = ((p2[1] - p0[1]) * (fx - p2[0]) + (p0[0] - p2[0]) * (fy - p2[1])) / den;
+      const w2 = 1 - w0 - w1;
+      if (w0 < -0.02 || w1 < -0.02 || w2 < -0.02) continue;
+      const ou = w0 * uv[t * 6] + w1 * uv[t * 6 + 2] + w2 * uv[t * 6 + 4];
+      const ov = w0 * uv[t * 6 + 1] + w1 * uv[t * 6 + 3] + w2 * uv[t * 6 + 5];
+      map[py * ATLAS_S + px2] = ((Math.max(0, Math.min(4095, ou * 4096 | 0))) << 12) | Math.max(0, Math.min(4095, ov * 4096 | 0));
+    }
+  }
+  // dilate so margins/gaps inherit their nearest surface sample
+  for (let pass = 0; pass < 6; pass++) {
+    const prev = map.slice();
+    for (let py = 0; py < TAIL_H; py++) for (let px2 = 0; px2 < ATLAS_S; px2++) {
+      const i = py * ATLAS_S + px2;
+      if (prev[i] >= 0) continue;
+      const nb = [prev[i - 1], prev[i + 1], prev[i - ATLAS_S], prev[i + ATLAS_S]];
+      for (const v2 of nb) if (v2 !== undefined && v2 >= 0) { map[i] = v2; break; }
+    }
+  }
   // the texture grows from 512 to 704 tall: every existing v must rescale first
   for (let i = 1; i < uv.length; i += 2) uv[i] = uv[i] * ATLAS_S / ATLAS_TOT;
-  const yr = yMax - yMin || 1;
   for (const t of keep) {
     const o = t * 9;
     for (let k = 0; k < 3; k++) {
@@ -158,6 +204,7 @@ function remapTailUVs(pos, uv, L, H, W) {
     }
   }
   console.log('tail re-UV:', keep.length, 'tris -> strip island, y', yMin.toFixed(3), '..', yMax.toFixed(3));
+  remapTailUVs.map = map;
   return keep.length;
 }
 // --- WHEEL: axle (thin axis) -> +Y, center ---
@@ -217,10 +264,38 @@ function processSpoiler() {
         g.putImageData(d, 0, 0);
         if (o.strip) {
           const oy = S;   // strip occupies y 512..704; design dv space maps py 516..700
-          const shade = (t2, f) => 'rgb(' + Math.min(255, t2[0] * f | 0) + ',' + Math.min(255, t2[1] * f | 0) + ',' + Math.min(255, t2[2] * f | 0) + ')';
-          const gr = g.createLinearGradient(0, oy, 0, oy + 192);
-          gr.addColorStop(0, shade(o.t, 1.05)); gr.addColorStop(0.65, shade(o.t, 0.92)); gr.addColorStop(1, shade(o.t, 0.72));
-          g.fillStyle = gr; g.fillRect(0, oy, S, 192);
+          // fill the strip by resampling the recoloured atlas through the tail
+          // geometry — the panel keeps its real baked shading and blends with
+          // the neighbouring paint; only the design elements draw on top
+          const atl = g.getImageData(0, 0, S, S).data;
+          const st = g.createImageData(S, 192), sd = st.data;
+          for (let i = 0; i < o.map.length; i++) {
+            const m = o.map[i], di = i * 4;
+            if (m < 0) { sd[di] = o.t[0] * 0.9; sd[di + 1] = o.t[1] * 0.9; sd[di + 2] = o.t[2] * 0.9; sd[di + 3] = 255; continue; }
+            const su = ((m >> 12) & 4095) / 4096 * S | 0, sv = (m & 4095) / 4096 * S | 0;
+            const si = (sv * S + su) * 4;
+            sd[di] = atl[si]; sd[di + 1] = atl[si + 1]; sd[di + 2] = atl[si + 2]; sd[di + 3] = 255;
+          }
+          // junk filter: the original bake had black wedges + amber blob lights
+          // on the tail; replace those outliers with the panel's median tone so
+          // only genuine paint shading survives the resample
+          const smp = [];
+          for (let i = 0; i < sd.length; i += 4) {
+            const r = sd[i], gg2 = sd[i + 1], b2 = sd[i + 2];
+            const dark = Math.max(r, gg2, b2) < 60, amber = (r > 140 && gg2 > 70 && gg2 < 180 && b2 < 80 && r > gg2 * 1.35) || (r > 170 && gg2 > 140 && b2 < 130 && b2 < gg2 * 0.75);
+            if (!dark && !amber) smp.push(i);
+          }
+          const mid = smp.length ? smp[(smp.length / 2) | 0] : 0;
+          const mr = sd[mid], mg = sd[mid + 1], mb = sd[mid + 2];
+          for (let i = 0; i < sd.length; i += 4) {
+            const r = sd[i], gg2 = sd[i + 1], b2 = sd[i + 2];
+            const dark = Math.max(r, gg2, b2) < 60, amber = (r > 140 && gg2 > 70 && gg2 < 180 && b2 < 80 && r > gg2 * 1.35) || (r > 170 && gg2 > 140 && b2 < 130 && b2 < gg2 * 0.75);
+            if (dark || amber) {
+              const py2 = (i / 4 / S) | 0, f = 1.03 - py2 / 192 * 0.18;   // slight top-lit gradient
+              sd[i] = Math.min(255, mr * f); sd[i + 1] = Math.min(255, mg * f); sd[i + 2] = Math.min(255, mb * f);
+            }
+          }
+          g.putImageData(st, 0, oy);
           // Carrera 2 script on the upper tail panel
           g.fillStyle = o.dark ? '#e2ded8' : '#160a08';
           g.font = 'italic bold 27px cursive'; g.textAlign = 'center';
@@ -241,7 +316,7 @@ function processSpoiler() {
           for (let hy = sy + 6; hy < sy + sh; hy += 6) { g.beginPath(); g.moveTo(sx + ac, hy); g.lineTo(sx + sw - ac, hy); g.stroke(); }
           g.font = 'bold 17px Arial'; g.textAlign = 'center';
           g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillText('P O R S C H E', 257, sy + sh / 2 + 7);
-          g.fillStyle = '#dcd2c6'; g.fillText('P O R S C H E', 256, sy + sh / 2 + 6);
+          g.fillStyle = '#c04038'; g.fillText('P O R S C H E', 256, sy + sh / 2 + 6);   // raised red letters, brighter than the reflector
           // bumper rub strip
           g.fillStyle = '#17110f'; g.fillRect(8, oy + 164, 496, 8);
         }
@@ -249,7 +324,7 @@ function processSpoiler() {
       };
       img.onerror = () => rej(new Error('decode'));
       img.src = o.src;
-    }), { src, t: tgt, s: size || 256, strip: !!strip, dark: !!dark });
+    }), { src, t: tgt, s: size || 256, strip: !!strip, dark: !!dark, map: strip ? Array.from(remapTailUVs.map) : null });
   }
   const RED = [200, 32, 30], SILVER = [176, 180, 186], BLACK = [30, 32, 36], WHITE = [225, 226, 224], YELLOW = [226, 190, 30];
   const COLS = [RED, RED, RED, SILVER, BLACK, WHITE, YELLOW];   // RED x3 = prevalent
