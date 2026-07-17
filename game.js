@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.2';
+var GAME_VERSION = 'v1.76.3';
 // QoL: world u/s -> MPH for the driving speedometer (top speed ~26 u/s ≈ 70 mph)
 var SPEEDO_MPH = 2.7;
 document.getElementById('gameVer').textContent = GAME_VERSION;
@@ -17210,7 +17210,7 @@ function initAudio() { if (ac) return; try { ac = new (window.AudioContext || wi
 var RADIO_VOL = 0.75;   // radio loudness relative to the master volume
 // tracks[] grow as MP3s are dropped into music/ and listed here — no limit.
 var RADIO_STATIONS = [
-  { id: 'electronic', name: 'ELECTRONIC', tracks: ['music/electronic_pegboard_nerds_disconnected.mp3', 'music/electronic_skrillex_kill_everybody.mp3'] },
+  { id: 'electronic', name: 'ELECTRONIC', tracks: ['music/electronic_pegboard_nerds_disconnected.mp3', 'music/electronic_skrillex_kill_everybody.mp3', 'music/electronic_2008.mp3', 'music/electronic_deadmau5_ghosts_n_stuff.mp3', 'music/electronic_dj_gollum_all_the_things_she_said.mp3', 'music/electronic_push_the_feeling_on.mp3', 'music/electronic_skrillex_kyoto.mp3', 'music/electronic_s3rl_trillium.mp3'] },
   { id: 'rap',        name: 'RAP',        tracks: ['music/rap_big_l_put_it_on.mp3', 'music/rap_chief_keef_kills.mp3', 'music/rap_mario_judah_i_miss_the_rage.mp3', 'music/rap_tayk_murder_she_wrote.mp3', 'music/rap_21_savage_metro_boomin_my_choppa_hate.mp3', 'music/rap_fat_nick_pemex.mp3', 'music/rap_schoolboy_q_collard_greens.mp3'] },
   { id: 'chill',      name: 'CHILL',      tracks: ['music/chill_a_brighter_future.mp3', 'music/chill_home_resonance.mp3', 'music/chill_casin.mp3', 'music/chill_crumb_bones.mp3', 'music/chill_private_caller.mp3', 'music/chill_the_sundays_heres_where_the_story_ends.mp3'] },
   { id: 'rock',       name: 'ROCK',       tracks: ['music/rock_alice_in_chains_them_bones.mp3', 'music/rock_deans_dream.mp3', 'music/rock_nirvana_lithium.mp3', 'music/rock_way_down_the_line.mp3', 'music/rock_death_from_above_1979_turn_it_out.mp3', 'music/rock_flyleaf_im_so_sick.mp3', 'music/rock_junkie.mp3', 'music/rock_queens_of_the_stone_age_go_with_the_flow.mp3'] }
