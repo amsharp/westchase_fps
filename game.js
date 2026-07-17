@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.16';
+var GAME_VERSION = 'v1.76.17';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -12537,6 +12537,7 @@ function updateCoastCar(c, dt, i) {
 }
 // ---- tuck & roll: third-person tumble out along the car's path, zoom to head ----
 var rollState = null;
+var _rollAxis = new THREE.Vector3(), _rollTravel = new THREE.Vector3(), _qLay = new THREE.Quaternion(), _qRoll = new THREE.Quaternion();
 function startRoll(x, z, tvx, tvz, asp) {
   var body = null;
   try {
@@ -12558,11 +12559,16 @@ function updateRoll(dt) {
   var p = pushOut(r.x + r.dx * step, r.z + r.dz * step, 0.5);
   r.x = p.x; r.z = p.z; player.x = r.x; player.z = r.z; player.y = EYE;
   if (r.body) {
-    var bob = Math.abs(Math.sin(r.t * 11)) * 0.28;
-    r.body.position.set(r.x, 0.32 + bob * (1 - f), r.z);
-    r.body.rotation.order = 'YXZ';
-    r.body.rotation.set(r.t * 12 * (1 - f * 0.4), r.face, 0);   // tumble forward, settling as it ends
-    if (f > 0.85) { var st = 1 - (f - 0.85) / 0.15; r.body.rotation.x *= st; }   // land on feet
+    // LOG ROLL: lie flat and roll along the sides in the car's direction. The
+    // body's long (head-to-toe) axis is laid horizontal, PERPENDICULAR to travel,
+    // and it spins about that axis so it tumbles sideways down the car's path.
+    r.roll = (r.roll || 0) + (7 + r.v * 0.5) * dt;
+    _rollTravel.set(r.dx, 0, r.dz);
+    _rollAxis.set(-r.dz, 0, r.dx);                              // horizontal, perpendicular to travel
+    _qLay.setFromAxisAngle(_rollTravel, Math.PI / 2);          // stand -> lie flat, head along the roll axis
+    _qRoll.setFromAxisAngle(_rollAxis, -r.roll);               // barrel-roll about the body's own long axis
+    r.body.quaternion.copy(_qRoll).multiply(_qLay);
+    r.body.position.set(r.x, 0.45, r.z);                       // stays low, on the ground
   }
   var eyeY = 1.6;
   if (f < 0.72) {
