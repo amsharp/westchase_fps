@@ -224,11 +224,12 @@ function processSpoiler() {
           // Carrera 2 script on the upper tail panel
           g.fillStyle = o.dark ? '#e2ded8' : '#160a08';
           g.font = 'italic bold 27px cursive'; g.textAlign = 'center';
-          g.fillText('Carrera 2', 256, oy + 42);
+          g.fillText('Carrera 2', 256, oy + 46);
           // full-width light band: black surround, amber corner clusters, ribbed
-          // red reflector centre with PORSCHE lettering
-          const sx = 8, sw = 496, sy = oy + 57, sh = 43, ac = 84;
-          g.fillStyle = '#0a0606'; g.fillRect(sx - 4, sy - 4, sw + 8, sh + 8);
+          // red reflector centre with PORSCHE lettering. SLIM like the real one —
+          // ~10cm on a 1.31m car (~8% of body height), band centre at ~36% height
+          const sx = 8, sw = 496, sy = oy + 62, sh = 25, ac = 76;
+          g.fillStyle = '#0a0606'; g.fillRect(sx - 3, sy - 3, sw + 6, sh + 6);
           g.fillStyle = '#e0851a'; g.fillRect(sx, sy, ac, sh); g.fillRect(sx + sw - ac, sy, ac, sh);
           g.strokeStyle = 'rgba(110,55,0,0.55)'; g.lineWidth = 2;
           for (let i = 1; i < 4; i++) {
@@ -237,10 +238,10 @@ function processSpoiler() {
           }
           g.fillStyle = '#6e1210'; g.fillRect(sx + ac, sy, sw - ac * 2, sh);
           g.strokeStyle = 'rgba(0,0,0,0.35)'; g.lineWidth = 1;
-          for (let hy = sy + 7; hy < sy + sh; hy += 8) { g.beginPath(); g.moveTo(sx + ac, hy); g.lineTo(sx + sw - ac, hy); g.stroke(); }
-          g.font = 'bold 26px Arial'; g.textAlign = 'center';
-          g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillText('P O R S C H E', 258, sy + sh / 2 + 10);
-          g.fillStyle = '#dcd2c6'; g.fillText('P O R S C H E', 256, sy + sh / 2 + 9);
+          for (let hy = sy + 6; hy < sy + sh; hy += 6) { g.beginPath(); g.moveTo(sx + ac, hy); g.lineTo(sx + sw - ac, hy); g.stroke(); }
+          g.font = 'bold 17px Arial'; g.textAlign = 'center';
+          g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillText('P O R S C H E', 257, sy + sh / 2 + 7);
+          g.fillStyle = '#dcd2c6'; g.fillText('P O R S C H E', 256, sy + sh / 2 + 6);
           // bumper rub strip
           g.fillStyle = '#17110f'; g.fillRect(8, oy + 164, 496, 8);
         }
