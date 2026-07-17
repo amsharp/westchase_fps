@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.15';
+var GAME_VERSION = 'v1.76.16';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -9870,7 +9870,13 @@ if (WC_REMAP) (function densityLayer() {
             // Math.atan2(ux,uz) alone points the opening away from the street.
             // ...and stay well clear of intersection throats so the shelter never
             // lands on a crosswalk just past the junction-pad edge (report mrn25ep0).
-            if (spotClear(bsx, bsz) && remapPointClear(bsx, bsz, 2) && !remapInClear(bsx, bsz, 0) && !nearJunction(bsx, bsz, 12)) {
+            // onRoad guard (reports mrn25ep0/mrn253sm, v1.74.16): the left-shoulder
+            // offset of a collector near a junction can still land ON the crossing
+            // arterial's asphalt (remapPointClear only knows this road's own
+            // corridor). onRoad tests EVERY remap road, so a shelter that lands on
+            // any roadway — like the one that sat in the main road at ~(40,-9) —
+            // is rejected and the loop slides to the next offset.
+            if (spotClear(bsx, bsz) && remapPointClear(bsx, bsz, 2) && !remapInClear(bsx, bsz, 0) && !nearJunction(bsx, bsz, 12) && !onRoad(bsx, bsz)) {
               spFull('busshelter', bsx, bsz, Math.atan2(pbs.ux, pbs.uz) + Math.PI);
               break;
             }

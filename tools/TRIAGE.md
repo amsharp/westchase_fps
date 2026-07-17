@@ -636,3 +636,20 @@ east side (x 140..290) + one OOB (-575,-231). Dispositions:
   dated 07-11..07-17 (invisible barriers, black-shadow decals, parking-line
   flicker, NPC death-audio delay, "make a new meshy npc", etc.). Count-monitor
   baseline is now 340. Backlog triage pending.
+
+## BACKLOG TRIAGE — 07-16 batch (opus/fable session, from reconciled 340)
+- mrn25ep0/mrn253sm (~26,5 @v1.74.16) "bus stop / invisible barrier in the road"
+  — RESOLVED (verified). The shelter that sat at (24.9,1.7) IN the main road has
+  since moved to a valid grass shoulder at ~(40.8,-8.9) beside the gas-station
+  arterial (screenshot: shelter on the verge, NPC waiting, road curves past).
+  ADDED regression-hardening @v1.76.16: bus-shelter placement now also requires
+  !onRoad(bsx,bsz) so a collector's left-shoulder offset can never drop the
+  shelter onto a CROSSING arterial's asphalt (onRoad tests every remap road;
+  remapPointClear only knew the home road). All 3 shelters still place.
+- OPEN/next round (east-side cluster, v1.74.16, from meta.cols): "invis barrier"
+  reports at (242,37),(241,58),(229,118),(143,113),(255,-49),(143,29) all sit
+  9-24u from LARGE `forest` patch colliders (w37-67). Suspect forest-patch AABB
+  colliders jutting into clearings east of the map. "random black shadows" at
+  (194,134),(156,119) = decal-alpha class (mostly fixed round4-render; re-check
+  this region). "thing in the middle of the road" (157,135)/(198,-155) near
+  prop:light/tree clusters. NOT yet claimed — needs coordinate screenshots.
