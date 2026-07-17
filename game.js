@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.21';
+var GAME_VERSION = 'v1.76.23';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2235,6 +2235,144 @@ function makeCar() {
   return { group: g, body: body, wheels: wheels, pivots: pivots, beam: beam, head1: head1, head2: head2, tail1: tail1, tail2: tail2, tailM: tailM, tailS: 0.15, vname: vname, bodyMesh: bodyMesh };
 }
 function staticCar(x, z, ry) { var c = makeCar(); c.group.position.set(x, 0, z); c.group.rotation.y = ry || 0; }
+// ---- Porsche 964 hero car (optional porsche.js): wheel-less body + separate
+// Cup1 wheel (spins/steers) + retractable spoiler (deploys with a rotate+
+// translate 4-bar motion). Self-contained non-indexed geo like MESHY_VEHS.
+var _porGeoC = null, _porWhGeo = null, _porSpGeo = null, _porMatC = {}, _porWhMat = null, _porSpMatC = {}, _porBand = null;
+function _porGeo(pack) {   // {q,p,u} non-indexed -> BufferGeometry
+  var qp = new Int16Array(b64Bytes(pack.p).buffer), qu = new Uint16Array(b64Bytes(pack.u).buffer);
+  var fp = new Float32Array(qp.length), fu = new Float32Array(qu.length);
+  for (var i = 0; i < qp.length; i++) fp[i] = qp[i] / pack.q;
+  for (i = 0; i < qu.length; i += 2) { fu[i] = qu[i] / 8192; fu[i + 1] = 1 - qu[i + 1] / 8192; }
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(fp, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(fu, 2));
+  geo.computeVertexNormals();
+  return geo;
+}
+function _porTexMat(dataUrl, cache) {
+  var cv = document.createElement('canvas'); cv.width = 1; cv.height = 1;
+  var tx = new THREE.CanvasTexture(cv); tx.magFilter = THREE.NearestFilter; tx.minFilter = THREE.NearestFilter; tx.generateMipmaps = false;
+  var im = new Image();
+  im.onload = function () { cv.width = im.width; cv.height = im.height; cv.getContext('2d').drawImage(im, 0, 0); tx.needsUpdate = true; };
+  im.src = dataUrl;
+  return lamb({ map: tx });
+}
+function getPorscheMat(ci) { if (!_porMatC[ci]) _porMatC[ci] = _porTexMat(PORSCHE_VEH.texs[ci]); return _porMatC[ci]; }
+function getPorscheSpoilerMat(ci) { var t = (PORSCHE_VEH.stexs || [PORSCHE_VEH.stex]); var k = Math.min(ci, t.length - 1); if (!_porSpMatC[k]) _porSpMatC[k] = _porTexMat(t[k]); return _porSpMatC[k]; }
+// red is prevalent: texs 0..2 = red, 3 silver, 4 black, 5 white, 6 yellow
+function porscheColorPick() { var n = PORSCHE_VEH.texs.length; return (Math.random() * n) | 0; }
+// body field colour per variant, so the tail decal blends into the paint
+var _PORSCHE_FIELD = ['#8f1414', '#8f1414', '#8f1414', '#8a8f96', '#242629', '#c9cbc8', '#b89416'];
+var _porTailC = {};
+function makePorscheTailDecal(ci) {
+  if (!_porTailC[ci]) {
+    var field = _PORSCHE_FIELD[ci] || '#8f1414', dark = (ci === 4);
+    var W = 320, H = 150, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    var g = cv.getContext('2d');
+    g.fillStyle = field; g.fillRect(0, 0, W, H);                 // paint field (blends into tail)
+    // "Carrera 2" cursive script above the band
+    g.fillStyle = dark ? '#e8e8e8' : '#1c0a08'; g.textAlign = 'center';
+    g.font = 'italic bold 30px "Brush Script MT", "Segoe Script", cursive';
+    g.fillText('Carrera 2', W / 2, 46);
+    // taillight strip
+    var sx = 16, sw = W - 32, sy = 80, sh = 44;
+    g.fillStyle = '#0a0505'; g.fillRect(sx - 3, sy - 3, sw + 6, sh + 6);   // black surround
+    var ac = 62;   // amber cluster width
+    // amber corners (with rib lines)
+    g.fillStyle = '#e0851a'; g.fillRect(sx, sy, ac, sh); g.fillRect(sx + sw - ac, sy, ac, sh);
+    g.strokeStyle = 'rgba(120,60,0,0.5)'; g.lineWidth = 1;
+    for (var rr = 1; rr < 4; rr++) { var rxL = sx + ac * rr / 4, rxR = sx + sw - ac + ac * rr / 4; g.beginPath(); g.moveTo(rxL, sy); g.lineTo(rxL, sy + sh); g.moveTo(rxR, sy); g.lineTo(rxR, sy + sh); g.stroke(); }
+    // red reflector centre with horizontal ribbing
+    var cxs = sx + ac, cw = sw - ac * 2;
+    g.fillStyle = '#6e1210'; g.fillRect(cxs, sy, cw, sh);
+    g.strokeStyle = 'rgba(0,0,0,0.35)';
+    for (var hy = sy + 6; hy < sy + sh; hy += 7) { g.beginPath(); g.moveTo(cxs, hy); g.lineTo(cxs + cw, hy); g.stroke(); }
+    // PORSCHE, embossed
+    g.textAlign = 'center'; g.font = 'bold 22px "Arial Narrow", Arial, sans-serif';
+    g.fillStyle = 'rgba(0,0,0,0.55)'; g.fillText('P O R S C H E', W / 2 + 1, sy + sh / 2 + 9);
+    g.fillStyle = '#d9cfc4'; g.fillText('P O R S C H E', W / 2, sy + sh / 2 + 8);
+    // feather the outer margins to transparent so the panel melts into the paint
+    // (leaves the Carrera 2 script, band and PORSCHE fully opaque)
+    g.globalCompositeOperation = 'destination-out';
+    var gr;
+    gr = g.createLinearGradient(0, 0, 0, 24); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, W, 24);
+    gr = g.createLinearGradient(0, H, 0, H - 20); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, H - 20, W, 20);
+    gr = g.createLinearGradient(0, 0, 12, 0); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, 12, H);
+    gr = g.createLinearGradient(W, 0, W - 12, 0); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(W - 12, 0, 12, H);
+    g.globalCompositeOperation = 'source-over';
+    var tx = new THREE.CanvasTexture(cv); tx.magFilter = THREE.LinearFilter; tx.minFilter = THREE.LinearFilter; tx.generateMipmaps = false;
+    _porTailC[ci] = new THREE.MeshBasicMaterial({ map: tx, transparent: true });
+  }
+  return new THREE.Mesh(_porUnitPlane(), _porTailC[ci]);
+}
+var _porUP = null;
+function _porUnitPlane() { if (!_porUP) _porUP = new THREE.PlaneGeometry(1, 1); return _porUP; }
+function buildPorsche(ci) {
+  if (typeof PORSCHE_VEH === 'undefined') return makeCar();   // graceful fallback
+  if (ci === undefined) ci = porscheColorPick();
+  var P = PORSCHE_VEH, g = new THREE.Group(), body = new THREE.Group();
+  var s = VEH_LEN / P.body.dims[0];
+  if (!_porGeoC) _porGeoC = _porGeo(P.body);
+  var bm = new THREE.Mesh(_porGeoC, getPorscheMat(ci)); bm.scale.set(s, s, s);
+  body.add(bm); g.add(body);
+  // wheel geo/mat (independent scale: the wheel came from its own GLB)
+  if (!_porWhGeo) _porWhGeo = _porGeo(P.wheel);
+  if (!_porWhMat) _porWhMat = _porTexMat(P.wtex);
+  var wd = P.wheel.dims, whInPlaneR = Math.max(wd[0], wd[2]) / 2;
+  var wheels = [], pivots = [];
+  P.wheels.forEach(function (w) {
+    var px = w[0] * s, py = w[1] * s, pz = w[2] * s, R = w[3] * s;
+    var pv = new THREE.Group(); pv.position.set(px, py, pz);
+    var wm = new THREE.Mesh(_porWhGeo, _porWhMat);
+    wm.rotation.x = pz > 0 ? Math.PI / 2 : -Math.PI / 2;   // axle local +Y -> car Z
+    var ws = R / whInPlaneR; wm.scale.set(ws, ws, ws);
+    pv.add(wm); g.add(pv); wheels.push(wm); pivots.push(pv);
+  });
+  var ord = pivots.map(function (p, i) { return i; }).sort(function (a, b) { return pivots[b].position.x - pivots[a].position.x; });
+  pivots = ord.map(function (i) { return pivots[i]; }); wheels = ord.map(function (i) { return wheels[i]; });
+  // deployable spoiler: width->Z mesh (blue lip + black louvre grille over a riser
+  // box). Stows proud of a black deck void; deploys via 4-bar linkage (rotate up +
+  // translate rearward). Pivot group at the front-bottom edge of the lip.
+  var spoiler = null;
+  if (P.spoiler) {
+    if (!_porSpGeo) _porSpGeo = _porGeo(P.spoiler);
+    var spMat = getPorscheSpoilerMat(ci);
+    var sp = new THREE.Mesh(_porSpGeo, spMat);
+    var sc = (P.body.dims[2] * s * 0.64) / P.spoiler.dims[2];   // lip spans ~0.64 of car width
+    sp.scale.set(sc, sc, sc);
+    var m = P.spoiler.mount, mX = m[0] * s, deckY = m[1] * s;
+    var lipY = (P.spoiler.lipY || 0.24) * sc;
+    // pivot at front-bottom of the lip; mesh offset back so its front edge sits on the pivot
+    var pivot = new THREE.Group();
+    pivot.position.set(mX + (P.spoiler.dims[0] * sc) / 2, deckY - lipY - 0.02, 0);   // stowed: riser sunk into void, grille+lip proud
+    sp.position.set(-(P.spoiler.dims[0] * sc) / 2, 0, 0);
+    pivot.add(sp);
+    pivot.userData.baseX = pivot.position.x; pivot.userData.baseY = pivot.position.y; pivot.userData.deploy = 0;
+    pivot.userData.travel = P.spoiler.dims[0] * sc * 0.55;   // rearward translate at full deploy
+    pivot.userData.rise = 0.10 * s;                           // vertical lift at full deploy
+    pivot.userData.riseRot = 0.42;                            // radians of tilt at full deploy
+    body.add(pivot); spoiler = pivot;
+    // black void quad in the deck footprint under the spoiler
+    var vw = P.spoiler.dims[0] * sc * 1.05, vd = P.spoiler.dims[2] * sc * 1.02;
+    var vq = new THREE.Mesh(new THREE.PlaneGeometry(vw, vd), new THREE.MeshBasicMaterial({ color: 0x090909 }));
+    vq.rotation.x = -Math.PI / 2; vq.position.set(mX, deckY + 0.005, 0);
+    body.add(vq);
+  }
+  // rear taillight panel decal — matches the approved concept: amber corner
+  // clusters + a dark-red reflector centre carrying the PORSCHE script, on a
+  // body-red field that blends into the tail and hides the baked-in Meshy lights.
+  // "Carrera 2" cursive sits above it on the engine lid. Painted per body colour.
+  var band = makePorscheTailDecal(ci);
+  var tailX = -P.body.dims[0] / 2 * s, bw = P.body.dims[2] * s, bh = P.body.dims[1] * s;
+  band.rotation.y = -Math.PI / 2; band.position.set(tailX - 0.015, bh * 0.50, 0);
+  band.scale.set(bw * 0.86, bh * 0.62, 1);
+  body.add(band);
+  g.add(blobShadow(2.4, 1.15, 0.1)); scene.add(g);
+  return { group: g, body: body, wheels: wheels, pivots: pivots, spoiler: spoiler, vname: 'PORSCHE964', bodyMesh: bm, isPorsche: true, beam: null, head1: null, head2: null, tail1: null, tail2: null, tailM: null, tailS: 0.15 };
+}
+// verification spawn: one parked Porsche (removed once wired into the car system)
+function spawnPorscheProbe(x, z, ry) { var c = buildPorsche(0); c.group.position.set(x, 0, z); c.group.rotation.y = ry || 0; return c; }
 // suspension spring + accel pitch + steer roll + front-wheel steering (visual only)
 function updateCarFeel(c, dt, spd, accel, steer) {
   var cc = c.car;
@@ -2252,7 +2390,9 @@ function updateCarFeel(c, dt, spd, accel, steer) {
   // lateral body lean: grows with speed AND turn tightness; a right turn (D)
   // throws weight to the outside so the body rolls LEFT. Bigger + springier
   // than the old barely-there tilt.
-  var leanT = -(steer || 0) * Math.min(1, asp / 9) * 0.18;
+  // the Porsche 964 is a stiff sports car: far less body roll than the sedans/vans.
+  var rollAmp = (cc.isPorsche ? 0.05 : 0.18);
+  var leanT = -(steer || 0) * Math.min(1, asp / 9) * rollAmp;
   c.rollS += (leanT - c.rollS) * k;
   var onGrade = (c === driving);   // ramp tilt only affects the car you're driving
   cc.body.rotation.z = c.pitchS + (onGrade ? (c.slopePitch || 0) : 0);
@@ -2262,6 +2402,23 @@ function updateCarFeel(c, dt, spd, accel, steer) {
   c.steerA += (target - c.steerA) * Math.min(1, 10 * dt);
   cc.pivots[0].rotation.y = c.steerA;
   cc.pivots[1].rotation.y = c.steerA;
+  if (cc.spoiler) updatePorscheSpoiler(c, dt, asp);
+}
+// Carrera auto-spoiler: deploys above ~12 u/s, stows below ~8 (hysteresis). The
+// motion is a 4-bar linkage — the blade rotates UP while translating REARWARD
+// simultaneously (bellows stretch), reversing on stow.
+function updatePorscheSpoiler(c, dt, asp) {
+  var sp = c.car.spoiler, u = sp.userData;
+  if (asp === undefined) asp = Math.abs(c.pspeed || 0);
+  if (c._spOn === undefined) c._spOn = false;
+  if (asp > 12) c._spOn = true; else if (asp < 8) c._spOn = false;
+  var want = c._spOn ? 1 : 0;
+  var d = u.deploy + (want - u.deploy) * Math.min(1, 3.5 * dt);
+  if (Math.abs(d - want) < 0.004) d = want;
+  u.deploy = d;
+  sp.position.x = u.baseX - u.travel * d;   // rearward (nose is +x)
+  sp.position.y = u.baseY + u.rise * d;     // lift up
+  sp.rotation.z = -u.riseRot * d;           // trailing edge tilts up
 }
 // light glows: headlights/taillights follow the street lights; taillights also
 // flare bright any time the car is braking (short hold so they don't flicker)
@@ -12046,6 +12203,21 @@ function parkedSlotFree(x, z, ry) {
   }
 })();
 
+// ---- the red Porsche 964 hero car: one findable parked example ----
+// Deterministic single spawn (fixed slot) so cars[] stays index-aligned across
+// peers. Uses buildPorsche instead of makeCar; drivable/breakable like any car.
+function addParkedPorsche(x, z, ry, ci) {
+  if (typeof PORSCHE_VEH === 'undefined' || typeof buildPorsche !== 'function') return null;
+  var c = { car: buildPorsche(ci), axis: 'x', lane: 0, lane0: 0, dir: 1, pos: 0, speed: 0, dmgT: 0, berserk: false, exploded: false, respawnT: 0, smokeT: 0, eng: null, parked: true, slot: { x: x, z: z, ry: ry } };
+  c.car.group.position.set(x, 0, z);
+  c.car.group.rotation.y = ry;
+  c.car.group.userData.trafficCar = c;
+  cars.push(c);
+  return c;
+}
+// RaceTrac forecourt (SE corner) — a verified collider-free slot on the pavement.
+addParkedPorsche(66, 50, -Math.PI / 2, 0);   // ci 0 = red hero
+
 // ---- procedural car engine (layered synth driven by an RPM model) ----
 // speed maps to revs through gear steps, so an accelerating car audibly
 // climbs and then drops on each upshift. Every car runs a cheap 5-node
@@ -12703,6 +12875,7 @@ function carHandling(vname) {
   if (vname === 'GG_STEPVAN') return { acc: 0.62, top: 0.80 };
   if (vname === 'GG_WAGON') return { acc: 0.85, top: 0.92 };
   if (vname === 'GG_WRECK') return { acc: 0.75, top: 0.86 };
+  if (vname === 'PORSCHE964') return { acc: 1.6, top: 1.45 };   // hero car: fastest in town, strong launch
   return { acc: 1, top: 1 };
 }
 // true if a still-standing breakable (tree / light / snappable pole) sits within
@@ -21728,6 +21901,7 @@ function showColliders(on) {
 
 window.__wc = {
   showColliders: showColliders, colliderView: function () { return colViewOn; },
+  buildPorsche: (typeof buildPorsche === 'function' ? buildPorsche : null), spawnPorscheProbe: (typeof spawnPorscheProbe === 'function' ? spawnPorscheProbe : null),
   state: state, player: player, npcs: npcs, cashes: cashes, cops: cops,
   kids: kids, adultRace: adultRace, spawnKids: spawnKids, updateKids: updateKids, playKidVoice: playKidVoice, kidVoiceDbg: function () { return kidVoiceDbg; },
   getKidPlaysets: getKidPlaysets, nearestPlayset: nearestPlayset, startKidPlay: startKidPlay,

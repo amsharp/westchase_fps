@@ -76,14 +76,19 @@ function processWheel() {
   bb = bbox(pos); for (let v = 0; v < n; v++) { pos[v * 3] -= (bb.mn[0] + bb.mx[0]) / 2; pos[v * 3 + 1] -= (bb.mn[1] + bb.mx[1]) / 2; pos[v * 3 + 2] -= (bb.mn[2] + bb.mx[2]) / 2; }
   return { q: quant(pos, g.uv), rawTex: g.tex };
 }
-// --- SPOILER: keep orientation, center x/z, rest at min y (mounts up) ---
+// --- SPOILER: orient WIDTH (long horizontal axis) -> Z (car width), center x/z,
+//     rest at min y. Also report lipY = where the blue lip sits above the black
+//     riser box, so the game can seat the box into the deck void with the lip proud. ---
 function processSpoiler() {
   const g = parseGLB(path.join(WORK, 'PORSCHESPOILER.glb'));
   const pos = g.pos.slice(); const n = pos.length / 3; let bb = bbox(pos);
-  const rotated = (bb.mx[2] - bb.mn[2]) > (bb.mx[0] - bb.mn[0]);
-  for (let v = 0; v < n; v++) { let x = pos[v * 3], y = pos[v * 3 + 1], z = pos[v * 3 + 2]; if (rotated) { const t = x; x = z; z = -t; } pos[v * 3] = x; pos[v * 3 + 1] = y; pos[v * 3 + 2] = z; }
+  const needRot = (bb.mx[0] - bb.mn[0]) > (bb.mx[2] - bb.mn[2]);   // long axis on X -> rotate to Z
+  for (let v = 0; v < n; v++) { let x = pos[v * 3], y = pos[v * 3 + 1], z = pos[v * 3 + 2]; if (needRot) { const nx = -z, nz = x; x = nx; z = nz; } pos[v * 3] = x; pos[v * 3 + 1] = y; pos[v * 3 + 2] = z; }
   bb = bbox(pos); for (let v = 0; v < n; v++) { pos[v * 3] -= (bb.mn[0] + bb.mx[0]) / 2; pos[v * 3 + 1] -= bb.mn[1]; pos[v * 3 + 2] -= (bb.mn[2] + bb.mx[2]) / 2; }
-  return { q: quant(pos, g.uv), rawTex: g.tex };
+  // lipY: the black riser box is the lower solid mass; find the y where the wide
+  // blue lip begins (widest z-span jumps) — approximate as 0.6 of height.
+  const q = quant(pos, g.uv);
+  return { q, rawTex: g.tex, lipY: +(0.58 * q.dims[1]).toFixed(4) };
 }
 
 (async () => {
@@ -99,7 +104,9 @@ function processSpoiler() {
   const texs = [];
   for (const c of [RED, RED, RED, SILVER, BLACK, WHITE, YELLOW]) texs.push(await recolor(body.rawTex, c));   // RED x3 = prevalent
   const wheelTex = await down(wheel.rawTex, 128);
-  const spoilerTex = await down(spoiler.rawTex, 128);
+  // spoiler recolored to match each body variant (blue paint -> color, black grille stays)
+  const stexs = [];
+  for (const c of [RED, RED, RED, SILVER, BLACK, WHITE, YELLOW]) stexs.push(await recolor(spoiler.rawTex, c));
   await browser.close();
 
   const V = {
@@ -107,7 +114,7 @@ function processSpoiler() {
     body: body.q, texs: texs,
     wheel: wheel.q, wtex: wheelTex,
     wheels: body.wheels,
-    spoiler: Object.assign({}, spoiler.q, { mount: body.mount }), stex: spoilerTex,
+    spoiler: Object.assign({}, spoiler.q, { mount: body.mount, lipY: spoiler.lipY }), stexs: stexs,
   };
   const out = '// AI-generated Porsche 964 hero car (gpt-image-1 multi-view -> Meshy -> ' +
     'tools/vehgen/genporsche.js).\n// Wheel-less body + separate Cup1 wheel + retractable spoiler. ' +
