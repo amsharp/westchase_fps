@@ -276,7 +276,7 @@ Westchase Guns & Ammo. He sells three guns:
 | Pistol | $150  | semi-auto, reliable |
 | SMG (TEC-9) | $400 | full-auto; first shots fly true, then it sprays — feather the trigger |
 | Shotgun | $500 | pump-action cone of pellets, brutal up close and weak far off — a **point-blank shot to the head takes it clean off** in a spray of blood |
-| Axe    | $400  | heavy chopping axe — a solid melee hit **cleaves a body clean in half down the middle**, both halves flying apart in a mess of blood |
+| Axe    | $400  | heavy chopping axe — a solid melee hit **cleaves a body clean in half down the middle**; the two halves topple opposite ways onto the ground in a mess of blood |
 | Rifle  | $600  | one shot, one nap — right-click to scope |
 | AK-47  | $1000 | full-auto, long range, accurate |
 | Rocket launcher | $2000 | 5s reload; the blast doesn't care whose side you're on |

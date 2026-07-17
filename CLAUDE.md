@@ -148,6 +148,15 @@ forest walls + "ROAD CLOSED" barriers at the four road exits.
   launcher $2000 (visible projectile, 5 s cooldown, self-damage). Snack item
   (gas station, $20, +50 hp, consumable). Death drops all owned guns as
   pickups (2 min despawn; duplicate pickup = half-price refund).
+- **Gore**: shotgun ($500) close headshot decapitates (`decapitateNPC`:
+  PSX hides `userData.head` + flings a gib; skinned shrinks `userData.headBone`;
+  restored on respawn). Axe ($400, `melee`+`bisect`) `bisectNPC` swaps the NPC
+  for TWO copies of a generic bloody half-body gib (`halfbody.js` /
+  `HALFBODY_DATA` — a Meshy full body split down x=0 with a blood-capped cut
+  face, ONE half stored + mirrored via scale.x=-1 for the other); they topple
+  opposite ways and despawn (`halves`/`updateHalves`). Reused for all NPCs/cops.
+  Kids are never in any hit list, so they can't be gored. Regenerate the gib
+  via `tools/chargen/halfbodygen.js`.
 - **Wanted** (0–5 stars): rob register at gunpoint → 2★; every 5 civ kills →
   +1★; cop kill → +1★; decays after ~18 s clean & no cops near. Cops: 2
   patrol at 0★, +2 per star (spawn interval 2.6 s); pistols <4★, full-auto
