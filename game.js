@@ -17077,111 +17077,76 @@ function decapitateNPC(n, dx, dz) {
   else damageNPC(n, 999, dx, dz, false);
 }
 // ===================== AXE: bisection gore =====================
-// A solid axe hit cleaves an NPC in half down the sagittal plane. The current
-// posed mesh is baked to world-space triangle soup (skinned via boneTransform,
-// PSX via child world matrices), partitioned into left/right by the body's
-// local-X sign, and the two halves fly apart as static gib meshes (gravity +
-// tumble, lots of blood). The whole character mesh hides until it respawns.
+// A solid axe hit swaps the NPC out for two copies of a generic bloody
+// half-body gib (halfbody.js — a Meshy full body split down the middle with a
+// blood-capped cut face). One copy is mirrored (scale.x = -1) to make the other
+// half; both stand upright at the victim, then topple opposite ways onto the
+// ground and despawn like a corpse. The generic half is reused for every NPC/cop.
 var halves = [];
-var _bkV = new THREE.Vector3(), _bkInv = new THREE.Matrix4();
-function _pushTri(L, R, wp, lx, uv, pv) {
-  // reject NaN or spike verts: some Meshy characters carry a handful of vertices
-  // with degenerate skin weights that boneTransform flings metres from the body.
-  // Baked in, they become giant stretched shards; drop the whole tri (a few
-  // missing surface tris are invisible in fast-flying gore).
-  for (var k = 0; k < 3; k++) {
-    var rx = wp[k * 3] - pv.x, ry = wp[k * 3 + 1] - pv.y, rz = wp[k * 3 + 2] - pv.z;
-    if (!isFinite(rx) || !isFinite(ry) || !isFinite(rz)) return;
-    if (rx * rx + rz * rz > 6.25 || ry * ry > 6.25) return;   // >2.5m from the body center
-  }
-  var cx = (lx[0] + lx[1] + lx[2]) / 3, dst = cx < 0 ? L : R, j;
-  for (j = 0; j < 3; j++) { dst.p.push(wp[j * 3] - pv.x, wp[j * 3 + 1] - pv.y, wp[j * 3 + 2] - pv.z); }
-  for (j = 0; j < 6; j++) dst.u.push(uv[j]);
+var _halfGeo = null, _halfMat = null;
+function buildHalfGeo() {
+  if (_halfGeo || typeof HALFBODY_DATA === 'undefined') return;
+  var e = HALFBODY_DATA;
+  var qp = new Int16Array(b64Bytes(e.p).buffer), qu = new Uint16Array(b64Bytes(e.u).buffer);
+  var fp = new Float32Array(qp.length), fu = new Float32Array(qu.length);
+  for (var i = 0; i < qp.length; i++) fp[i] = qp[i] / e.q;
+  for (i = 0; i < qu.length; i += 2) { fu[i] = qu[i] / 8192; fu[i + 1] = 1 - qu[i + 1] / 8192; }
+  _halfGeo = new THREE.BufferGeometry();
+  _halfGeo.setAttribute('position', new THREE.BufferAttribute(fp, 3));
+  _halfGeo.setAttribute('uv', new THREE.BufferAttribute(fu, 2));
+  _halfGeo.computeVertexNormals();
+  var im = new Image();
+  var tx = new THREE.Texture(im);
+  tx.magFilter = THREE.NearestFilter; tx.minFilter = THREE.LinearMipmapLinearFilter;
+  im.onload = function () { tx.needsUpdate = true; };
+  im.src = e.tex;
+  _halfMat = lamb({ map: tx, side: THREE.DoubleSide });   // mirror + open cut face need both sides
 }
-function bakeBodyHalves(m, pv) {
-  m.updateMatrixWorld(true);
-  _bkInv.copy(m.matrixWorld).invert();   // world -> body-local (split axis)
-  var L = { p: [], u: [] }, R = { p: [], u: [] }, mat = null;
-  var smesh = null;
-  m.traverse(function (o) { if (o.isSkinnedMesh && !smesh) smesh = o; });
-  function emit(pos, uv, idx, xform) {
-    var count = idx ? idx.length : pos.count;
-    function vert(vi) {
-      xform(vi, _bkV);
-      var wx = _bkV.x, wy = _bkV.y, wz = _bkV.z;
-      _bkV.applyMatrix4(_bkInv);
-      return { wx: wx, wy: wy, wz: wz, lx: _bkV.x, u: uv ? uv.getX(vi) : 0, v: uv ? uv.getY(vi) : 0 };
-    }
-    for (var t = 0; t < count; t += 3) {
-      var a = idx ? idx[t] : t, b = idx ? idx[t + 1] : t + 1, c = idx ? idx[t + 2] : t + 2;
-      var va = vert(a), vb = vert(b), vc = vert(c);
-      _pushTri(L, R, [va.wx, va.wy, va.wz, vb.wx, vb.wy, vb.wz, vc.wx, vc.wy, vc.wz], [va.lx, vb.lx, vc.lx], [va.u, va.v, vb.u, vb.v, vc.u, vc.v], pv);
-    }
-  }
-  if (smesh) {
-    mat = smesh.material; smesh.updateMatrixWorld(true);
-    var g = smesh.geometry;
-    emit(g.attributes.position, g.attributes.uv, g.index ? g.index.array : null, function (vi, out) {
-      smesh.boneTransform(vi, out); out.applyMatrix4(smesh.matrixWorld);
-    });
-  } else {
-    m.traverse(function (o) {
-      if (!o.isMesh || o.isSkinnedMesh || o === m.userData.shadow) return;
-      var gg = o.geometry, pos = gg && gg.attributes.position; if (!pos) return;
-      if (!mat && o.material && o.material.map) mat = o.material;
-      o.updateMatrixWorld(true);
-      emit(pos, gg.attributes.uv, gg.index ? gg.index.array : null, function (vi, out) {
-        out.fromBufferAttribute(pos, vi).applyMatrix4(o.matrixWorld);
-      });
-    });
-  }
-  if (!L.p.length && !R.p.length) return null;
-  L.mat = mat; R.mat = mat;
-  return { left: L, right: R };
-}
-function _halfMesh(side, mat) {
-  if (!side.p.length) return null;
-  var g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(side.p), 3));
-  g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(side.u), 2));
-  g.computeVertexNormals();
-  var mm = new THREE.Mesh(g, mat || lamb({ color: 0x8a4a3a }));
-  mm.frustumCulled = false;
-  return mm;
+// one severed half, oriented to the victim's facing. mirror = -1 gives the
+// opposite half (reflected across the cut plane). Returns the outer group.
+function makeHalf(x, z, yaw, sc, mirror) {
+  buildHalfGeo();
+  if (!_halfGeo) return null;
+  var og = new THREE.Group();          // position + facing
+  og.position.set(x, 0, z);
+  og.rotation.y = yaw;
+  var rg = new THREE.Group();          // topple roll about the forward axis
+  og.add(rg);
+  var hm = new THREE.Mesh(_halfGeo, _halfMat);
+  hm.scale.set(sc * mirror, sc, sc);
+  hm.frustumCulled = false;
+  rg.add(hm);
+  scene.add(og);
+  return { og: og, rg: rg };
 }
 function bisectNPC(n, fx, fz) {
   var m = n.mesh;
-  var pivot = new THREE.Vector3(); m.getWorldPosition(pivot); pivot.y += 0.9;
-  var parts = bakeBodyHalves(m, pivot);
-  var rq = new THREE.Quaternion(); m.getWorldQuaternion(rq);
-  var rgt = new THREE.Vector3(1, 0, 0).applyQuaternion(rq); rgt.y = 0; if (rgt.lengthSq() < 1e-4) rgt.set(1, 0, 0); rgt.normalize();
-  if (parts) {
-    var pieces = [[parts.left, -1], [parts.right, 1]];
-    for (var pi2 = 0; pi2 < pieces.length; pi2++) {
-      var mm = _halfMesh(pieces[pi2][0], parts.left.mat || parts.right.mat);
-      if (!mm) continue;
-      mm.position.copy(pivot); scene.add(mm);
-      var sgn = pieces[pi2][1];
-      // each half is thrown firmly out to ITS side (down the cut normal) and
-      // topples outward around the forward axis — reads as two body-halves
-      // flopping apart, not a spinning shard cloud.
-      halves.push({
-        mesh: mm,
-        vx: rgt.x * sgn * 3.4 + fx * 0.7,
-        vy: 1.5 + Math.random() * 0.8,
-        vz: rgt.z * sgn * 3.4 + fz * 0.7,
-        spinX: fx * sgn * 2.2 + (Math.random() - 0.5) * 0.6,   // topple over the travel axis
-        spinZ: fz * sgn * 2.2 + (Math.random() - 0.5) * 0.6,
-        life: 9
-      });
-    }
+  var yaw = m.rotation.y || 0;
+  var sc = (m.scale && m.scale.x) || 1;
+  // world right vector (topple/separation axis)
+  var rgtX = Math.cos(yaw), rgtZ = -Math.sin(yaw);
+  var made = 0;
+  for (var s = 0; s < 2; s++) {
+    var dir = s === 0 ? 1 : -1;
+    var hp = makeHalf(n.x, n.z, yaw, sc, dir);
+    if (!hp) break;
+    made++;
+    halves.push({
+      og: hp.og, rg: hp.rg,
+      roll: 0, target: dir * (1.35 + Math.random() * 0.25),   // ~80° lie-down, opposite ways
+      fallT: 0.55 + Math.random() * 0.2,                        // seconds to topple
+      // small separation slide toward the side each half topples + a swing nudge
+      vx: -rgtX * dir * 0.9 + fx * 0.5, vz: -rgtZ * dir * 0.9 + fz * 0.5,
+      settle: 7 + Math.random() * 1.5, t: 0
+    });
   }
-  for (var i = 0; i < 7; i++) bloodPunch(n.x + (Math.random() - 0.5) * 0.5, 0.5 + Math.random() * 1.3, n.z + (Math.random() - 0.5) * 0.5);
+  // gore
+  for (var i = 0; i < 7; i++) bloodPunch(n.x + (Math.random() - 0.5) * 0.5, 0.4 + Math.random() * 1.3, n.z + (Math.random() - 0.5) * 0.5);
   puff(new THREE.Vector3(n.x, 1.0, n.z), 0x8f1512, 'blood');
-  for (i = 0; i < 6; i++) bloodDecal(n.x + (Math.random() - 0.5) * 2.0, n.z + (Math.random() - 0.5) * 2.0);
+  for (i = 0; i < 6; i++) bloodDecal(n.x + (Math.random() - 0.5) * 1.9, n.z + (Math.random() - 0.5) * 1.9);
   sfx('cut', { x: n.x, z: n.z, range: 46 });
-  n._bisected = true;
-  m.visible = false; if (m.userData.shadow) m.userData.shadow.visible = false;
+  n._bisected = (made > 0);
+  if (made > 0) { m.visible = false; if (m.userData.shadow) m.userData.shadow.visible = false; }
   if (isClient()) { netToHost({ t: 'dmgNpc', i: npcs.indexOf(n), dmg: 999, kx: fx, kz: fz }); n.hp = 0; }
   else damageNPC(n, 999, fx, fz, false);
 }
@@ -17192,16 +17157,20 @@ function restoreBisect(n) {
 }
 function updateHalves(dt) {
   for (var i = halves.length - 1; i >= 0; i--) {
-    var h = halves[i]; h.life -= dt;
-    h.vy -= 15 * dt;
-    var mp = h.mesh.position;
-    mp.x += h.vx * dt; mp.y += h.vy * dt; mp.z += h.vz * dt;
-    h.mesh.rotation.x += h.spinX * dt; h.mesh.rotation.z += h.spinZ * dt;
-    if (mp.y < 0.35 && h.vy < 0) {
-      mp.y = 0.35; h.vy *= -0.24; h.vx *= 0.5; h.vz *= 0.5; h.spinX *= 0.35; h.spinZ *= 0.35;
-      if (Math.random() < 0.5) bloodDecal(mp.x, mp.z);
+    var h = halves[i]; h.t += dt; h.settle -= dt;
+    // ease the topple to the ground (smoothstep), then hold flat
+    var f = Math.min(1, h.t / h.fallT); var e = f * f * (3 - 2 * f);
+    h.rg.rotation.z = h.target * e;
+    // separation slide, damped
+    if (f < 1) {
+      h.og.position.x += h.vx * dt; h.og.position.z += h.vz * dt;
+      h.vx *= 0.9; h.vz *= 0.9;
+      if (f > 0.6 && !h._decaled) { h._decaled = true; bloodDecal(h.og.position.x, h.og.position.z); }
     }
-    if (h.life <= 0) { scene.remove(h.mesh); if (h.mesh.geometry) h.mesh.geometry.dispose(); halves.splice(i, 1); }
+    if (h.settle <= 0) {   // sink and vanish like a despawning corpse
+      h.og.position.y -= dt * 0.8;
+      if (h.settle <= -1.2) { scene.remove(h.og); halves.splice(i, 1); }
+    }
   }
 }
 // fire one shotgun blast: a cone of pellets, per-pellet range falloff, head-off on
@@ -18725,7 +18694,7 @@ var SFX_MAP = {
   brake: { k: 'brake', g: 0.55, j: 0.05 }, tirescreech: { k: 'tirescreech', g: 0.6, j: 0.04 },
   // owner-supplied axe cut (carsfx.js SFX_PACK.cut): the meaty chop when the axe
   // cleaves an NPC in half. Synth has no fallback — silent if the pack is absent.
-  cut: { k: 'cut', g: 0.95, j: 0.05 }
+  cut: { k: 'cut', g: 1.6, j: 0.05 }
 };
 function sfxLogPush(kind, pack) {
   if (!window.__sfxLog) return;
