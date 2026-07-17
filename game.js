@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.23';
+var GAME_VERSION = 'v1.76.24';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2302,7 +2302,7 @@ function makePorscheTailDecal(ci) {
     gr = g.createLinearGradient(W, 0, W - 12, 0); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(W - 12, 0, 12, H);
     g.globalCompositeOperation = 'source-over';
     var tx = new THREE.CanvasTexture(cv); tx.magFilter = THREE.LinearFilter; tx.minFilter = THREE.LinearFilter; tx.generateMipmaps = false;
-    _porTailC[ci] = new THREE.MeshBasicMaterial({ map: tx, transparent: true });
+    _porTailC[ci] = lamb({ map: tx, transparent: true });   // lit like the body, no glow
   }
   return new THREE.Mesh(_porUnitPlane(), _porTailC[ci]);
 }
@@ -2326,7 +2326,7 @@ function buildPorsche(ci) {
     var pv = new THREE.Group(); pv.position.set(px, py, pz);
     var wm = new THREE.Mesh(_porWhGeo, _porWhMat);
     wm.rotation.x = pz > 0 ? Math.PI / 2 : -Math.PI / 2;   // axle local +Y -> car Z
-    var ws = R / whInPlaneR; wm.scale.set(ws, ws, ws);
+    var ws = R / whInPlaneR; wm.scale.set(ws, ws * 1.4, ws);   // local Y = axle: widen the tyre
     pv.add(wm); g.add(pv); wheels.push(wm); pivots.push(pv);
   });
   var ord = pivots.map(function (p, i) { return i; }).sort(function (a, b) { return pivots[b].position.x - pivots[a].position.x; });
@@ -2366,7 +2366,7 @@ function buildPorsche(ci) {
   var band = makePorscheTailDecal(ci);
   var tailX = -P.body.dims[0] / 2 * s, bw = P.body.dims[2] * s, bh = P.body.dims[1] * s;
   band.rotation.y = -Math.PI / 2; band.position.set(tailX - 0.015, bh * 0.50, 0);
-  band.scale.set(bw * 0.86, bh * 0.62, 1);
+  band.scale.set(bw * 0.80, bh * 0.60, 1);
   body.add(band);
   g.add(blobShadow(2.4, 1.15, 0.1)); scene.add(g);
   return { group: g, body: body, wheels: wheels, pivots: pivots, spoiler: spoiler, vname: 'PORSCHE964', bodyMesh: bm, isPorsche: true, beam: null, head1: null, head2: null, tail1: null, tail2: null, tailM: null, tailS: 0.15 };
@@ -12216,7 +12216,9 @@ function addParkedPorsche(x, z, ry, ci) {
   return c;
 }
 // RaceTrac forecourt (SE corner) — a verified collider-free slot on the pavement.
-addParkedPorsche(66, 50, -Math.PI / 2, 0);   // ci 0 = red hero
+// REMAP world: RaceTrac forecourt (store just east of gasRob 85,-4). Parked
+// nose-in toward the store wall, tail (Carrera decal + spoiler) out in the open.
+addParkedPorsche(89, 4, 0, 0);   // ci 0 = red hero
 
 // ---- procedural car engine (layered synth driven by an RPM model) ----
 // speed maps to revs through gear steps, so an accelerating car audibly

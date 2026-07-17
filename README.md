@@ -276,7 +276,7 @@ Westchase Guns & Ammo. He sells three guns:
 | Pistol | $150  | semi-auto, reliable |
 | SMG (TEC-9) | $400 | full-auto; first shots fly true, then it sprays — feather the trigger |
 | Shotgun | $500 | pump-action cone of pellets, brutal up close and weak far off — a **point-blank shot to the head takes it clean off** in a spray of blood |
-| Axe    | $400  | heavy chopping axe — a solid melee hit **cleaves a body clean in half down the middle**; the two halves topple opposite ways onto the ground in a mess of blood |
+| Axe    | $400  | heavy chopping axe — a solid melee hit **cleaves a body clean in half down the middle**, both halves flying apart in a mess of blood |
 | Rifle  | $600  | one shot, one nap — right-click to scope |
 | AK-47  | $1000 | full-auto, long range, accurate |
 | Rocket launcher | $2000 | 5s reload; the blast doesn't care whose side you're on |
@@ -432,6 +432,15 @@ shows up (a few seconds for traffic, about a minute for lot cars).
 The fleet mixes the AI-generated bodies with a handful of classic PSX
 shapes: a station wagon, a big 90s sedan, a **yellow cab**, and a step
 van that every so often rolls by in **mail-truck livery**.
+
+**The hero car: a red Porsche 964 Carrera 2** sits parked at the
+RaceTrac, nose-in by the store. It's the fastest thing in town by a wide
+margin, corners nearly flat, and rides on proper Cup 1 wheels. Above
+~40 km/h its **Carrera spoiler deploys** — rising and sliding rearward
+on its linkage exactly like the real auto-spoiler — and tucks back into
+the black slot in the engine lid when you slow down. PORSCHE script on
+the taillight band, *Carrera 2* on the rear panel. Steal it like any
+parked car (E to break in).
 
 The parking lots aren't just paint: **Publix, the strip malls, the
 banks, the RaceTrac and the school all have parked cars** sitting empty

@@ -44,6 +44,11 @@ function quant(pos, uv) {
 }
 
 // --- BODY: orient long axis -> X, center x/z, minY=0 ---
+// Wheel pivots are MEASURED from the mesh (arch cutouts), not guessed from 964
+// proportions — the guess left the wheels misaligned & undersized. Arch spans =
+// x-bins along the side shells whose lowest vertex is lifted well above the
+// rocker line; axle x = span centre, radius from the opening width, track z
+// from the fender edge over the span.
 function processBody(flipNose) {
   const g = parseGLB(path.join(WORK, 'PORSCHEBODY.glb'));
   const pos = g.pos.slice(); const n = pos.length / 3;
@@ -55,15 +60,59 @@ function processBody(flipNose) {
   for (let v = 0; v < n; v++) { pos[v * 3] -= cx; pos[v * 3 + 1] -= bb.mn[1]; pos[v * 3 + 2] -= cz; }
   const q = quant(pos, g.uv);
   const L = q.dims[0], H = q.dims[1], W = q.dims[2];
-  // 964-proportion wheel pivots (nose +x). front axle ~+0.315L, rear ~-0.235L,
-  // half-track ~0.40W, radius ~0.31 of the arch height (~0.30 game after scale).
-  const r = +(0.155 * H).toFixed(4);   // wheel radius in MODEL units (scaled with body in game)
-  const fx = +(0.315 * L).toFixed(4), rx = +(-0.235 * L).toFixed(4), tz = +(0.40 * W).toFixed(4);
-  const wheels = [[fx, r, tz, r], [fx, r, -tz, r], [rx, r, tz, r], [rx, r, -tz, r]];
-  // spoiler mount = top-rear deck point (max y among rear-third x), in MODEL units
-  let deckY = -1e9, dzc = 0, dxc = 0, cnt = 0;
-  for (let v = 0; v < n; v++) { const x = pos[v * 3], y = pos[v * 3 + 1]; if (x < -0.15 * L && x > -0.42 * L && y > 0.55 * H) { if (y > deckY) deckY = y; } }
-  const mount = [+(-0.30 * L).toFixed(4), +deckY.toFixed(4), 0];
+  // ---- arch detection ----
+  const NB = 64, half = L / 2, binW = L / NB;
+  const minY = new Array(NB).fill(1e9), fz = new Array(NB).fill(0);
+  for (let v = 0; v < n; v++) {
+    const x = pos[v * 3], y = pos[v * 3 + 1], z = pos[v * 3 + 2];
+    if (Math.abs(z) < 0.30 * W) continue;                    // side shells only
+    const bi = Math.max(0, Math.min(NB - 1, ((x + half) / binW) | 0));
+    if (y < minY[bi]) minY[bi] = y;
+    if (y < 0.55 * H && Math.abs(z) > fz[bi]) fz[bi] = Math.abs(z);
+  }
+  // arch bin = lifted bottom rim; empty bins continue a span, end bins excluded.
+  // Candidate spans are then filtered to wheel-plausible width (0.09–0.27 L) and
+  // axle-plausible position (0.15–0.42 L from centre) — the mid-body has no low
+  // side verts at all on this mesh and otherwise reads as one giant fake span.
+  const endEx = Math.round(0.05 * NB), lift = 0.10 * H;
+  const spans = [];
+  let a = -1;
+  for (let i = endEx; i < NB - endEx; i++) {
+    const empty = minY[i] > 1e8, isArch = empty ? a >= 0 : minY[i] > lift;
+    if (isArch && a < 0) a = i;
+    else if (!isArch && a >= 0) { spans.push({ a, b: i - 1 }); a = -1; }
+  }
+  if (a >= 0) spans.push({ a, b: NB - endEx - 1 });
+  function spanInfo(s2) {
+    const cxs = -half + (s2.a + s2.b + 1) / 2 * binW, width = (s2.b - s2.a + 1) * binW;
+    let fzz = 0, rim = 0;
+    for (let i = s2.a; i <= s2.b; i++) { fzz = Math.max(fzz, fz[i]); if (minY[i] < 1e8) rim = Math.max(rim, minY[i]); }
+    return { cx: cxs, width, fz: fzz, rim };
+  }
+  const cand = spans.map(spanInfo)
+    .filter(si => si.width > 0.09 * L && si.width < 0.27 * L && Math.abs(si.cx) > 0.15 * L && Math.abs(si.cx) < 0.42 * L)
+    .sort((p, qq) => qq.rim - p.rim).slice(0, 2)              // tallest rims = the real arches
+    .sort((p, qq) => qq.cx - p.cx);                           // front (bigger x) first
+  let fx, rx, r, tzF, tzR;
+  if (cand.length === 2 && cand[0].cx > 0 && cand[1].cx < 0) {
+    const F = cand[0], R = cand[1];
+    // wheel fills the opening: diameter ≈ arch-rim top height (tyre tucks a hair under)
+    r = Math.max(0.11, Math.min(0.15, (F.rim + R.rim) / 2 * 0.51));
+    fx = F.cx; rx = R.cx;
+    tzF = (F.fz || 0.42 * W) - 0.30 * r;                     // outer sidewall ~flush with fender
+    tzR = (R.fz || 0.42 * W) - 0.30 * r;
+    console.log('arches: front', F, 'rear', R);
+  } else {
+    console.log('ARCH DETECTION FELL BACK, cand:', JSON.stringify(cand));
+    r = 0.24 * H; fx = 0.30 * L; rx = -0.27 * L; tzF = tzR = 0.42 * W;
+  }
+  const rd = x2 => +x2.toFixed(4);
+  const wheels = [[rd(fx), rd(r), rd(tzF), rd(r)], [rd(fx), rd(r), rd(-tzF), rd(r)], [rd(rx), rd(r), rd(tzR), rd(r)], [rd(rx), rd(r), rd(-tzR), rd(r)]];
+  // spoiler mount = top of the ENGINE LID (tail deck, x in [-0.45L,-0.28L]) —
+  // scanning too close to centre used to catch the roof/glass and float the wing
+  let deckY = -1e9;
+  for (let v = 0; v < n; v++) { const x = pos[v * 3], y = pos[v * 3 + 1]; if (x < -0.28 * L && x > -0.45 * L && Math.abs(pos[v * 3 + 2]) < 0.3 * W && y > deckY) deckY = y; }
+  const mount = [rd(-0.34 * L), rd(deckY), 0];
   return { q, wheels, mount, rawTex: g.tex, rotated, L, H, W, r };
 }
 // --- WHEEL: axle (thin axis) -> +Y, center ---

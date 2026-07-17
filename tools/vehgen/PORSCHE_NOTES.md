@@ -31,3 +31,21 @@ red 964 C2 coupe photos + a blue 964 with spoiler deployed.
 - PORSCHEWHEEL.glb generated (first Meshy run); body/spoiler to be (re)generated
   multi-image after user locks the angle set.
 - porschegen.js runs the Meshy generation.
+
+## Integration lessons (v1.76.24)
+- The Meshy body's nose faces the OPPOSITE way from the seed assumption —
+  genporsche.js must run with `--flip`. Symptom when wrong: spoiler/void/
+  tail decal render on the front trunk, front axle guess lands mid-door.
+- Wheel pivots are MEASURED from the mesh (arch-cutout detection in
+  processBody: lifted-bottom-rim x-bins, filtered to wheel-plausible
+  width/position; radius = arch rim height * 0.51, track = fender z -
+  0.30r). The proportional guess gave misaligned + 60%-undersized wheels.
+  Measured: front +0.548, rear -0.5035, r 0.1369 (wheelbase/L = 0.56,
+  real 964 = 0.535 — sanity check passed).
+- Tyres widened 1.4x on the wheel's local axle axis in buildPorsche.
+- Tail decal: lamb() material (MeshBasicMaterial glows vs the shaded
+  body), feathered edges, 0.80W x 0.60H of the tail face.
+- Live world is WC_REMAP: RaceTrac is at gasRob (85,-4); hero parks at
+  (89,4) ry=0 (nose-in east toward the store wall, tail out). (66,50) is
+  a ROAD in the remap world — pushOut "collider-free" does not mean
+  "not a road".
