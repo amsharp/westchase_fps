@@ -8,12 +8,15 @@ const src = process.argv[2] || '/tmp/claude-0/-home-user-westchase-fps/efaef73e-
 const map = JSON.parse(fs.readFileSync(src, 'utf8'));
 const r2 = n => Math.round(n * 100) / 100;
 
-// ---- roads ----
-const roads = map.roads.map(r => ({ id: r.id, cls: r.cls, hw: r.hw, pts: r.pts, dirt: r.dirt ? 1 : undefined }));
+// ---- roads (carry the new kinds: highway/ramp/river + elevation) ----
+const roads = map.roads.map(r => ({ id: r.id, cls: r.cls, hw: r.hw, pts: r.pts, dirt: r.dirt ? 1 : undefined,
+  kind: (r.kind && r.kind !== 'road') ? r.kind : undefined, elev: r.elev || undefined }));
 
 // ---- exits: any road endpoint on a wall, inward dir toward the adjacent point ----
+// (rivers don't make road exits — no ROAD CLOSED barrier across a waterway)
 const exits = [];
 for (const r of map.roads) {
+  if (r.kind === 'water') continue;
   const ends = [[0, 1], [r.pts.length - 1, r.pts.length - 2]];
   for (const [ei, ni] of ends) {
     const p = r.pts[ei], q = r.pts[ni];
@@ -39,6 +42,9 @@ for (const z of (map.zones || [])) clears.push({ poly: z.poly, id: z.id });
 // ---- surfaces ----
 const surfaces = map.surfaces.map(s => ({ kind: s.kind, x: r2(s.x), z: r2(s.z), rot: s.rot || 0, w: s.w, d: s.d }));
 
+// ---- terrain areas: forest / lake / ocean rect footprints ----
+const areas = (map.areas || []).map(a => ({ kind: a.kind, x: r2(a.x), z: r2(a.z), rot: a.rot || 0, w: a.w, d: a.d }));
+
 // ---- emit ----
 const J = o => JSON.stringify(o);
 let out = '';
@@ -50,9 +56,11 @@ out += 'var REMAP_EXITS = ' + J(exits) + ';\n';
 out += 'var REMAP_CLEAR = ' + J(clears) + ';\n';
 out += 'var REMAP_VENUES = ' + J(venues) + ';\n';
 out += 'var REMAP_SURFACES = ' + J(surfaces) + ';\n';
+out += 'var REMAP_AREAS = ' + J(areas) + ';\n';
 // strip the undefined dirt keys JSON dropped already; ensure dirt:1 kept
 out = out.replace(/"dirt":null/g, '').replace(/,\}/g, '}');
 fs.writeFileSync('remapdata.js', out);
-console.log('roads:', roads.length, '| exits:', exits.length, exits.map(e => e.edge + ':' + e.id).join(', '));
-console.log('venues:', venues.length, '| clears:', clears.length, '| surfaces:', surfaces.length);
+const hw = roads.filter(r => r.kind === 'highway').length, rmp = roads.filter(r => r.kind === 'ramp').length, riv = roads.filter(r => r.kind === 'water').length;
+console.log('roads:', roads.length, '(highway ' + hw + ', ramp ' + rmp + ', river ' + riv + ') | exits:', exits.length, exits.map(e => e.edge + ':' + e.id).join(', '));
+console.log('venues:', venues.length, '| clears:', clears.length, '| surfaces:', surfaces.length, '| areas:', areas.length);
 console.log('wrote remapdata.js', out.length, 'bytes');

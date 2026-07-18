@@ -141,6 +141,29 @@ forest walls + "ROAD CLOSED" barriers at the four road exits.
 - Minimap draws from data registers: `mapBuildings` (with heights, used for
   rain collision too), `mapPave`, `mapDrives`, `mapParking`, `mapForest`.
 
+## Map editor & expansion pipeline
+
+`editor.html` (repo root, opens standalone in a browser; loads `remapdata.js`
+so it shows the CURRENT map) is a top-down CAD editor → **Save Map** downloads
+`westchase_map.json` → `node tools/mapimport.js westchase_map.json` regenerates
+`remapdata.js` (`REMAP_ROADS/EXITS/CLEAR/VENUES/SURFACES/AREAS`), consumed by
+game.js under `WC_REMAP`. Frame: junction `(0,0)`, **+x east / +z south**,
+world is `±HALF` (HALF=600 in game.js AND editor.html AND mapimport.js — bump
+all three together to grow the world).
+- Editor authors: roads (polyline, `cls` 0–3 ground) + **new**: `kind:'highway'`
+  (elevated, `elev`), `kind:'ramp'` (ground↔highway), `kind:'water'` (river);
+  **areas** (`REMAP_AREAS` rects: `kind` forest/water/ocean); surfaces, buildings,
+  props, zones. Road **extend** = click an endpoint ring-node with the Road tool;
+  vertices **snap** onto other roads' nodes (`nodeSnap`) for seamless junctions
+  across types (ramp→highway, etc.). mapimport skips wall-exit generation for
+  rivers.
+- **PENDING game-side rendering (TODO when the expansion map lands):** game.js
+  does NOT yet render `REMAP_AREAS` (forest/lake/ocean) or the new road kinds.
+  Need: areas → forest scatter / swimmable water like `LAKE` / big ocean plane;
+  `kind:'highway'` → raised drivable deck at `elev`; `kind:'ramp'` → elevation
+  transition the car climbs; `kind:'water'` → river water strip. Until then the
+  editor + JSON + remapdata carry the data but it won't appear in-game.
+
 ## Systems summary
 
 - **Weapons** (`WEAPONS`/`GUN_LIST`): fists, pistol $150, TEC-9 smg $400,
