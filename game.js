@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.45';
+var GAME_VERSION = 'v1.76.46';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2256,7 +2256,9 @@ function _porTexMat(dataUrl, cache) {
   var im = new Image();
   im.onload = function () { cv.width = im.width; cv.height = im.height; cv.getContext('2d').drawImage(im, 0, 0); tx.needsUpdate = true; };
   im.src = dataUrl;
-  return lamb({ map: tx });
+  // nightLit: without the shared night self-glow the car renders pitch black
+  // after dark while every other textured thing in town stays readable
+  return nightLit(lamb({ map: tx }));
 }
 function getPorscheMat(ci) { if (!_porMatC[ci]) _porMatC[ci] = _porTexMat(PORSCHE_VEH.texs[ci]); return _porMatC[ci]; }
 function getPorscheSpoilerMat(ci) { var t = (PORSCHE_VEH.stexs || [PORSCHE_VEH.stex]); var k = Math.min(ci, t.length - 1); if (!_porSpMatC[k]) _porSpMatC[k] = _porTexMat(t[k]); return _porSpMatC[k]; }
