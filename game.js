@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.77.17';
+var GAME_VERSION = 'v1.77.18';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2403,6 +2403,11 @@ function updateCarFeel(c, dt, spd, accel, steer) {
   c.pitchS = c.pitchS || 0; c.rollS = c.rollS || 0;
   var k = Math.min(1, 6 * dt);
   c.pitchS += ((accel || 0) * 0.0035 - c.pitchS) * k;
+  // real suspension has LIMITED travel: cap dive/squat so a hard brake can't
+  // fold the nose to the floor (owner: "lurches waaay too far forward").
+  // The Porsche runs stiff sport springs — roughly half the travel.
+  var pCap = cc.isPorsche ? 0.022 : 0.05;
+  c.pitchS = Math.max(-pCap, Math.min(pCap, c.pitchS));
   // lateral body lean: grows with speed AND turn tightness; a right turn (D)
   // throws weight to the outside so the body rolls LEFT. Bigger + springier
   // than the old barely-there tilt.
@@ -2410,6 +2415,8 @@ function updateCarFeel(c, dt, spd, accel, steer) {
   var rollAmp = (cc.isPorsche ? 0.05 : 0.18);
   var leanT = -(steer || 0) * Math.min(1, asp / 9) * rollAmp;
   c.rollS += (leanT - c.rollS) * k;
+  var rCap = cc.isPorsche ? 0.06 : 0.19;
+  c.rollS = Math.max(-rCap, Math.min(rCap, c.rollS));
   var onGrade = (c === driving);   // ramp tilt only affects the car you're driving
   // slope tilt moves the WHOLE car — wheels included. It used to pitch only the
   // body group, so on a ramp the body climbed the incline while all four wheels
@@ -13151,9 +13158,15 @@ function updateDriving(dt) {
   }
   c.brakePrev = keyBrake && asp > 3;
   var fx = Math.cos(h), fz = -Math.sin(h);
-  // travel direction lags the nose the more it slides -> drifts / slides sideways
+  // travel direction lags the nose the more it slides -> drifts / slides sideways.
+  // FISHTAIL (owner: "like a Halo Warthog"): at speed the travel direction
+  // trails the nose even before the tyres formally let go, so quick flicks
+  // swing the rear wide and it wags back on recovery; braking hard while
+  // turning loosens it further. The Porsche is planted: ~quarter the effect.
   if (c.mvx === undefined) { c.mvx = fx; c.mvz = fz; }
-  var mk = Math.min(1, (9 - 7 * Math.min(1, c.slid)) * dt);
+  var ftail = (c.car && c.car.isPorsche) ? 0.25 : 1.0;
+  var mkr = 9 - 5.5 * ftail * Math.min(1, asp / 24) - (c.brakeIn ? 2.5 * ftail : 0) - 7 * Math.min(1, c.slid);
+  var mk = Math.min(1, Math.max(1.2, mkr) * dt);
   c.mvx += (fx - c.mvx) * mk; c.mvz += (fz - c.mvz) * mk;
   var ml = Math.sqrt(c.mvx * c.mvx + c.mvz * c.mvz) || 1; c.mvx /= ml; c.mvz /= ml;
   var nx = g.position.x + c.mvx * c.pspeed * dt;
