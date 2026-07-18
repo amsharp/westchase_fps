@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.77.21';
+var GAME_VERSION = 'v1.77.22';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2396,8 +2396,10 @@ function buildPorsche(ci) {
     var m3v = m[3] || 0;
     // STOW seat (owner picks #5 up-lid / depth #2 / pitch #4 / through-skin #7):
     // fully flush under the skin — invisible until it deploys
-    var stowDX = 0.16 * spD + 0.10 * spD * Math.cos(m3v);
-    var stowDY = -0.07 - 0.10 * spD * Math.sin(m3v);
+    // through-plane picks: #7 buried it flush, then stow-out #6 slid it BACK
+    // out by 0.15*spD => net 0.05*spD rearward: the black louvre sits proud
+    var stowDX = 0.16 * spD - 0.05 * spD * Math.cos(m3v);
+    var stowDY = -0.07 + 0.05 * spD * Math.sin(m3v);
     var pivot = new THREE.Group();
     pivot.position.set(spD / 2 + stowDX, -spH + 0.008 + stowDY, 0);
     sp.position.set(-spD / 2, 0, 0);
@@ -2410,7 +2412,7 @@ function buildPorsche(ci) {
     // DEPLOY pose (owner picks: rearward 0.28+0.20, down 0.15 — all *spD, world
     // axes, from the stow seat): reached by TRANSLATING along this vector while
     // rotating level — a 4-bar linkage, per the owner
-    var depR = 0.48 * spD, depDn = 0.15 * spD;
+    var depR = 0.33 * spD, depDn = 0.15 * spD;   // deploy target UNCHANGED: the seat moved 0.15 toward it
     pivot.userData.depDX = -depR * Math.cos(m3v) - depDn * Math.sin(m3v);
     pivot.userData.depDY = depR * Math.sin(m3v) - depDn * Math.cos(m3v);
     tilt.add(pivot); spoiler = pivot;
