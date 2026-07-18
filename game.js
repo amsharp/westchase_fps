@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.77.13';
+var GAME_VERSION = 'v1.77.14';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2354,7 +2354,12 @@ function buildPorsche(ci) {
     var spD = P.spoiler.dims[0] * sc;
     // seated UP the lid slope, leading edge tucked against the rear-window base
     // (owner picked #5 from the 8-position slide-up sweep)
-    var stowDX = 0.16 * spD, stowDY = -0.07;   // depth pick #2: 4cm deeper into the skin
+    // owner's stow picks: #5 up the lid + depth #2 + pitch #4, then through-skin
+    // breakout #7: 0.10*spD horizontal-FORWARD — the stowed blade sits fully
+    // flush/submerged; it only appears when it deploys
+    var m3v = m[3] || 0;
+    var stowDX = 0.16 * spD + 0.10 * spD * Math.cos(m3v);
+    var stowDY = -0.07 - 0.10 * spD * Math.sin(m3v);
     var pivot = new THREE.Group();
     pivot.position.set(spD / 2 + stowDX, -spH + 0.008 + stowDY, 0);
     sp.position.set(-spD / 2, 0, 0);
