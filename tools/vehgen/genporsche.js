@@ -141,9 +141,14 @@ function processBody(flipNose) {
   const wheels = [[rd(fx), rd(r), rd(tzF), rd(r)], [rd(fx), rd(r), rd(-tzF), rd(r)], [rd(rx), rd(r), rd(tzR), rd(r)], [rd(rx), rd(r), rd(-tzR), rd(r)]];
   // spoiler mount = top of the ENGINE LID (tail deck, x in [-0.45L,-0.28L]) —
   // scanning too close to centre used to catch the roof/glass and float the wing
+  // spoiler mount: centred over the REAR HALF of the engine lid (real 964:
+  // stowed blade's rear edge sits just shy of the tail). Deck height sampled
+  // at the mount zone itself — sampling near the window base floated the
+  // stowed spoiler above the sloping lid.
+  const mountX = -0.40 * L;
   let deckY = -1e9;
-  for (let v = 0; v < n; v++) { const x = pos[v * 3], y = pos[v * 3 + 1]; if (x < -0.28 * L && x > -0.45 * L && Math.abs(pos[v * 3 + 2]) < 0.3 * W && y > deckY) deckY = y; }
-  const mount = [rd(-0.34 * L), rd(deckY), 0];
+  for (let v = 0; v < n; v++) { const x = pos[v * 3], y = pos[v * 3 + 1]; if (x < mountX + 0.06 * L && x > mountX - 0.06 * L && Math.abs(pos[v * 3 + 2]) < 0.3 * W && y > deckY) deckY = y; }
+  const mount = [rd(mountX), rd(deckY), 0];
   // re-island the tail onto the atlas strip, then re-quantize with the new UVs
   // (skipped in --plain mode: original UVs + Meshy texture ship untouched)
   if (!processBody.plain) {

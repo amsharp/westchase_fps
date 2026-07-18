@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.33';
+var GAME_VERSION = 'v1.76.34';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2303,7 +2303,7 @@ function buildPorsche(ci) {
     sp.position.set(-(P.spoiler.dims[0] * sc) / 2, 0, 0);
     pivot.add(sp);
     pivot.userData.baseX = pivot.position.x; pivot.userData.baseY = pivot.position.y; pivot.userData.deploy = 0;
-    pivot.userData.travel = P.spoiler.dims[0] * sc * 0.50;   // rearward translate at full deploy
+    pivot.userData.travel = P.spoiler.dims[0] * sc * 0.38;   // rearward translate at full deploy (blade edge ~at the tail line)
     pivot.userData.rise = 0.045 * s;                          // vertical lift at full deploy (blade stays BELOW the rear window)
     pivot.userData.riseRot = 0.24;                            // radians of tilt at full deploy
     body.add(pivot); spoiler = pivot;
