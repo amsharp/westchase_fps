@@ -371,12 +371,31 @@ Five more storefronts open the same way — press **E** at the door:
   **sushi platter ($8, +40 hp)** or pour **sake ($4, +16 hp)**.
 - **Dollar Tree** (SW corner): packed dollar-store aisles and a checkout. Buy a
   **random cheap item ($1.25)** into your bag, browse, or chat with the cashier.
-- **Bank of America** (its BofA branch): a teller line behind glass, a vault
-  door, an ATM lobby and velvet-rope queues. **Use the ATM** to check your
-  balance or **see a teller**.
+- **Bank of America** (its BofA branch): a teller line behind glass, a working
+  **vault**, an ATM lobby and velvet-rope queues. **Use the ATM** to check your
+  balance, **see a teller** — or pull the biggest job in town (below).
 
 Each has its own themed staff and props. Like the others, these interiors are
 personal (never shared in multiplayer).
+
+## The bank heist
+
+The BofA vault is real, and you can crack it two ways:
+
+- **The code** — walk up to a teller **with a gun drawn** and *demand the vault
+  code*. They'll cough up a random 4-digit code. Punch it into the **keypad**
+  beside the vault door.
+- **The rocket** — if you're carrying the **rocket launcher**, just aim it at
+  the vault door and fire. It blows straight open.
+
+The moment the vault cracks you're at **4 stars**, and a **30-second timer**
+starts. When it hits zero the **cops storm the lobby** — two every ten seconds —
+so work fast. Inside are **3–7 stacks of cash and gold bars**; stand on one and
+**hold E for 5 seconds** to haul it out ($500 a stack).
+
+Here's the catch: the loot isn't yours yet. It sits up top as **COLLECTED $N**
+until you **shake the heat completely** — only when your wanted stars fully clear
+does the stolen money get laundered into your spendable cash.
 
 ## The shops are alive
 

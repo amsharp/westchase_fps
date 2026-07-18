@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.28';
+var GAME_VERSION = 'v1.76.29';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -67,7 +67,8 @@ var state = {
   owned: { pistol: false, smg: false, shotgun: false, axe: false, rifle: false, auto: false, rocket: false, raygun: false, neon_blaster: false, silenced: false },
   equipped: 'fists',
   lastHurt: -99, lastCarHit: -99, lastRob: -99,
-  wanted: 0, civKills: 0, copKills: 0, snacks: 0
+  wanted: 0, civKills: 0, copKills: 0, snacks: 0,
+  stolen: 0   // heist loot held until the heat clears, then paid into money
 };
 
 var keys = {}, mouseDown = false;
@@ -7779,7 +7780,12 @@ function interiorPrompt() {
   if (ez) { var ex = player.x - ez.x, ez2 = player.z - ez.z; if (ex * ex + ez2 * ez2 < ez.r2) return '[E] LEAVE'; }
   for (var i = 0; i < spec.zones.length; i++) {
     var t = spec.zones[i], dx = player.x - t.x, dz = player.z - t.z;
-    if (dx * dx + dz * dz < t.r2) return t.prompt || '[E] TALK';
+    if (dx * dx + dz * dz < t.r2) { var pr = typeof t.prompt === 'function' ? t.prompt() : t.prompt; if (pr) return pr; }
+  }
+  // bank vault: stacks are hold-E to grab (show progress)
+  if (spec.id === 'bank' && heist.open) {
+    var ni = nearestStack(player.x, player.z);
+    if (ni >= 0) return '[HOLD E] GRAB STACK — $500  ' + Math.floor(heist.grabT / 5 * 100) + '%';
   }
   if (nearestShopCust(10)) return '[E] CHAT';   // #65
   return '';
@@ -7788,6 +7794,7 @@ function updateInterior(dt) {   // idle-animate the current room's staff in plac
   if (!inside || !curInterior) { if (shopCust.length) clearCustomers(); return; }
   var st = curInterior.staff;
   for (var i = 0; i < st.length; i++) animPerson(st[i], 0, dt, 0);
+  if (curInterior.id === 'bank') updateBankHeist(dt);
   updateCustomers(dt);   // #65: shop-life sim (per-player, local)
 }
 // role/cat play a matching SHOP_VOICES line (per-ROLE pack); the text toast
@@ -8364,12 +8371,33 @@ function buildBank(spec) {
   scene.add(box(20, 1.4, 0.12, glassM, cx, Y + 2.0, cz - 7.5));                                     // full glass screen above the counter
   for (var wx = -8; wx <= 8; wx += 4) scene.add(box(0.1, 1.4, 0.6, darkSteelM, cx + wx, Y + 2.0, cz - 7.5));   // window mullions
   for (var tx = -6; tx <= 6; tx += 4) scene.add(box(0.9, 0.06, 0.4, darkSteelM, cx + tx, Y + 1.24, cz - 7.2)); // transaction trays
-  // vault door backdrop on the west wall (big steel disc + wheel handle)
-  var vault = cyl(2.6, 2.6, 0.5, 28, steelM, cx - 15.4, Y + 2.2, cz - 6); vault.rotation.z = Math.PI / 2; scene.add(vault);
-  scene.add(cyl(2.9, 2.9, 0.25, 28, darkSteelM, cx - 15.7, Y + 2.2, cz - 6)); // frame ring (behind)
-  var hub = cyl(0.7, 0.7, 0.6, 16, darkSteelM, cx - 15.0, Y + 2.2, cz - 6); hub.rotation.z = Math.PI / 2; scene.add(hub);
-  for (var sp = 0; sp < 4; sp++) { var spoke = box(0.16, 0.16, 2.6, brassM, cx - 14.9, Y + 2.2, cz - 6); spoke.rotation.x = sp * Math.PI / 4; scene.add(spoke); }   // wheel spokes
-  for (var bolt = 0; bolt < 12; bolt++) { var ba = bolt * Math.PI / 6; scene.add(cyl(0.09, 0.09, 0.15, 6, brassM, cx - 15.0, Y + 2.2 + Math.sin(ba) * 2.3, cz - 6 + Math.cos(ba) * 2.3)); }   // rim bolts
+  // ===================== BANK VAULT (heist) =====================
+  // Walled vault chamber in the SW corner (reuses the outer west + south walls);
+  // a functional round steel door fills a gap in the east partition, with a
+  // keypad beside it. See the bank-heist module below for the mechanics.
+  var vconcM = lamb({ color: 0x63676c }), vsteelM = lamb({ color: 0x9aa0a6 }), vdarkM = lamb({ color: 0x54585c });
+  var vx0 = cx - 16, vx1 = cx - 7, vz0 = cz + 1, vz1 = cz + 12;      // room: x[-16,-7] z[601,612]
+  var gapZ0 = cz + 4, gapZ1 = cz + 8, doorZ = (gapZ0 + gapZ1) / 2;   // doorway gap on the east partition
+  var vfloor = new THREE.Mesh(new THREE.PlaneGeometry(vx1 - vx0, vz1 - vz0), lamb({ color: 0x4a4e52 }));
+  vfloor.rotation.x = -Math.PI / 2; vfloor.position.set((vx0 + vx1) / 2, Y + 0.03, (vz0 + vz1) / 2); scene.add(vfloor);
+  var np = box(vx1 - vx0, 4.4, 0.5, vconcM, (vx0 + vx1) / 2, Y + 2.2, vz0); scene.add(np); solidMeshes.push(np); intCol(spec, (vx0 + vx1) / 2, vz0, vx1 - vx0, 0.5);   // north partition
+  var ep1 = box(0.5, 4.4, gapZ0 - vz0, vconcM, vx1, Y + 2.2, (vz0 + gapZ0) / 2); scene.add(ep1); solidMeshes.push(ep1); intCol(spec, vx1, (vz0 + gapZ0) / 2, 0.5, gapZ0 - vz0);   // east partition (below gap)
+  var ep2 = box(0.5, 4.4, vz1 - gapZ1, vconcM, vx1, Y + 2.2, (gapZ1 + vz1) / 2); scene.add(ep2); solidMeshes.push(ep2); intCol(spec, vx1, (gapZ1 + vz1) / 2, 0.5, vz1 - gapZ1);   // east partition (above gap)
+  var frame = cyl(2.35, 2.35, 0.3, 28, vdarkM, vx1, Y + 2.2, doorZ); frame.rotation.z = Math.PI / 2; scene.add(frame);   // door frame ring set into the wall
+  scene.add(box(0.15, 0.6, 0.35, new THREE.MeshBasicMaterial({ color: 0x8ee87f }), vx1 + 0.25, Y + 1.35, gapZ1 + 0.7));   // keypad screen (lobby side)
+  scene.add(box(0.16, 0.9, 0.5, vdarkM, vx1 + 0.2, Y + 1.15, gapZ1 + 0.7));                                               // keypad housing
+  // functional round door: a hinged group (hinge at the z=gapZ0 edge) that swings
+  // into the chamber when opened. Detailed disc + wheel, like a real vault door.
+  var vdoor = new THREE.Group(); vdoor.position.set(vx1, Y + 2.2, gapZ0);
+  var dz = doorZ - gapZ0;   // disc center offset from the hinge
+  var disc = cyl(1.95, 1.95, 0.42, 28, vsteelM, 0, 0, dz); disc.rotation.z = Math.PI / 2; vdoor.add(disc);
+  var hub = cyl(0.62, 0.62, 0.55, 16, vdarkM, 0.28, 0, dz); hub.rotation.z = Math.PI / 2; vdoor.add(hub);
+  for (var sp = 0; sp < 4; sp++) { var spoke = box(0.14, 0.14, 2.3, brassM, 0.34, 0, dz); spoke.rotation.x = sp * Math.PI / 4; vdoor.add(spoke); }
+  for (var bolt = 0; bolt < 12; bolt++) { var ba = bolt * Math.PI / 6; vdoor.add(cyl(0.08, 0.08, 0.16, 6, brassM, 0.2, Math.sin(ba) * 1.75, dz + Math.cos(ba) * 1.75)); }
+  scene.add(vdoor);
+  var vaultCol = { x0: vx1 - 0.5, x1: vx1 + 0.5, z0: gapZ0, z1: gapZ1, active: true };   // blocks the doorway while shut
+  spec.colliders.push(vaultCol);
+  spec.vault = { door: vdoor, col: vaultCol, doorPos: { x: vx1, z: doorZ }, keypadPos: { x: vx1 + 0.6, z: gapZ1 + 0.7 }, center: { x: (vx0 + vx1) / 2, z: (vz0 + vz1) / 2 }, bounds: { x0: vx0 + 1, x1: vx1 - 1, z0: vz0 + 1.5, z1: vz1 - 1 } };
   // ATM lobby along the east wall
   for (var ai = 0; ai < 3; ai++) {
     var az = cz - 6 + ai * 4;
@@ -8388,9 +8416,9 @@ function buildBank(spec) {
       if (lz < laneZ.length - 1) scene.add(box(0.06, 0.08, 4, ropeM, stx, Y + 0.95, laneZ[lz] + 2));  // rope span
     }
   }
-  // waiting bench near the entrance
-  scene.add(box(3.4, 0.4, 0.9, counterM, cx - 8, Y + 0.4, cz + 8)); intCol(spec, cx - 8, cz + 8, 3.4, 0.9);
-  scene.add(box(3.4, 0.7, 0.15, counterM, cx - 8, Y + 0.75, cz + 8.4));
+  // waiting bench near the entrance (east side; the SW corner is now the vault)
+  scene.add(box(3.4, 0.4, 0.9, counterM, cx + 8, Y + 0.4, cz + 8)); intCol(spec, cx + 8, cz + 8, 3.4, 0.9);
+  scene.add(box(3.4, 0.7, 0.15, counterM, cx + 8, Y + 0.75, cz + 8.4));
 
   placeStaffIn(spec, 'TELLER_MARCUS', cx - 5, cz - 9, Math.PI);
   placeStaffIn(spec, 'TELLER_BRENDA', cx + 5, cz - 9, Math.PI);
@@ -8399,8 +8427,127 @@ function buildBank(spec) {
     x: cx + 13.5, z: cz, r2: 8, prompt: '[E] USE THE ATM',
     fn: function () { sfx('buy'); toast('ATM — Available balance: <span style="color:#8ee87f">$' + state.money + '</span>', 3200); }
   });
-  spec.zones.push({ x: cx - 5, z: cz - 6, r2: 7, prompt: '[E] SEE A TELLER', fn: function () { staffSay(['"Welcome to Bank of America, how can I help?"', '"Would you like to open a checking account?"', '"Your balance is looking healthy today."'], 'TELLER', 'greet'); } });
-  spec.zones.push({ x: cx + 5, z: cz - 6, r2: 7, prompt: '[E] SEE A TELLER', fn: function () { staffSay(['"Next, please!"', '"Cash or deposit today?"', '"Careful carrying that much around town."'], 'TELLER', 'transaction'); } });
+  // tellers: armed = threaten for the vault code; unarmed = normal service
+  function tellerZone(zx) {
+    spec.zones.push({
+      x: zx, z: cz - 6, r2: 7,
+      prompt: function () { return (GUN_LIST.indexOf(state.equipped) >= 0 && !heist.open) ? '[E] DEMAND THE VAULT CODE' : '[E] SEE A TELLER'; },
+      fn: function () {
+        if (GUN_LIST.indexOf(state.equipped) >= 0 && !heist.open) { bankTellerHoldup(spec); return; }
+        staffSay(['"Welcome to Bank of America, how can I help?"', '"Would you like to open a checking account?"', '"Careful carrying that much around town."'], 'TELLER', 'greet');
+      }
+    });
+  }
+  tellerZone(cx - 5); tellerZone(cx + 5);
+  // keypad beside the vault door
+  spec.zones.push({
+    x: spec.vault.keypadPos.x, z: spec.vault.keypadPos.z, r2: 6,
+    prompt: function () { return heist.open ? '' : (heist.knowCode ? '[E] ENTER VAULT CODE' : '[E] KEYPAD — locked'); },
+    fn: function () {
+      if (heist.open) return;
+      if (!heist.knowCode) { sfx('deny'); toast('The keypad is locked. Get the code from a teller — at gunpoint.', 2600); return; }
+      openMenu('keypad');
+    }
+  });
+}
+
+// ==================== BANK HEIST ====================
+// Rob the BofA vault: get the code from a teller at gunpoint + the keypad, OR
+// blow the door with a rocket. Opening it = 4 stars, a 30s grace timer, then cop
+// waves storm the lobby (2 every 10s). Grab money/gold stacks (hold E 5s, $500
+// each, 3-7 spawn); loot is held in state.stolen and banked only once the heat
+// fully clears. Per-player (interiors never net-sync).
+var heist = { open: false, knowCode: false, code: '', doorT: 0, graceT: 0, waveT: 0, waves: 0, stacks: [], grabIdx: -1, grabT: 0 };
+function resetHeist() {
+  heist.open = false; heist.knowCode = false; heist.code = '';
+  heist.doorT = 0; heist.graceT = 0; heist.waveT = 0; heist.waves = 0; heist.grabIdx = -1; heist.grabT = 0;
+  for (var i = 0; i < heist.stacks.length; i++) if (heist.stacks[i].mesh) scene.remove(heist.stacks[i].mesh);
+  heist.stacks = [];
+  var v = BANK.vault; if (v) { v.door.rotation.y = 0; v.col.active = true; }
+}
+BANK.onEnter = resetHeist;
+function bankTellerHoldup(spec) {
+  if (heist.open) return;
+  if (!heist.knowCode) {
+    heist.code = '' + (1 + (Math.random() * 9 | 0)) + (Math.random() * 10 | 0) + (Math.random() * 10 | 0) + (Math.random() * 10 | 0);
+    heist.knowCode = true;
+    if (state.wanted < 2) setWanted(2); else lastCrimeT = T;
+    sfx('alarm');
+    playVoiceAny(['clerk_rob_1', 'clerk_rob_2'], 0.6, 'clerkRob', 6);
+  }
+  toast('Teller: "P-please! The vault code is <b style="color:#ffd94a">' + heist.code + '</b>!"', 5000);
+  popup('VAULT CODE: ' + heist.code);
+}
+function openBankVault(spec, blown) {
+  if (heist.open) return;
+  heist.open = true; heist.doorT = 0;
+  if (state.wanted < 4) setWanted(4); else lastCrimeT = T;
+  heist.graceT = 30; heist.waveT = 0; heist.waves = 0;
+  spawnVaultStacks(spec);
+  sfx(blown ? 'boom' : 'alarm');
+  popup2(blown ? 'VAULT BLOWN OPEN!' : 'VAULT OPEN!');
+  toast('Alarm blaring — grab what you can. Cops storm in in 30s.', 4200);
+}
+function spawnVaultStacks(spec) {
+  var v = spec.vault, b = v.bounds, Y = spec.box.y;
+  var n = 3 + (Math.random() * 5 | 0);   // 3-7
+  for (var i = 0; i < n; i++) {
+    var gold = Math.random() < 0.4;
+    var g = new THREE.Group();
+    var x = b.x0 + Math.random() * (b.x1 - b.x0), z = b.z0 + Math.random() * (b.z1 - b.z0);
+    if (gold) {
+      var gm = lamb({ color: 0xd9b433 });
+      for (var r = 0; r < 3; r++) for (var c = 0; c <= 1 - (r % 2); c++) g.add(box(0.46, 0.16, 0.26, gm, -0.13 + c * 0.26 + (r % 2) * 0.13, 0.09 + r * 0.17, 0));
+    } else {
+      var bm = lamb({ color: 0x3c7a4a }), pm = lamb({ color: 0xd8d2c0 });
+      for (var s = 0; s < 5; s++) g.add(box(0.42, 0.1, 0.26, s % 2 ? pm : bm, 0, 0.06 + s * 0.11, 0));
+    }
+    g.position.set(x, Y + 0.05, z); scene.add(g);
+    heist.stacks.push({ mesh: g, x: x, z: z, gold: gold, got: false });
+  }
+}
+function nearestStack(px, pz) {
+  var best = -1, bd = 3.0 * 3.0;
+  for (var i = 0; i < heist.stacks.length; i++) { var s = heist.stacks[i]; if (s.got) continue; var dx = s.x - px, dz = s.z - pz, d = dx * dx + dz * dz; if (d < bd) { bd = d; best = i; } }
+  return best;
+}
+function spawnBankCops(n) {
+  var d = BANK.doorIn, y = BANK.box.y;
+  for (var i = 0; i < n; i++) {
+    var mesh = buildCop();
+    var c = { mesh: mesh, x: d.x - 2 + i * 4, z: d.z - 1, hp: 100, state: 'engage', tx: 0, tz: 0, phase: Math.random() * 9, fireT: 0.7 + i * 0.5, downT: 0, hurtFlash: 0, interior: true, baseY: y, vname: mesh.userData.vname || null, fem: MESHY_FEM.indexOf(mesh.userData.vname || '') >= 0 };
+    attachHeldGun(mesh, state.wanted >= 4 ? 'smg' : 'pistol');
+    mesh.position.set(c.x, y, c.z); mesh.userData.cop = c; scene.add(mesh); cops.push(c);
+  }
+}
+function updateBankHeist(dt) {
+  var v = BANK.vault; if (!v) return;
+  if (heist.open && heist.doorT < 1) { heist.doorT = Math.min(1, heist.doorT + dt * 1.6); var e = heist.doorT * heist.doorT * (3 - 2 * heist.doorT); v.door.rotation.y = -e * 2.0; v.col.active = false; }
+  if (!heist.open) return;
+  if (heist.graceT > 0) { heist.graceT -= dt; if (heist.graceT <= 0) toast("They're here!", 2000); }
+  else { heist.waveT -= dt; if (heist.waveT <= 0) { spawnBankCops(2); heist.waves++; heist.waveT = 10; } }
+  // hold-E stack collection
+  var ni = nearestStack(player.x, player.z);
+  if (ni >= 0 && keys['KeyE'] && state.menu == null && !state.dead) {
+    if (heist.grabIdx !== ni) { heist.grabIdx = ni; heist.grabT = 0; }
+    heist.grabT += dt;
+    if (heist.grabT >= 5) {
+      var s = heist.stacks[ni]; s.got = true; scene.remove(s.mesh);
+      state.stolen += 500; heist.grabIdx = -1; heist.grabT = 0;
+      sfx('cash'); popup('+$500 STOLEN');
+    }
+  } else { heist.grabIdx = -1; heist.grabT = 0; }
+}
+// blow the vault with a rocket: fired inside the bank, near + facing the door
+function bankRocketCheck() {
+  if (!inside || !curInterior || curInterior.id !== 'bank' || heist.open) return false;
+  var v = BANK.vault, dx = v.doorPos.x - player.x, dz = v.doorPos.z - player.z;
+  if (dx * dx + dz * dz > 144) return false;   // within ~12u
+  var fx = -Math.sin(yaw), fz = -Math.cos(yaw), d = Math.sqrt(dx * dx + dz * dz) || 1;
+  if ((dx * fx + dz * fz) / d < 0.4) return false;   // roughly facing the door
+  boomAt(v.doorPos.x, v.doorPos.z);
+  openBankVault(curInterior, true);
+  return true;
 }
 
 // ==================== SHOP-LIFE SIMULATION (#65) =============================
@@ -11881,7 +12028,10 @@ function updateCops(dt) {
     }
     if (!nearCop) {
       state.wanted--; lastCrimeT = T; updateStarsHUD();
-      if (state.wanted === 0) { popup('You lost the heat'); state.civKills = 0; state.copKills = 0; }   // fresh spree, fresh thresholds
+      if (state.wanted === 0) {
+        popup('You lost the heat'); state.civKills = 0; state.copKills = 0;   // fresh spree, fresh thresholds
+        if (state.stolen > 0) { state.money += state.stolen; popup('+$' + state.stolen + ' LAUNDERED'); sfx('cash'); state.stolen = 0; }   // heist loot clears once you're clean
+      }
     }
   }
 }
@@ -14004,6 +14154,7 @@ var rockets = [];
 var rocketBodyM = lamb({ color: 0x4a5a3a });
 var rocketTipM = lamb({ color: 0xb03024 });
 function fireRocket() {
+  if (bankRocketCheck()) return;   // rocket into the bank vault door blows it open (no projectile jank underground)
   var dir = new THREE.Vector3();
   camera.getWorldDirection(dir);
   var g = new THREE.Group();
@@ -18886,8 +19037,35 @@ function refreshInv() {
   }
 }
 function refreshInvGrid() { }   // legacy junk-bag grid removed with the scavenge-item system
-function openMenu(which) { setZoom(false); state.menu = which; document.exitPointerLock && document.exitPointerLock(); if (which === 'shop') { shopBought = false; if (!dealerMet) { dealerMet = true; playVoice('dealer_hello_first', 0.5, 1, { ref: dealer }); } else playVoiceAny(['dealer_hello_1', 'dealer_hello_2'], 0.5, 'dealerHi', 18, { ref: dealer }); refreshShop(); document.getElementById('shopPanel').classList.remove('hidden'); } if (which === 'inv') { refreshInv(); document.getElementById('invPanel').classList.remove('hidden'); } if (which === 'clerk') { refreshClerk(); document.getElementById('clerkPanel').classList.remove('hidden'); } }
-function closeMenus(relock) { if (state.menu === 'shop' && !shopBought) playVoice('dealer_bye', 0.45, 40, { ref: dealer }); state.menu = null; document.getElementById('shopPanel').classList.add('hidden'); document.getElementById('invPanel').classList.add('hidden'); document.getElementById('clerkPanel').classList.add('hidden'); if (relock !== false && state.running) lockPointer(); }
+// ---- vault keypad overlay ----
+var keypadEntry = '', keypadBuilt = false;
+function buildKeypad() {
+  if (keypadBuilt) return; keypadBuilt = true;
+  var grid = document.getElementById('keypadGrid');
+  var keys9 = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'CLR', '0', 'ENT'];
+  keys9.forEach(function (k) {
+    var b = document.createElement('button');
+    b.textContent = k; b.style.cssText = 'font-family:inherit; font-size:26px; padding:16px 0; cursor:pointer; background:#2b3242; color:#fff; border:3px solid #cfc7b0; outline:3px solid #000; text-shadow:2px 2px 0 #000;';
+    b.onclick = function () { keypadPress(k); };
+    grid.appendChild(b);
+  });
+}
+function refreshKeypadDisp() {
+  var d = document.getElementById('keypadDisp');
+  var e = keypadEntry.padEnd(4, '_');
+  d.textContent = e.split('').join(' ');
+}
+function keypadPress(k) {
+  if (k === 'CLR') { keypadEntry = ''; refreshKeypadDisp(); sfx('deny'); return; }
+  if (k === 'ENT') {
+    if (keypadEntry === heist.code) { closeMenus(); openBankVault(curInterior || BANK, false); }
+    else { keypadEntry = ''; refreshKeypadDisp(); sfx('deny'); document.getElementById('keypadSay').textContent = 'WRONG CODE — try again'; }
+    return;
+  }
+  if (keypadEntry.length < 4) { keypadEntry += k; sfx('buy'); refreshKeypadDisp(); if (keypadEntry.length === 4) keypadPress('ENT'); }
+}
+function openMenu(which) { setZoom(false); state.menu = which; document.exitPointerLock && document.exitPointerLock(); if (which === 'keypad') { buildKeypad(); keypadEntry = ''; refreshKeypadDisp(); document.getElementById('keypadSay').textContent = 'Enter the 4-digit code'; document.getElementById('keypadPanel').classList.remove('hidden'); } if (which === 'shop') { shopBought = false; if (!dealerMet) { dealerMet = true; playVoice('dealer_hello_first', 0.5, 1, { ref: dealer }); } else playVoiceAny(['dealer_hello_1', 'dealer_hello_2'], 0.5, 'dealerHi', 18, { ref: dealer }); refreshShop(); document.getElementById('shopPanel').classList.remove('hidden'); } if (which === 'inv') { refreshInv(); document.getElementById('invPanel').classList.remove('hidden'); } if (which === 'clerk') { refreshClerk(); document.getElementById('clerkPanel').classList.remove('hidden'); } }
+function closeMenus(relock) { if (state.menu === 'shop' && !shopBought) playVoice('dealer_bye', 0.45, 40, { ref: dealer }); state.menu = null; document.getElementById('shopPanel').classList.add('hidden'); document.getElementById('invPanel').classList.add('hidden'); document.getElementById('clerkPanel').classList.add('hidden'); var kp = document.getElementById('keypadPanel'); if (kp) kp.classList.add('hidden'); if (relock !== false && state.running) lockPointer(); }
 
 // ---------------- minimap ----------------
 var mm = document.getElementById('mm');
@@ -20858,6 +21036,14 @@ function submitBug() {
 })();
 document.addEventListener('keydown', function (e) {
   if (bugOpen) { if (e.code === 'F8' || e.code === 'Escape') { e.preventDefault(); closeBug(); } return; }
+  if (state.menu === 'keypad') {   // vault keypad owns the keyboard while open
+    if (e.code === 'Escape') { e.preventDefault(); closeMenus(); return; }
+    var kd = e.code.indexOf('Digit') === 0 ? e.code.slice(5) : (e.code.indexOf('Numpad') === 0 && /[0-9]$/.test(e.code) ? e.code.slice(-1) : '');
+    if (/^[0-9]$/.test(kd)) { e.preventDefault(); keypadPress(kd); return; }
+    if (e.code === 'Enter' || e.code === 'NumpadEnter') { e.preventDefault(); keypadPress('ENT'); return; }
+    if (e.code === 'Backspace') { e.preventDefault(); keypadEntry = keypadEntry.slice(0, -1); refreshKeypadDisp(); return; }
+    return;
+  }
   if (chatOpen) return;   // the chat input owns the keyboard while open
   if (e.code === 'F8' && state.running) { e.preventDefault(); openBug(); return; }
   if (e.code === 'F9') { e.preventDefault(); showColliders(); return; }   // barrier debug overlay (see buildColliderView)
@@ -21492,6 +21678,11 @@ function drawHudCanvas() {
   // ---- money: GTA-style counter, top-right under the minimap ----
   var my = hudMmB + 8;
   drawPix('$' + Math.max(0, state.money | 0), W - M, my, 3, '#46e05e', 'right');
+  // ---- heist loot: top-center "COLLECTED $N" until the heat clears + pays out ----
+  if (state.stolen > 0) drawPix('COLLECTED $' + state.stolen, W / 2, M + 4, 3, '#ffd94a', 'center');
+  // heist grace countdown while the vault is open and cops haven't stormed in yet
+  if (typeof heist !== 'undefined' && heist.open && heist.graceT > 0)
+    drawPix('COPS IN ' + Math.ceil(heist.graceT) + 'S', W / 2, M + 30, 3, '#ff6a4a', 'center');
   // ---- QoL: world-anchored money floats — each "+$N" rises ~1.4 world units
   // from where the cash was grabbed over its 1.1s life, fading out. Skips floats
   // behind the camera (project z > 1). Drawn after the counter so they read on top. ----
@@ -21872,6 +22063,7 @@ window.__wc = {
   enterCar: enterCar, exitCar: exitCar, nearestStealableCar: nearestStealableCar,
   isDriving: function () { return !!driving; }, drivingCar: function () { return driving; },
   pressKey: function (code, down) { keys[code] = down; },
+  heistRef: function () { return heist; }, bankVaultRef: function () { return BANK.vault; }, keypadPress: function (k) { keypadPress(k); },
   surfaceHeightAt: function (x, z, sk, fy) { return surfaceHeightAt(x, z, sk, fy); },
   // --- easter-egg / secret test hooks ---
   stashes: function () { return SECRET_STASHES; },

@@ -162,6 +162,17 @@ forest walls + "ROAD CLOSED" barriers at the four road exits.
   patrol at 0★, +2 per star (spawn interval 2.6 s); pistols <4★, full-auto
   SMGs 4–5★; 1★ = only proximity aggro. Interior cops (`c.interior`, `c.baseY`) spawn on a failed
   unarmed robbery and are always local, never synced.
+- **Bank heist** (BofA interior, `heist` state + `updateBankHeist`, per-player):
+  the SW corner of the bank is a walled vault chamber behind a functional round
+  door (`BANK.vault`: `door` group hinge-swings open, `col.active=false` un-blocks
+  the doorway). Open it via (a) a teller at gunpoint → random 4-digit `heist.code`
+  → `#keypadPanel` overlay (`openMenu('keypad')`/`keypadPress`), or (b) a rocket
+  fired near+facing the door (`bankRocketCheck` in `fireRocket`, since rockets
+  underground are janky). Open ⇒ 4★, 30s `graceT`, then `spawnBankCops(2)` every
+  10s. 3–7 money/gold stacks (`spawnVaultStacks`); hold **E** 5s on one → `+500`
+  into `state.stolen` (NOT `money`). `state.stolen` shows as "COLLECTED $N" on the
+  HUD and is paid into `money` only when wanted decays to 0 (in updateCops).
+  `resetHeist` runs on every bank enter (`BANK.onEnter`).
 - **Cars**: shootable (1.5 "seconds of fire" → `goBerserk`: veers hard off
   road, spins, explodes on contact); E to carjack (driver flees), WASD +
   mouse-orbit third-person cam, player cars have 100 HP under police fire →
