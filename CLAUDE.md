@@ -153,9 +153,10 @@ forest walls + "ROAD CLOSED" barriers at the four road exits.
   roof (`cabin.js` = `CABIN_DATA`, same `{q,dims,p,u,i,tex}` quantization as the
   guns, decoded like `getAxeMesh`; loaded before game.js, game guards
   `typeof CABIN_DATA`). Placed at `CABIN {x:-344,z:-470}` in the empty NW forest
-  corridor (door baked to +Z via the converter's 180° ROTY; footprint collider +
-  `mapBuildings` minimap box; a ring of oaks/palms/bushes around it with a clear
-  apron + open door approach). The AXE now spawns here instead of the dealer:
+  corridor (door baked to +Z via the converter's 180° ROTY; footprint collider;
+  a ring of oaks/palms/bushes around it with a clear apron + open door approach).
+  It's a SECRET — deliberately NOT on the minimap (no `mapBuildings` entry, and
+  `drawMinimap` skips `drops` flagged `.cabin`). The AXE now spawns here instead of the dealer:
   `WEAPONS.axe.worldOnly` (kept in `GUN_LIST` so it still counts as an armed
   weapon, but `refreshShop` skips `worldOnly`), and `ensureCabinAxe()` (called
   each frame before `updateDrops`) keeps a spinning axe `drops` pickup at
@@ -165,6 +166,16 @@ forest walls + "ROAD CLOSED" barriers at the four road exits.
   scratchpad `cabin/` (seed.js gpt-image seed → `tools/vehgen/vehpipe.js`
   image-to-3d → `gun_glb_parse.js` → `cabin/cabin_conv.js` bottom-at-0 quantize +
   256px tex). Original 21k-tri mesh kept (Meshy's remesh to <1k holed the walls).
+  **UFO flyover easter egg** (`CABIN_DOOR`, `cabinKnock`, `spawnCabinUfo`,
+  `updateCabinUfo`, `cabinUfo`): press E within ~4u of the cabin door to knock;
+  10 knocks IN ONE NIGHT (`isNightNow()` = `dayFactor()<0.32`; knocks reset if
+  not night or the night changes) spawns a UFO that silently drifts over and
+  vanishes (~13s or 18s cap). Reuses `getUfoMesh('ufo')` but is NEVER tagged
+  `userData.ufo`, so bullets pass through — not killable. Once per night:
+  `cabinUfoNight` latches the `nightIndex()` (`floor(envT/DAY_LEN)`), re-armable
+  only when a new night rolls around. Separate from the money UFO (`ufo`); shares
+  its hum but won't stomp it (`!ufo` guards). `updateCabinUfo` runs each frame
+  after `updateUfo`. Local/per-player.
 - **Gore**: shotgun ($500) close headshot decapitates (`decapitateNPC`:
   PSX hides `userData.head` + flings a gib; skinned shrinks `userData.headBone`;
   restored on respawn). Axe (`worldOnly` — NOT sold; spawns at the forest

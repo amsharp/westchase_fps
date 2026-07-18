@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.77.23';
+var GAME_VERSION = 'v1.77.24';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -17288,7 +17288,7 @@ function getCabinMesh(targetW) {
   var e = CABIN_DATA, s = targetW / (e.dims[0] || 1);
   var fw = e.dims[0] * s, fd = e.dims[2] * s, fh = e.dims[1] * s;
   addCollider(CABIN.x, CABIN.z, fw * 0.88, fd * 0.88, 'cabin');    // block the walls (door side is walk-up only)
-  mapBuildings.push({ x: CABIN.x, z: CABIN.z, w: fw, d: fd, h: fh, c: '#6f4a2a', pad: false });
+  // NOT registered on the minimap (mapBuildings) — the cabin is a secret.
   // ring of trees + bushes AROUND it (kept off the cabin + a clear apron); the
   // corridor's forest walls already back it to the E/W, so this fills in and
   // encloses it without crowding the walls or blocking the door approach.
@@ -17324,6 +17324,47 @@ function ensureCabinAxe() {
   scene.add(g);
   cabinAxeDrop = { mesh: g, kind: 'axe', life: 1e9, cabin: true };
   drops.push(cabinAxeDrop);
+}
+// ---- cabin UFO easter egg: knock on the door (E) 10x AT NIGHT and a UFO
+// silently drifts over the treetops and vanishes. Not killable (never tagged
+// userData.ufo — bullets pass through). Once per night: it won't fire again
+// until the next night. Local/per-player, separate from the money UFO. ----
+var CABIN_DOOR = { x: -344, z: -466 };            // just in front of the +Z door
+var cabinKnocks = 0, cabinKnockNight = -1, cabinUfoNight = -1, cabinUfo = null;
+function nightIndex() { return Math.floor(envT / DAY_LEN); }   // unique id per day/night cycle
+function isNightNow() { return dayFactor() < 0.32; }            // roughly street-lamp dark
+function cabinKnock() {
+  sfx('thud', { x: CABIN_DOOR.x, z: CABIN_DOOR.z, range: 30 });   // knuckles on wood
+  if (!isNightNow()) { toast('You rap on the cabin door. No answer — maybe after dark.', 2600); cabinKnocks = 0; return; }
+  var ni = nightIndex();
+  if (ni !== cabinKnockNight) { cabinKnockNight = ni; cabinKnocks = 0; }   // knocks don't carry across nights
+  if (cabinUfoNight === ni) { toast('The woods stay silent. Come back another night.', 2400); return; }
+  cabinKnocks++;
+  if (cabinKnocks >= 10) { cabinKnocks = 0; cabinUfoNight = ni; spawnCabinUfo(); }
+  else if (cabinKnocks >= 5) popup('*knock*  ' + cabinKnocks + '/10');   // faint hint once you're clearly at it
+}
+function spawnCabinUfo() {
+  if (cabinUfo) return;
+  var g = getUfoMesh('ufo');   // reuse the money-UFO model, but never tag it as a target
+  var a = Math.random() * Math.PI * 2;
+  var sx0 = CABIN.x + Math.cos(a) * 175, sz0 = CABIN.z + Math.sin(a) * 175;
+  var ex0 = CABIN.x - Math.cos(a) * 175, ez0 = CABIN.z - Math.sin(a) * 175;
+  var d = Math.sqrt((ex0 - sx0) * (ex0 - sx0) + (ez0 - sz0) * (ez0 - sz0)) || 1;
+  g.position.set(sx0, 50, sz0);
+  scene.add(g);
+  cabinUfo = { group: g, vx: (ex0 - sx0) / d * 26, vz: (ez0 - sz0) / d * 26, dist: 0, maxDist: d, spin: 1.3, spd: 26, t: 0 };
+  if (typeof startUfoHum === 'function' && !ufo) startUfoHum();   // don't stomp the money-UFO hum
+  toast("A silent light drifts over the treetops…", 3600);
+}
+function updateCabinUfo(dt) {
+  if (!cabinUfo) return;
+  var u = cabinUfo, g = u.group;
+  g.position.x += u.vx * dt; g.position.z += u.vz * dt;
+  g.rotation.y += u.spin * dt;
+  var frac = u.dist / u.maxDist;
+  g.position.y = 52 - Math.sin(frac * Math.PI) * 18;   // swoops lower as it passes over the cabin, climbs away
+  u.dist += u.spd * dt; u.t += dt;
+  if (u.dist >= u.maxDist || u.t > 18) { scene.remove(g); cabinUfo = null; if (typeof stopUfoHum === 'function' && !ufo) stopUfoHum(); }
 }
 // streetprops soda: red can in hand (registered before the add/hide pass below)
 var vmSoda = new THREE.Group();
@@ -19674,8 +19715,8 @@ function drawMinimap() {
   for (var rp in net.remotes) { var rpp = net.remotes[rp]; mg.fillStyle = rpp.dead ? '#2f7a3a' : '#6dff8b'; var sz2 = rpp.drv ? 6 : 4; mg.fillRect(sx(rpp.x) - sz2 / 2, sz(rpp.z) - sz2 / 2, sz2, sz2); }
   // cash
   mg.fillStyle = '#59e04a'; for (var k = 0; k < cashes.length; k++) { var cp = cashes[k].mesh.position; mg.fillRect(sx(cp.x) - 1, sz(cp.z) - 1, 2, 2); }
-  // dropped weapons
-  mg.fillStyle = '#d060e8'; for (var dw = 0; dw < drops.length; dw++) { var dp = drops[dw].mesh.position; mg.fillRect(sx(dp.x) - 1.5, sz(dp.z) - 1.5, 3, 3); }
+  // dropped weapons (the secret cabin axe is intentionally hidden from the map)
+  mg.fillStyle = '#d060e8'; for (var dw = 0; dw < drops.length; dw++) { if (drops[dw].cabin) continue; var dp = drops[dw].mesh.position; mg.fillRect(sx(dp.x) - 1.5, sz(dp.z) - 1.5, 3, 3); }
   // gas station marker
   mg.fillStyle = '#e05a3a'; mg.font = 'bold 11px Courier New'; mg.textAlign = 'center'; mg.textBaseline = 'middle'; mg.fillText('G', sx(gasRob.x), sz(gasRob.z));
   // dealer marker
@@ -21491,6 +21532,8 @@ document.addEventListener('keydown', function (e) {
       else if (xdx * xdx + xdz * xdz < 7) exitStore();
       return;
     }
+    var kcx = player.x - CABIN_DOOR.x, kcz = player.z - CABIN_DOOR.z;   // knock on the forest-cabin door
+    if (kcx * kcx + kcz * kcz < 16) { cabinKnock(); return; }
     var ddx = player.x - dealerPos.x, ddz = player.z - dealerPos.z;
     if (ddx * ddx + ddz * ddz < 36) { openMenu('shop'); return; }
     var gdx = player.x - gasRob.x, gdz = player.z - gasRob.z;
@@ -22256,7 +22299,7 @@ function loop(now) {
   if (photoMode) { updatePhotoCam(dt); renderer.render(scene, camera); return; }
   T += dt;
   var sdt = dt;
-  updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); ensureCabinAxe(); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
+  updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); ensureCabinAxe(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
   if (state.dead) updateDeathCam(dt);   // top-down zoom-out cinematic drives the camera while dead
   renderer.render(scene, camera);
 }
@@ -22409,6 +22452,8 @@ window.__wc = {
   ufoState: function () { return ufo ? { mode: ufo.mode, hp: ufo.hp, net: !!ufo.net, pos: ufo.group.position.toArray().map(function (v) { return Math.round(v * 10) / 10; }), crashT: ufo.crashT, alienAt: ufo.alienAt } : null; },
   alienState: function () { return alien ? { hp: alien.hp, state: alien.state, net: !!alien.net, x: Math.round(alien.x), z: Math.round(alien.z) } : null; },
   ufoTriggered: function () { return ufoTriggered; },
+  cabinState: function () { return { knocks: cabinKnocks, ufoActive: !!cabinUfo, night: isNightNow(), ufoNight: cabinUfoNight, nightIdx: nightIndex() }; },
+  cabinKnock: function () { cabinKnock(); },
   dropsState: function () { return drops.map(function (d) { return { kind: d.kind, net: !!d.net, life: Math.round(d.life), x: Math.round(d.mesh.position.x * 10) / 10, z: Math.round(d.mesh.position.z * 10) / 10 }; }); },
   creditCivKill: creditCivKill, creditCopKill: creditCopKill, dropWeapon: dropWeapon,
   copWeapon: copWeapon,
@@ -22631,7 +22676,7 @@ window.__wc = {
   // lightweight physics step (no render, no NPC/cop/car sim) — fast headless
   // stepping for plane/fall tests. Renders only when you call renderer yourself.
   stepLite: function (dt) { T += dt; updatePlayer(dt); updatePlaneWorld(dt); },
-  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); ensureCabinAxe(); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
+  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); ensureCabinAxe(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
 };
 
 // ---------------- boot screen handoff + menu cover art ----------------
