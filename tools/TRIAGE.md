@@ -656,7 +656,8 @@ east side (x 140..290) + one OOB (-575,-231). Dispositions:
   diagnosed from the owner's F8 screenshot.
 - Spoiler stow/deploy gap annotations: FIXED@v1.76.49 (stowRot 0.13 rear-down
   stow pitch; deploy rise halved).
-- "see the movement path" annotation: FIXED@v1.76.50 — deploy/stow now rotates
-  the rigid blade about the displacement pole between the two signed-off poses
-  (porschePose), so the trailing edge sweeps a circular arc over the deck lip
-  instead of lerping a straight line. End poses unchanged.
+- "see the movement path" annotation: first pass v1.76.50 rotated the blade
+  about the displacement pole between the old poses — owner: "movement is
+  still a 4-bar". FIXED@v1.76.51: PURE HINGE — the pivot (already at the
+  blade's leading edge, seated at the window base) never translates; deploy
+  is rotation only, stow pitch 0.13 -> ground-parallel -m[3].
