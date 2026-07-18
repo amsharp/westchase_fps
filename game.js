@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.65';
+var GAME_VERSION = 'v1.76.66';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -1908,6 +1908,11 @@ function makeTailGlowM() { // per-car (brake flare mutates color/opacity)
 // ---- Meshy AI vehicles (optional meshyvehs.js): 10 early-2000s bodies,
 // blue seed paint hue-swapped at load into 5 common colors per model ----
 var VEH_LEN = 4.64;                    // match the procedural car footprint
+// CONSISTENT vehicle scale (owner): 1 world unit ~ 1 m, so each body gets its
+// REAL length instead of everything normalizing to the same 4.64 — a step van
+// is now visibly longer than a sedan, and the 964 is properly compact.
+var VEH_REAL_LEN = { GG_SEDAN: 4.8, GG_TAXI: 5.1, GG_WAGON: 4.95, GG_STEPVAN: 5.9, GG_WRECK: 4.7, PORSCHE964: 4.25 };
+function vehTargetLen(n) { return VEH_REAL_LEN[n] || VEH_LEN; }
 // every Meshy model comes out nose -x (front-left 3/4 seed view) — flip all
 var VEH_FLIP = { COMPACT: 1, HATCH: 1, MINIVAN: 1, PICKUP_BIG: 1, PICKUP_FS: 1, PICKUP_HD: 1, SEDAN_FULL: 1, SEDAN_MID: 1, SEDAN_SPORT: 1, SUV_MID: 1 };
 var VEH_COLS = [null, [200, 202, 206], [232, 232, 228], [34, 36, 40], [166, 38, 30]]; // as-is/silver/white/black/red
@@ -2130,7 +2135,7 @@ function makeCar() {
     // GGBot body: shipped variant texture, own wheel mesh at TRUE pivots
     var gi = GG_TRAFFIC[pickN - nMeshy];
     e = GGBOT_VEHS[gi];
-    s = VEH_LEN / e.dims[0];
+    s = vehTargetLen(e.n) / e.dims[0];
     // `mail` (always the LAST texs slot) is a rare livery: ~5% of van rolls
     var ti = e.mail !== undefined && Math.random() < 0.05 ? e.mail :
       (Math.random() * (e.mail !== undefined ? e.texs.length - 1 : e.texs.length)) | 0;
@@ -2235,8 +2240,9 @@ function makeCar() {
   }
   var head1 = glowQuad(headGlowM, glNX, hY, hZ, 0.26), head2 = glowQuad(headGlowM, glNX, hY, -hZ, 0.26);
   var tail1 = glowQuad(tailM, glTX, tY, tZ, 0.2), tail2 = glowQuad(tailM, glTX, tY, -tZ, 0.2);
-  g.add(blobShadow(2.4, 1.15, 0.1)); scene.add(g);
-  return { group: g, body: body, wheels: wheels, pivots: pivots, beam: beam, head1: head1, head2: head2, tail1: tail1, tail2: tail2, tailM: tailM, tailS: 0.15, vname: vname, bodyMesh: bodyMesh };
+  var lenK = (e ? vehTargetLen(e.n) : VEH_LEN) / VEH_LEN;
+  g.add(blobShadow(2.4 * lenK, 1.15 * lenK, 0.1)); scene.add(g);
+  return { group: g, body: body, wheels: wheels, pivots: pivots, beam: beam, hl: 2.15 * lenK, hw: 0.98 * lenK, head1: head1, head2: head2, tail1: tail1, tail2: tail2, tailM: tailM, tailS: 0.15, vname: vname, bodyMesh: bodyMesh };
 }
 function staticCar(x, z, ry) { var c = makeCar(); c.group.position.set(x, 0, z); c.group.rotation.y = ry || 0; }
 // ---- Porsche 964 hero car (optional porsche.js): wheel-less body + separate
@@ -2331,7 +2337,7 @@ function buildPorsche(ci) {
   if (typeof PORSCHE_VEH === 'undefined') return makeCar();   // graceful fallback
   if (ci === undefined) ci = porscheColorPick();
   var P = PORSCHE_VEH, g = new THREE.Group(), body = new THREE.Group();
-  var s = VEH_LEN / P.body.dims[0];
+  var s = vehTargetLen('PORSCHE964') / P.body.dims[0];   // real 4.25 m — compact next to the sedans
   var RIDE = 0.09;   // ride height: lift the shell off the wheels (was slammed)
   if (!_porGeoC) _porGeoC = _porGeo(P.body);
   var bm = new THREE.Mesh(_porGeoC, getPorscheMat(ci)); bm.scale.set(s, s, s);
@@ -2406,8 +2412,9 @@ function buildPorsche(ci) {
   }
   // (taillight band + Carrera 2 script are BAKED into the body atlas by
   // genporsche.js — projected onto the tail-facing triangles per colour variant)
-  g.add(blobShadow(2.4, 1.15, 0.1)); scene.add(g);
-  return { group: g, body: body, wheels: wheels, pivots: pivots, spoiler: spoiler, vname: 'PORSCHE964', bodyMesh: bm, isPorsche: true, beam: null, head1: null, head2: null, tail1: null, tail2: null, tailM: null, tailS: 0.15 };
+  var lenK = vehTargetLen('PORSCHE964') / VEH_LEN;
+  g.add(blobShadow(2.4 * lenK, 1.15 * lenK, 0.1)); scene.add(g);
+  return { group: g, body: body, wheels: wheels, pivots: pivots, spoiler: spoiler, hl: 2.15 * lenK, hw: 0.98 * lenK, vname: 'PORSCHE964', bodyMesh: bm, isPorsche: true, beam: null, head1: null, head2: null, tail1: null, tail2: null, tailM: null, tailS: 0.15 };
 }
 // verification spawn: one parked Porsche (removed once wired into the car system)
 function spawnPorscheProbe(x, z, ry) { var c = buildPorsche(0); c.group.position.set(x, 0, z); c.group.rotation.y = ry || 0; return c; }
@@ -12985,14 +12992,17 @@ function nearBreakable(x, z, r) {
 // was within 4x3.2 world units regardless of heading — so passing a car in the
 // next lane phantom-bumped you. Half-extents are the real footprint, trimmed a
 // touch so only genuine contact counts.
-var CAR_HL = 2.15, CAR_HW = 0.98;   // half length / half width
-function carsOverlap(ax, az, aFx, aFz, bx, bz, bFx, bFz) {
+var CAR_HL = 2.15, CAR_HW = 0.98;   // fallback half length / half width
+function carsOverlap(ax, az, aFx, aFz, bx, bz, bFx, bFz, aE, bE) {
+  // aE/bE: optional per-car {hl,hw} — real-length bodies carry their true box
+  var aHL = (aE && aE.hl) || CAR_HL, aHW = (aE && aE.hw) || CAR_HW;
+  var bHL = (bE && bE.hl) || CAR_HL, bHW = (bE && bE.hw) || CAR_HW;
   var dx = bx - ax, dz = bz - az;
   var aRx = -aFz, aRz = aFx, bRx = -bFz, bRz = bFx;
   function sep(nx, nz) {
     var d = Math.abs(dx * nx + dz * nz);
-    var ra = CAR_HL * Math.abs(aFx * nx + aFz * nz) + CAR_HW * Math.abs(aRx * nx + aRz * nz);
-    var rb = CAR_HL * Math.abs(bFx * nx + bFz * nz) + CAR_HW * Math.abs(bRx * nx + bRz * nz);
+    var ra = aHL * Math.abs(aFx * nx + aFz * nz) + aHW * Math.abs(aRx * nx + aRz * nz);
+    var rb = bHL * Math.abs(bFx * nx + bFz * nz) + bHW * Math.abs(bRx * nx + bRz * nz);
     return d > ra + rb;
   }
   return !(sep(aFx, aFz) || sep(aRx, aRz) || sep(bFx, bFz) || sep(bRx, bRz));
@@ -13199,7 +13209,7 @@ function updateDriving(dt) {
       var rdx = om.x - p.x, rdz = om.z - p.z;
       if (rdx * rdx + rdz * rdz > 36) continue;   // broad phase: skip cars clearly out of range
       var ory = oc.car.group.rotation.y, ofx = Math.cos(ory), ofz = -Math.sin(ory);
-      if (carsOverlap(p.x, p.z, fx, fz, om.x, om.z, ofx, ofz)) {
+      if (carsOverlap(p.x, p.z, fx, fz, om.x, om.z, ofx, ofz, c.car, oc.car)) {
         if (!oc.berserk && T - (oc.ramT || 0) > 0.4) {
           // a fender-bender dents, it doesn't detonate: the hit car gets
           // punted away spinning, takes speed-scaled damage, and only a
@@ -14245,7 +14255,7 @@ function igniteCar(c) {
 function spawnHusk(c) {
   if (GG_WRECK_I < 0 || c.husk) return;
   var e = GGBOT_VEHS[GG_WRECK_I];
-  var hs = VEH_LEN / e.dims[0];
+  var hs = vehTargetLen(e.n) / e.dims[0];
   var m = new THREE.Mesh(getGGGeo(GG_WRECK_I), getGGMat(GG_WRECK_I, 0));
   m.scale.set(hs, hs, hs);
   var g = c.car.group;
