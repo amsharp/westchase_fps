@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.77.4';
+var GAME_VERSION = 'v1.77.5';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2259,14 +2259,20 @@ function _porGeo(pack) {   // {q,p,u} non-indexed -> BufferGeometry
   return geo;
 }
 function _porTexMat(dataUrl, cache) {
-  var cv = document.createElement('canvas'); cv.width = 1; cv.height = 1;
-  var tx = new THREE.CanvasTexture(cv); tx.magFilter = THREE.NearestFilter; tx.minFilter = THREE.NearestFilter; tx.generateMipmaps = false;
+  // EXACTLY the getGGMat texture pattern (proven on every player machine) —
+  // the old resize-a-canvas middleman rendered BLACK on some GPUs. Plus a
+  // failsafe: if the image somehow fails to decode, drop the map so the car
+  // shows flat red rather than void black.
   var im = new Image();
-  im.onload = function () { cv.width = im.width; cv.height = im.height; cv.getContext('2d').drawImage(im, 0, 0); tx.needsUpdate = true; };
+  var tx = new THREE.Texture(im);
+  tx.magFilter = THREE.NearestFilter; tx.minFilter = THREE.NearestFilter; tx.generateMipmaps = false;
+  var mat = lamb({ map: tx, color: 0xffffff });
+  im.onload = function () { tx.needsUpdate = true; };
+  im.onerror = function () { mat.map = null; mat.color.setHex(0xb02020); mat.needsUpdate = true; };
   im.src = dataUrl;
   // nightLit: without the shared night self-glow the car renders pitch black
   // after dark while every other textured thing in town stays readable
-  return nightLit(lamb({ map: tx }));
+  return nightLit(mat);
 }
 function getPorscheMat(ci) { if (!_porMatC[ci]) _porMatC[ci] = _porTexMat(PORSCHE_VEH.texs[ci]); return _porMatC[ci]; }
 function getPorscheSpoilerMat(ci) { var t = (PORSCHE_VEH.stexs || [PORSCHE_VEH.stex]); var k = Math.min(ci, t.length - 1); if (!_porSpMatC[k]) _porSpMatC[k] = _porTexMat(t[k]); return _porSpMatC[k]; }
