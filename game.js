@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.48';
+var GAME_VERSION = 'v1.76.49';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2326,7 +2326,9 @@ function buildPorsche(ci) {
     pivot.userData.baseX = pivot.position.x; pivot.userData.baseY = pivot.position.y; pivot.userData.deploy = 0;
     // deploy TARGET is unchanged — the vector compensates for the deeper stow
     pivot.userData.travel = stowDX + 0.08 * spD;              // (may be negative: deploys up-and-forward out of the recess)
-    pivot.userData.rise = 0.015 * s - stowDY;
+    pivot.userData.rise = (0.015 * s - stowDY) * 0.5;         // deployed blade hovers just off the lid (owner: no honkin gap)
+    pivot.userData.stowRot = 0.13;                            // extra rear-down pitch stowed: the trailing edge kisses the curved lid
+    pivot.rotation.z = 0.13;
     pivot.userData.riseRot = (m[3] || 0);                     // cancels the lid-pitch frame EXACTLY: deployed blade is parallel to the ground
     tilt.add(pivot); spoiler = pivot;
     // black void quad = the recess floor, EXACTLY the spoiler footprint, sunk
@@ -2390,7 +2392,7 @@ function updatePorscheSpoiler(c, dt, asp) {
   u.deploy = d;
   sp.position.x = u.baseX - u.travel * d;   // rearward (nose is +x)
   sp.position.y = u.baseY + u.rise * d;     // lift up
-  sp.rotation.z = -u.riseRot * d;           // trailing edge tilts up
+  sp.rotation.z = (u.stowRot || 0) * (1 - d) - u.riseRot * d;   // from lid-hugging stow pitch up to ground-level deploy
 }
 // light glows: headlights/taillights follow the street lights; taillights also
 // flare bright any time the car is braking (short hold so they don't flicker)
