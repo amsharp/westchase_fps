@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.52';
+var GAME_VERSION = 'v1.76.53';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2362,8 +2362,18 @@ function updateCarFeel(c, dt, spd, accel, steer) {
   var leanT = -(steer || 0) * Math.min(1, asp / 9) * rollAmp;
   c.rollS += (leanT - c.rollS) * k;
   var onGrade = (c === driving);   // ramp tilt only affects the car you're driving
-  cc.body.rotation.z = c.pitchS + (onGrade ? (c.slopePitch || 0) : 0);
-  cc.body.rotation.x = c.rollS + (onGrade ? (c.slopeRoll || 0) : 0);
+  // slope tilt moves the WHOLE car — wheels included. It used to pitch only the
+  // body group, so on a ramp the body climbed the incline while all four wheels
+  // (children of the flat outer group) stayed level, splaying out of the arches
+  // (reports: "wheels look jacked up" on ramps). Dynamic lean (accel pitch, turn
+  // roll) stays body-only: that's suspension travel, the wheels hold the road.
+  // YXZ order = heading first, then tilt about the car's own side/long axes.
+  var gg = cc.group;
+  if (gg.rotation.order !== 'YXZ') gg.rotation.order = 'YXZ';
+  gg.rotation.z = onGrade ? (c.slopePitch || 0) : 0;
+  gg.rotation.x = onGrade ? (c.slopeRoll || 0) : 0;
+  cc.body.rotation.z = c.pitchS;
+  cc.body.rotation.x = c.rollS;
   var target = (steer || 0) * 0.42;
   c.steerA = c.steerA || 0;
   c.steerA += (target - c.steerA) * Math.min(1, 10 * dt);
