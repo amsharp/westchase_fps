@@ -145,9 +145,13 @@ function processBody(flipNose) {
   for (let v = 0; v < n; v++) { const x = pos[v * 3], y = pos[v * 3 + 1]; if (x < -0.28 * L && x > -0.45 * L && Math.abs(pos[v * 3 + 2]) < 0.3 * W && y > deckY) deckY = y; }
   const mount = [rd(-0.34 * L), rd(deckY), 0];
   // re-island the tail onto the atlas strip, then re-quantize with the new UVs
-  remapTailUVs(pos, g.uv, L, H, W);
-  const q2 = quant(pos, g.uv);
-  return { q: q2, wheels, mount, rawTex: g.tex, rotated, L, H, W, r, pos, uv: g.uv };
+  // (skipped in --plain mode: original UVs + Meshy texture ship untouched)
+  if (!processBody.plain) {
+    remapTailUVs(pos, g.uv, L, H, W);
+    const q2 = quant(pos, g.uv);
+    return { q: q2, wheels, mount, rawTex: g.tex, rotated, L, H, W, r, pos, uv: g.uv };
+  }
+  return { q, wheels, mount, rawTex: g.tex, rotated, L, H, W, r, pos, uv: g.uv };
 }
 
 // --- tail re-UV: Meshy shattered the tail across dozens of tiny atlas islands,
@@ -266,6 +270,8 @@ function processSpoiler() {
 
 (async () => {
   const FLIP = process.argv.includes('--flip');
+  const PLAIN = process.argv.includes('--plain');   // first-cut mode: Meshy texture untouched, no tail machinery
+  processBody.plain = PLAIN;
   const body = processBody(FLIP), wheel = processWheel(), spoiler = processSpoiler();
   // textures via headless canvas: body -> 512px recolor variants + tail bake; wheel 128 / spoiler 256
   const browser = await pw.chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--no-sandbox'] });
@@ -363,7 +369,7 @@ function processSpoiler() {
   const RED = [200, 32, 30], SILVER = [176, 180, 186], BLACK = [30, 32, 36], WHITE = [225, 226, 224], YELLOW = [226, 190, 30];
   const COLS = [RED, RED, RED, SILVER, BLACK, WHITE, YELLOW];   // RED x3 = prevalent
   const texs = [];
-  for (const c of COLS) texs.push(await recolor(body.rawTex, c, 512, true, c === BLACK));
+  for (const c of COLS) texs.push(await recolor(body.rawTex, c, 512, !PLAIN, c === BLACK));
   const wheelTex = await down(wheel.rawTex, 128);
   // spoiler recolored to match each body variant (blue paint -> color, black grille stays)
   const stexs = [];
