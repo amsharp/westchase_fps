@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.41';
+var GAME_VERSION = 'v1.76.42';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2267,8 +2267,10 @@ function buildPorsche(ci) {
   if (ci === undefined) ci = porscheColorPick();
   var P = PORSCHE_VEH, g = new THREE.Group(), body = new THREE.Group();
   var s = VEH_LEN / P.body.dims[0];
+  var RIDE = 0.09;   // ride height: lift the shell off the wheels (was slammed)
   if (!_porGeoC) _porGeoC = _porGeo(P.body);
   var bm = new THREE.Mesh(_porGeoC, getPorscheMat(ci)); bm.scale.set(s, s, s);
+  bm.position.y = RIDE;
   body.add(bm); g.add(body);
   // wheel geo/mat (independent scale: the wheel came from its own GLB)
   if (!_porWhGeo) _porWhGeo = _porGeo(P.wheel);
@@ -2302,7 +2304,7 @@ function buildPorsche(ci) {
     // a deployed ducktail. STOWED = FLUSH on the sloping lid; only the grille
     // top shows. The body-colour blade edge appears when it lifts.
     var tilt = new THREE.Group();
-    tilt.position.set(mX, deckY, 0);
+    tilt.position.set(mX, deckY + RIDE, 0);
     tilt.rotation.z = m[3] || 0;
     body.add(tilt);
     var pivot = new THREE.Group();
