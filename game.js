@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.36';
+var GAME_VERSION = 'v1.76.37';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2297,26 +2297,31 @@ function buildPorsche(ci) {
     sp.scale.set(sc, sc, sc);
     var m = P.spoiler.mount, mX = m[0] * s, deckY = m[1] * s;
     var spH = P.spoiler.dims[1] * sc;
-    // STOWED = FLUSH: the mesh sinks into the lid so only its louvred grille
-    // top sits ~1cm proud of the void plane (ref photos: stowed you see just
-    // the flat black grille as part of the deck). The body-colour blade edge
-    // only becomes visible once deployed, like the real car.
+    // the whole assembly (recess floor + blade) lives in a frame PITCHED to the
+    // lid slope — laid level, the stowed tray stood proud at the tail end like
+    // a deployed ducktail. STOWED = FLUSH on the sloping lid; only the grille
+    // top shows. The body-colour blade edge appears when it lifts.
+    var tilt = new THREE.Group();
+    tilt.position.set(mX, deckY, 0);
+    tilt.rotation.z = m[3] || 0;
+    body.add(tilt);
     var pivot = new THREE.Group();
-    pivot.position.set(mX + (P.spoiler.dims[0] * sc) / 2, deckY - spH + 0.007, 0);
+    pivot.position.set((P.spoiler.dims[0] * sc) / 2, -spH + 0.007, 0);
     sp.position.set(-(P.spoiler.dims[0] * sc) / 2, 0, 0);
     pivot.add(sp);
     pivot.userData.baseX = pivot.position.x; pivot.userData.baseY = pivot.position.y; pivot.userData.deploy = 0;
     pivot.userData.travel = P.spoiler.dims[0] * sc * 0.30;   // slight rearward shift at full deploy
     pivot.userData.rise = 0.085 * s;                          // ~20cm straight lift on the bellows (ref photos)
-    pivot.userData.riseRot = 0.12;                            // blade stays near-horizontal (~7 deg)
-    body.add(pivot); spoiler = pivot;
-    // black void quad = the recess floor, EXACTLY the spoiler footprint: hidden
-    // beneath the flush-stowed blade, revealed as the black hole when it lifts
-    // (matches the real car — stowed you see no black deck at all)
+    pivot.userData.riseRot = 0.26;                            // counters the lid-pitch frame: deployed blade sits level-to-slightly-up
+    tilt.add(pivot); spoiler = pivot;
+    // black void quad = the recess floor, EXACTLY the spoiler footprint, sunk
+    // well below the lid: invisible under the flush-stowed blade, and reads as
+    // the dark hole inside the recess once the blade lifts (it used to sit 3mm
+    // under the rim, poking through the grille inset as a black square)
     var vw = P.spoiler.dims[0] * sc * 1.02, vd = P.spoiler.dims[2] * sc * 0.98;
     var vq = new THREE.Mesh(new THREE.PlaneGeometry(vw, vd), new THREE.MeshBasicMaterial({ color: 0x090909 }));
-    vq.rotation.x = -Math.PI / 2; vq.position.set(mX, deckY + 0.004, 0);
-    body.add(vq);
+    vq.rotation.x = -Math.PI / 2; vq.position.set(0, -0.05, 0);
+    tilt.add(vq);
   }
   // (taillight band + Carrera 2 script are BAKED into the body atlas by
   // genporsche.js — projected onto the tail-facing triangles per colour variant)

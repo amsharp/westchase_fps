@@ -146,9 +146,19 @@ function processBody(flipNose) {
   // at the mount zone itself — sampling near the window base floated the
   // stowed spoiler above the sloping lid.
   const mountX = -0.40 * L;
-  let deckY = -1e9;
-  for (let v = 0; v < n; v++) { const x = pos[v * 3], y = pos[v * 3 + 1]; if (x < mountX + 0.06 * L && x > mountX - 0.06 * L && Math.abs(pos[v * 3 + 2]) < 0.3 * W && y > deckY) deckY = y; }
-  const mount = [rd(mountX), rd(deckY), 0];
+  let deckY = -1e9, dWin = -1e9, dTail = -1e9;
+  for (let v = 0; v < n; v++) {
+    const x = pos[v * 3], y = pos[v * 3 + 1];
+    if (Math.abs(pos[v * 3 + 2]) > 0.3 * W) continue;
+    if (x < mountX + 0.06 * L && x > mountX - 0.06 * L && y > deckY) deckY = y;
+    if (x < mountX + 0.06 * L && x > mountX && y > dWin) dWin = y;
+    if (x < mountX && x > mountX - 0.06 * L && y > dTail) dTail = y;
+  }
+  // lid pitch at the mount (rad, + = falls toward the tail): the stowed tray
+  // must LIE ON the sloping lid — laid level it stands proud at the rear like
+  // a deployed ducktail
+  const slope = Math.max(0, Math.min(0.20, Math.atan2(dWin - dTail, 0.06 * L)));
+  const mount = [rd(mountX), rd(deckY), 0, rd(slope)];
   // re-island the tail onto the atlas strip, then re-quantize with the new UVs
   // (skipped in --plain mode: original UVs + Meshy texture ship untouched)
   if (!processBody.plain) {
