@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.77.10';
+var GAME_VERSION = 'v1.77.11';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2353,8 +2353,8 @@ function buildPorsche(ci) {
     body.add(tilt);
     var spD = P.spoiler.dims[0] * sc;
     // seated UP the lid slope, leading edge tucked against the rear-window base
-    // (owner: "move it close towards the rear window along the body line")
-    var stowDX = -0.08 * spD, stowDY = -0.03;
+    // (owner picked #5 from the 8-position slide-up sweep)
+    var stowDX = 0.16 * spD, stowDY = -0.03;
     var pivot = new THREE.Group();
     pivot.position.set(spD / 2 + stowDX, -spH + 0.008 + stowDY, 0);
     sp.position.set(-spD / 2, 0, 0);

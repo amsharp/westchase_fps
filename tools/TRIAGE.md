@@ -661,3 +661,16 @@ east side (x 140..290) + one OOB (-575,-231). Dispositions:
   still a 4-bar". FIXED@v1.76.51: PURE HINGE — the pivot (already at the
   blade's leading edge, seated at the window base) never translates; deploy
   is rotation only, stow pitch 0.13 -> ground-parallel -m[3].
+
+## RAMP WHEELS + SPOILER SEAT/COLOR (opus/fable session)
+- mrpyze9v / mrpyzvnu / mrpz0noh "wheels look jacked up" (all: Porsche on the
+  wooden ramps): FIXED@v1.76.53 — slope tilt used to pitch only cc.body while
+  the wheels (children of the flat outer group) stayed level, splaying out of
+  the arches on any grade. Slope pitch/roll now rotate the WHOLE group (order
+  YXZ, heading first); body keeps only dynamic accel/turn lean. All cars +
+  airborne pose benefit. Verified headlessly on the big west ramp.
+- Owner request "color match the spoiler + move it towards the rear window":
+  v1.76.54 — blade dropped its baked Meshy texture (top face bakes near-black)
+  for flat paint sampled at runtime from the body texture's dominant colour
+  cluster (all 7 variants verified); stow seat moved up the lid (stowDX
+  -0.35 -> -0.08 spD), leading edge against the rear-window base.
