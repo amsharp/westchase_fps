@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.77.12';
+var GAME_VERSION = 'v1.77.13';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2361,8 +2361,8 @@ function buildPorsche(ci) {
     pivot.add(sp);
     pivot.userData.baseX = pivot.position.x; pivot.userData.baseY = pivot.position.y; pivot.userData.deploy = 0;
     // the pivot never translates — it's a fixed hinge (owner: not a 4-bar)
-    pivot.userData.stowRot = 0.13;                            // extra rear-down pitch stowed: the trailing edge kisses the curved lid
-    pivot.rotation.z = 0.13;
+    pivot.userData.stowRot = 0.06;                            // stow pitch: owner's rotation pick #4 (was 0.13, tail edge up a touch)
+    pivot.rotation.z = 0.06;
     pivot.userData.riseRot = (m[3] || 0);                     // cancels the lid-pitch frame EXACTLY: deployed blade is parallel to the ground
     tilt.add(pivot); spoiler = pivot;
     // (the black "recess floor" quad is GONE — owner: it kept clipping into
