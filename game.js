@@ -2303,7 +2303,7 @@ function buildPorsche(ci) {
     if (!_porSpGeo) _porSpGeo = _porGeo(P.spoiler);
     var spMat = getPorscheSpoilerMat(ci);
     var sp = new THREE.Mesh(_porSpGeo, spMat);
-    var sc = (P.body.dims[2] * s * 0.64) / P.spoiler.dims[2];   // lip spans ~0.64 of car width
+    var sc = (P.body.dims[2] * s * 0.52) / P.spoiler.dims[2];   // tray spans ~half the car width (was oversized)
     sp.scale.set(sc, sc, sc);
     var m = P.spoiler.mount, mX = m[0] * s, deckY = m[1] * s;
     var spH = P.spoiler.dims[1] * sc;
