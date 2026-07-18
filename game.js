@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.77.23';
+var GAME_VERSION = 'v1.77.24';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -13191,6 +13191,64 @@ function carsOverlap(ax, az, aFx, aFz, bx, bz, bFx, bFz, aE, bE) {
   }
   return !(sep(aFx, aFz) || sep(aRx, aRz) || sep(bFx, bFz) || sep(bRx, bRz));
 }
+// ---- skid marks (owner: "leave skid marks when the tires slide") ----
+// Dark ground strips laid along each rear tyre's track while the car screeches
+// (locked-brake stop or cornering slide). Pooled + faded: at the cap the
+// oldest strip is recycled, so cost is bounded. Local-only visual in MP.
+var skidMarks = [], SKID_MAX = 220, _skGeo = null;
+function emitSkid(x1, z1, x2, z2) {
+  var dx = x2 - x1, dz = z2 - z1, len = Math.sqrt(dx * dx + dz * dz);
+  if (len < 0.05) return;
+  if (!_skGeo) _skGeo = new THREE.PlaneGeometry(1, 1);
+  var m;
+  if (skidMarks.length >= SKID_MAX) { m = skidMarks.shift(); }
+  else {
+    m = new THREE.Mesh(_skGeo, new THREE.MeshBasicMaterial({ color: 0x0a0a08, transparent: true, opacity: 0.62, depthWrite: false }));
+    m.rotation.order = 'YXZ'; m.rotation.x = -Math.PI / 2;
+    scene.add(m);
+  }
+  m.visible = true;
+  m.material.opacity = 0.62;
+  m.userData.age = 0;
+  var mx = (x1 + x2) / 2, mz = (z1 + z2) / 2;
+  // ride the ACTUAL drivable surface (expanded-map paving sits higher than the
+  // old 0.05 road plane; ramps are sloped) — thin offset avoids z-fighting
+  var gy = (typeof surfaceHeightAt === 'function' ? surfaceHeightAt(mx, mz) : 0.05) + 0.16;   // +0.16: the expanded map's junction slabs render ~0.13 above the physics surface
+  m.position.set(mx, gy, mz);
+  m.rotation.y = Math.atan2(-dz, dx);
+  m.scale.set(len + 0.08, 0.17, 1);
+  skidMarks.push(m);
+}
+function updateSkidMarks(dt) {
+  for (var i = 0; i < skidMarks.length; i++) {
+    var m = skidMarks[i];
+    if (!m.visible) continue;
+    m.userData.age += dt;
+    if (m.userData.age > 8) {                       // hold full-dark 8 s, then fade over 18
+      m.material.opacity = 0.62 * Math.max(0, 1 - (m.userData.age - 8) / 18);
+      if (m.material.opacity <= 0) m.visible = false;
+    }
+  }
+}
+var _skV = new THREE.Vector3();
+function trackSkids(c, screeching, airborne) {
+  if (!screeching || airborne) { c._sk = null; return; }
+  if (!c._sk) c._sk = [null, null];
+  var pv = c.car.pivots;
+  for (var i = 0; i < 2; i++) {
+    var p = pv[i + 2];                              // rear wheels (pivots 0/1 steer)
+    if (!p) continue;
+    p.getWorldPosition(_skV);
+    var last = c._sk[i];
+    if (last) {
+      var dx = _skV.x - last[0], dz = _skV.z - last[1];
+      if (dx * dx + dz * dz > 0.14) {               // ~0.37 u segments
+        emitSkid(last[0], last[1], _skV.x, _skV.z);
+        c._sk[i] = [_skV.x, _skV.z];
+      }
+    } else c._sk[i] = [_skV.x, _skV.z];
+  }
+}
 function updateDriving(dt) {
   var c = driving, g = c.car.group;
   var h = g.rotation.y;
@@ -13209,7 +13267,14 @@ function updateDriving(dt) {
   // the early pull is unchanged and you keep gaining past the old top up to the new.
   if (throttle > 0) accel = isPor ? porscheDrive(c, dt) : 7 * hd.acc * (1 - Math.min(1, Math.max(0, c.pspeed) / topF));
   else if (throttle < 0) {
-    if (c.pspeed > 0.4) accel = -30 * hd.acc;   // firm braking against forward motion
+    if (c.pspeed > 0.4) {
+      // realistic stopping (owner): threshold braking is ~1.1g on street tyres
+      // (the old -30 was a 3g arcade anchor). Above ~16 u/s the tyres pass the
+      // grip limit and SLIDE — less deceleration, screech + skid marks (below,
+      // matching the existing screech condition).
+      var lock = Math.abs(c.pspeed) > 16;
+      accel = (lock ? -8.0 : -11.0) * (c.car && c.car.isPorsche ? 1.15 : 1);
+    }
     else accel = -8 * hd.acc * (1 - Math.min(1, -Math.min(0, c.pspeed) / topR));  // gradual reverse
   }
   c.pspeed += accel * dt;
@@ -13246,6 +13311,7 @@ function updateDriving(dt) {
   // near its own length so a sustained slide reads as continuous, not machine-gun.
   var keyBrake = (keys['KeyS'] || keys['Space']) && c.pspeed > 0.5;
   var screeching = (c.slid > 0.6) || (keyBrake && asp > 16);
+  trackSkids(c, screeching, airborne);
   var carAt = { x: g.position.x, z: g.position.z, range: 72 };
   if (screeching) {
     if (T - (c.screechT || -99) > 2.7) { c.screechT = T; sfx('tirescreech', carAt); }
@@ -18381,6 +18447,7 @@ function carShellPush(cx2, cz2, ry2) {
 }
 var fallAxis = new THREE.Vector3(), fallQ = new THREE.Quaternion();
 function updateWorldFx(dt) {
+  updateSkidMarks(dt);
   updateSignals(dt);   // traffic-signal cycle (corridor details section)
   updateRtPylon(dt);   // RaceTrac pylon 7-seg flicker (rare canvas repaint)
   // ground NPCs on the top surface (feet were pinned to y=0, sinking into raised
@@ -22405,6 +22472,8 @@ function showColliders(on) {
 }
 
 window.__wc = {
+  skidCount: function () { var n = 0; for (var i = 0; i < skidMarks.length; i++) if (skidMarks[i].visible) n++; return n; },
+  skidMarks: function () { return skidMarks; },
   showColliders: showColliders, colliderView: function () { return colViewOn; },
   buildPorsche: (typeof buildPorsche === 'function' ? buildPorsche : null), spawnPorscheProbe: (typeof spawnPorscheProbe === 'function' ? spawnPorscheProbe : null),
   state: state, player: player, npcs: npcs, cashes: cashes, cops: cops,
