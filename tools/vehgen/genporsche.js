@@ -305,8 +305,8 @@ function processSpoiler() {
           // ~10cm on a 1.31m car (~8% of body height), band centre at ~36% height
           const sx = 8, sw = 496, sy = oy + 62, sh = 25, ac = 76;
           g.fillStyle = '#0a0606'; g.fillRect(sx - 3, sy - 3, sw + 6, sh + 6);
-          g.fillStyle = '#a04016'; g.fillRect(sx, sy, ac, sh); g.fillRect(sx + sw - ac, sy, ac, sh);   // deep burnt amber-red (964 lenses read red, not orange)
-          g.strokeStyle = 'rgba(70,24,4,0.55)'; g.lineWidth = 2;
+          g.fillStyle = '#6e1210'; g.fillRect(sx, sy, ac, sh); g.fillRect(sx + sw - ac, sy, ac, sh);   // uniform dark red across the whole band (964 lenses read red)
+          g.strokeStyle = 'rgba(0,0,0,0.45)'; g.lineWidth = 2;
           for (let i = 1; i < 4; i++) {
             const a = sx + ac * i / 4, b2 = sx + sw - ac + ac * i / 4;
             g.beginPath(); g.moveTo(a, sy); g.lineTo(a, sy + sh); g.moveTo(b2, sy); g.lineTo(b2, sy + sh); g.stroke();
