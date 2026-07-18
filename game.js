@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.67';
+var GAME_VERSION = 'v1.76.68';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2399,6 +2399,10 @@ function buildPorsche(ci) {
     pivot.userData.baseX = pivot.position.x; pivot.userData.baseY = pivot.position.y; pivot.userData.deploy = 0;
     // the pivot never translates — it's a fixed hinge (owner: not a 4-bar)
     pivot.userData.stowRot = 0.06;                            // stow pitch: owner's rotation pick #4 (was 0.13, tail edge up a touch)
+    // owner's rear-view roll pick (CW 1.1 deg): STOW-ONLY — it blends out over
+    // the deploy stroke so the signed-off deployed pose is untouched
+    pivot.userData.stowRoll = 0.02;
+    pivot.rotation.x = 0.02;
     pivot.rotation.z = 0.06;
     pivot.userData.riseRot = (m[3] || 0);                     // cancels the lid-pitch frame EXACTLY: deployed blade is parallel to the ground
     // DEPLOY pose (owner picks: rearward 0.28+0.20, down 0.15 — all *spD, world
@@ -2485,6 +2489,7 @@ function updatePorscheSpoiler(c, dt, spd) {
   sp.position.x = u.baseX + (u.depDX || 0) * d;
   sp.position.y = u.baseY + (u.depDY || 0) * d;
   sp.rotation.z = (u.stowRot || 0) + (-u.riseRot - (u.stowRot || 0)) * d;
+  sp.rotation.x = (u.stowRoll || 0) * (1 - d);   // stow-only roll correction
 }
 // light glows: headlights/taillights follow the street lights; taillights also
 // flare bright any time the car is braking (short hold so they don't flicker)
