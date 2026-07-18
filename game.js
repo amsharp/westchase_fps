@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.34';
+var GAME_VERSION = 'v1.76.35';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2296,16 +2296,19 @@ function buildPorsche(ci) {
     var sc = (P.body.dims[2] * s * 0.64) / P.spoiler.dims[2];   // lip spans ~0.64 of car width
     sp.scale.set(sc, sc, sc);
     var m = P.spoiler.mount, mX = m[0] * s, deckY = m[1] * s;
-    var lipY = (P.spoiler.lipY || 0.24) * sc;
-    // pivot at front-bottom of the lip; mesh offset back so its front edge sits on the pivot
+    var spH = P.spoiler.dims[1] * sc;
+    // STOWED = FLUSH: the mesh sinks into the lid so only its louvred grille
+    // top sits ~1cm proud of the void plane (ref photos: stowed you see just
+    // the flat black grille as part of the deck). The body-colour blade edge
+    // only becomes visible once deployed, like the real car.
     var pivot = new THREE.Group();
-    pivot.position.set(mX + (P.spoiler.dims[0] * sc) / 2, deckY - lipY - 0.02, 0);   // stowed: riser sunk into void, grille+lip proud
+    pivot.position.set(mX + (P.spoiler.dims[0] * sc) / 2, deckY - spH + 0.015, 0);
     sp.position.set(-(P.spoiler.dims[0] * sc) / 2, 0, 0);
     pivot.add(sp);
     pivot.userData.baseX = pivot.position.x; pivot.userData.baseY = pivot.position.y; pivot.userData.deploy = 0;
-    pivot.userData.travel = P.spoiler.dims[0] * sc * 0.38;   // rearward translate at full deploy (blade edge ~at the tail line)
-    pivot.userData.rise = 0.045 * s;                          // vertical lift at full deploy (blade stays BELOW the rear window)
-    pivot.userData.riseRot = 0.24;                            // radians of tilt at full deploy
+    pivot.userData.travel = P.spoiler.dims[0] * sc * 0.30;   // slight rearward shift at full deploy
+    pivot.userData.rise = 0.085 * s;                          // ~20cm straight lift on the bellows (ref photos)
+    pivot.userData.riseRot = 0.12;                            // blade stays near-horizontal (~7 deg)
     body.add(pivot); spoiler = pivot;
     // black void quad: covers the recess from just aft of the window base back
     // over the whole spoiler footprint (the real 964 recess spans that area),
