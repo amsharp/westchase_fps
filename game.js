@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.77.3';
+var GAME_VERSION = 'v1.77.4';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2305,7 +2305,7 @@ function buildPorsche(ci) {
     if (!_porSpGeo) _porSpGeo = _porGeo(P.spoiler);
     var spMat = getPorscheSpoilerMat(ci);
     var sp = new THREE.Mesh(_porSpGeo, spMat);
-    var sc = (P.body.dims[2] * s * 0.52) / P.spoiler.dims[2];   // tray spans ~half the car width (was oversized)
+    var sc = (P.body.dims[2] * s * 0.46) / P.spoiler.dims[2];   // tray spans ~46% of car width
     sp.scale.set(sc, sc, sc);
     var m = P.spoiler.mount, mX = m[0] * s, deckY = m[1] * s;
     var spH = P.spoiler.dims[1] * sc;
@@ -2317,13 +2317,18 @@ function buildPorsche(ci) {
     tilt.position.set(mX, deckY + RIDE, 0);
     tilt.rotation.z = m[3] || 0;
     body.add(tilt);
+    var spD = P.spoiler.dims[0] * sc;
+    // stowed pose slides DOWN the lid slope (owner's arrow): tail-ward a third
+    // of the tray depth and slightly into the deck, seating it in the recess
+    var stowDX = -0.35 * spD, stowDY = -0.03;
     var pivot = new THREE.Group();
-    pivot.position.set((P.spoiler.dims[0] * sc) / 2, -spH + 0.008, 0);   // STOWED = FLUSH: buried so only the grille face shows in the lid
-    sp.position.set(-(P.spoiler.dims[0] * sc) / 2, 0, 0);
+    pivot.position.set(spD / 2 + stowDX, -spH + 0.008 + stowDY, 0);
+    sp.position.set(-spD / 2, 0, 0);
     pivot.add(sp);
     pivot.userData.baseX = pivot.position.x; pivot.userData.baseY = pivot.position.y; pivot.userData.deploy = 0;
-    pivot.userData.travel = P.spoiler.dims[0] * sc * 0.08;   // near-pure rotation about the front pivot (owner's annotation)
-    pivot.userData.rise = 0.015 * s;                          // tiny lift out of the recess; the rear rises by the rotation itself
+    // deploy TARGET is unchanged — the vector compensates for the deeper stow
+    pivot.userData.travel = stowDX + 0.08 * spD;              // (may be negative: deploys up-and-forward out of the recess)
+    pivot.userData.rise = 0.015 * s - stowDY;
     pivot.userData.riseRot = (m[3] || 0);                     // cancels the lid-pitch frame EXACTLY: deployed blade is parallel to the ground
     tilt.add(pivot); spoiler = pivot;
     // black void quad = the recess floor, EXACTLY the spoiler footprint, sunk
@@ -2332,7 +2337,7 @@ function buildPorsche(ci) {
     // under the rim, poking through the grille inset as a black square)
     var vw = P.spoiler.dims[0] * sc * 1.02, vd = P.spoiler.dims[2] * sc * 0.98;
     var vq = new THREE.Mesh(new THREE.PlaneGeometry(vw, vd), new THREE.MeshBasicMaterial({ color: 0x090909 }));
-    vq.rotation.x = -Math.PI / 2; vq.position.set(0, -0.05, 0);
+    vq.rotation.x = -Math.PI / 2; vq.position.set(stowDX, -0.05, 0);   // recess follows the stowed tray
     tilt.add(vq);
   }
   // (taillight band + Carrera 2 script are BAKED into the body atlas by
