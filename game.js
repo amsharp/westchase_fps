@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.27';
+var GAME_VERSION = 'v1.76.28';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -16724,9 +16724,22 @@ if (typeof MUZZLE_FLASH !== 'undefined') {
 }
 flash.visible = false; vm.add(flash); var flashT = 0;
 var rocketCdEl = document.getElementById('rocketCd'), rocketCdBar = document.getElementById('rocketCdBar');
-// pump-action shotgun viewmodel (procedural — long barrel, receiver, wood stock + pump forend)
+// pump-action shotgun viewmodel — user-supplied GLB (MESHY_GUNS 'shotgun'),
+// procedural fallback otherwise
 var vmShotgun = new THREE.Group();
 (function () {
+  if (hasMeshyGun('shotgun')) {
+    // barrel authored -x; yaw -PI/2 aims it down-range (-z), small +cant toes it
+    // toward center. Framed lower-right like the other long guns.
+    var mg = getGunMesh('shotgun', 1.0);
+    mg.position.set(0.22, -0.26, -0.6);
+    mg.rotation.order = 'YXZ';
+    mg.rotation.set(0.02, -Math.PI / 2 + 0.10, 0);
+    vmShotgun.add(mg);
+    WEAPONS.shotgun.flashAt = meshyMuzzleAt(mg);
+    WEAPONS.shotgun.flashScale = 0.55;
+    return;
+  }
   var brl = cyl(0.02, 0.024, 0.72, 8, darkMetalM, 0.24, -0.24, -1.05); brl.rotation.x = Math.PI / 2; vmShotgun.add(brl);
   var mag = cyl(0.018, 0.018, 0.6, 8, metalM, 0.24, -0.285, -1.0); mag.rotation.x = Math.PI / 2; vmShotgun.add(mag);   // tube magazine under the barrel
   vmShotgun.add(box(0.07, 0.1, 0.34, metalM, 0.24, -0.255, -0.55));                                                    // receiver
@@ -18572,7 +18585,10 @@ var SFX_MAP = {
   cut: { k: 'cut', g: 1.6, j: 0.05 },
   // owner-supplied gore splat (carsfx.js SFX_PACK.gore): plays when a shotgun
   // blows a head clean off. Synth has no fallback — silent if the pack is absent.
-  gore: { k: 'gore', g: 1.3, j: 0.05 }
+  gore: { k: 'gore', g: 1.3, j: 0.05 },
+  // owner-supplied shotgun blast (carsfx.js SFX_PACK.shotgun): the shotgun's own
+  // gunshot. Pack-mapped so it overrides the synth gunShot for 'shotgun'.
+  shotgun: { k: 'shotgun', g: 0.95, j: 0.04 }
 };
 function sfxLogPush(kind, pack) {
   if (!window.__sfxLog) return;
