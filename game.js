@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.62';
+var GAME_VERSION = 'v1.76.63';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2196,6 +2196,10 @@ function makeCar() {
       var ws = wp[3] / 0.34;
       w.scale.set(ws, 1, ws);   // scale the radius, keep the tire width
     }
+    // the per-side rim-out flip reverses the local spin axis too — record the
+    // sign so the roll update can spin BOTH sides forward (report: left wheels
+    // spun backwards)
+    w.userData.sd = (w.rotation.x > 0) ? -1 : 1;
     pv.add(w); g.add(pv); wheels.push(w); pivots.push(pv);
   });
   // front pivots first: sort by x so pivots[0]/[1] steer
@@ -2318,6 +2322,7 @@ function buildPorsche(ci) {
     var pv = new THREE.Group(); pv.position.set(px, py, pz);
     var wm = new THREE.Mesh(_porWhGeo, _porWhMat);
     wm.rotation.x = pz > 0 ? Math.PI / 2 : -Math.PI / 2;   // axle local +Y -> car Z
+    wm.userData.sd = pz > 0 ? -1 : 1;                      // flipped side spins mirrored
     var ws = R / whInPlaneR; wm.scale.set(ws, ws * 1.4, ws);   // local Y = axle: widen the tyre
     pv.add(wm); g.add(pv); wheels.push(wm); pivots.push(pv);
   });
@@ -12541,7 +12546,7 @@ function updateCars(dt) {
       else { m.position.set(c.lane, 0, c.pos); m.rotation.y = c.dir === 1 ? -Math.PI / 2 : Math.PI / 2; }
     }
     var spin = (c.speed * dt) / 0.34;
-    for (var wi = 0; wi < 4; wi++) c.car.wheels[wi].rotation.y -= spin;
+    for (var wi = 0; wi < 4; wi++) { var ww = c.car.wheels[wi]; ww.rotation.y -= spin * (ww.userData.sd || 1); }
     updateCarFeel(c, dt, c.berserk ? 14 : c.speed, 0, c.berserk ? Math.sin(T * 5 + i) : 0);
 
     // engine: rpm-layered synth — pitch by speed+gears+doppler, volume by distance
@@ -12710,7 +12715,7 @@ function updateCoastCar(c, dt, i) {
   c.bz = Math.max(-HALF + 2, Math.min(HALF - 2, c.bz));
   m.position.set(c.bx, 0, c.bz);   // heading (m.rotation.y) stays as it was on exit
   var spin = (cs * dt) / 0.34;
-  for (var wi = 0; wi < 4; wi++) c.car.wheels[wi].rotation.y -= spin;
+  for (var wi = 0; wi < 4; wi++) { var ww = c.car.wheels[wi]; ww.rotation.y -= spin * (ww.userData.sd || 1); }
   updateCarFeel(c, dt, cs, 0, 0);
   var hh = m.rotation.y, hfx = Math.cos(hh), hfz = -Math.sin(hh);
   // mow down pedestrians in the path
@@ -13070,7 +13075,7 @@ function updateDriving(dt) {
   else { c.slopePitch = Math.atan(gs.gx * fx + gs.gz * fz); c.slopeRoll = -Math.atan(gs.gx * rgx + gs.gz * rgz); }
   lakeCarPhysics(c, dt);   // flood / sink / stall once the car drives into deep water
   var spin = (c.pspeed * dt) / 0.34;
-  for (var wi = 0; wi < 4; wi++) c.car.wheels[wi].rotation.y -= spin;
+  for (var wi = 0; wi < 4; wi++) { var ww = c.car.wheels[wi]; ww.rotation.y -= spin * (ww.userData.sd || 1); }
   updateCarFeel(c, dt, c.pspeed, accel, steer);
   // the driver's seat gets the full engine: idle rumble when stopped,
   // throttle swell on W, gear steps on the way up, exhaust noise on top.
