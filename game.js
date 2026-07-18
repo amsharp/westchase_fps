@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.53';
+var GAME_VERSION = 'v1.76.54';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2267,7 +2267,35 @@ function _porTexMat(dataUrl, cache) {
   return nightLit(mat);
 }
 function getPorscheMat(ci) { if (!_porMatC[ci]) _porMatC[ci] = _porTexMat(PORSCHE_VEH.texs[ci]); return _porMatC[ci]; }
-function getPorscheSpoilerMat(ci) { var t = (PORSCHE_VEH.stexs || [PORSCHE_VEH.stex]); var k = Math.min(ci, t.length - 1); if (!_porSpMatC[k]) _porSpMatC[k] = _porTexMat(t[k]); return _porSpMatC[k]; }
+// FLAT body-matched paint for the blade (owner: "color match the spoiler to
+// the car better"). The Meshy spoiler texture's top face bakes out near-black
+// while its sides are bright — no single tint fixes both, so the blade drops
+// the baked texture and samples the BODY texture's dominant paint cluster
+// instead: a guaranteed match on every colour variant, incl. future regens.
+function getPorscheSpoilerMat(ci) {
+  if (_porSpMatC[ci]) return _porSpMatC[ci];
+  var mat = lamb({ color: 0xb02020 });   // red until the body tex is sampled
+  _porSpMatC[ci] = nightLit(mat);
+  var im = new Image();
+  im.onload = function () {
+    try {
+      var cv = document.createElement('canvas'); cv.width = 96; cv.height = 96;
+      var c2 = cv.getContext('2d'); c2.drawImage(im, 0, 0, 96, 96);
+      var d = c2.getImageData(0, 0, 96, 96).data, bins = {}, best = null;
+      for (var i = 0; i < d.length; i += 4) {
+        var r = d[i], g = d[i + 1], b = d[i + 2], br = (r + g + b) / 3;
+        if (br < 12 || br > 235) continue;   // skip arch-cutout black + highlight white
+        var k = ((r >> 5) << 10) | ((g >> 5) << 5) | (b >> 5);
+        var e = bins[k] || (bins[k] = { n: 0, r: 0, g: 0, b: 0 });
+        e.n++; e.r += r; e.g += g; e.b += b;
+        if (!best || e.n > best.n) best = e;
+      }
+      if (best) mat.color.setRGB((best.r / best.n) / 255, (best.g / best.n) / 255, (best.b / best.n) / 255);
+    } catch (e) { /* canvas blocked -> keep the red fallback */ }
+  };
+  im.src = PORSCHE_VEH.texs[Math.min(ci, PORSCHE_VEH.texs.length - 1)];
+  return _porSpMatC[ci];
+}
 // red is prevalent: texs 0..2 = red, 3 silver, 4 black, 5 white, 6 yellow
 function porscheColorPick() { var n = PORSCHE_VEH.texs.length; return (Math.random() * n) | 0; }
 function buildPorsche(ci) {
@@ -2316,9 +2344,9 @@ function buildPorsche(ci) {
     tilt.rotation.z = m[3] || 0;
     body.add(tilt);
     var spD = P.spoiler.dims[0] * sc;
-    // stowed pose slides DOWN the lid slope (owner's arrow): tail-ward a third
-    // of the tray depth and slightly into the deck, seating it in the recess
-    var stowDX = -0.35 * spD, stowDY = -0.03;
+    // seated UP the lid slope, leading edge tucked against the rear-window base
+    // (owner: "move it close towards the rear window along the body line")
+    var stowDX = -0.08 * spD, stowDY = -0.03;
     var pivot = new THREE.Group();
     pivot.position.set(spD / 2 + stowDX, -spH + 0.008 + stowDY, 0);
     sp.position.set(-spD / 2, 0, 0);
