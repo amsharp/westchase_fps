@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.38';
+var GAME_VERSION = 'v1.76.39';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2311,7 +2311,7 @@ function buildPorsche(ci) {
     pivot.add(sp);
     pivot.userData.baseX = pivot.position.x; pivot.userData.baseY = pivot.position.y; pivot.userData.deploy = 0;
     pivot.userData.travel = P.spoiler.dims[0] * sc * 0.30;   // slight rearward shift at full deploy
-    pivot.userData.rise = 0.085 * s;                          // ~20cm straight lift on the bellows (ref photos)
+    pivot.userData.rise = 0.05 * s;                           // modest lift: deployed underside just touches the stowed top line
     pivot.userData.riseRot = (m[3] || 0);                     // cancels the lid-pitch frame EXACTLY: deployed blade is parallel to the ground
     tilt.add(pivot); spoiler = pivot;
     // black void quad = the recess floor, EXACTLY the spoiler footprint, sunk
