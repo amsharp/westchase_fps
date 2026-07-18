@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.77.7';
+var GAME_VERSION = 'v1.77.8';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2332,9 +2332,7 @@ function buildPorsche(ci) {
     sp.position.set(-spD / 2, 0, 0);
     pivot.add(sp);
     pivot.userData.baseX = pivot.position.x; pivot.userData.baseY = pivot.position.y; pivot.userData.deploy = 0;
-    // deploy TARGET is unchanged — the vector compensates for the deeper stow
-    pivot.userData.travel = stowDX + 0.08 * spD;              // (may be negative: deploys up-and-forward out of the recess)
-    pivot.userData.rise = (0.015 * s - stowDY) * 0.5;         // deployed blade hovers just off the lid (owner: no honkin gap)
+    // the pivot never translates — it's a fixed hinge (owner: not a 4-bar)
     pivot.userData.stowRot = 0.13;                            // extra rear-down pitch stowed: the trailing edge kisses the curved lid
     pivot.rotation.z = 0.13;
     pivot.userData.riseRot = (m[3] || 0);                     // cancels the lid-pitch frame EXACTLY: deployed blade is parallel to the ground
@@ -2387,29 +2385,11 @@ function updateCarFeel(c, dt, spd, accel, steer) {
   if (cc.spoiler) updatePorscheSpoiler(c, dt, asp);
 }
 // Carrera auto-spoiler: deploys above ~12 u/s, stows below ~8 (hysteresis).
-// The movement path is a circular ARC (owner's annotation): between the two
-// signed-off end poses the rigid blade rotates about the displacement pole
-// (the unique point a planar rigid motion pivots around), so every point of
-// the blade — trailing edge included — sweeps an arc over the deck lip
-// instead of sliding along a straight line.
-function porschePose(u, d) {
-  if (u.swing === undefined) {
-    var p1x = u.baseX - u.travel, p1y = u.baseY + u.rise;
-    u.swing = -u.riseRot - (u.stowRot || 0);            // total pitch change stow -> deployed
-    if (Math.abs(u.swing) > 0.02) {
-      var vx = p1x - u.baseX, vy = p1y - u.baseY;
-      var k = 0.5 / Math.tan(u.swing / 2);
-      u.poleX = (u.baseX + p1x) / 2 - vy * k;           // on the perpendicular bisector of the endpoints
-      u.poleY = (u.baseY + p1y) / 2 + vx * k;
-    }
-  }
-  if (u.poleX === undefined) {                          // degenerate (no pitch change): straight slide
-    return { x: u.baseX - u.travel * d, y: u.baseY + u.rise * d, r: (u.stowRot || 0) };
-  }
-  var a = u.swing * d, ca = Math.cos(a), sa = Math.sin(a);
-  var rx = u.baseX - u.poleX, ry = u.baseY - u.poleY;
-  return { x: u.poleX + rx * ca - ry * sa, y: u.poleY + rx * sa + ry * ca, r: (u.stowRot || 0) + a };
-}
+// PURE HINGE (owner: "movement is still a 4-bar" — so NO translation at all):
+// the pivot group origin IS the blade's leading edge, seated in the recess at
+// the window base. Deploy only rotates about that fixed hinge, from the
+// lid-hugging stow pitch to ground-parallel; the trailing edge sweeps one
+// clean arc about a visible, stationary pivot.
 function updatePorscheSpoiler(c, dt, asp) {
   var sp = c.car.spoiler, u = sp.userData;
   if (asp === undefined) asp = Math.abs(c.pspeed || 0);
@@ -2419,8 +2399,7 @@ function updatePorscheSpoiler(c, dt, asp) {
   var d = u.deploy + (want - u.deploy) * Math.min(1, 3.5 * dt);
   if (Math.abs(d - want) < 0.004) d = want;
   u.deploy = d;
-  var pose = porschePose(u, d);
-  sp.position.x = pose.x; sp.position.y = pose.y; sp.rotation.z = pose.r;
+  sp.rotation.z = (u.stowRot || 0) + (-u.riseRot - (u.stowRot || 0)) * d;
 }
 // light glows: headlights/taillights follow the street lights; taillights also
 // flare bright any time the car is braking (short hold so they don't flicker)
