@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.77.24';
+var GAME_VERSION = 'v1.77.25';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -17363,6 +17363,14 @@ function updateCabinUfo(dt) {
   g.rotation.y += u.spin * dt;
   var frac = u.dist / u.maxDist;
   g.position.y = 52 - Math.sin(frac * Math.PI) * 18;   // swoops lower as it passes over the cabin, climbs away
+  // drive the shared UFO hum by distance, exactly like updateUfo does (start
+  // with gain 0, so without this it'd be silent). Guarded by !ufo so it never
+  // fights the money UFO for the hum.
+  if (ufoHum && !ufo) {
+    var hdx = player.x - g.position.x, hdz = player.z - g.position.z;
+    var hd = Math.sqrt(hdx * hdx + hdz * hdz);
+    ufoHum.g.gain.value = Math.max(0, 1 - hd / 260) * 0.45;
+  }
   u.dist += u.spd * dt; u.t += dt;
   if (u.dist >= u.maxDist || u.t > 18) { scene.remove(g); cabinUfo = null; if (typeof stopUfoHum === 'function' && !ufo) stopUfoHum(); }
 }
@@ -22452,7 +22460,7 @@ window.__wc = {
   ufoState: function () { return ufo ? { mode: ufo.mode, hp: ufo.hp, net: !!ufo.net, pos: ufo.group.position.toArray().map(function (v) { return Math.round(v * 10) / 10; }), crashT: ufo.crashT, alienAt: ufo.alienAt } : null; },
   alienState: function () { return alien ? { hp: alien.hp, state: alien.state, net: !!alien.net, x: Math.round(alien.x), z: Math.round(alien.z) } : null; },
   ufoTriggered: function () { return ufoTriggered; },
-  cabinState: function () { return { knocks: cabinKnocks, ufoActive: !!cabinUfo, night: isNightNow(), ufoNight: cabinUfoNight, nightIdx: nightIndex() }; },
+  cabinState: function () { return { knocks: cabinKnocks, ufoActive: !!cabinUfo, night: isNightNow(), ufoNight: cabinUfoNight, nightIdx: nightIndex(), humGain: ufoHum ? ufoHum.g.gain.value : 0, humOn: !!ufoHum }; },
   cabinKnock: function () { cabinKnock(); },
   dropsState: function () { return drops.map(function (d) { return { kind: d.kind, net: !!d.net, life: Math.round(d.life), x: Math.round(d.mesh.position.x * 10) / 10, z: Math.round(d.mesh.position.z * 10) / 10 }; }); },
   creditCivKill: creditCivKill, creditCopKill: creditCopKill, dropWeapon: dropWeapon,
