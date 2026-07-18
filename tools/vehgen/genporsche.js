@@ -226,6 +226,17 @@ function remapTailUVs(pos, uv, L, H, W) {
   }
   console.log('tail re-UV:', keep.length, 'tris -> strip island, y', yMin.toFixed(3), '..', yMax.toFixed(3));
   remapTailUVs.map = map;
+  // per-mesh design placement (strip px): anchored to REAL-car ratios instead
+  // of fixed canvas fractions — band centre at 42% of body height, script just
+  // under the deck edge, rub strip near the bumper bottom
+  const toPy = yy => 4 + (1 - (yy - yMin) / yr) * (TAIL_H - 8);
+  remapTailUVs.layout = {
+    scriptPy: Math.max(14, Math.round(toPy(yMax - 0.045 * H))),
+    bandSy: Math.round(toPy(0.42 * H + 0.022 * H)),
+    bandSh: Math.max(20, Math.round(0.044 * H / yr * (TAIL_H - 8))),
+    rubPy: Math.round(toPy(yMin + 0.055 * (yMax - yMin))),
+  };
+  console.log('tail layout:', JSON.stringify(remapTailUVs.layout));
   return keep.length;
 }
 // --- WHEEL: axle (thin axis) -> +Y, center ---
@@ -285,6 +296,7 @@ function processSpoiler() {
         g.putImageData(d, 0, 0);
         if (o.strip) {
           const oy = S;   // strip occupies y 512..704; design dv space maps py 516..700
+          const LY = o.layout;
           // fill the strip by resampling the recoloured atlas through the tail
           // geometry — the panel keeps its real baked shading and blends with
           // the neighbouring paint; only the design elements draw on top
@@ -312,7 +324,7 @@ function processSpoiler() {
             const py2 = (i / 4 / S) | 0;
             const r = sd[i], gg2 = sd[i + 1], b2 = sd[i + 2];
             const dark = Math.max(r, gg2, b2) < 60, amber = (r > 140 && gg2 > 70 && gg2 < 180 && b2 < 80 && r > gg2 * 1.35) || (r > 170 && gg2 > 140 && b2 < 130 && b2 < gg2 * 0.75) || (r > 165 && gg2 > 105 && b2 > 95);
-            if (false && (py2 < 59 || dark || amber)) {   // spin-4 fascia is clean blue: pure resample, no filtering needed
+            if (py2 > o.layout.bandSy + o.layout.bandSh + 4 && (dark || amber)) {   // bumper zone only: clear baked marker ambers + dark dot artifacts
               const f = 1.03 - py2 / 192 * 0.18;   // slight top-lit gradient
               sd[i] = Math.min(255, mr * f); sd[i + 1] = Math.min(255, mg * f); sd[i + 2] = Math.min(255, mb * f);
             }
@@ -321,11 +333,11 @@ function processSpoiler() {
           // Carrera 2 script on the upper tail panel
           g.fillStyle = o.dark ? '#e2ded8' : '#160a08';
           g.font = 'italic bold 27px cursive'; g.textAlign = 'center';
-          g.fillText('Carrera 2', 256, oy + 58);
+          g.fillText('Carrera 2', 256, oy + LY.scriptPy + 9);
           // full-width light band: black surround, amber corner clusters, ribbed
           // red reflector centre with PORSCHE lettering. SLIM like the real one —
           // ~10cm on a 1.31m car (~8% of body height), band centre at ~36% height
-          const sx = 0, sw = 512, sy = oy + 62, sh = 25, ac = 76;
+          const sx = 0, sw = 512, sy = oy + LY.bandSy, sh = LY.bandSh, ac = 76;
           g.fillStyle = '#0a0606'; g.fillRect(0, sy - 3, 512, sh + 6);
           g.fillStyle = '#9c1a16'; g.fillRect(sx, sy, ac, sh); g.fillRect(sx + sw - ac, sy, ac, sh);   // uniform red across the whole band (964 lenses read red)
           g.strokeStyle = 'rgba(0,0,0,0.45)'; g.lineWidth = 2;
@@ -340,13 +352,13 @@ function processSpoiler() {
           g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillText('P O R S C H E', 257, sy + sh / 2 + 7);
           g.fillStyle = '#e04a3e'; g.fillText('P O R S C H E', 256, sy + sh / 2 + 6);   // raised red letters, brighter than the reflector
           // bumper rub strip
-          g.fillStyle = '#17110f'; g.fillRect(8, oy + 164, 496, 8);
+          g.fillStyle = '#17110f'; g.fillRect(8, oy + LY.rubPy, 496, 8);
         }
         res(c.toDataURL('image/png'));
       };
       img.onerror = () => rej(new Error('decode'));
       img.src = o.src;
-    }), { src, t: tgt, s: size || 256, strip: !!strip, dark: !!dark, map: strip ? Array.from(remapTailUVs.map) : null });
+    }), { src, t: tgt, s: size || 256, strip: !!strip, dark: !!dark, map: strip ? Array.from(remapTailUVs.map) : null, layout: strip ? remapTailUVs.layout : null });
   }
   const RED = [200, 32, 30], SILVER = [176, 180, 186], BLACK = [30, 32, 36], WHITE = [225, 226, 224], YELLOW = [226, 190, 30];
   const COLS = [RED, RED, RED, SILVER, BLACK, WHITE, YELLOW];   // RED x3 = prevalent
