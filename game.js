@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.77.19';
+var GAME_VERSION = 'v1.77.20';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2279,33 +2279,58 @@ function _porTexMat(dataUrl, cache) {
   return nightLit(mat);
 }
 function getPorscheMat(ci) { if (!_porMatC[ci]) _porMatC[ci] = _porTexMat(PORSCHE_VEH.texs[ci]); return _porMatC[ci]; }
-// FLAT body-matched paint for the blade (owner: "color match the spoiler to
-// the car better"). The Meshy spoiler texture's top face bakes out near-black
-// while its sides are bright — no single tint fixes both, so the blade drops
-// the baked texture and samples the BODY texture's dominant paint cluster
-// instead: a guaranteed match on every colour variant, incl. future regens.
+// Body-matched spoiler paint, HYBRID (owner: "the black parts should have
+// remained black, and just the red gets color matched"): the baked Meshy
+// texture is kept — its black louvre grille + skirt stay black — but every
+// red-classified frame pixel is repainted to the BODY texture's dominant
+// paint cluster (baked shading preserved via a brightness ratio). The red
+// source texture (stexs[0]) drives all colour variants so classification is
+// stable. Falls back to flat red if canvas work fails.
+function _porDomColor(im) {
+  var cv = document.createElement('canvas'); cv.width = 96; cv.height = 96;
+  var c2 = cv.getContext('2d'); c2.drawImage(im, 0, 0, 96, 96);
+  var d = c2.getImageData(0, 0, 96, 96).data, bins = {}, best = null;
+  for (var i = 0; i < d.length; i += 4) {
+    var r = d[i], g = d[i + 1], b = d[i + 2], br = (r + g + b) / 3;
+    if (br < 12 || br > 235) continue;   // skip arch-cutout black + highlight white
+    var k = ((r >> 5) << 10) | ((g >> 5) << 5) | (b >> 5);
+    var e = bins[k] || (bins[k] = { n: 0, r: 0, g: 0, b: 0 });
+    e.n++; e.r += r; e.g += g; e.b += b;
+    if (!best || e.n > best.n) best = e;
+  }
+  return best ? [best.r / best.n, best.g / best.n, best.b / best.n] : [176, 32, 32];
+}
 function getPorscheSpoilerMat(ci) {
   if (_porSpMatC[ci]) return _porSpMatC[ci];
-  var mat = lamb({ color: 0xb02020 });   // red until the body tex is sampled
+  var mat = lamb({ color: 0xb02020 });   // flat red until the repaint lands
   _porSpMatC[ci] = nightLit(mat);
-  var im = new Image();
-  im.onload = function () {
+  var bodyIm = new Image(), spIm = new Image(), loaded = 0;
+  function ready() {
+    if (++loaded < 2) return;
     try {
-      var cv = document.createElement('canvas'); cv.width = 96; cv.height = 96;
-      var c2 = cv.getContext('2d'); c2.drawImage(im, 0, 0, 96, 96);
-      var d = c2.getImageData(0, 0, 96, 96).data, bins = {}, best = null;
+      var bc = _porDomColor(bodyIm);
+      var cv = document.createElement('canvas'); cv.width = spIm.width; cv.height = spIm.height;
+      var c2 = cv.getContext('2d'); c2.drawImage(spIm, 0, 0);
+      var id = c2.getImageData(0, 0, cv.width, cv.height), d = id.data;
       for (var i = 0; i < d.length; i += 4) {
-        var r = d[i], g = d[i + 1], b = d[i + 2], br = (r + g + b) / 3;
-        if (br < 12 || br > 235) continue;   // skip arch-cutout black + highlight white
-        var k = ((r >> 5) << 10) | ((g >> 5) << 5) | (b >> 5);
-        var e = bins[k] || (bins[k] = { n: 0, r: 0, g: 0, b: 0 });
-        e.n++; e.r += r; e.g += g; e.b += b;
-        if (!best || e.n > best.n) best = e;
+        var r = d[i], g = d[i + 1], b = d[i + 2];
+        if (r > 60 && r > g * 1.35 + 12 && r > b * 1.35 + 12) {   // red frame pixel
+          var sh = Math.min(1.6, r / 171);   // shading vs the texture's modal red
+          d[i] = Math.min(255, bc[0] * sh);
+          d[i + 1] = Math.min(255, bc[1] * sh);
+          d[i + 2] = Math.min(255, bc[2] * sh);
+        }
       }
-      if (best) mat.color.setRGB((best.r / best.n) / 255, (best.g / best.n) / 255, (best.b / best.n) / 255);
-    } catch (e) { /* canvas blocked -> keep the red fallback */ }
-  };
-  im.src = PORSCHE_VEH.texs[Math.min(ci, PORSCHE_VEH.texs.length - 1)];
+      c2.putImageData(id, 0, 0);
+      var tx = new THREE.Texture(cv);
+      tx.magFilter = THREE.NearestFilter; tx.minFilter = THREE.NearestFilter; tx.generateMipmaps = false;
+      tx.needsUpdate = true;
+      mat.map = tx; mat.color.setHex(0xffffff); mat.needsUpdate = true;
+    } catch (e) { /* canvas blocked -> keep the flat red fallback */ }
+  }
+  bodyIm.onload = ready; spIm.onload = ready;
+  bodyIm.src = PORSCHE_VEH.texs[Math.min(ci, PORSCHE_VEH.texs.length - 1)];
+  spIm.src = (PORSCHE_VEH.stexs || [PORSCHE_VEH.stex])[0];
   return _porSpMatC[ci];
 }
 // red is prevalent: texs 0..2 = red, 3 silver, 4 black, 5 white, 6 yellow
@@ -2451,7 +2476,7 @@ function updatePorscheSpoiler(c, dt, spd) {
   var sp = c.car.spoiler, u = sp.userData;
   if (spd === undefined) spd = c.pspeed || 0;
   if (c._spOn === undefined) c._spOn = false;
-  if (spd > 17) c._spOn = true; else if (spd < 9) c._spOn = false;
+  if (spd > 20) c._spOn = true; else if (spd < 9) c._spOn = false;   // 20 u/s ~ 45 mph
   var want = c._spOn ? 1 : 0;
   var d = u.deploy + (want - u.deploy) * Math.min(1, 3.5 * dt);
   if (Math.abs(d - want) < 0.004) d = want;
@@ -13069,6 +13094,40 @@ function lakeCarPhysics(c, dt) {
 }
 // per-vehicle-body driving feel (mrg45yad). Step vans / wagons are heavier:
 // slower to build speed and a lower top end than the nimble sedans/taxis.
+// ---- real 964 Carrera 2 drivetrain (owner: "realistic 964 top speed, with
+// realistic gear and gear changes, and accurate acceleration in each gear...
+// program in the power band") ----
+// M64/01 3.6 flat-six torque curve (Nm vs rpm, 250 PS @ 6100, 310 Nm @ 4800),
+// G50/03 ratios x 3.444 final, 0.31 m tyre, ~1420 kg with driver, aero +
+// rolling drag. Top speed EMERGES from power vs drag: ~72 u/s (~260 km/h /
+// 162 mph) at ~6650 rpm in 5th. Upshift at 6600 rpm with a 0.35 s clutch cut,
+// downshift below 2200. 1 world unit ~ 1 m.
+var POR_TQ = [[1000, 205], [2000, 250], [3000, 280], [4000, 300], [4800, 310], [5600, 300], [6100, 288], [6700, 255]];
+var POR_RATIO = [12.05, 7.29, 4.97, 3.74, 2.99];   // gear x final drive
+var POR_RPM_PER_MS = 30.8;                          // 9.549 / 0.31 m tyre radius
+function porTorque(rpm) {
+  if (rpm <= POR_TQ[0][0]) return POR_TQ[0][1];
+  for (var i = 1; i < POR_TQ.length; i++) {
+    if (rpm <= POR_TQ[i][0]) {
+      var a = POR_TQ[i - 1], b = POR_TQ[i];
+      return a[1] + (b[1] - a[1]) * (rpm - a[0]) / (b[0] - a[0]);
+    }
+  }
+  return POR_TQ[POR_TQ.length - 1][1];
+}
+function porscheDrive(c, dt) {
+  var v = Math.max(0, c.pspeed);
+  if (c.gear === undefined) { c.gear = 0; c.clutchT = 0; }
+  var rpm = Math.max(1000, v * POR_RATIO[c.gear] * POR_RPM_PER_MS);
+  if (rpm > 6600 && c.gear < 4) { c.gear++; c.clutchT = 0.35; }        // upshift: brief torque cut
+  else if (rpm < 2200 && c.gear > 0) { c.gear--; }                     // downshift keeps it on the band
+  rpm = Math.max(1000, Math.min(6700, v * POR_RATIO[c.gear] * POR_RPM_PER_MS));
+  c.rpm = rpm;
+  if ((c.clutchT || 0) > 0) { c.clutchT -= dt; return 0; }
+  var F = porTorque(rpm) * POR_RATIO[c.gear] * 0.88 / 0.31;            // wheel force, 88% driveline eff
+  F -= 0.40 * v * v + 180;                                             // aero + rolling resistance
+  return Math.min(7.2, F / 1420);                                      // traction-limited launch
+}
 function carHandling(vname) {
   if (vname === 'GG_STEPVAN') return { acc: 0.62, top: 0.80 };
   if (vname === 'GG_WAGON') return { acc: 0.85, top: 0.92 };
@@ -13111,12 +13170,14 @@ function updateDriving(dt) {
   if (c.handling === undefined) c.handling = carHandling(c.car && c.car.vname);
   var hd = c.handling;
   var topF = 39 * hd.top, topR = 13.5 * hd.top;   // +50% top speed (was 26 / 9)
+  var isPor = !!(c.car && c.car.isPorsche);
+  if (isPor) { topF = 73; topR = 13.5; }          // real 964: ~260 km/h forward, normal reverse
   c.pspeed = c.pspeed || 0;
   var airborne = !!c.airborne;
   var throttle = (c.flooding || c.sunk || airborne) ? 0 : (keys['KeyW'] ? 1 : (keys['KeyS'] ? -1 : 0));
   // longitudinal: SAME launch force (7) tapering toward the (now higher) top, so
   // the early pull is unchanged and you keep gaining past the old top up to the new.
-  if (throttle > 0) accel = 7 * hd.acc * (1 - Math.min(1, Math.max(0, c.pspeed) / topF));
+  if (throttle > 0) accel = isPor ? porscheDrive(c, dt) : 7 * hd.acc * (1 - Math.min(1, Math.max(0, c.pspeed) / topF));
   else if (throttle < 0) {
     if (c.pspeed > 0.4) accel = -30 * hd.acc;   // firm braking against forward motion
     else accel = -8 * hd.acc * (1 - Math.min(1, -Math.min(0, c.pspeed) / topR));  // gradual reverse
