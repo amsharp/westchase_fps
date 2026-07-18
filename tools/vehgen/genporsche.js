@@ -157,7 +157,7 @@ function processBody(flipNose) {
   // lid pitch at the mount (rad, + = falls toward the tail): the stowed tray
   // must LIE ON the sloping lid — laid level it stands proud at the rear like
   // a deployed ducktail
-  const slope = Math.max(0, Math.min(0.20, Math.atan2(dWin - dTail, 0.06 * L)));
+  const slope = Math.max(0, Math.min(0.45, Math.atan2(dWin - dTail, 0.06 * L)));   // true lid pitch (the 0.20 clamp flattened the stowed line)
   const mount = [rd(mountX), rd(deckY), 0, rd(slope)];
   // re-island the tail onto the atlas strip, then re-quantize with the new UVs
   // (skipped in --plain mode: original UVs + Meshy texture ship untouched)
