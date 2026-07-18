@@ -51,7 +51,7 @@ function quant(pos, uv) {
 // from the fender edge over the span.
 function processBody(flipNose) {
   const g = parseGLB(path.join(WORK, 'PORSCHEBODY.glb'));
-  const pos = g.pos.slice(); const n = pos.length / 3;
+  let pos = g.pos.slice(); let n = pos.length / 3;
   let bb = bbox(pos);
   const rotated = (bb.mx[2] - bb.mn[2]) > (bb.mx[0] - bb.mn[0]);
   for (let v = 0; v < n; v++) { let x = pos[v * 3], y = pos[v * 3 + 1], z = pos[v * 3 + 2]; if (rotated) { const t = x; x = z; z = -t; } if (flipNose) { x = -x; z = -z; } pos[v * 3] = x; pos[v * 3 + 1] = y; pos[v * 3 + 2] = z; }
@@ -63,9 +63,30 @@ function processBody(flipNose) {
   // the window base) so nothing pokes up beside the black void + spoiler
   for (let v = 0; v < n; v++) {
     const x = pos[v * 3], y = pos[v * 3 + 1], az = Math.abs(pos[v * 3 + 2]);
-    if (x > -0.80 && x < -0.44 && az < 0.34 && y > 0.30) {
-      const cap = 0.34 + (x + 0.80) * 0.1806;   // 0.34 @ x=-0.80 -> 0.405 @ x=-0.44
+    if (false) {   // spin-4 mesh has no deck fins; clamp retired (kept for reference)
+      const cap = x < -0.50 ? (0.34 + (x + 0.80) * 0.1806) : 0.380;
       if (y > cap) pos[v * 3 + 1] = cap;
+    }
+  }
+  // ...and DELETE any triangle living entirely inside the fin box beside the
+  // recess (x -0.54..-0.36, |z| 0.16..0.35, y > 0.39) — the black void quad
+  // covers that patch of deck from above, so holes there are invisible
+  {
+    const keepTri = [];
+    const nT = pos.length / 9;
+    for (let t = 0; t < nT; t++) {
+      let touches = false;
+      for (let k = 0; k < 3; k++) {
+        const x = pos[t * 9 + k * 3], y = pos[t * 9 + k * 3 + 1], az = Math.abs(pos[t * 9 + k * 3 + 2]);
+        if (false && x > -0.54 && x < -0.36 && az > 0.15 && az < 0.35 && y > 0.402) { touches = true; break; }   // retired with the v1 mesh (cuts window corners on others)
+      }
+      if (!touches) keepTri.push(t);
+    }
+    if (keepTri.length < nT) {
+      console.log('fin surgery: deleted', nT - keepTri.length, 'tris');
+      const np = new Float32Array(keepTri.length * 9), nu = new Float32Array(keepTri.length * 6);
+      keepTri.forEach((t, i) => { np.set(pos.slice(t * 9, t * 9 + 9), i * 9); nu.set(g.uv.slice(t * 6, t * 6 + 6), i * 6); });
+      pos = np; g.uv = nu; n = pos.length / 3;
     }
   }
   const q = quant(pos, g.uv);
@@ -150,7 +171,7 @@ function remapTailUVs(pos, uv, L, H, W) {
     const nyy = e1z * e2x - e1x * e2z, nzz = e1x * e2y - e1y * e2x;
     const nl = Math.hypot(nx, nyy, nzz) || 1; nx /= nl;
     const mx2 = (ax + bx + cx2) / 3, my = (ay + by + cy) / 3;
-    if (mx2 < -0.40 * L && my < 0.70 * H && nx < -0.30) {
+    if (mx2 < -0.38 * L && my < 0.70 * H && nx < -0.18) {
       keep.push(t);
       yMin = Math.min(yMin, ay, by, cy); yMax = Math.max(yMax, ay, by, cy);
     }
@@ -282,16 +303,17 @@ function processSpoiler() {
           const smp = [];
           for (let i = 0; i < sd.length; i += 4) {
             const r = sd[i], gg2 = sd[i + 1], b2 = sd[i + 2];
-            const dark = Math.max(r, gg2, b2) < 60, amber = (r > 140 && gg2 > 70 && gg2 < 180 && b2 < 80 && r > gg2 * 1.35) || (r > 170 && gg2 > 140 && b2 < 130 && b2 < gg2 * 0.75);
+            const dark = Math.max(r, gg2, b2) < 60, amber = (r > 140 && gg2 > 70 && gg2 < 180 && b2 < 80 && r > gg2 * 1.35) || (r > 170 && gg2 > 140 && b2 < 130 && b2 < gg2 * 0.75) || (r > 165 && gg2 > 105 && b2 > 95);
             if (!dark && !amber) smp.push(i);
           }
           const mid = smp.length ? smp[(smp.length / 2) | 0] : 0;
           const mr = sd[mid], mg = sd[mid + 1], mb = sd[mid + 2];
           for (let i = 0; i < sd.length; i += 4) {
+            const py2 = (i / 4 / S) | 0;
             const r = sd[i], gg2 = sd[i + 1], b2 = sd[i + 2];
-            const dark = Math.max(r, gg2, b2) < 60, amber = (r > 140 && gg2 > 70 && gg2 < 180 && b2 < 80 && r > gg2 * 1.35) || (r > 170 && gg2 > 140 && b2 < 130 && b2 < gg2 * 0.75);
-            if (dark || amber) {
-              const py2 = (i / 4 / S) | 0, f = 1.03 - py2 / 192 * 0.18;   // slight top-lit gradient
+            const dark = Math.max(r, gg2, b2) < 60, amber = (r > 140 && gg2 > 70 && gg2 < 180 && b2 < 80 && r > gg2 * 1.35) || (r > 170 && gg2 > 140 && b2 < 130 && b2 < gg2 * 0.75) || (r > 165 && gg2 > 105 && b2 > 95);
+            if (false && (py2 < 59 || dark || amber)) {   // spin-4 fascia is clean blue: pure resample, no filtering needed
+              const f = 1.03 - py2 / 192 * 0.18;   // slight top-lit gradient
               sd[i] = Math.min(255, mr * f); sd[i + 1] = Math.min(255, mg * f); sd[i + 2] = Math.min(255, mb * f);
             }
           }
@@ -303,20 +325,20 @@ function processSpoiler() {
           // full-width light band: black surround, amber corner clusters, ribbed
           // red reflector centre with PORSCHE lettering. SLIM like the real one —
           // ~10cm on a 1.31m car (~8% of body height), band centre at ~36% height
-          const sx = 8, sw = 496, sy = oy + 62, sh = 25, ac = 76;
-          g.fillStyle = '#0a0606'; g.fillRect(sx - 3, sy - 3, sw + 6, sh + 6);
-          g.fillStyle = '#6e1210'; g.fillRect(sx, sy, ac, sh); g.fillRect(sx + sw - ac, sy, ac, sh);   // uniform dark red across the whole band (964 lenses read red)
+          const sx = 0, sw = 512, sy = oy + 62, sh = 25, ac = 76;
+          g.fillStyle = '#0a0606'; g.fillRect(0, sy - 3, 512, sh + 6);
+          g.fillStyle = '#9c1a16'; g.fillRect(sx, sy, ac, sh); g.fillRect(sx + sw - ac, sy, ac, sh);   // uniform red across the whole band (964 lenses read red)
           g.strokeStyle = 'rgba(0,0,0,0.45)'; g.lineWidth = 2;
           for (let i = 1; i < 4; i++) {
             const a = sx + ac * i / 4, b2 = sx + sw - ac + ac * i / 4;
             g.beginPath(); g.moveTo(a, sy); g.lineTo(a, sy + sh); g.moveTo(b2, sy); g.lineTo(b2, sy + sh); g.stroke();
           }
-          g.fillStyle = '#6e1210'; g.fillRect(sx + ac, sy, sw - ac * 2, sh);
+          g.fillStyle = '#9c1a16'; g.fillRect(sx + ac, sy, sw - ac * 2, sh);
           g.strokeStyle = 'rgba(0,0,0,0.35)'; g.lineWidth = 1;
           for (let hy = sy + 6; hy < sy + sh; hy += 6) { g.beginPath(); g.moveTo(sx + ac, hy); g.lineTo(sx + sw - ac, hy); g.stroke(); }
           g.font = 'bold 17px Arial'; g.textAlign = 'center';
           g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillText('P O R S C H E', 257, sy + sh / 2 + 7);
-          g.fillStyle = '#b8342a'; g.fillText('P O R S C H E', 256, sy + sh / 2 + 6);   // raised red letters, brighter than the reflector
+          g.fillStyle = '#e04a3e'; g.fillText('P O R S C H E', 256, sy + sh / 2 + 6);   // raised red letters, brighter than the reflector
           // bumper rub strip
           g.fillStyle = '#17110f'; g.fillRect(8, oy + 164, 496, 8);
         }

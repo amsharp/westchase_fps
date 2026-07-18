@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.30';
+var GAME_VERSION = 'v1.76.31';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2307,10 +2307,13 @@ function buildPorsche(ci) {
     pivot.userData.rise = 0.045 * s;                          // vertical lift at full deploy (blade stays BELOW the rear window)
     pivot.userData.riseRot = 0.24;                            // radians of tilt at full deploy
     body.add(pivot); spoiler = pivot;
-    // black void quad in the deck footprint under the spoiler
-    var vw = P.spoiler.dims[0] * sc * 1.05, vd = P.spoiler.dims[2] * sc * 1.02;
+    // black void quad: covers the recess from just aft of the window base back
+    // over the whole spoiler footprint (the real 964 recess spans that area),
+    // hiding the flattened deck shelf the generator sinks beneath it
+    var rearE = mX - P.spoiler.dims[0] * sc * 0.55, fwdE = -0.375 * s;
+    var vw = fwdE - rearE, vd = P.spoiler.dims[2] * sc * 1.02;
     var vq = new THREE.Mesh(new THREE.PlaneGeometry(vw, vd), new THREE.MeshBasicMaterial({ color: 0x090909 }));
-    vq.rotation.x = -Math.PI / 2; vq.position.set(mX, deckY + 0.005, 0);
+    vq.rotation.x = -Math.PI / 2; vq.position.set((rearE + fwdE) / 2, deckY + 0.005, 0);
     body.add(vq);
   }
   // (taillight band + Carrera 2 script are BAKED into the body atlas by
