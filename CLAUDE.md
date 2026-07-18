@@ -148,9 +148,27 @@ forest walls + "ROAD CLOSED" barriers at the four road exits.
   launcher $2000 (visible projectile, 5 s cooldown, self-damage). Snack item
   (gas station, $20, +50 hp, consumable). Death drops all owned guns as
   pickups (2 min despawn; duplicate pickup = half-price refund).
+- **Forest cabin + axe pickup** (`CABIN`, `getCabinMesh`, `placeForestCabin`,
+  `ensureCabinAxe`): a Meshy image-to-3d pallet-wood shed w/ corrugated barrel
+  roof (`cabin.js` = `CABIN_DATA`, same `{q,dims,p,u,i,tex}` quantization as the
+  guns, decoded like `getAxeMesh`; loaded before game.js, game guards
+  `typeof CABIN_DATA`). Placed at `CABIN {x:-344,z:-470}` in the empty NW forest
+  corridor (door baked to +Z via the converter's 180° ROTY; footprint collider +
+  `mapBuildings` minimap box; a ring of oaks/palms/bushes around it with a clear
+  apron + open door approach). The AXE now spawns here instead of the dealer:
+  `WEAPONS.axe.worldOnly` (kept in `GUN_LIST` so it still counts as an armed
+  weapon, but `refreshShop` skips `worldOnly`), and `ensureCabinAxe()` (called
+  each frame before `updateDrops`) keeps a spinning axe `drops` pickup at
+  `CABIN_AXE` whenever `!state.owned.axe` — grab it once; a fresh one only
+  reappears after you lose it (death clears `owned.axe`). Local/per-player, never
+  net-synced. `dropMesh('axe')` renders the real axe model. Offline gen tooling:
+  scratchpad `cabin/` (seed.js gpt-image seed → `tools/vehgen/vehpipe.js`
+  image-to-3d → `gun_glb_parse.js` → `cabin/cabin_conv.js` bottom-at-0 quantize +
+  256px tex). Original 21k-tri mesh kept (Meshy's remesh to <1k holed the walls).
 - **Gore**: shotgun ($500) close headshot decapitates (`decapitateNPC`:
   PSX hides `userData.head` + flings a gib; skinned shrinks `userData.headBone`;
-  restored on respawn). Axe ($400, `melee`+`bisect`) `bisectNPC` swaps the NPC
+  restored on respawn). Axe (`worldOnly` — NOT sold; spawns at the forest
+  cabin, see below) (`melee`+`bisect`) `bisectNPC` swaps the NPC
   for TWO copies of a generic bloody half-body gib (`halfbody.js` /
   `HALFBODY_DATA` — a Meshy full body split down x=0 with a blood-capped cut
   face, ONE half stored + mirrored via scale.x=-1 for the other); they topple

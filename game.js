@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.43';
+var GAME_VERSION = 'v1.77.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -44,7 +44,7 @@ var NE_EXIT_Z = -200, SE_EXIT_X = 278;
 
 var WEAPONS = {
   fists:  { name: 'FISTS',  melee: true, dmg: 34, rate: 0.42, range: 2.4 },
-  axe:    { name: 'AXE',    price: 400, melee: true, dmg: 200, rate: 0.62, range: 2.8, bisect: true, desc: 'Heavy chopping axe — a solid hit cleaves a body clean in half.' },
+  axe:    { name: 'AXE',    price: 400, worldOnly: true, melee: true, dmg: 200, rate: 0.62, range: 2.8, bisect: true, desc: 'Heavy chopping axe — a solid hit cleaves a body clean in half.' },
   pistol: { name: 'PISTOL', price: 150, dmg: 40, rate: 0.2, auto: false, spread: 0.014, desc: '9mm sidearm. Reliable.', flashAt: [0.26, -0.265, -0.9] },
   smg:    { name: 'SMG',    price: 400, dmg: 15, rate: 0.065, auto: true, spread: 0.008, spreadMax: 0.05, bloomPerShot: 0.006, desc: 'First shots on target. Then it sprays.', flashAt: [0.26, -0.262, -1.2] },
   rifle:  { name: 'RIFLE',  price: 600, dmg: 95, rate: 0.8,  auto: false, spread: 0.004, desc: 'One shot, one nap. Right-click to scope.', flashAt: [0.24, -0.235, -1.38] },
@@ -14369,6 +14369,7 @@ function dropMesh(kind) {
     g.add(box(0.1, 0.12, 0.45, darkMetalM, 0, 0, 0)); g.add(box(0.09, 0.24, 0.13, gripM, 0, -0.14, 0.14));
     var sup = cyl(0.05, 0.05, 0.34, 10, darkMetalM, 0, 0, -0.36); sup.rotation.x = Math.PI / 2; g.add(sup);
   }
+  else if (kind === 'axe') { var ax = (typeof getAxeMesh === 'function') ? getAxeMesh(1.25) : null; if (ax) { g.add(ax); return g; } g.add(box(0.08, 0.9, 0.14, woodM, 0, 0, 0)); g.add(box(0.34, 0.22, 0.06, metalM, 0, 0.42, 0)); }
   else { var tb = cyl(0.09, 0.09, 1.0, 10, rocketBodyM, 0, 0, 0); tb.rotation.x = Math.PI / 2; g.add(tb); }
   return g;
 }
@@ -17091,6 +17092,87 @@ var vmAxe = new THREE.Group();
   }
 })();
 var vmMap = { fists: vmFists, pistol: vmPistol, shotgun: vmShotgun, axe: vmAxe, smg: vmSmg, rifle: vmRifle, auto: vmAuto, rocket: vmRocket, raygun: vmRaygun, snack: vmSnack };
+
+// ==================== FOREST CABIN (axe spawn) ====================
+// A pallet-wood shed with a corrugated barrel-metal roof (Meshy image-to-3d,
+// cabin.js), dropped in the empty NW forest corridor between the two big
+// forest blocks. This is where the AXE lives now (no longer sold by the
+// dealer): a spinning axe pickup sits at the door; grab it once and that's it
+// — a fresh one only reappears if you lose the axe (e.g. on death). Local /
+// per-player like interiors — never on the MP wire.
+var CABIN = { x: -344, z: -470 };                 // door faces +Z (south, the driving approach)
+var CABIN_AXE = { x: -344, z: -463.5 };           // spinning axe pickup, just outside the door
+var _cabinCache = null;
+function getCabinMesh(targetW) {
+  if (typeof CABIN_DATA === 'undefined') return null;
+  if (_cabinCache) return _cabinCache.clone();
+  var e = CABIN_DATA;
+  var qp = new Int16Array(b64Bytes(e.p).buffer), qu = new Uint16Array(b64Bytes(e.u).buffer);
+  var fp = new Float32Array(qp.length), fu = new Float32Array(qu.length);
+  for (var i = 0; i < qp.length; i++) fp[i] = qp[i] / e.q;
+  for (i = 0; i < qu.length; i += 2) { fu[i] = qu[i] / 8192; fu[i + 1] = 1 - qu[i + 1] / 8192; }
+  var im = new Image();
+  var tx = new THREE.Texture(im);
+  tx.magFilter = THREE.NearestFilter; tx.minFilter = THREE.LinearMipmapLinearFilter;
+  im.onload = function () { tx.needsUpdate = true; };
+  im.src = e.tex;
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(fp, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(fu, 2));
+  if (e.i) geo.setIndex(new THREE.BufferAttribute(new Uint16Array(b64Bytes(e.i).buffer), 1));
+  geo.computeVertexNormals();
+  var m = new THREE.Mesh(geo, lamb({ map: tx, side: THREE.DoubleSide }));
+  var s = (targetW || 5.2) / (e.dims && e.dims[0] || 1);
+  m.scale.set(s, s, s);
+  _cabinCache = m;
+  return m.clone();
+}
+(function placeForestCabin() {
+  if (typeof CABIN_DATA === 'undefined') return;
+  var targetW = 5.4, m = getCabinMesh(targetW);
+  if (!m) return;
+  m.position.set(CABIN.x, 0, CABIN.z);
+  scene.add(m);
+  var e = CABIN_DATA, s = targetW / (e.dims[0] || 1);
+  var fw = e.dims[0] * s, fd = e.dims[2] * s, fh = e.dims[1] * s;
+  addCollider(CABIN.x, CABIN.z, fw * 0.88, fd * 0.88, 'cabin');    // block the walls (door side is walk-up only)
+  mapBuildings.push({ x: CABIN.x, z: CABIN.z, w: fw, d: fd, h: fh, c: '#6f4a2a', pad: false });
+  // ring of trees + bushes AROUND it (kept off the cabin + a clear apron); the
+  // corridor's forest walls already back it to the E/W, so this fills in and
+  // encloses it without crowding the walls or blocking the door approach.
+  var clearR = fw * 0.5 + 4.5;                                     // no vegetation inside this apron
+  function ringClear(x, z) {
+    var dx = x - CABIN.x, dz = z - CABIN.z;
+    if (dx * dx + dz * dz < clearR * clearR) return false;         // too close to the cabin
+    if (Math.abs(x - CABIN.x) < fw * 0.6 && z > CABIN.z && z < CABIN.z + 12) return false;  // keep the door approach open
+    return true;
+  }
+  var ti = 0;
+  for (var a = 0; a < Math.PI * 2 - 0.01; a += 0.42) {
+    var rr = clearR + 3 + (ti % 3) * 4.5 + (ti * 2.3 % 3);
+    var tx2 = CABIN.x + Math.cos(a) * rr, tz2 = CABIN.z + Math.sin(a) * rr;
+    if (ringClear(tx2, tz2)) { if (ti % 3 === 0 && typeof palm === 'function') palm(tx2, tz2); else oak(tx2, tz2, 0.8 + (ti % 2) * 0.3); }
+    ti++;
+  }
+  for (var bi = 0; bi < 26; bi++) {
+    var ba = bi * 0.62, br = clearR + 1.5 + (bi * 1.7 % 9);
+    var bx = CABIN.x + Math.cos(ba) * br, bz = CABIN.z + Math.sin(ba) * br;
+    if (ringClear(bx, bz) && typeof bush === 'function') bush(bx, bz, 0.7 + (bi % 3) * 0.25);
+  }
+})();
+// spinning axe pickup at the cabin — present whenever the player doesn't own the
+// axe (so you can't stockpile; a lost axe respawns here). Local, not net-synced.
+var cabinAxeDrop = null;
+function ensureCabinAxe() {
+  if (typeof CABIN_DATA === 'undefined') return;
+  if (state.owned.axe) return;                                     // already have one -> none to grab
+  if (cabinAxeDrop && drops.indexOf(cabinAxeDrop) >= 0) return;    // still sitting there
+  var g = dropMesh('axe');
+  g.position.set(CABIN_AXE.x, 0.7, CABIN_AXE.z);
+  scene.add(g);
+  cabinAxeDrop = { mesh: g, kind: 'axe', life: 1e9, cabin: true };
+  drops.push(cabinAxeDrop);
+}
 // streetprops soda: red can in hand (registered before the add/hide pass below)
 var vmSoda = new THREE.Group();
 (function () {
@@ -19100,7 +19182,7 @@ function refreshShop() {
   var rows = document.getElementById('shopRows'); rows.innerHTML = '';
   GUN_LIST.forEach(function (k) {
     var w = WEAPONS[k], row = document.createElement('div'); row.className = 'row';
-    if (!w.price) return;   // not for sale (ray gun drops from... something)
+    if (!w.price || w.worldOnly) return;   // not for sale (ray gun drops; axe spawns at the forest cabin)
     var price = w.price;
     var pl = price < w.price ? '<span class="cash">$' + price + '</span> <small style="opacity:.6;text-decoration:line-through">$' + w.price + '</small>' : '<span class="cash">$' + price + '</span>';
     var left = document.createElement('div'); left.innerHTML = '<b>' + w.name + '</b> — ' + pl + '<small>' + w.desc + '</small>'; row.appendChild(left);
@@ -22021,7 +22103,7 @@ function loop(now) {
   if (photoMode) { updatePhotoCam(dt); renderer.render(scene, camera); return; }
   T += dt;
   var sdt = dt;
-  updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
+  updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); ensureCabinAxe(); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
   if (state.dead) updateDeathCam(dt);   // top-down zoom-out cinematic drives the camera while dead
   renderer.render(scene, camera);
 }
@@ -22396,7 +22478,7 @@ window.__wc = {
   // lightweight physics step (no render, no NPC/cop/car sim) — fast headless
   // stepping for plane/fall tests. Renders only when you call renderer yourself.
   stepLite: function (dt) { T += dt; updatePlayer(dt); updatePlaneWorld(dt); },
-  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
+  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); ensureCabinAxe(); updateDrops(dt); updateUfo(sdt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
 };
 
 // ---------------- boot screen handoff + menu cover art ----------------
