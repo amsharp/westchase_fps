@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.35';
+var GAME_VERSION = 'v1.76.36';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2302,7 +2302,7 @@ function buildPorsche(ci) {
     // the flat black grille as part of the deck). The body-colour blade edge
     // only becomes visible once deployed, like the real car.
     var pivot = new THREE.Group();
-    pivot.position.set(mX + (P.spoiler.dims[0] * sc) / 2, deckY - spH + 0.015, 0);
+    pivot.position.set(mX + (P.spoiler.dims[0] * sc) / 2, deckY - spH + 0.007, 0);
     sp.position.set(-(P.spoiler.dims[0] * sc) / 2, 0, 0);
     pivot.add(sp);
     pivot.userData.baseX = pivot.position.x; pivot.userData.baseY = pivot.position.y; pivot.userData.deploy = 0;
@@ -2310,13 +2310,12 @@ function buildPorsche(ci) {
     pivot.userData.rise = 0.085 * s;                          // ~20cm straight lift on the bellows (ref photos)
     pivot.userData.riseRot = 0.12;                            // blade stays near-horizontal (~7 deg)
     body.add(pivot); spoiler = pivot;
-    // black void quad: covers the recess from just aft of the window base back
-    // over the whole spoiler footprint (the real 964 recess spans that area),
-    // hiding the flattened deck shelf the generator sinks beneath it
-    var rearE = mX - P.spoiler.dims[0] * sc * 0.55, fwdE = -0.375 * s;
-    var vw = fwdE - rearE, vd = P.spoiler.dims[2] * sc * 1.02;
+    // black void quad = the recess floor, EXACTLY the spoiler footprint: hidden
+    // beneath the flush-stowed blade, revealed as the black hole when it lifts
+    // (matches the real car — stowed you see no black deck at all)
+    var vw = P.spoiler.dims[0] * sc * 1.02, vd = P.spoiler.dims[2] * sc * 0.98;
     var vq = new THREE.Mesh(new THREE.PlaneGeometry(vw, vd), new THREE.MeshBasicMaterial({ color: 0x090909 }));
-    vq.rotation.x = -Math.PI / 2; vq.position.set((rearE + fwdE) / 2, deckY + 0.005, 0);
+    vq.rotation.x = -Math.PI / 2; vq.position.set(mX, deckY + 0.004, 0);
     body.add(vq);
   }
   // (taillight band + Carrera 2 script are BAKED into the body atlas by
