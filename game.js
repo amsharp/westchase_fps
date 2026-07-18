@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.77.16';
+var GAME_VERSION = 'v1.77.17';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2358,14 +2358,10 @@ function buildPorsche(ci) {
     // breakout #7: 0.10*spD horizontal-FORWARD — the stowed blade sits fully
     // flush/submerged; it only appears when it deploys
     var m3v = m[3] || 0;
-    // net HORIZONTAL offset of the whole assembly (owner picks: through-skin
-    // breakout #7 forward -0.10*spD, then deployed side-profile #8 rearward
-    // +0.28*spD => net +0.18*spD toward the tail)
-    var hOff = 0.18 * spD;
-    // vertical pick #6: whole assembly drops 0.15*spD straight down (world)
-    var vOff = 0.15 * spD;
-    var stowDX = 0.16 * spD - hOff * Math.cos(m3v) - vOff * Math.sin(m3v);
-    var stowDY = -0.07 + hOff * Math.sin(m3v) - vOff * Math.cos(m3v);
+    // STOW seat (owner picks #5 up-lid / depth #2 / pitch #4 / through-skin #7):
+    // fully flush under the skin — invisible until it deploys
+    var stowDX = 0.16 * spD + 0.10 * spD * Math.cos(m3v);
+    var stowDY = -0.07 - 0.10 * spD * Math.sin(m3v);
     var pivot = new THREE.Group();
     pivot.position.set(spD / 2 + stowDX, -spH + 0.008 + stowDY, 0);
     sp.position.set(-spD / 2, 0, 0);
@@ -2375,6 +2371,12 @@ function buildPorsche(ci) {
     pivot.userData.stowRot = 0.06;                            // stow pitch: owner's rotation pick #4 (was 0.13, tail edge up a touch)
     pivot.rotation.z = 0.06;
     pivot.userData.riseRot = (m[3] || 0);                     // cancels the lid-pitch frame EXACTLY: deployed blade is parallel to the ground
+    // DEPLOY pose (owner picks: rearward 0.28+0.20, down 0.15 — all *spD, world
+    // axes, from the stow seat): reached by TRANSLATING along this vector while
+    // rotating level — a 4-bar linkage, per the owner
+    var depR = 0.48 * spD, depDn = 0.15 * spD;
+    pivot.userData.depDX = -depR * Math.cos(m3v) - depDn * Math.sin(m3v);
+    pivot.userData.depDY = depR * Math.sin(m3v) - depDn * Math.cos(m3v);
     tilt.add(pivot); spoiler = pivot;
     // (the black "recess floor" quad is GONE — owner: it kept clipping into
     // the deck. The engine grille baked into the body texture reads fine on
@@ -2426,23 +2428,24 @@ function updateCarFeel(c, dt, spd, accel, steer) {
   c.steerA += (target - c.steerA) * Math.min(1, 10 * dt);
   cc.pivots[0].rotation.y = c.steerA;
   cc.pivots[1].rotation.y = c.steerA;
-  if (cc.spoiler) updatePorscheSpoiler(c, dt, asp);
+  if (cc.spoiler) updatePorscheSpoiler(c, dt, spd);   // SIGNED speed: never deploys in reverse
 }
-// Carrera auto-spoiler: deploys above ~12 u/s, stows below ~8 (hysteresis).
-// PURE HINGE (owner: "movement is still a 4-bar" — so NO translation at all):
-// the pivot group origin IS the blade's leading edge, seated in the recess at
-// the window base. Deploy only rotates about that fixed hinge, from the
-// lid-hugging stow pitch to ground-parallel; the trailing edge sweeps one
-// clean arc about a visible, stationary pivot.
-function updatePorscheSpoiler(c, dt, asp) {
+// Carrera auto-spoiler: 4-BAR LINKAGE between the owner's two signed-off poses
+// — the blade TRANSLATES out of the flush stow seat along the deploy vector
+// WHILE rotating level, like the real car's bellows mechanism. Deploys above
+// ~17 u/s (~45 mph) going FORWARD only (signed speed: reversing fast never
+// pops it), stows again below ~9.
+function updatePorscheSpoiler(c, dt, spd) {
   var sp = c.car.spoiler, u = sp.userData;
-  if (asp === undefined) asp = Math.abs(c.pspeed || 0);
+  if (spd === undefined) spd = c.pspeed || 0;
   if (c._spOn === undefined) c._spOn = false;
-  if (asp > 12) c._spOn = true; else if (asp < 8) c._spOn = false;
+  if (spd > 17) c._spOn = true; else if (spd < 9) c._spOn = false;
   var want = c._spOn ? 1 : 0;
   var d = u.deploy + (want - u.deploy) * Math.min(1, 3.5 * dt);
   if (Math.abs(d - want) < 0.004) d = want;
   u.deploy = d;
+  sp.position.x = u.baseX + (u.depDX || 0) * d;
+  sp.position.y = u.baseY + (u.depDY || 0) * d;
   sp.rotation.z = (u.stowRot || 0) + (-u.riseRot - (u.stowRot || 0)) * d;
 }
 // light glows: headlights/taillights follow the street lights; taillights also
