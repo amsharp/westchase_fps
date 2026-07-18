@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.77.24';
+var GAME_VERSION = 'v1.78.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -14580,6 +14580,62 @@ function updateRockets(dt) {
   }
 }
 
+// ---------------- thrown axe (aim-mode throw) ----------------
+// Hold RMB with the axe to aim; LMB throws it. It tumbles fast under gravity
+// (an arc), cleaves the first NPC/cop it hits in half (like the melee swing),
+// then falls to the ground as a pickup — throwing removes it from your hands
+// (owned.axe=false, back to fists), and you must retrieve it. Local/per-player.
+var thrownAxes = [];
+var axeAiming = false;
+function throwAxe() {
+  if (state.dead || driving || !state.owned.axe) return;
+  var dir = new THREE.Vector3(); camera.getWorldDirection(dir);
+  var start = camera.position.clone().addScaledVector(dir, 1.1);
+  var mesh = (typeof getAxeMesh === 'function' && getAxeMesh(1.5)) || dropMesh('axe');
+  mesh.position.copy(start); scene.add(mesh);
+  var spd = 34;
+  var axis = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 1, 0));
+  if (axis.lengthSq() < 0.01) axis.set(1, 0, 0); else axis.normalize();
+  thrownAxes.push({ mesh: mesh, x: start.x, y: start.y, z: start.z, vx: dir.x * spd, vy: dir.y * spd + 2.2, vz: dir.z * spd, axis: axis, life: 8 });
+  sfx('whoosh');
+  state.owned.axe = false; axeAiming = false;   // it left your hand — the world axe is the thrown one now
+  if (typeof pruneHotbar === 'function') pruneHotbar();
+  setEquipped('fists');
+  if (typeof refreshHotbarHud === 'function') refreshHotbarHud();
+}
+function landThrownAxe(a, x, z) {
+  scene.remove(a.mesh);
+  var g = dropMesh('axe'); g.position.set(x, 0.7, z); scene.add(g);
+  drops.push({ mesh: g, kind: 'axe', life: 1e9, thrown: true });   // persistent pickup — retrieve it to get the axe back
+}
+function updateThrownAxes(dt) {
+  for (var i = thrownAxes.length - 1; i >= 0; i--) {
+    var a = thrownAxes[i];
+    a.vy -= 26 * dt;                                   // gravity -> arc
+    a.x += a.vx * dt; a.y += a.vy * dt; a.z += a.vz * dt;
+    a.mesh.position.set(a.x, a.y, a.z);
+    a.mesh.rotateOnWorldAxis(a.axis, 30 * dt);         // fast tumble
+    a.life -= dt;
+    var fx = a.vx, fz = a.vz, L = Math.hypot(fx, fz) || 1; fx /= L; fz /= L;
+    var landed = false, hx = a.x, hz = a.z;
+    if (a.y < 2.6) {   // cleave the first person in the flight path
+      var hitObj = null;
+      for (var n = 0; n < npcs.length; n++) { var nn = npcs[n]; if (nn.state === 'down' || nn.state === 'hidden' || nn.state === 'ragdoll') continue; var dx = nn.x - a.x, dz = nn.z - a.z; if (dx * dx + dz * dz < 1.7) { hitObj = nn; hx = nn.x; hz = nn.z; break; } }
+      if (!hitObj) for (var c = 0; c < cops.length; c++) { var cp = cops[c]; if (cp.state === 'down') continue; var cdx = cp.x - a.x, cdz = cp.z - a.z; if (cdx * cdx + cdz * cdz < 1.7) { hitObj = cp; hx = cp.x; hz = cp.z; break; } }
+      if (hitObj) {
+        if (!hitObj._bisected && typeof bisectNPC === 'function') bisectNPC(hitObj, fx, fz);
+        if (isClient() && npcs.indexOf(hitObj) >= 0) netToHost({ t: 'dmgNpc', i: npcs.indexOf(hitObj), dmg: 200, kx: fx, kz: fz });
+        else if (cops.indexOf(hitObj) >= 0 && !isClient()) { if (state.wanted < 1) setWanted(1); lastCrimeT = T; }
+        landed = true;
+      }
+    }
+    if (!landed && (a.y <= 0.35 || a.life <= 0 || a.x < WLO + 2 || a.x > WHI - 2 || a.z < WLO + 2 || a.z > WHI - 2)) {
+      hx = Math.max(WLO + 2, Math.min(WHI - 2, a.x)); hz = Math.max(WLO + 2, Math.min(WHI - 2, a.z)); landed = true;
+    }
+    if (landed) { landThrownAxe(a, hx, hz); thrownAxes.splice(i, 1); }
+  }
+}
+
 // ---------------- weapon drops ----------------
 var drops = [];
 function dropMesh(kind) {
@@ -17402,7 +17458,8 @@ var cabinAxeDrop = null;
 function ensureCabinAxe() {
   if (typeof CABIN_DATA === 'undefined') return;
   if (state.owned.axe) return;                                     // already have one -> none to grab
-  if (cabinAxeDrop && drops.indexOf(cabinAxeDrop) >= 0) return;    // still sitting there
+  if (thrownAxes.length) return;                                   // one is in flight
+  for (var di = 0; di < drops.length; di++) if (drops[di].kind === 'axe') return;   // an axe pickup already exists (cabin or thrown)
   var g = dropMesh('axe');
   g.position.set(CABIN_AXE.x, 0.7, CABIN_AXE.z);
   scene.add(g);
@@ -17511,6 +17568,7 @@ function setZoom(on) {
 }
 function setEquipped(w) {
   if (kameActive) return;   // weapon switching is locked mid-Kamehameha (endKamehameha clears the flag first, then calls this)
+  if (w !== 'axe') axeAiming = false;   // leaving the axe drops throw-aim
   if (inside && w && w !== 'fists' && w !== 'snack' && w !== 'soda') playVoice('clerk_scared', 0.55, 45, { ref: clerk });
   setZoom(false);
   gunBloom = 0;
@@ -17526,7 +17584,7 @@ function setEquipped(w) {
   }
   vm.visible = !zoomed && !driving && !state.dead;   // stay hidden during the death cinematic
   Object.keys(vmMap).forEach(function (k) { vmMap[k].visible = (k === w); });
-  var sub = w === 'fists' ? 'punch for cash' : (w === 'rifle' ? 'right-click: scope' : (w === 'rocket' ? '5s reload' : (w === 'snack' ? 'left-click: eat (+50 hp) — x' + state.snacks : (w === 'soda' ? 'left-click: drink (+25 hp) — x' + state.sodas : 'ammo: &#8734;'))));
+  var sub = w === 'fists' ? 'punch for cash' : (w === 'rifle' ? 'right-click: scope' : (w === 'rocket' ? '5s reload' : (w === 'axe' ? 'hold right-click: aim &amp; throw' : (w === 'snack' ? 'left-click: eat (+50 hp) — x' + state.snacks : (w === 'soda' ? 'left-click: drink (+25 hp) — x' + state.sodas : 'ammo: &#8734;')))));
   document.getElementById('weaponBox').innerHTML = WEAPONS[w].name + '<br><small>' + sub + '</small>';
   if (typeof refreshHotbarHud === 'function') refreshHotbarHud();
 }
@@ -21104,14 +21162,15 @@ document.addEventListener('mousemove', function (e) {
 });
 document.addEventListener('mousedown', function (e) {
   if (document.pointerLockElement !== canvas || state.menu) return;
-  if (e.button === 0) { mouseDown = true; tryAttack(); }
+  if (e.button === 0) { mouseDown = true; if (state.equipped === 'axe' && axeAiming) throwAxe(); else tryAttack(); }
   else if (e.button === 2 && !state.dead && !driving) {
     if (state.equipped === 'rifle') setZoom(true);
+    else if (state.equipped === 'axe' && state.owned.axe) axeAiming = true;   // enter throw-aim mode
   }
 });
 document.addEventListener('mouseup', function (e) {
   if (e.button === 0) mouseDown = false;
-  else if (e.button === 2) { setZoom(false); }
+  else if (e.button === 2) { setZoom(false); axeAiming = false; }
 });
 // ---------------- hotbar + inventory (v1.72) ----------------
 // The player OWNS items (fists + purchased guns + snack). The 7x3 TAB inventory
@@ -22063,8 +22122,8 @@ function drawCrosshair(W, H) {
   function bar(x, y, bw, bh) { hudCx.fillStyle = '#000'; hudCx.fillRect(x - 1, y - 1, bw + 2, bh + 2); hudCx.fillStyle = col; hudCx.fillRect(x, y, bw, bh); }
   function dot(r) { bar(cx - r, cy - r, r * 2, r * 2); }
   var wd = WEAPONS[w] || {};
-  // minimal marker for melee / consumables
-  if (w === 'fists' || w === 'snack' || w === 'soda') { dot(2); return; }
+  // minimal marker for melee / consumables (axe: dot normally, gun cross while aiming a throw)
+  if (w === 'fists' || w === 'snack' || w === 'soda' || (w === 'axe' && !axeAiming)) { dot(2); return; }
   // rocket launcher: four corner brackets framing the blast
   if (w === 'rocket') {
     var g = 11, L = 6, t = 2, cs = [[-1, -1], [1, -1], [-1, 1], [1, 1]];
@@ -22392,7 +22451,7 @@ function loop(now) {
   if (photoMode) { updatePhotoCam(dt); renderer.render(scene, camera); return; }
   T += dt;
   var sdt = dt;
-  updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); ensureCabinAxe(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
+  updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
   if (state.dead) updateDeathCam(dt);   // top-down zoom-out cinematic drives the camera while dead
   renderer.render(scene, camera);
 }
@@ -22548,6 +22607,7 @@ window.__wc = {
   alienState: function () { return alien ? { hp: alien.hp, state: alien.state, net: !!alien.net, x: Math.round(alien.x), z: Math.round(alien.z) } : null; },
   ufoTriggered: function () { return ufoTriggered; },
   cabinState: function () { return { knocks: cabinKnocks, ufoActive: !!cabinUfo, night: isNightNow(), ufoNight: cabinUfoNight, nightIdx: nightIndex(), humGain: ufoHum ? ufoHum.g.gain.value : 0, humOn: !!ufoHum }; },
+  throwAxe: function () { throwAxe(); }, setAxeAim: function (v) { axeAiming = !!v; }, axeState: function () { return { aiming: axeAiming, flying: thrownAxes.length, owned: !!state.owned.axe, axeDrops: drops.filter(function (d) { return d.kind === 'axe'; }).length }; },
   cabinKnock: function () { cabinKnock(); },
   dropsState: function () { return drops.map(function (d) { return { kind: d.kind, net: !!d.net, life: Math.round(d.life), x: Math.round(d.mesh.position.x * 10) / 10, z: Math.round(d.mesh.position.z * 10) / 10 }; }); },
   creditCivKill: creditCivKill, creditCopKill: creditCopKill, dropWeapon: dropWeapon,
@@ -22771,7 +22831,7 @@ window.__wc = {
   // lightweight physics step (no render, no NPC/cop/car sim) — fast headless
   // stepping for plane/fall tests. Renders only when you call renderer yourself.
   stepLite: function (dt) { T += dt; updatePlayer(dt); updatePlaneWorld(dt); },
-  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); ensureCabinAxe(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
+  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
 };
 
 // ---------------- boot screen handoff + menu cover art ----------------
