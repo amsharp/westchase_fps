@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.37';
+var GAME_VERSION = 'v1.76.38';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2306,13 +2306,13 @@ function buildPorsche(ci) {
     tilt.rotation.z = m[3] || 0;
     body.add(tilt);
     var pivot = new THREE.Group();
-    pivot.position.set((P.spoiler.dims[0] * sc) / 2, -spH + 0.007, 0);
+    pivot.position.set((P.spoiler.dims[0] * sc) / 2, -spH + 0.025, 0);   // rigid object resting in the recess; clips the lid, never morphs
     sp.position.set(-(P.spoiler.dims[0] * sc) / 2, 0, 0);
     pivot.add(sp);
     pivot.userData.baseX = pivot.position.x; pivot.userData.baseY = pivot.position.y; pivot.userData.deploy = 0;
     pivot.userData.travel = P.spoiler.dims[0] * sc * 0.30;   // slight rearward shift at full deploy
     pivot.userData.rise = 0.085 * s;                          // ~20cm straight lift on the bellows (ref photos)
-    pivot.userData.riseRot = 0.26;                            // counters the lid-pitch frame: deployed blade sits level-to-slightly-up
+    pivot.userData.riseRot = (m[3] || 0);                     // cancels the lid-pitch frame EXACTLY: deployed blade is parallel to the ground
     tilt.add(pivot); spoiler = pivot;
     // black void quad = the recess floor, EXACTLY the spoiler footprint, sunk
     // well below the lid: invisible under the flush-stowed blade, and reads as
