@@ -147,9 +147,19 @@ forest walls + "ROAD CLOSED" barriers at the four road exits.
 so it shows the CURRENT map) is a top-down CAD editor → **Save Map** downloads
 `westchase_map.json` → `node tools/mapimport.js westchase_map.json` regenerates
 `remapdata.js` (`REMAP_ROADS/EXITS/CLEAR/VENUES/SURFACES/AREAS`), consumed by
-game.js under `WC_REMAP`. Frame: junction `(0,0)`, **+x east / +z south**,
-world is `±HALF` (HALF=600 in game.js AND editor.html AND mapimport.js — bump
-all three together to grow the world).
+game.js under `WC_REMAP`. Frame: junction `(0,0)`, **+x east / +z south**.
+- **World bounds (v1.78 E+S expansion):** ASYMMETRIC `WLO=-600, WHI=1800`
+  (2400×2400, 4× the old area) — the town keeps its coordinates in the NW
+  corner and the world opens EAST + SOUTH. `HALF=600` is now just the *original*
+  centered-map half (town road/exit spans still use it); world-edge logic uses
+  `WLO/WHI` (player clamp, `remapPerimeter`, ground plane `E`, minimap `w2m`/`TOTAL`).
+  Same `WLO/WHI` live in editor.html + tools/mapimport.js — keep all three in
+  sync to resize. Because `WLO === -HALF`, `w2m` value is unchanged; only `TOTAL`
+  (span) doubled → town lands in the NW quadrant of the minimap. `remapPerimeter`
+  only walls/barriers exits that sit on a real world edge (`exitOnWorldEdge`), so
+  the town's E/S road exits now open into the empty new land instead of hitting a
+  ROAD CLOSED barrier. The new land is bare grass — the canvas for the editor
+  expansion (nothing generated there yet).
 - Editor authors: roads (polyline, `cls` 0–3 ground) + **new**: `kind:'highway'`
   (elevated, `elev`), `kind:'ramp'` (ground↔highway), `kind:'water'` (river);
   **areas** (`REMAP_AREAS` rects: `kind` forest/water/ocean); surfaces, buildings,

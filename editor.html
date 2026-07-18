@@ -236,7 +236,9 @@ var IDMAP = { racetrac:'racetrac',publix:'publix',farnell:'farnell',regions:'ban
   offices:'offices',yoga:'yoga',th_a:'townhouse',th_b:'townhouse',th_c:'townhouse',th_d:'townhouse',red_house:'red_house' };
 
 // ============================ state ============================
-var HALF = 600;
+var HALF = 600;                          // legacy (original centered half)
+// world bounds: town in the NW corner, expansion opens EAST (+x) and SOUTH (+z)
+var WLO = -600, WHI = 1800;
 var S = { roads:[], surfaces:[], buildings:[], props:[], zones:[], areas:[] };   // zones=poly clears, areas=forest/water rects
 var cam = { x:-40, y:-20, zoom:1.4 };
 var tool = 'select';
@@ -319,7 +321,7 @@ window.addEventListener('resize', resize);
 function w2s(wx,wz){ return [ VW/2 + (wx-cam.x)*cam.zoom, VH/2 + (wz-cam.y)*cam.zoom ]; }
 function s2w(sx,sz){ return [ (sx-VW/2)/cam.zoom + cam.x, (sz-VH/2)/cam.zoom + cam.y ]; }
 // keep the camera near the map so you can never pan/zoom into empty void
-function clampCam(){ var m=HALF+160; cam.x=Math.max(-m,Math.min(m,cam.x)); cam.y=Math.max(-m,Math.min(m,cam.y));
+function clampCam(){ var mg=260; cam.x=Math.max(WLO-mg,Math.min(WHI+mg,cam.x)); cam.y=Math.max(WLO-mg,Math.min(WHI+mg,cam.y));
   cam.zoom=Math.max(0.22,Math.min(14,cam.zoom)); }
 // Fit frames whatever content exists (roads + buildings + props), padded
 function fitView(){
@@ -328,7 +330,7 @@ function fitView(){
   S.roads.forEach(function(r){ r.pts.forEach(function(p){ ext(p[0],p[1]); }); });
   S.buildings.forEach(function(b){ ext(b.x,b.z); });
   S.props.forEach(function(p){ ext(p.x,p.z); });
-  if(!any){ mnx=mnz=-HALF; mxx=mxz=HALF; }
+  if(!any){ mnx=mnz=WLO; mxx=mxz=WHI; }
   var pad=45; mnx-=pad; mnz-=pad; mxx+=pad; mxz+=pad;
   cam.x=(mnx+mxx)/2; cam.y=(mnz+mxz)/2;
   cam.zoom=Math.max(0.22, Math.min(14, Math.min(VW/(mxx-mnx||1), VH/(mxz-mnz||1))));
@@ -426,15 +428,15 @@ function render(){
   drawSelection();
   requestAnimationFrame(render);
 }
-function drawWorldBounds(){ var a=w2s(-HALF,-HALF), b=w2s(HALF,HALF);
+function drawWorldBounds(){ var a=w2s(WLO,WLO), b=w2s(WHI,WHI);
   ctx.fillStyle='#0f1319'; ctx.fillRect(0,0,VW,VH);
   ctx.fillStyle='#84bd63'; ctx.fillRect(a[0],a[1],b[0]-a[0],b[1]-a[1]);
   ctx.strokeStyle='#5a7d44'; ctx.lineWidth=2; ctx.strokeRect(a[0],a[1],b[0]-a[0],b[1]-a[1]); }
 function drawGrid(){
   var step=50; ctx.lineWidth=1; ctx.strokeStyle='#ffffff18'; ctx.fillStyle='#ffffff55'; ctx.font='10px monospace';
-  for(var x=-HALF;x<=HALF;x+=step){ var p0=w2s(x,-HALF),p1=w2s(x,HALF);
+  for(var x=WLO;x<=WHI;x+=step){ var p0=w2s(x,WLO),p1=w2s(x,WHI);
     ctx.strokeStyle = x===0?'#ffffff50':'#ffffff14'; ctx.beginPath(); ctx.moveTo(p0[0],p0[1]); ctx.lineTo(p1[0],p1[1]); ctx.stroke(); }
-  for(var z=-HALF;z<=HALF;z+=step){ var q0=w2s(-HALF,z),q1=w2s(HALF,z);
+  for(var z=WLO;z<=WHI;z+=step){ var q0=w2s(WLO,z),q1=w2s(WHI,z);
     ctx.strokeStyle = z===0?'#ffffff50':'#ffffff14'; ctx.beginPath(); ctx.moveTo(q0[0],q0[1]); ctx.lineTo(q1[0],q1[1]); ctx.stroke(); }
 }
 function polyScreen(pts){ return pts.map(function(p){ return w2s(p[0],p[1]); }); }

@@ -3,7 +3,9 @@
 // + passthrough parking polys), REMAP_VENUES (data-driven building placement),
 // REMAP_SURFACES (parking/pavement). game.js consumes these when WC_REMAP.
 const fs = require('fs');
-const HALF = 600;
+const HALF = 600;                        // legacy (unused by bounds now)
+// world bounds after the E+S expansion: town in the NW corner
+const WLO = -600, WHI = 1800;
 const src = process.argv[2] || '/tmp/claude-0/-home-user-westchase-fps/efaef73e-76aa-5d75-8d6c-935e41bd5d2d/scratchpad/westchase_map.json';
 const map = JSON.parse(fs.readFileSync(src, 'utf8'));
 const r2 = n => Math.round(n * 100) / 100;
@@ -21,8 +23,8 @@ for (const r of map.roads) {
   for (const [ei, ni] of ends) {
     const p = r.pts[ei], q = r.pts[ni];
     let edge = null;
-    if (p[0] <= -HALF + 1) edge = 'W'; else if (p[0] >= HALF - 1) edge = 'E';
-    else if (p[1] <= -HALF + 1) edge = 'N'; else if (p[1] >= HALF - 1) edge = 'S';
+    if (p[0] <= WLO + 1) edge = 'W'; else if (p[0] >= WHI - 1) edge = 'E';
+    else if (p[1] <= WLO + 1) edge = 'N'; else if (p[1] >= WHI - 1) edge = 'S';
     if (!edge) continue;
     let dx = q[0] - p[0], dz = q[1] - p[1]; const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L;
     exits.push({ x: r2(p[0]), z: r2(p[1]), edge, hw: r.hw, dx: r2(dx), dz: r2(dz), id: r.id });

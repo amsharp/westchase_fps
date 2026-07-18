@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.77.25';
+var GAME_VERSION = 'v1.78.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -27,7 +27,13 @@ if (typeof REMAP_ROADS === 'undefined') WC_REMAP = false;   // data file missing
 var STAMP_SURVEY_HOUSES = (typeof HOUSE_CLUSTERS !== 'undefined');
 
 // ---------------- world constants ----------------
-var HALF = 600, TOTAL = HALF * 2;   // expanded world (map expansion)
+var HALF = 600;                     // original centered-map half — town road/exit spans still use this
+// ---- world bounds (map expansion): the town keeps its coordinates in the NW
+// corner; the world grows EAST (+x) and SOUTH (+z). West/North walls stay at
+// WLO, East/South walls move out to WHI. 2400x2400 = 4x the original area. ----
+var WLO = -600, WHI = 1800;
+var WSPAN = WHI - WLO, WMID = (WLO + WHI) / 2;   // 2400, 600
+var TOTAL = WSPAN;                  // full world span (minimap scale)
 var CORE = 340;                     // original hand-built map half-size — all
                                     // pre-expansion content lives in |x|,|z|<=CORE
 var EYE = 1.7, GRAV = 16;
@@ -766,8 +772,9 @@ var horizonSkirt = (function () {
 // ---------------- ground / roads / parking ----------------
 (function ground() {
   // circular hole under the lake — the flat grass otherwise sits between
-  // the water surface and the sunken bed and blocks the see-through water
-  var E = (TOTAL + 60) / 2;
+  // the water surface and the sunken bed and blocks the see-through water.
+  // Centered at origin but big enough to cover the asymmetric world (out to WHI).
+  var E = Math.max(-WLO, WHI) + 60;
   var s = new THREE.Shape();
   s.moveTo(-E, -E); s.lineTo(E, -E); s.lineTo(E, E); s.lineTo(-E, E); s.closePath();
   var hole = new THREE.Path();
@@ -3635,27 +3642,40 @@ function remapRejoinLane(c) {
 }
 
 // ---- perimeter: +-600 walls with the 6 true exits ----
+// Only exits that actually sit on a WORLD edge get a wall gap + ROAD CLOSED
+// barrier. After the E+S expansion the town's east/south exits (at the old
+// +600 line) are now INTERIOR — those roads just run out into the new land, so
+// they're skipped here and left open.
+function exitOnWorldEdge(e) {
+  if (e.edge === 'W') return Math.abs(e.x - WLO) < 2;
+  if (e.edge === 'E') return Math.abs(e.x - WHI) < 2;
+  if (e.edge === 'N') return Math.abs(e.z - WLO) < 2;
+  if (e.edge === 'S') return Math.abs(e.z - WHI) < 2;
+  return false;
+}
 function remapPerimeter() {
   var t = 3, i, j;
+  var edgeExits = REMAP_EXITS.filter(exitOnWorldEdge);
   // gap half-width along the wall: road half-width over the crossing angle
   var gaps = { N: [], S: [], E: [], W: [] };
-  for (i = 0; i < REMAP_EXITS.length; i++) {
-    var e = REMAP_EXITS[i];
+  for (i = 0; i < edgeExits.length; i++) {
+    var e = edgeExits[i];
     var horiz = e.edge === 'N' || e.edge === 'S';
     var cosI = Math.abs(horiz ? e.dz : e.dx);   // inward component normal to the wall
     var g = e.hw / Math.max(0.35, cosI) + 8;
     gaps[e.edge].push({ at: horiz ? e.x : e.z, g: g });
   }
+  // walls run the full world span [WLO,WHI]; N/W walls at WLO, S/E walls at WHI
   var EDGES = [
-    { k: 'N', horiz: true, c: -HALF }, { k: 'S', horiz: true, c: HALF },
-    { k: 'W', horiz: false, c: -HALF }, { k: 'E', horiz: false, c: HALF }
+    { k: 'N', horiz: true, c: WLO }, { k: 'S', horiz: true, c: WHI },
+    { k: 'W', horiz: false, c: WLO }, { k: 'E', horiz: false, c: WHI }
   ];
   for (i = 0; i < EDGES.length; i++) {
     var ed = EDGES[i];
     var list = gaps[ed.k].slice().sort(function (a, b) { return a.at - b.at; });
-    var cur = -HALF;
+    var cur = WLO;
     for (j = 0; j <= list.length; j++) {
-      var end = j < list.length ? list[j].at - list[j].g : HALF;
+      var end = j < list.length ? list[j].at - list[j].g : WHI;
       if (end - cur > 8) {
         var mid = (cur + end) / 2, span = end - cur;
         if (ed.horiz) forestWall(mid, ed.c, span, t);
@@ -3664,24 +3684,17 @@ function remapPerimeter() {
       if (j < list.length) cur = list[j].at + list[j].g;
     }
   }
-  // rotated ROAD CLOSED barriers ~14u inside each exit, square to the road
-  for (i = 0; i < REMAP_EXITS.length; i++) remapBarrier(REMAP_EXITS[i]);
-  // v1.66.64 barrier scrub: the hard world clamp (±HALF-1.2) was REACHABLE
-  // through every exit gap — the ROAD CLOSED barrier sits 14u inside and is
-  // narrower than the wall gap, and since the horizonSkirt shipped the edge
-  // looks like open hazy distance, so players walked past the barrier and hit
-  // an invisible stop at the map edge (reports @599,599 / 599,593 / 587,-599).
-  // Close each gap with a VISIBLE highway guardrail right at the bound (the
-  // clamp itself is unchanged) plus flanking oaks, so the stop reads as a
-  // closed road end, not a bug.
-  for (i = 0; i < REMAP_EXITS.length; i++) {
-    var ex2 = REMAP_EXITS[i];
+  // rotated ROAD CLOSED barriers ~14u inside each real edge exit
+  for (i = 0; i < edgeExits.length; i++) remapBarrier(edgeExits[i]);
+  // visible guardrail right at the bound so the hard clamp reads as a closed road
+  for (i = 0; i < edgeExits.length; i++) {
+    var ex2 = edgeExits[i];
     var hz2 = ex2.edge === 'N' || ex2.edge === 'S';
     var ci2 = Math.abs(hz2 ? ex2.dz : ex2.dx);
     var gg = ex2.hw / Math.max(0.35, ci2) + 8;
     var at2 = hz2 ? ex2.x : ex2.z;
-    var lo = Math.max(-HALF + 1, at2 - gg - 2), hi = Math.min(HALF - 1, at2 + gg + 2);
-    var edgeC = (ex2.edge === 'N' || ex2.edge === 'W') ? -HALF : HALF;
+    var lo = Math.max(WLO + 1, at2 - gg - 2), hi = Math.min(WHI - 1, at2 + gg + 2);
+    var edgeC = (ex2.edge === 'N' || ex2.edge === 'W') ? WLO : WHI;
     perimeterRail(hz2, edgeC + (edgeC > 0 ? -2.4 : 2.4), lo, hi, edgeC > 0 ? -1 : 1);
   }
 }
@@ -19503,7 +19516,7 @@ function closeMenus(relock) { if (state.menu === 'shop' && !shopBought) playVoic
 var mm = document.getElementById('mm');
 var mg = mm.getContext('2d');
 var MMS = mm.width / TOTAL;
-function w2m(v) { return (v + HALF) * MMS; }
+function w2m(v) { return (v - WLO) * MMS; }   // world coord -> minimap px (asymmetric bounds)
 
 // ---- minimap zoom (#46): WIDE / NORMAL / CLOSE. Level 0 = the classic whole-
 // map fixed-north view; higher levels scale up and centre on the player,
@@ -21639,7 +21652,7 @@ function updatePlayer(dt) {
   // world-boundary clamp only OUTDOORS — several shop interiors sit past ±HALF
   // (Dunkin/Starbucks/Sakura/DollarTree/Bank), and their own wall colliders
   // confine the player; clamping inside chopped off the far half of those rooms.
-  if (!inside) { player.x = Math.max(-HALF + 1.2, Math.min(HALF - 1.2, player.x)); player.z = Math.max(-HALF + 1.2, Math.min(HALF - 1.2, player.z)); }
+  if (!inside) { player.x = Math.max(WLO + 1.2, Math.min(WHI - 1.2, player.x)); player.z = Math.max(WLO + 1.2, Math.min(WHI - 1.2, player.z)); }
   if (!landColliders) landColliders = colliders.filter(function (cc) { return !cc.lake; });
   // swept, sub-stepped collision: resolve from the start-of-frame position toward
   // the target in chunks no bigger than ~0.4·radius, so a large per-frame step (low
