@@ -276,7 +276,7 @@ Westchase Guns & Ammo. He sells three guns:
 | Pistol | $150  | semi-auto, reliable |
 | SMG (TEC-9) | $400 | full-auto; first shots fly true, then it sprays — feather the trigger |
 | Shotgun | $500 | pump-action cone of pellets, brutal up close and weak far off — a **point-blank shot to the head takes it clean off** in a spray of blood |
-| Axe    | $400  | heavy chopping axe — a solid melee hit **cleaves a body clean in half down the middle**, both halves flying apart in a mess of blood |
+| Axe    | *found* | not for sale — see **The cabin in the woods** below. A solid melee hit **cleaves a body clean in half down the middle**; the two halves topple opposite ways onto the ground in a mess of blood |
 | Rifle  | $600  | one shot, one nap — right-click to scope |
 | AK-47  | $1000 | full-auto, long range, accurate |
 | Rocket launcher | $2000 | 5s reload; the blast doesn't care whose side you're on |
@@ -285,6 +285,17 @@ Each weapon carries its own **crosshair**: a tight cross-and-dot for the
 pistol, a wider spread for the SMG and AK (it blooms open as you spray), a
 fine cross for the scoped rifle (which vanishes at the scope), corner
 brackets for the rocket launcher, and a boxed reticle for alien tech.
+
+### The cabin in the woods
+
+The **axe isn't sold** anymore. Way out in the **far northwest**, past the
+lake and the school, there's a long grassy corridor between two big stands of
+forest — and tucked into it, ringed by trees, sits a little **pallet-wood
+cabin** with a corrugated-metal barrel roof. A single **axe spins on the
+ground** at its door. Walk into it and it's yours. You can only ever hold
+**one** — the cabin's axe won't reappear until you've lost the one you have
+(drop everything when you die, and a fresh one is waiting back at the cabin).
+It's a hike from town, so bring a car.
 
 Bullets land where they hit: people bleed a quick dark-red spray, walls
 and props kick out a small burst of dust and keep a **bullet hole** at the
