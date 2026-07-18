@@ -12,7 +12,7 @@ async function api(method, ep, body) {
 }
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 (async () => {
-  const seeds = ['seed_PORSCHEBODY.png', 'seed_PORSCHEBODY_rear_v2.png', 'seed_PORSCHEBODY_deadrear.png', 'seed_PORSCHEBODY_side_v2.png'];
+  const seeds = ['seed_PORSCHEBODY_v2.png', 'seed_PORSCHEBODY_rear_v5.png', 'seed_PORSCHEBODY_deadrear_v6.png', 'seed_PORSCHEBODY_side_v2.png'];
   console.log('submitting body respin,', seeds.length, 'views');
   const gen = await api('POST', '/multi-image-to-3d', {
     image_urls: seeds.map(durl), ai_model: 'latest', should_texture: true, should_remesh: true,
