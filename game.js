@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.43';
+var GAME_VERSION = 'v1.76.45';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -12175,9 +12175,9 @@ function addParkedPorsche(x, z, ry, ci) {
   return c;
 }
 // RaceTrac forecourt (SE corner) — a verified collider-free slot on the pavement.
-// REMAP world: RaceTrac forecourt (store just east of gasRob 85,-4). Parked
-// nose-in toward the store wall, tail (Carrera decal + spoiler) out in the open.
-addParkedPorsche(89, 4, 0, 0);   // ci 0 = red hero
+// REMAP world: the stall row just south of player spawn (-63,4) — the hero
+// is the first car you see. Same row/orientation as the neighbouring parked cars.
+addParkedPorsche(-68.1, -5.5, Math.PI / 2, 0);   // ci 0 = red hero
 
 // ---- procedural car engine (layered synth driven by an RPM model) ----
 // speed maps to revs through gear steps, so an accelerating car audibly
