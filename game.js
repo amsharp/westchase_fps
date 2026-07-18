@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.77.6';
+var GAME_VERSION = 'v1.77.7';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2386,9 +2386,30 @@ function updateCarFeel(c, dt, spd, accel, steer) {
   cc.pivots[1].rotation.y = c.steerA;
   if (cc.spoiler) updatePorscheSpoiler(c, dt, asp);
 }
-// Carrera auto-spoiler: deploys above ~12 u/s, stows below ~8 (hysteresis). The
-// motion is a 4-bar linkage — the blade rotates UP while translating REARWARD
-// simultaneously (bellows stretch), reversing on stow.
+// Carrera auto-spoiler: deploys above ~12 u/s, stows below ~8 (hysteresis).
+// The movement path is a circular ARC (owner's annotation): between the two
+// signed-off end poses the rigid blade rotates about the displacement pole
+// (the unique point a planar rigid motion pivots around), so every point of
+// the blade — trailing edge included — sweeps an arc over the deck lip
+// instead of sliding along a straight line.
+function porschePose(u, d) {
+  if (u.swing === undefined) {
+    var p1x = u.baseX - u.travel, p1y = u.baseY + u.rise;
+    u.swing = -u.riseRot - (u.stowRot || 0);            // total pitch change stow -> deployed
+    if (Math.abs(u.swing) > 0.02) {
+      var vx = p1x - u.baseX, vy = p1y - u.baseY;
+      var k = 0.5 / Math.tan(u.swing / 2);
+      u.poleX = (u.baseX + p1x) / 2 - vy * k;           // on the perpendicular bisector of the endpoints
+      u.poleY = (u.baseY + p1y) / 2 + vx * k;
+    }
+  }
+  if (u.poleX === undefined) {                          // degenerate (no pitch change): straight slide
+    return { x: u.baseX - u.travel * d, y: u.baseY + u.rise * d, r: (u.stowRot || 0) };
+  }
+  var a = u.swing * d, ca = Math.cos(a), sa = Math.sin(a);
+  var rx = u.baseX - u.poleX, ry = u.baseY - u.poleY;
+  return { x: u.poleX + rx * ca - ry * sa, y: u.poleY + rx * sa + ry * ca, r: (u.stowRot || 0) + a };
+}
 function updatePorscheSpoiler(c, dt, asp) {
   var sp = c.car.spoiler, u = sp.userData;
   if (asp === undefined) asp = Math.abs(c.pspeed || 0);
@@ -2398,9 +2419,8 @@ function updatePorscheSpoiler(c, dt, asp) {
   var d = u.deploy + (want - u.deploy) * Math.min(1, 3.5 * dt);
   if (Math.abs(d - want) < 0.004) d = want;
   u.deploy = d;
-  sp.position.x = u.baseX - u.travel * d;   // rearward (nose is +x)
-  sp.position.y = u.baseY + u.rise * d;     // lift up
-  sp.rotation.z = (u.stowRot || 0) * (1 - d) - u.riseRot * d;   // from lid-hugging stow pitch up to ground-level deploy
+  var pose = porschePose(u, d);
+  sp.position.x = pose.x; sp.position.y = pose.y; sp.rotation.z = pose.r;
 }
 // light glows: headlights/taillights follow the street lights; taillights also
 // flare bright any time the car is braking (short hold so they don't flicker)

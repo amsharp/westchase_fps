@@ -647,3 +647,16 @@ east side (x 140..290) + one OOB (-575,-231). Dispositions:
 ## onto a CROSSING arterial (nearJunction only guards the junction throat; onRoad
 ## tests every remap road). Harmless, all 3 shelters still place. No other new
 ## triage — deferring to the other agent's existing dispositions on this batch.
+
+## PORSCHE HERO CAR — owner-report + annotation loop (opus/fable session)
+- mrpx66cr-kwv9 "textures are all black on the car" (owner, Win Chrome 150,
+  daylight): FIXED@v1.76.48 — texture loader now uses the proven getGGMat
+  THREE.Texture(image) pattern (the old resize-canvas middleman rendered black
+  on some GPUs) + onerror flat-red fallback. Never reproduced on swiftshader;
+  diagnosed from the owner's F8 screenshot.
+- Spoiler stow/deploy gap annotations: FIXED@v1.76.49 (stowRot 0.13 rear-down
+  stow pitch; deploy rise halved).
+- "see the movement path" annotation: FIXED@v1.76.50 — deploy/stow now rotates
+  the rigid blade about the displacement pole between the two signed-off poses
+  (porschePose), so the trailing edge sweeps a circular arc over the deck lip
+  instead of lerping a straight line. End poses unchanged.
