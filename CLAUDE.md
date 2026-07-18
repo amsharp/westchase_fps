@@ -158,7 +158,7 @@ forest walls + "ROAD CLOSED" barriers at the four road exits.
   Kids are never in any hit list, so they can't be gored. Regenerate the gib
   via `tools/chargen/halfbodygen.js`.
 - **Wanted** (0–5 stars): rob register at gunpoint → 2★; every 5 civ kills →
-  +1★; cop kill → +1★; decays after ~18 s clean & no cops near. Cops: 2
+  +1★; cop kill → +1★; decays one star per ~35 s clean & no cops near. Cops: 2
   patrol at 0★, +2 per star (spawn interval 2.6 s); pistols <4★, full-auto
   SMGs 4–5★; 1★ = only proximity aggro. Interior cops (`c.interior`, `c.baseY`) spawn on a failed
   unarmed robbery and are always local, never synced.
@@ -171,8 +171,16 @@ forest walls + "ROAD CLOSED" barriers at the four road exits.
   underground are janky). Open ⇒ 4★, 30s `graceT`, then `spawnBankCops(2)` every
   10s. 3–7 money/gold stacks (`spawnVaultStacks`); hold **E** 5s on one → `+500`
   into `state.stolen` (NOT `money`). `state.stolen` shows as "COLLECTED $N" on the
-  HUD and is paid into `money` only when wanted decays to 0 (in updateCops).
-  `resetHeist` runs on every bank enter (`BANK.onEnter`).
+  HUD and is paid into `money` only when wanted decays to 0 (in updateCops); dying
+  first drops it (cleared in `hurtPlayer` on death). Opening the vault sets a
+  **10-min shared lockdown** (`bankClosedUntil = T + 600`, broadcast via
+  `netSendRobCD('bank', 600)` / `bankCD` in env snapshots for late joiners, same
+  plumbing as the gas-station `gasClosedUntil`); teller/keypad/rocket/`openBankVault`
+  all bail while `T < bankClosedUntil`. The door-frame ring (`BANK.vault.frame`) is
+  `visible=false` while open (it otherwise plugs the doorway) and back on in
+  `resetHeist`, which runs on every bank enter (`BANK.onEnter`). Trees/props are
+  kept out of the bank entrance walkway by `bankDoorClear(x,z)` (checked in
+  `oak`/`palm`/landscape `myrtle`/`ipalm`/prop `place`).
 - **Cars**: shootable (1.5 "seconds of fire" → `goBerserk`: veers hard off
   road, spins, explodes on contact); E to carjack (driver flees), WASD +
   mouse-orbit third-person cam, player cars have 100 HP under police fire →

@@ -395,7 +395,13 @@ so work fast. Inside are **3–7 stacks of cash and gold bars**; stand on one an
 
 Here's the catch: the loot isn't yours yet. It sits up top as **COLLECTED $N**
 until you **shake the heat completely** — only when your wanted stars fully clear
-does the stolen money get laundered into your spendable cash.
+does the stolen money get laundered into your spendable cash. **Die before you
+launder it and it's gone** — the collected loot drops with you.
+
+After a successful heist the **vault goes on a 10-minute lockdown** for
+*everyone* in town — no code, no rocket, no re-crack until it resets. And the
+heat sticks around longer now: stars burn off more slowly, so shaking a
+4-star heist takes real effort.
 
 ## The shops are alive
 

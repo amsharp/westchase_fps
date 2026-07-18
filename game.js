@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.29';
+var GAME_VERSION = 'v1.76.30';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -1505,8 +1505,14 @@ function packCanopyBotY(pp) {
   pp._cbY = (cb < 1e8 && cb > 0.05) ? cb : 0;   // 0 = couldn't tell, no clamp
   return pp._cbY;
 }
+// Keep the BoA bank's whole front frontage clear of trees/palms/hard props —
+// they kept crowding the door approach (world door ~24,-82, front wall faces
+// north / -z, building spans x[11,37]) and blocked the vault-robbery entrance.
+// Only gates oak/palm/myrtle/place; low foundation shrubs + hedges still plant.
+function bankDoorClear(x, z) { return x > 9 && x < 39 && z > -101 && z < -80; }
 function oak(x, z, scale) {
   if (oakCount >= OAK_CAP) return;
+  if (bankDoorClear(x, z)) return;
   // v1.65.5 prop-placement fix: keep tree canopies out of building footprints
   // (bug report: an oak grown through the BoA brick wall/roof). Reject any spot
   // within a canopy margin of an authored venue rect. Perimeter/forest/house-
@@ -1652,6 +1658,7 @@ var PALM_COCOS = (function () {
 function palm(x, z) {
   // v1.65.5 prop-placement fix: same building-clearance guard as oak().
   if (typeof WC_REMAP !== 'undefined' && WC_REMAP && typeof remapInClear === 'function' && remapInClear(x, z, 3.5)) return;
+  if (bankDoorClear(x, z)) return;
   var pv = PALM_VARIANTS[(Math.random() * PALM_VARIANTS.length) | 0];
   var g = new THREE.Group(); var h = pv.hMin + Math.random() * (pv.hMax - pv.hMin);
   g.add(cyl(0.17, 0.26, h, 7, lamb2(barkT2), 0, h / 2, 0));
@@ -2568,7 +2575,7 @@ var EXP_ROADS = [
   [2, 552, 158, 539, 131, 539, 116]
 ];
 var EXP_PONDS = [[401, -195, 50, 44], [127, 304, 12, 62], [-78, 313, 20, 26], [-319, 275, 23, 18], [-401, 386, 20, 18], [115, 58, 26, 11], [-190, 116, 15, 17], [163, 181, 17, 12], [-253, 376, 14, 12], [315, 484, 8, 16], [239, 280, 9, 9], [304, 66, 8, 13], [539, 279, 8, 10]];
-var EXP_FOREST = [[-564, -360, -576, -396, 16], [60, 324, -576, -396, 16], [-324, -60, -564, -396, 16], [384, 564, -564, -384, 16], [-288, -264, -324, -216, 4], [-264, -228, -312, -252, 3], [-228, -204, -300, -252, 2], [336, 420, -300, -252, 6], [-576, -468, -264, -60, 16], [-264, -240, -252, -216, 2], [17, 36, -108, -60, 2], [216, 300, -108, -48, 7], [-360, -336, -72, -24, 2], [-288, -264, -60, -20, 2], [84, 120, -60, -24, 2], [-264, -168, -48, -24, 3], [-300, -276, 20, 36, 2], [228, 300, 20, 36, 3], [-384, -336, 24, 48, 2], [240, 288, 48, 72, 2], [-576, -456, 60, 264, 16], [17, 36, 60, 84, 2], [-288, -228, 72, 108, 3], [252, 288, 72, 120, 3], [228, 252, 84, 228, 5], [-456, -396, 96, 168, 7], [252, 276, 120, 240, 4], [-264, -228, 156, 192, 2], [-456, -408, 168, 192, 2], [-264, -240, 192, 216, 2], [-204, -168, 192, 240, 3], [-456, -432, 204, 228, 2], [372, 420, 204, 252, 3], [-444, -420, 228, 252, 2], [-264, -144, 264, 360, 16], [60, 96, 264, 348, 4], [-144, -120, 276, 564, 10], [372, 420, 276, 324, 3], [336, 372, 288, 324, 2], [-444, -360, 300, 348, 6], [228, 252, 312, 348, 2], [-348, -312, 324, 408, 4], [-564, -456, 336, 564, 16], [564, 588, 336, 432, 3], [-312, -288, 348, 408, 2], [-108, -72, 348, 384, 2], [-228, -144, 360, 564, 16], [0, 24, 372, 456, 3], [156, 180, 372, 396, 2], [-108, -84, 384, 564, 7], [24, 48, 384, 456, 3], [-84, -36, 396, 564, 12], [48, 72, 396, 456, 2], [-264, -228, 408, 564, 8], [72, 96, 408, 456, 2], [96, 132, 420, 456, 2], [132, 168, 432, 456, 2], [-444, -300, 444, 564, 16], [300, 336, 504, 528, 2]];
+var EXP_FOREST = [[-564, -360, -576, -396, 16], [60, 324, -576, -396, 16], [-324, -60, -564, -396, 16], [384, 564, -564, -384, 16], [-288, -264, -324, -216, 4], [-264, -228, -312, -252, 3], [-228, -204, -300, -252, 2], [336, 420, -300, -252, 6], [-576, -468, -264, -60, 16], [-264, -240, -252, -216, 2], [216, 300, -108, -48, 7], [-360, -336, -72, -24, 2], [-288, -264, -60, -20, 2], [84, 120, -60, -24, 2], [-264, -168, -48, -24, 3], [-300, -276, 20, 36, 2], [228, 300, 20, 36, 3], [-384, -336, 24, 48, 2], [240, 288, 48, 72, 2], [-576, -456, 60, 264, 16], [17, 36, 60, 84, 2], [-288, -228, 72, 108, 3], [252, 288, 72, 120, 3], [228, 252, 84, 228, 5], [-456, -396, 96, 168, 7], [252, 276, 120, 240, 4], [-264, -228, 156, 192, 2], [-456, -408, 168, 192, 2], [-264, -240, 192, 216, 2], [-204, -168, 192, 240, 3], [-456, -432, 204, 228, 2], [372, 420, 204, 252, 3], [-444, -420, 228, 252, 2], [-264, -144, 264, 360, 16], [60, 96, 264, 348, 4], [-144, -120, 276, 564, 10], [372, 420, 276, 324, 3], [336, 372, 288, 324, 2], [-444, -360, 300, 348, 6], [228, 252, 312, 348, 2], [-348, -312, 324, 408, 4], [-564, -456, 336, 564, 16], [564, 588, 336, 432, 3], [-312, -288, 348, 408, 2], [-108, -72, 348, 384, 2], [-228, -144, 360, 564, 16], [0, 24, 372, 456, 3], [156, 180, 372, 396, 2], [-108, -84, 384, 564, 7], [24, 48, 384, 456, 3], [-84, -36, 396, 564, 12], [48, 72, 396, 456, 2], [-264, -228, 408, 564, 8], [72, 96, 408, 456, 2], [96, 132, 420, 456, 2], [132, 168, 432, 456, 2], [-444, -300, 444, 564, 16], [300, 336, 504, 528, 2]];
 
 // minimap registers for the expansion (drawMinimap reads these)
 var mapRoads = [];   // {x1,z1,x2,z2,hw,cls}
@@ -7545,7 +7552,7 @@ var dollarSprite = (function () {
 
 // ---------------- gas station interior (hidden under the map) ----------------
 var INT = { x0: 44, x1: 66, z0: 32, z1: 48, y: -60 };
-var inside = false, robbedVisit = false, copsCalledVisit = false, gasClosedUntil = -9999;
+var inside = false, robbedVisit = false, copsCalledVisit = false, gasClosedUntil = -9999, bankClosedUntil = -9999;
 var curInterior = null;   // active generalized interior spec (null for the gas one-off or outdoors)
 var doorIn = { x: 55, z: 45.8 };      // just inside the door
 var doorOut = { x: 61, z: 40.5 };     // on the sidewalk outside the store
@@ -7659,6 +7666,7 @@ function enterStore() {
 // keyed by store so future robbable spots inherit the same sync for free.
 function applyRobCD(store, left) {
   if (store === 'gas') gasClosedUntil = Math.max(gasClosedUntil, T + left);
+  else if (store === 'bank') bankClosedUntil = Math.max(bankClosedUntil, T + left);
 }
 function netSendRobCD(store, secs) {
   if (!netActive()) return;
@@ -8397,7 +8405,7 @@ function buildBank(spec) {
   scene.add(vdoor);
   var vaultCol = { x0: vx1 - 0.5, x1: vx1 + 0.5, z0: gapZ0, z1: gapZ1, active: true };   // blocks the doorway while shut
   spec.colliders.push(vaultCol);
-  spec.vault = { door: vdoor, col: vaultCol, doorPos: { x: vx1, z: doorZ }, keypadPos: { x: vx1 + 0.6, z: gapZ1 + 0.7 }, center: { x: (vx0 + vx1) / 2, z: (vz0 + vz1) / 2 }, bounds: { x0: vx0 + 1, x1: vx1 - 1, z0: vz0 + 1.5, z1: vz1 - 1 } };
+  spec.vault = { door: vdoor, col: vaultCol, frame: frame, doorPos: { x: vx1, z: doorZ }, keypadPos: { x: vx1 + 0.6, z: gapZ1 + 0.7 }, center: { x: (vx0 + vx1) / 2, z: (vz0 + vz1) / 2 }, bounds: { x0: vx0 + 1, x1: vx1 - 1, z0: vz0 + 1.5, z1: vz1 - 1 } };
   // ATM lobby along the east wall
   for (var ai = 0; ai < 3; ai++) {
     var az = cz - 6 + ai * 4;
@@ -8463,11 +8471,12 @@ function resetHeist() {
   heist.doorT = 0; heist.graceT = 0; heist.waveT = 0; heist.waves = 0; heist.grabIdx = -1; heist.grabT = 0;
   for (var i = 0; i < heist.stacks.length; i++) if (heist.stacks[i].mesh) scene.remove(heist.stacks[i].mesh);
   heist.stacks = [];
-  var v = BANK.vault; if (v) { v.door.rotation.y = 0; v.col.active = true; }
+  var v = BANK.vault; if (v) { v.door.rotation.y = 0; v.col.active = true; if (v.frame) v.frame.visible = true; }
 }
 BANK.onEnter = resetHeist;
 function bankTellerHoldup(spec) {
   if (heist.open) return;
+  if (T < bankClosedUntil) { sfx('deny'); toast('The vault is on lockdown after a recent heist. Try again in <b>' + Math.ceil((bankClosedUntil - T) / 60) + ' min</b>.', 3000); return; }
   if (!heist.knowCode) {
     heist.code = '' + (1 + (Math.random() * 9 | 0)) + (Math.random() * 10 | 0) + (Math.random() * 10 | 0) + (Math.random() * 10 | 0);
     heist.knowCode = true;
@@ -8480,10 +8489,13 @@ function bankTellerHoldup(spec) {
 }
 function openBankVault(spec, blown) {
   if (heist.open) return;
+  if (T < bankClosedUntil) { sfx('deny'); toast('The vault is on lockdown after a recent heist.', 2600); return; }
   heist.open = true; heist.doorT = 0;
   if (state.wanted < 4) setWanted(4); else lastCrimeT = T;
   heist.graceT = 30; heist.waveT = 0; heist.waves = 0;
   spawnVaultStacks(spec);
+  var v = spec.vault; if (v && v.frame) v.frame.visible = false;   // clear the door-ring blocker from the opening
+  bankClosedUntil = T + 600; netSendRobCD('bank', 600);            // vault on lockdown 10 min for everyone after a heist
   sfx(blown ? 'boom' : 'alarm');
   popup2(blown ? 'VAULT BLOWN OPEN!' : 'VAULT OPEN!');
   toast('Alarm blaring — grab what you can. Cops storm in in 30s.', 4200);
@@ -8545,6 +8557,7 @@ function bankRocketCheck() {
   if (dx * dx + dz * dz > 144) return false;   // within ~12u
   var fx = -Math.sin(yaw), fz = -Math.cos(yaw), d = Math.sqrt(dx * dx + dz * dz) || 1;
   if ((dx * fx + dz * fz) / d < 0.4) return false;   // roughly facing the door
+  if (T < bankClosedUntil) { boomAt(v.doorPos.x, v.doorPos.z); sfx('deny'); toast('The vault is on lockdown — reinforced after the last heist.', 2800); return true; }
   boomAt(v.doorPos.x, v.doorPos.z);
   openBankVault(curInterior, true);
   return true;
@@ -10239,8 +10252,8 @@ if (WC_REMAP) (function landscapePass() {
   // or a junction pad (a lone crepe myrtle stood mid-junction — same defect
   // family as report mrf7rril). Parking-lot islands are unaffected
   // (remapPointClear only rejects road asphalt/pads, not lots).
-  function myrtle(x, z) { if (typeof crepeMyrtle === 'function' && landscapeStats.myrtle < CAP.myrtle && remapPointClear(x, z, 1.2)) { crepeMyrtle(x, z); landscapeStats.myrtle++; } }
-  function ipalm(x, z) { if (typeof palm === 'function' && landscapeStats.palm < CAP.palm && remapPointClear(x, z, 1.2)) { palm(x, z); landscapeStats.palm++; } }
+  function myrtle(x, z) { if (bankDoorClear(x, z)) return; if (typeof crepeMyrtle === 'function' && landscapeStats.myrtle < CAP.myrtle && remapPointClear(x, z, 1.2)) { crepeMyrtle(x, z); landscapeStats.myrtle++; } }
+  function ipalm(x, z) { if (bankDoorClear(x, z)) return; if (typeof palm === 'function' && landscapeStats.palm < CAP.palm && remapPointClear(x, z, 1.2)) { palm(x, z); landscapeStats.palm++; } }
 
   var CAP = { shrub: 1200, hedge: 360, grass: 500, mulch: 400, myrtle: 60, palm: 40 };
   function okShrub() { return landscapeStats.shrub < CAP.shrub; }
@@ -11141,6 +11154,7 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
   //   scale (uniform, instances only)
   function place(name, x, z, ry, opts) {
     if (ENV_BLOCK[name]) return null;   // owner: removed food vendors / coin-op / outdoor tables
+    if (typeof bankDoorClear === 'function' && bankDoorClear(x, z)) return null;   // keep the bank entrance walkway clear
     var e = ENV_BY_NAME[name]; if (!e) return null;
     if (ENV_THIN[e.cat] && Math.random() < ENV_THIN[e.cat]) return null;   // owner: thin decorative filler ~half
     opts = opts || {}; ry = ry || 0; var y = opts.y || 0, dims = e.dims;
@@ -11214,7 +11228,7 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
     // flanking planters
     place('concrete_planter', wx + ff.rx * ew, wz + ff.rz * ew, 0);
     place('concrete_planter', wx - ff.rx * ew, wz - ff.rz * ew, 0);
-    if (vv.type === 'bank') place('tiered_planter', vv.x + ff.fx * (vv.d / 2 + 2.6), vv.z + ff.fz * (vv.d / 2 + 2.6), 0);
+    // (bank tiered_planter removed — it sat dead-centre in the vault-robbery entrance path)
     // an ADA handrail run along one side of the frontage
     if (vv.type === 'publix' || vv.type === 'racetrac') {
       var h0x = wx + ff.rx * (ew + 0.8), h0z = wz + ff.rz * (ew + 0.8);
@@ -12010,8 +12024,8 @@ function updateCops(dt) {
     if (aimTgt) { copAimArm(c, m, aimTgt); copShoot(c, wpn, dt, aimTgt); }
     else if (m.userData.heldGun) copLowReady(m);   // drawn but not aiming: low-ready, not brick-on-palm
   }
-  // lose the heat: 18s with no crimes and no cops within 50 units
-  if (state.wanted > 0 && T - lastCrimeT > 18) {
+  // lose the heat: 35s with no crimes and no cops within 50 units (one star per interval)
+  if (state.wanted > 0 && T - lastCrimeT > 35) {
     var nearCop = false;
     for (i = 0; i < cops.length; i++) {
       var cc = cops[i];
@@ -17676,6 +17690,7 @@ function hurtPlayer(d, sx, sz) {
   requestAnimationFrame(function () { f.style.transition = 'opacity .45s'; f.style.opacity = 0; });
   if (state.hp <= 0) {
     state.hp = 0; state.dead = true;
+    if (state.stolen > 0) { popup2('BUSTED — dropped $' + state.stolen); state.stolen = 0; }   // uncleared heist loot is lost on death
     if (kameActive) endKamehameha();   // dying mid-beam: tear it down (updatePlayer stops running once dead)
     if (rollState) endRoll();          // dying mid-roll: clean up the body/camera before the death cam
     if (state.wanted >= 2) playVoice('cop_down', 0.45, 10);
@@ -19604,6 +19619,7 @@ function handleNet(m, conn) {
     if (net.mode === 'client') {
       envT = m.envT; raining = m.raining; rainLeft = m.rainLeft;
       if (m.gasCD) gasClosedUntil = Math.max(gasClosedUntil, T + m.gasCD);   // late joiners inherit the lockout
+      if (m.bankCD) bankClosedUntil = Math.max(bankClosedUntil, T + m.bankCD);
     }
   } else if (m.t === 'voice') {
     // TWO kinds of {t:'voice'} share this branch (they MUST be discriminated
@@ -19773,7 +19789,7 @@ function onConn(c) {
   net.conns.push(c);
   updateLobbyStatus();
   if (net.mode === 'host') {
-    var sendEnv = function () { try { c.send({ t: 'env', envT: envT, raining: raining, rainLeft: rainLeft, gasCD: Math.max(0, Math.round(gasClosedUntil - T)) }); } catch (e) { } };
+    var sendEnv = function () { try { c.send({ t: 'env', envT: envT, raining: raining, rainLeft: rainLeft, gasCD: Math.max(0, Math.round(gasClosedUntil - T)), bankCD: Math.max(0, Math.round(bankClosedUntil - T)) }); } catch (e) { } };
     if (c.open) sendEnv(); else c.on('open', sendEnv);
   }
   c.on('data', function (m) { handleNet(m, c); });
@@ -19975,7 +19991,7 @@ function updateNet(dt) {
   if (net.mode === 'host' && netActive()) {
     // weather/time sync
     net.envSyncT -= dt;
-    if (net.envSyncT <= 0) { net.envSyncT = 3; netBroadcast({ t: 'env', envT: envT, raining: raining, rainLeft: rainLeft, gasCD: Math.max(0, Math.round(gasClosedUntil - T)) }); }
+    if (net.envSyncT <= 0) { net.envSyncT = 3; netBroadcast({ t: 'env', envT: envT, raining: raining, rainLeft: rainLeft, gasCD: Math.max(0, Math.round(gasClosedUntil - T)), bankCD: Math.max(0, Math.round(bankClosedUntil - T)) }); }
     // authoritative world snapshot ~8x/s: traffic, npcs, street cops, cash
     net.worldT -= dt;
     if (net.worldT <= 0) {
@@ -22063,7 +22079,7 @@ window.__wc = {
   enterCar: enterCar, exitCar: exitCar, nearestStealableCar: nearestStealableCar,
   isDriving: function () { return !!driving; }, drivingCar: function () { return driving; },
   pressKey: function (code, down) { keys[code] = down; },
-  heistRef: function () { return heist; }, bankVaultRef: function () { return BANK.vault; }, keypadPress: function (k) { keypadPress(k); },
+  heistRef: function () { return heist; }, bankVaultRef: function () { return BANK.vault; }, keypadPress: function (k) { keypadPress(k); }, bankCD: function () { return Math.max(0, bankClosedUntil - T); },
   surfaceHeightAt: function (x, z, sk, fy) { return surfaceHeightAt(x, z, sk, fy); },
   // --- easter-egg / secret test hooks ---
   stashes: function () { return SECRET_STASHES; },
