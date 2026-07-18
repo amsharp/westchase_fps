@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.63';
+var GAME_VERSION = 'v1.76.64';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2271,33 +2271,58 @@ function _porTexMat(dataUrl, cache) {
   return nightLit(mat);
 }
 function getPorscheMat(ci) { if (!_porMatC[ci]) _porMatC[ci] = _porTexMat(PORSCHE_VEH.texs[ci]); return _porMatC[ci]; }
-// FLAT body-matched paint for the blade (owner: "color match the spoiler to
-// the car better"). The Meshy spoiler texture's top face bakes out near-black
-// while its sides are bright — no single tint fixes both, so the blade drops
-// the baked texture and samples the BODY texture's dominant paint cluster
-// instead: a guaranteed match on every colour variant, incl. future regens.
+// Body-matched spoiler paint, HYBRID (owner: "the black parts should have
+// remained black, and just the red gets color matched"): the baked Meshy
+// texture is kept — its black louvre grille + skirt stay black — but every
+// red-classified frame pixel is repainted to the BODY texture's dominant
+// paint cluster (baked shading preserved via a brightness ratio). The red
+// source texture (stexs[0]) drives all colour variants so classification is
+// stable. Falls back to flat red if canvas work fails.
+function _porDomColor(im) {
+  var cv = document.createElement('canvas'); cv.width = 96; cv.height = 96;
+  var c2 = cv.getContext('2d'); c2.drawImage(im, 0, 0, 96, 96);
+  var d = c2.getImageData(0, 0, 96, 96).data, bins = {}, best = null;
+  for (var i = 0; i < d.length; i += 4) {
+    var r = d[i], g = d[i + 1], b = d[i + 2], br = (r + g + b) / 3;
+    if (br < 12 || br > 235) continue;   // skip arch-cutout black + highlight white
+    var k = ((r >> 5) << 10) | ((g >> 5) << 5) | (b >> 5);
+    var e = bins[k] || (bins[k] = { n: 0, r: 0, g: 0, b: 0 });
+    e.n++; e.r += r; e.g += g; e.b += b;
+    if (!best || e.n > best.n) best = e;
+  }
+  return best ? [best.r / best.n, best.g / best.n, best.b / best.n] : [176, 32, 32];
+}
 function getPorscheSpoilerMat(ci) {
   if (_porSpMatC[ci]) return _porSpMatC[ci];
-  var mat = lamb({ color: 0xb02020 });   // red until the body tex is sampled
+  var mat = lamb({ color: 0xb02020 });   // flat red until the repaint lands
   _porSpMatC[ci] = nightLit(mat);
-  var im = new Image();
-  im.onload = function () {
+  var bodyIm = new Image(), spIm = new Image(), loaded = 0;
+  function ready() {
+    if (++loaded < 2) return;
     try {
-      var cv = document.createElement('canvas'); cv.width = 96; cv.height = 96;
-      var c2 = cv.getContext('2d'); c2.drawImage(im, 0, 0, 96, 96);
-      var d = c2.getImageData(0, 0, 96, 96).data, bins = {}, best = null;
+      var bc = _porDomColor(bodyIm);
+      var cv = document.createElement('canvas'); cv.width = spIm.width; cv.height = spIm.height;
+      var c2 = cv.getContext('2d'); c2.drawImage(spIm, 0, 0);
+      var id = c2.getImageData(0, 0, cv.width, cv.height), d = id.data;
       for (var i = 0; i < d.length; i += 4) {
-        var r = d[i], g = d[i + 1], b = d[i + 2], br = (r + g + b) / 3;
-        if (br < 12 || br > 235) continue;   // skip arch-cutout black + highlight white
-        var k = ((r >> 5) << 10) | ((g >> 5) << 5) | (b >> 5);
-        var e = bins[k] || (bins[k] = { n: 0, r: 0, g: 0, b: 0 });
-        e.n++; e.r += r; e.g += g; e.b += b;
-        if (!best || e.n > best.n) best = e;
+        var r = d[i], g = d[i + 1], b = d[i + 2];
+        if (r > 60 && r > g * 1.35 + 12 && r > b * 1.35 + 12) {   // red frame pixel
+          var sh = Math.min(1.6, r / 171);   // shading vs the texture's modal red
+          d[i] = Math.min(255, bc[0] * sh);
+          d[i + 1] = Math.min(255, bc[1] * sh);
+          d[i + 2] = Math.min(255, bc[2] * sh);
+        }
       }
-      if (best) mat.color.setRGB((best.r / best.n) / 255, (best.g / best.n) / 255, (best.b / best.n) / 255);
-    } catch (e) { /* canvas blocked -> keep the red fallback */ }
-  };
-  im.src = PORSCHE_VEH.texs[Math.min(ci, PORSCHE_VEH.texs.length - 1)];
+      c2.putImageData(id, 0, 0);
+      var tx = new THREE.Texture(cv);
+      tx.magFilter = THREE.NearestFilter; tx.minFilter = THREE.NearestFilter; tx.generateMipmaps = false;
+      tx.needsUpdate = true;
+      mat.map = tx; mat.color.setHex(0xffffff); mat.needsUpdate = true;
+    } catch (e) { /* canvas blocked -> keep the flat red fallback */ }
+  }
+  bodyIm.onload = ready; spIm.onload = ready;
+  bodyIm.src = PORSCHE_VEH.texs[Math.min(ci, PORSCHE_VEH.texs.length - 1)];
+  spIm.src = (PORSCHE_VEH.stexs || [PORSCHE_VEH.stex])[0];
   return _porSpMatC[ci];
 }
 // red is prevalent: texs 0..2 = red, 3 silver, 4 black, 5 white, 6 yellow
