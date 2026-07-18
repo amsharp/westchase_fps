@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.76.59';
+var GAME_VERSION = 'v1.76.60';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2354,8 +2354,10 @@ function buildPorsche(ci) {
     // breakout #7 forward -0.10*spD, then deployed side-profile #8 rearward
     // +0.28*spD => net +0.18*spD toward the tail)
     var hOff = 0.18 * spD;
-    var stowDX = 0.16 * spD - hOff * Math.cos(m3v);
-    var stowDY = -0.07 + hOff * Math.sin(m3v);
+    // vertical pick #6: whole assembly drops 0.15*spD straight down (world)
+    var vOff = 0.15 * spD;
+    var stowDX = 0.16 * spD - hOff * Math.cos(m3v) - vOff * Math.sin(m3v);
+    var stowDY = -0.07 + hOff * Math.sin(m3v) - vOff * Math.cos(m3v);
     var pivot = new THREE.Group();
     pivot.position.set(spD / 2 + stowDX, -spH + 0.008 + stowDY, 0);
     sp.position.set(-spD / 2, 0, 0);
