@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.77.22';
+var GAME_VERSION = 'v1.77.23';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -22064,8 +22064,9 @@ function drawHudCanvas() {
   drawPix('$' + Math.max(0, state.money | 0), W - M, my, 3, '#46e05e', 'right');
   // ---- heist loot: top-center "COLLECTED $N" until the heat clears + pays out ----
   if (state.stolen > 0) drawPix('COLLECTED $' + state.stolen, W / 2, M + 4, 3, '#ffd94a', 'center');
-  // heist grace countdown while the vault is open and cops haven't stormed in yet
-  if (typeof heist !== 'undefined' && heist.open && heist.graceT > 0)
+  // heist grace countdown — only while you're actually inside the bank (leaving
+  // freezes graceT, so without this gate the text lingers after you've left)
+  if (typeof heist !== 'undefined' && heist.open && heist.graceT > 0 && inside && curInterior && curInterior.id === 'bank')
     drawPix('COPS IN ' + Math.ceil(heist.graceT) + 'S', W / 2, M + 30, 3, '#ff6a4a', 'center');
   // ---- QoL: world-anchored money floats — each "+$N" rises ~1.4 world units
   // from where the cash was grabbed over its 1.1s life, fading out. Skips floats
