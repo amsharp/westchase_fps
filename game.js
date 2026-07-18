@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.77.8';
+var GAME_VERSION = 'v1.77.9';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2337,14 +2337,9 @@ function buildPorsche(ci) {
     pivot.rotation.z = 0.13;
     pivot.userData.riseRot = (m[3] || 0);                     // cancels the lid-pitch frame EXACTLY: deployed blade is parallel to the ground
     tilt.add(pivot); spoiler = pivot;
-    // black void quad = the recess floor, EXACTLY the spoiler footprint, sunk
-    // well below the lid: invisible under the flush-stowed blade, and reads as
-    // the dark hole inside the recess once the blade lifts (it used to sit 3mm
-    // under the rim, poking through the grille inset as a black square)
-    var vw = P.spoiler.dims[0] * sc * 1.02, vd = P.spoiler.dims[2] * sc * 0.98;
-    var vq = new THREE.Mesh(new THREE.PlaneGeometry(vw, vd), new THREE.MeshBasicMaterial({ color: 0x090909 }));
-    vq.rotation.x = -Math.PI / 2; vq.position.set(stowDX, -0.05, 0);   // recess follows the stowed tray
-    tilt.add(vq);
+    // (the black "recess floor" quad is GONE — owner: it kept clipping into
+    // the deck. The engine grille baked into the body texture reads fine on
+    // its own under the lifted blade.)
   }
   // (taillight band + Carrera 2 script are BAKED into the body atlas by
   // genporsche.js — projected onto the tail-facing triangles per colour variant)
