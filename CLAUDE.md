@@ -399,6 +399,18 @@ game.js under `WC_REMAP`. Frame: junction `(0,0)`, **+x east / +z south**.
   copShoot. Character->voice registry in tools/ttsgen/voices.json — one
   reference_id per character, always. Fish key from user env, never
   committed.
+- **Voice deferral (v1.78.2)**: the ~33MB of TTS audio (npcvoices1..N,
+  shopvoices1, kidvoices1, vendvoices, voicelines) is NO LONGER blocking-loaded
+  in index.html — it defers. game.js `loadVoicePacks()` (setTimeout 800ms after
+  boot) injects them as `<script>` tags once the game is interactive; npcvoices1
+  declares NPC_VOICE_CHUNKS and its onload kicks `loadNpcVoiceChunks()` for
+  chunks 2..N. This cut the blocking payload from ~71MB → ~22MB (WC_BOOT_TOTAL
+  in index.html excludes the voice weights — re-sum if you add a voice pack; add
+  new packs to loadVoicePacks, NOT to a blocking <script> tag). Every consumer
+  already guards typeof NPC_VOICES|SHOP_VOICES|KID_VOICES|VEND_VOICES|VOICE_LINES
+  and falls back to generic barks until a pack lands, so a brief warm-up window
+  at session start is silent-safe. <script src> injection keeps file:// working
+  (fetch/XHR would not).
 - Gotchas: Meshy ignores/overshoots target_polycount without
   should_remesh (9.5k tris); store RAW glb uv v in the quantized data
   (game loader applies the 1-v flip); occluded-in-T-pose regions (inner

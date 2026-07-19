@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.78.1';
+var GAME_VERSION = 'v1.78.2';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -22461,25 +22461,40 @@ camera.position.set(player.x, player.y, player.z);
 requestAnimationFrame(loop);
 
 // ---- late-loaded NPC voice chunks ----
-// npcvoices1.js ships as a blocking <script> tag and declares
-// NPC_VOICE_CHUNKS; the remaining npcvoicesN.js chunks arrive here as dynamic
-// script tags shortly after the menu is up, so first paint stays fast. Plain
-// <script src> injection keeps file:// working (fetch/XHR would not).
-// playNpcVoice treats a character whose chunk hasn't landed yet exactly like
-// one with no pack entry, so callers fall back to the generic barks silently.
+// VOICE DEFERRAL: none of the ~33MB of TTS audio (npcvoices1..N, shopvoices1,
+// kidvoices1, vendvoices, voicelines) blocks first paint. index.html loads only
+// the game code + meshes; here — once the game is interactive — we inject the
+// voice packs as dynamic <script> tags in the background. Plain <script src>
+// injection keeps file:// working (fetch/XHR would not). Every consumer guards
+// typeof NPC_VOICES|SHOP_VOICES|KID_VOICES|VEND_VOICES|VOICE_LINES and falls
+// back to the generic barks (or text) until a pack lands, so the brief warm-up
+// window at session start is silent-safe.
+function injectScript(src, onload) {
+  var s = document.createElement('script');
+  s.src = src; s.async = true;
+  if (onload) s.onload = onload;
+  document.head.appendChild(s);
+}
+// npcvoices1.js declares NPC_VOICE_CHUNKS, so pull the remaining chunks (2..N)
+// only once it has landed.
 var npcVoiceChunksKicked = false;
 function loadNpcVoiceChunks() {
   if (npcVoiceChunksKicked) return;
   npcVoiceChunksKicked = true;
   var total = typeof NPC_VOICE_CHUNKS !== 'undefined' ? NPC_VOICE_CHUNKS : 0;
-  for (var i = 2; i <= total; i++) {
-    var s = document.createElement('script');
-    s.src = 'npcvoices' + i + '.js';
-    s.async = true;
-    document.head.appendChild(s);
-  }
+  for (var i = 2; i <= total; i++) injectScript('npcvoices' + i + '.js');
 }
-setTimeout(loadNpcVoiceChunks, 800);
+var voicePacksKicked = false;
+function loadVoicePacks() {
+  if (voicePacksKicked) return;
+  voicePacksKicked = true;
+  injectScript('npcvoices1.js', loadNpcVoiceChunks);
+  injectScript('shopvoices1.js');
+  injectScript('kidvoices1.js');
+  injectScript('vendvoices.js');
+  injectScript('voicelines.js');
+}
+setTimeout(loadVoicePacks, 800);
 
 // debug hook
 // ---------------- collider debug overlay (F9 / __wc.showColliders) ----------------
