@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.78.2';
+var GAME_VERSION = 'v1.78.3';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -13333,8 +13333,8 @@ function updateDriving(dt) {
   var ml = Math.sqrt(c.mvx * c.mvx + c.mvz * c.mvz) || 1; c.mvx /= ml; c.mvz /= ml;
   var nx = g.position.x + c.mvx * c.pspeed * dt;
   var nz = g.position.z + c.mvz * c.pspeed * dt;
-  nx = Math.max(-HALF + 3, Math.min(HALF - 3, nx));
-  nz = Math.max(-HALF + 3, Math.min(HALF - 3, nz));
+  nx = Math.max(WLO + 3, Math.min(WHI - 3, nx));   // full expanded world (was ±HALF — trapped the driven car at the old town edge)
+  nz = Math.max(WLO + 3, Math.min(WHI - 3, nz));
   // the DRIVEN car may cross the shoreline into the water — use the lake-filtered
   // collider list. Airborne cars clear low props (feetY = their height).
   if (!landColliders) landColliders = colliders.filter(function (cc) { return !cc.lake; });
@@ -13808,8 +13808,8 @@ function updatePlaneWorld(dt) {
   }
 }
 function planeBounds(g) {
-  g.position.x = Math.max(-HALF + 4, Math.min(HALF - 4, g.position.x));
-  g.position.z = Math.max(-HALF + 4, Math.min(HALF - 4, g.position.z));
+  g.position.x = Math.max(WLO + 4, Math.min(WHI - 4, g.position.x));   // full expanded world (was ±HALF — trapped the plane at the old town edge)
+  g.position.z = Math.max(WLO + 4, Math.min(WHI - 4, g.position.z));
   if (g.position.y > 400) g.position.y = 400;
 }
 // building crash test: inside any mapBuildings footprint AND below its roof
