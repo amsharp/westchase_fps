@@ -308,8 +308,10 @@ the trigger just clicks — reload. The **rocket launcher** plays its full
 load-a-shell animation; every other gun simply **drops off-screen and swings
 back up** once the fresh mag is seated. Reloading mid-fire is safe but you
 can't shoot until it finishes, and switching weapons cancels it. The
-**alien energy guns** (ray gun and the quest rewards) never need ammo. Die
-and you drop your guns — and the ammo that was in them.
+**alien energy guns** (ray gun and the quest rewards) never need ammo. Your
+loaded mags and reserve **carry over between sessions** (saved alongside your
+money and guns) — but die and you drop your guns, and the ammo goes with
+them.
 
 ### The cabin in the woods
 

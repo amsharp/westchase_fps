@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.80.0';
+var GAME_VERSION = 'v1.80.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -101,6 +101,15 @@ function grantGunAmmo(kind, loadedMags, reserveMags) {
   if (!state.mag) state.mag = {};
   state.mag[kind] = w.mag * (loadedMags || 0);
   if (reserveMags) state.ammoRes[w.ammo] = (state.ammoRes[w.ammo] || 0) + w.mag * reserveMags;
+}
+// sanitize a persisted ammo blob (localStorage / cloud save) back into clean
+// mag + reserve objects — only known guns/types, non-negative, mag clamped to
+// the gun's capacity. Used by the save/load paths so ammo survives a reload.
+function sanitizeAmmo(mag, res) {
+  var om = {}, orr = { pistol: 0, rifle: 0, shotgun: 0, rocket: 0 };
+  if (mag) for (var g in WEAPONS) { if (WEAPONS[g].ammo && typeof mag[g] === 'number') om[g] = Math.max(0, Math.min(WEAPONS[g].mag, mag[g] | 0)); }
+  if (res) for (var t in orr) { if (typeof res[t] === 'number') orr[t] = Math.max(0, Math.min(99999, res[t] | 0)); }
+  return { mag: om, res: orr };
 }
 // start a manual reload of the equipped gun (R). No-ops if it doesn't use ammo,
 // is already full, is mid-reload, or the reserve pool is empty (dry click).
@@ -21982,7 +21991,8 @@ function acctBuildSave() {
   return {
     money: state.money | 0, owned: state.owned,
     snacks: state.snacks | 0, sodas: state.sodas | 0,
-    bag: state.bag, cc: cc
+    bag: state.bag, cc: cc,
+    mag: state.mag, ammoRes: state.ammoRes
   };
 }
 function acctApplySave(s) {
@@ -21995,6 +22005,7 @@ function acctApplySave(s) {
     var it = s.bag[i];
     state.bag[i] = (it && it.id && itemDef(it.id) && (it.n | 0) > 0) ? { id: it.id, n: Math.min(99, it.n | 0) } : null;
   }
+  if (s.mag || s.ammoRes) { var a = sanitizeAmmo(s.mag, s.ammoRes); state.mag = a.mag; state.ammoRes = a.res; }
   if (s.cc) {
     try { localStorage.setItem('wc_char', s.cc); } catch (e) { }
     var pc = decodeCC(s.cc); if (pc) playerChar = pc;
@@ -22014,7 +22025,8 @@ function saveLocalProgress() {
   try {
     localStorage.setItem('wc_save', JSON.stringify({
       money: state.money | 0, owned: state.owned,
-      snacks: state.snacks | 0, sodas: state.sodas | 0, bag: state.bag
+      snacks: state.snacks | 0, sodas: state.sodas | 0, bag: state.bag,
+      mag: state.mag, ammoRes: state.ammoRes
     }));
   } catch (e) { }
 }
@@ -22030,6 +22042,7 @@ function loadLocalProgress() {
     var it = s.bag[i];
     state.bag[i] = (it && it.id && itemDef(it.id) && (it.n | 0) > 0) ? { id: it.id, n: Math.min(99, it.n | 0) } : null;
   }
+  if (s.mag || s.ammoRes) { var a = sanitizeAmmo(s.mag, s.ammoRes); state.mag = a.mag; state.ammoRes = a.res; }
 }
 function acctPost(payload, cb) {
   var base = bugServerUrl(); if (!base) { cb(new Error('no server')); return; }
@@ -23436,6 +23449,7 @@ window.__wc = {
   setPlayerChar: function (c) { playerChar = c; },
   ownWeapon: function (k) { if (WEAPONS[k]) { state.owned[k] = true; grantGunAmmo(k, 1, 1); return true; } return false; },
   giveAmmo: function (typ, n) { if (!state.ammoRes) state.ammoRes = { pistol: 0, rifle: 0, shotgun: 0, rocket: 0 }; state.ammoRes[typ] = (state.ammoRes[typ] | 0) + (n || 30); return state.ammoRes[typ]; },
+  saveNow: function () { saveLocalProgress(); return true; },
   ammoState: function () { return { mag: state.mag, res: state.ammoRes, reloading: reloadGun }; },
   reloadNow: function () { startReload(); return reloadGun; },
   getEnvProp: getEnvProp, itemDef: itemDef, itemTex: itemTex, bagAdd: bagAdd, bagCount: bagCount,
