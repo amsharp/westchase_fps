@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.80.3';
+var GAME_VERSION = 'v1.80.4';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -120,7 +120,7 @@ function startReload() {
   var cur = state.mag[state.equipped] | 0;
   if (cur >= w.mag) return;                           // mag already full
   var res = state.ammoRes[w.ammo] | 0;
-  if (res <= 0) { if (T - lastDryClick > 0.4) { beep(150, 0.07, 0.09, 'square'); lastDryClick = T; } popup('OUT OF ' + (AMMO_TYPES[w.ammo] ? AMMO_TYPES[w.ammo].name : 'AMMO')); return; }
+  if (res <= 0) { if (T - lastDryClick > 0.4) { sfx('empty'); lastDryClick = T; } popup('OUT OF ' + (AMMO_TYPES[w.ammo] ? AMMO_TYPES[w.ammo].name : 'AMMO')); return; }
   reloadGun = state.equipped; reloadStart = T; reloadDur = w.reload || 2;
   sfx('reload');
 }
@@ -18641,7 +18641,7 @@ function tryAttack() {
   if (w.ammo) {
     if (reloadGun === state.equipped) return;
     if ((state.mag[state.equipped] | 0) <= 0) {
-      if (T - lastDryClick > 0.25) { beep(140, 0.05, 0.09, 'square'); lastDryClick = T; }
+      if (T - lastDryClick > 0.25) { sfx('empty'); lastDryClick = T; }
       if (state.equipped === 'rocket' || !w.auto) popup('RELOAD (R)');
       return;
     }
@@ -19907,9 +19907,13 @@ function sfxPackBuf(key) {
 // loudness), r = base playbackRate, j = random rate jitter. Kinds NOT here
 // (raygun/laser zaps, UI ticks, deny/alarm, grunts, footsteps) stay synth.
 var SFX_MAP = {
-  // gunshots (pistol/smg/rifle/auto/copshot/copsmg/rocketfire) are intentionally
-  // NOT pack-mapped — they route to the synthesized gunShot() for a sharper,
-  // punchier report (the Lyria gun clips read flat). boom stays on the pack.
+  // owner-supplied gunshots (gunsfx.js): the pistol sample covers BOTH the pistol
+  // and the SMG; the AK-47 (auto) and rifle get their own. cop guns + the rocket
+  // stay on the synth gunShot(). A tiny rate jitter keeps repeated shots from
+  // machine-gunning identically; silent fallback to synth if the pack is absent.
+  pistol: { k: 'pistol', g: 0.7, j: 0.06 }, smg: { k: 'pistol', g: 0.6, r: 1.05, j: 0.07 },
+  rifle: { k: 'rifle', g: 0.8, j: 0.04 }, auto: { k: 'ak47', g: 0.62, j: 0.06 },
+  empty: { k: 'gunempty', g: 0.7, j: 0.03 },   // out-of-ammo dry click (tryAttack)
   boom: { k: 'boom', g: 1.2, j: 0.05 },
   crash: { k: 'crash', g: 0.85, j: 0.07 }, glass: { k: 'glass', g: 0.6, j: 0.06 },
   punchhit: { k: 'punch', g: 0.55, j: 0.08 }, hit: { k: 'punch', g: 0.42, r: 1.08, j: 0.08 },
@@ -20079,6 +20083,7 @@ function sfx(kind, at) {
     case 'splash': nb(0.22, 1900, 0.5); bp(360, 0.1, 0.09, 'sine', 150); setTimeout(function () { nb(0.16, 1200, 0.3); }, 60); setTimeout(function () { nb(0.13, 800, 0.2); }, 150); break;   // car hits the water
     case 'glass': nb(0.07, 3400, 0.5); bp(190, 0.09, 0.14, 'square', 70); setTimeout(function () { nb(0.1, 2700, 0.38); }, 70); setTimeout(function () { nb(0.14, 2100, 0.28); }, 160); break;
     case 'boom': nb(0.8, 320, 1.3); bp(60, 0.6, 0.6, 'sine', 24); setTimeout(function () { nb(0.4, 700, 0.4); }, 120); break;
+    case 'empty': bp(150, 0.05, 0.09, 'square'); break;   // dry-fire click — synth fallback when gunsfx.js gunempty isn't loaded
     case 'reload': nb(0.04, 1800, 0.16); setTimeout(function () { bp(220, 0.05, 0.12, 'square', 130); }, 90); break;   // mag-out click + release
     case 'reloaddone': bp(300, 0.05, 0.14, 'square', 180); setTimeout(function () { nb(0.045, 2200, 0.2); bp(520, 0.05, 0.1, 'square', 300); }, 100); break;   // fresh mag seats + charging handle
     case 'tick': bp(1500, 0.03, 0.11, 'square', 0); break;   // crisp hitmarker blip
