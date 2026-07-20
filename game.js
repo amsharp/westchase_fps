@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.78.3';
+var GAME_VERSION = 'v1.78.4';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -782,6 +782,19 @@ var horizonSkirt = (function () {
   // slightly inset so the bed rim always covers the cut edge
   hole.absellipse(LAKE.x, -LAKE.z, LAKE.r * 1.25 * 0.97, LAKE.r * 0.85 * 0.97, 0, Math.PI * 2, true, 0);
   s.holes.push(hole);
+  // river channels: cut a ribbon-shaped hole per water road so the sunken bed +
+  // transparent water (buildRiver) show through the grass (shape space = x, -z).
+  if (typeof REMAP_ROADS !== 'undefined') {
+    for (var wri = 0; wri < REMAP_ROADS.length; wri++) {
+      var wr = REMAP_ROADS[wri];
+      if (wr.kind !== 'water' || !wr.pts || wr.pts.length < 2) continue;
+      var lft = rmOffsetPts(wr.pts, wr.hw), rgt = rmOffsetPts(wr.pts, -wr.hw), hpath = new THREE.Path();
+      hpath.moveTo(lft[0][0], -lft[0][1]);
+      for (var lk = 1; lk < lft.length; lk++) hpath.lineTo(lft[lk][0], -lft[lk][1]);
+      for (var rk = rgt.length - 1; rk >= 0; rk--) hpath.lineTo(rgt[rk][0], -rgt[rk][1]);
+      hpath.closePath(); s.holes.push(hpath);
+    }
+  }
   var geo = new THREE.ShapeGeometry(s, 24);
   // ShapeGeometry UVs are in shape units — normalize to the plane's 0..1
   var uv = geo.attributes.uv;
@@ -2877,6 +2890,157 @@ function expRoadPoly(idx, data) {
     }
   }
 }
+// ========= elevated highway / ramp / river renderers (WC_REMAP kinds) =========
+// Roads whose kind is 'highway'|'ramp'|'water' render here instead of as flat
+// asphalt. Highway = concrete deck on pillars with outer + median Jersey
+// barriers and double-arm median lamps (Veterans Expwy reference). Ramp =
+// sloped deck up to the deck height with side rails. River = recessed channel
+// (the grass gets a hole cut, same trick as the lake, so the sunken water shows).
+// NOTE (v1.78.4): the DECK/BARRIERS are visual only for now — the collider set
+// is 2D, so a deck-level wall would wrongly block the ground beneath it. Pillars
+// DO collide (real ground obstacles). Drive-up physics + deck collision is the
+// next pass; this build is for eyeballing the look.
+var hwDeckT = tex(256, function (g, s) {
+  g.fillStyle = '#8f8f88'; g.fillRect(0, 0, s, s);                       // medium concrete (so white lines pop)
+  noise(g, s, 900, 0.12, 0.07);
+  g.fillStyle = 'rgba(48,48,46,0.5)'; g.fillRect(0, 0, 3, s);            // transverse expansion joint (per tile)
+  function line(vy, col, dash, th) { var y = vy * s, w = th || 3; g.fillStyle = col;
+    if (dash) { for (var x = 0; x < s; x += 30) g.fillRect(x, y - w / 2, 16, w); }
+    else g.fillRect(0, y - w / 2, s, w); }
+  // markings run along the road = horizontal bands (canvas Y = across full width)
+  line(0.035, '#f4f4ec', false, 3); line(0.18, '#f4f4ec', true, 3); line(0.32, '#f4f4ec', true, 3); line(0.462, '#e6cc3e', false, 3);
+  line(0.538, '#e6cc3e', false, 3); line(0.68, '#f4f4ec', true, 3); line(0.82, '#f4f4ec', true, 3); line(0.965, '#f4f4ec', false, 3);
+});
+var hwDeckM = lamb({ map: hwDeckT });
+var hwConcreteM = lamb({ color: 0xbcbbb4 });
+var hwUnderM = lamb({ color: 0x6d6c67, side: THREE.DoubleSide });   // deck underside — DoubleSide so it's solid from below
+var riverBedM = lamb({ color: 0x3a4b54 });
+var riverWaterM = new THREE.MeshLambertMaterial({ color: 0x2f6f9e, transparent: true, opacity: 0.74, side: THREE.DoubleSide, depthWrite: false });
+// point + unit tangent at chainage s along a polyline (cum precomputed by rmCum)
+function rmAt(pts, cum, s) {
+  for (var i = 1; i < pts.length; i++) {
+    if (cum[i] >= s || i === pts.length - 1) {
+      var span = cum[i] - cum[i - 1], t = span > 0.001 ? (s - cum[i - 1]) / span : 0;
+      t = Math.max(0, Math.min(1, t));
+      return { x: pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * t, z: pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * t };
+    }
+  }
+  return { x: pts[0][0], z: pts[0][1] };
+}
+function rmTangentAt(pts, cum, s) {
+  for (var i = 1; i < pts.length; i++) {
+    if (cum[i] >= s || i === pts.length - 1) {
+      var dx = pts[i][0] - pts[i - 1][0], dz = pts[i][1] - pts[i - 1][1], L = Math.hypot(dx, dz) || 1;
+      return { x: dx / L, z: dz / L };
+    }
+  }
+  return { x: 1, z: 0 };
+}
+// concrete wall / guardrail along a polyline (boxes per segment; optional collider)
+function hwWall(pts, yBase, h, thick, mat, colTag) {
+  for (var i = 0; i < pts.length - 1; i++) {
+    var ax = pts[i][0], az = pts[i][1], bx = pts[i + 1][0], bz = pts[i + 1][1];
+    var dx = bx - ax, dz = bz - az, L = Math.hypot(dx, dz); if (L < 0.4) continue;
+    var mx = (ax + bx) / 2, mz = (az + bz) / 2, yaw = Math.atan2(-dz, dx);
+    var seg = new THREE.Mesh(new THREE.BoxGeometry(L + thick, h, thick), mat);
+    seg.position.set(mx, yBase + h / 2, mz); seg.rotation.y = yaw; scene.add(seg);
+    if (colTag) addColliderOBB(mx, mz, (L + thick) / 2, thick / 2, yaw, colTag);
+  }
+}
+// double-arm median lamp: pole rising from the deck, an arm + head over each way
+function medianLampAt(x, z, ux, uz, deckY) {
+  var g = new THREE.Group(), poleH = 8.5;
+  g.add(cyl(0.13, 0.17, poleH, 8, poleMetal, 0, poleH / 2, 0));
+  var baseYaw = Math.atan2(-ux, -uz);   // arms run across the road (perp to tangent)
+  for (var side = -1; side <= 1; side += 2) {
+    var arm = new THREE.Group();
+    arm.add(box(4.4, 0.13, 0.16, poleMetal, 2.2, poleH - 0.2, 0));
+    var head = box(0.72, 0.15, 0.36, lampOffM, 4.2, poleH - 0.34, 0); arm.add(head);
+    var glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: lampGlowT, transparent: true, depthWrite: false }));
+    glow.scale.set(6, 6, 1); glow.position.set(4.2, poleH - 0.7, 0); glow.visible = false; arm.add(glow);
+    var pool = new THREE.Mesh(poolGeo, poolM); pool.position.set(4.6, -deckY + 0.17, 0); pool.visible = false; arm.add(pool);
+    arm.rotation.y = baseYaw + (side < 0 ? Math.PI : 0); g.add(arm);
+    streetLights.push({ head: head, glow: glow, pool: pool, broken: false, x: x, z: z });
+  }
+  g.position.set(x, deckY, z); scene.add(g);
+}
+function buildHighway(r) {
+  var pts = r.pts, hw = r.hw, deckY = r.elev || 8, cum = rmCum(pts), total = cum[cum.length - 1], s;
+  remapRibbon(pts, hw, deckY + 0.02, hwDeckM, 1 / 12, 1);                  // road surface (top)
+  remapRibbon(pts, hw, deckY - 0.55, hwUnderM, 1 / 8, 1);                 // underside slab (DoubleSide -> solid from below)
+  hwWall(rmOffsetPts(pts, hw - 0.05), deckY - 0.55, 0.57, 0.35, hwUnderM, null);   // deck-edge fascia (closes the sides)
+  hwWall(rmOffsetPts(pts, -(hw - 0.05)), deckY - 0.55, 0.57, 0.35, hwUnderM, null);
+  hwWall(rmOffsetPts(pts, hw - 0.35), deckY, 1.05, 0.5, hwConcreteM, null);    // outer Jersey barriers
+  hwWall(rmOffsetPts(pts, -(hw - 0.35)), deckY, 1.05, 0.5, hwConcreteM, null);
+  hwWall(pts, deckY, 1.15, 0.85, hwConcreteM, null);                      // center median barrier
+  for (s = 16; s < total - 8; s += 30) {                                  // support pillars (ground obstacles -> collide)
+    var p = rmAt(pts, cum, s);
+    scene.add(cyl(1.15, 1.35, deckY, 8, hwConcreteM, p.x, deckY / 2, p.z));
+    addCollider(p.x, p.z, 2.4, 2.4, 'hw:pillar');
+  }
+  for (s = 24; s < total - 12; s += 46) {                                 // double-arm median lamps
+    var p2 = rmAt(pts, cum, s), t2 = rmTangentAt(pts, cum, s);
+    medianLampAt(p2.x, p2.z, t2.x, t2.z, deckY);
+  }
+  for (var j = 1; j < pts.length; j++) mapRoads.push({ x1: pts[j - 1][0], z1: pts[j - 1][1], x2: pts[j][0], z2: pts[j][1], hw: hw, cls: 4 });
+}
+function buildRamp(r) {
+  var pts = r.pts, hw = r.hw, hi = r.elev || 8, cum = rmCum(pts), total = cum[cum.length - 1] || 1, nor = rmNormals(pts), n = pts.length, i;
+  var pos = new Float32Array(n * 6), nrm = new Float32Array(n * 6), uv = new Float32Array(n * 4);
+  function yAt(c) { return 0.15 + (hi - 0.15) * (c / total); }            // ramp low (ground) -> high (deck)
+  for (i = 0; i < n; i++) {
+    var y = yAt(cum[i]), w = hw * nor[i][2], nx = nor[i][0], nz = nor[i][1];
+    pos[i * 6] = pts[i][0] - nx * w; pos[i * 6 + 1] = y; pos[i * 6 + 2] = pts[i][1] - nz * w;
+    pos[i * 6 + 3] = pts[i][0] + nx * w; pos[i * 6 + 4] = y; pos[i * 6 + 5] = pts[i][1] + nz * w;
+    nrm[i * 6 + 1] = 1; nrm[i * 6 + 4] = 1;
+    var u = cum[i] / 12; uv[i * 4] = u; uv[i * 4 + 1] = 0; uv[i * 4 + 2] = u; uv[i * 4 + 3] = 1;
+  }
+  var idx = []; for (i = 0; i < n - 1; i++) { var a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  geo.setIndex(idx); scene.add(new THREE.Mesh(geo, hwDeckM));
+  // sloped side guardrails (stop short of the top so the merge onto the deck is clean)
+  for (var side = -1; side <= 1; side += 2) {
+    var edge = rmOffsetPts(pts, side * (hw - 0.3));
+    for (i = 0; i < edge.length - 1; i++) {
+      if (cum[i] > total - 6) continue;                                   // clear the highway connection
+      var y0 = yAt(cum[i]), y1 = yAt(cum[i + 1]);
+      var ex = edge[i][0], ez = edge[i][1], fx = edge[i + 1][0], fz = edge[i + 1][1];
+      var dx = fx - ex, dz = fz - ez, L = Math.hypot(dx, dz); if (L < 0.4) continue;
+      var seg = new THREE.Mesh(new THREE.BoxGeometry(L + 0.5, 1.0, 0.4), hwConcreteM);
+      seg.position.set((ex + fx) / 2, (y0 + y1) / 2 + 0.5, (ez + fz) / 2); seg.rotation.y = Math.atan2(-dz, dx); scene.add(seg);
+    }
+  }
+  for (var j = 1; j < pts.length; j++) mapRoads.push({ x1: pts[j - 1][0], z1: pts[j - 1][1], x2: pts[j][0], z2: pts[j][1], hw: hw, cls: 4 });
+}
+function buildRiver(r) {
+  // grass hole is cut in ground(); render the sunken bed + transparent water into it
+  var pts = r.pts, hw = r.hw;
+  remapRibbon(pts, hw + 0.6, -1.6, riverBedM, 1 / 16, 1);                 // bed (wider, tucks under the cut edge)
+  remapRibbon(pts, hw - 0.4, -0.32, riverWaterM, 1 / 20, 1);             // water surface (below grass = recessed)
+}
+// Highway/ramp/river builds are DEFERRED: buildRemapRoads runs during the road
+// section (line ~2885), but the median lamps need streetLights/poleMetal/lamp
+// materials that aren't declared until the street-light section far below (var
+// inits don't hoist). So we collect the special roads here and build them after
+// placeStreetlights() has set those up (buildPendingSpecialRoads).
+var pendingSpecial = [];
+function buildSpecialRoad(r) {
+  if (r.kind === 'highway' || r.kind === 'ramp' || r.kind === 'water') { pendingSpecial.push(r); return true; }
+  return false;
+}
+function buildPendingSpecialRoads() {
+  for (var i = 0; i < pendingSpecial.length; i++) {
+    var r = pendingSpecial[i];
+    if (r.kind === 'highway') buildHighway(r);
+    else if (r.kind === 'ramp') buildRamp(r);
+    else if (r.kind === 'water') buildRiver(r);
+  }
+  pendingSpecial = [];
+}
+
 // WC_REMAP: EVERY road (core legs + outer ring) renders from remapdata.js
 // true polylines instead — buildRemapRoads registers the same mapRoads
 // entries, so every downstream consumer (expClear, NPC walk tables, minimap)
@@ -3371,7 +3535,7 @@ function buildRemapRoads() {
   // parsed roads with cumulative chainage
   for (i = 0; i < REMAP_ROADS.length; i++) {
     r = REMAP_ROADS[i];
-    RM.roads.push({ id: r.id, cls: r.cls, hw: r.hw, dirt: !!r.dirt, pts: r.pts, cum: rmCum(r.pts) });
+    RM.roads.push({ id: r.id, cls: r.cls, hw: r.hw, dirt: !!r.dirt, kind: r.kind, elev: r.elev, pts: r.pts, cum: rmCum(r.pts) });
   }
   // ---- stitch points: road endpoints touching another road (<=3.5u) ----
   // every stitch gets a junction pad; stitches between lane-graph roads
@@ -3403,6 +3567,8 @@ function buildRemapRoads() {
   // ---- render ribbons + registers ----
   for (i = 0; i < RM.roads.length; i++) {
     r = RM.roads[i];
+    // highway / ramp / river render as their own 3D structures, not flat ribbons
+    if (r.kind && r.kind !== 'road' && buildSpecialRoad(r)) continue;
     // per-road y ladder. The old ((i*7)%11) scheme only had 11 levels for 35+
     // roads, so overlapping ribbons routinely shared a level and z-fought
     // (report mreexjvh: user_e305 driveway coplanar with race_track_rd -> seam).
@@ -5429,6 +5595,9 @@ function streetlight(x, z, ax, az) {
     streetlight(-116, 22, 0, 1);                                      // Dunkin
   }
 })();
+// now that streetLights + lamp materials exist, build the deferred highways/
+// ramps/rivers (their median lamps register into streetLights)
+if (typeof buildPendingSpecialRoads === 'function') buildPendingSpecialRoads();
 
 // ---- terminal curbs at true-road dead-ends (WC_REMAP) ----
 // Several surveyed street stubs just stop in open ground — the raw asphalt
