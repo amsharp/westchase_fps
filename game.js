@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.80.4';
+var GAME_VERSION = 'v1.80.5';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -21570,7 +21570,7 @@ function creditPvpKill() {
 // master+sfx+voice volume, draw-distance quality, CRT filter. Restored on
 // boot (applySettings() runs in the boot handoff, before the first frame).
 var SETTINGS_KEY = 'wc_settings';
-var SETTINGS_DEF = { sens: 1.0, invert: 0, fov: 72, volMaster: 1.0, volSfx: 1.0, volVoice: 1.0, quality: 2, crt: 1, crosshair: 1, minimap: 1, markers: 1, fps: 0, compass: 1, quickbar: 1 };
+var SETTINGS_DEF = { sens: 1.0, invert: 0, fov: 72, volMaster: 1.0, volSfx: 1.0, volVoice: 1.0, quality: 2, crt: 1, crosshair: 1, minimap: 1, markers: 1, fps: 0, compass: 1, quickbar: 1, coords: 1 };
 var QUALITY_NAMES = ['LOW', 'MEDIUM', 'HIGH'];
 var settings = null;
 function loadSettings() {
@@ -21588,6 +21588,7 @@ function loadSettings() {
   settings.fps = settings.fps ? 1 : 0;
   settings.compass = settings.compass ? 1 : 0;
   settings.quickbar = settings.quickbar ? 1 : 0;
+  settings.coords = settings.coords ? 1 : 0;
   settings.sens = Math.max(0.2, Math.min(3, +settings.sens || 1));
   settings.volMaster = Math.max(0, Math.min(1, +settings.volMaster));
   settings.volSfx = Math.max(0, Math.min(1, +settings.volSfx));
@@ -21691,6 +21692,7 @@ function buildSettingsRows() {
   toggle('COMPASS', 'heading strip up top', 'compass');
   toggle('WEAPON BAR', 'owned-weapon slots along the bottom', 'quickbar');
   toggle('FPS COUNTER', 'live frame rate & draw stats', 'fps');
+  toggle('COORDINATES', 'show X / Z / height (handy for screenshots)', 'coords');
 }
 function openSettings() {
   buildSettingsRows();
@@ -23036,17 +23038,25 @@ function drawHudCanvas() {
   // (on-foot weapon quick-bar is now the DOM hotbar #hotbarHud — v1.72)
   // ---- FPS / perf readout (QoL, settings.fps): left edge, clear of the
   // minimap (top) and health (bottom). renderer.info reflects last frame. ----
+  var leftY = hudMmB + 6;
   if (settings && settings.fps) {
     var fv = Math.round(fpsVal);
     var fcol = fv >= 50 ? '#8ee87f' : (fv >= 30 ? '#ffd200' : '#ff5a3a');
-    var fy = hudMmB + 6;
-    hudText('FPS ' + (fv || '--'), M, fy, 13, fcol, 'left');
+    hudText('FPS ' + (fv || '--'), M, leftY, 13, fcol, 'left');
     var ri = (renderer && renderer.info && renderer.info.render) ? renderer.info.render : null;
     if (ri) {
       var tri = ri.triangles || 0;
       var triTxt = tri >= 1e6 ? (Math.round(tri / 1e5) / 10) + 'M' : (tri >= 1000 ? Math.round(tri / 1000) + 'k' : String(tri));
-      hudText((ri.calls || 0) + ' dc  ' + triTxt + ' tri', M, fy + 15, 11, '#9fb0c8', 'left');
+      hudText((ri.calls || 0) + ' dc  ' + triTxt + ' tri', M, leftY + 15, 11, '#9fb0c8', 'left');
     }
+    leftY += 34;
+  }
+  // ---- coordinates (QoL, settings.coords, default on): live X / Z (map coords)
+  // + Y (height above ground — reads ~0 on the street, ~8 up on the highway deck,
+  // negative inside the under-map interior). There so screenshots are locatable. ----
+  if (settings && settings.coords && state.running) {
+    var pxc = Math.round(player.x), pzc = Math.round(player.z), pyc = Math.round((player.y - EYE) * 10) / 10;
+    hudText('X ' + pxc + '  Z ' + pzc + '  Y ' + pyc, M, leftY, 12, '#bfe3ff', 'left');
   }
 }
 // low-HP vignette (#QoL): sustained red edge glow that fades in below 30% HP
