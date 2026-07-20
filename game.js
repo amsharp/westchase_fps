@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.79.0';
+var GAME_VERSION = 'v1.79.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2980,6 +2980,29 @@ function hwWall(pts, yBase, h, thick, mat, colTag, minY) {
     if (colTag) { var oc = addColliderOBB(mx, mz, (L + thick) / 2, thick / 2, yaw, colTag); if (minY !== undefined) oc.minY = minY; }
   }
 }
+// hwWall with holes: builds the barrier along edgePts EXCEPT within the given
+// chainage ranges (gaps = [[s0,s1],...] measured along the edge). Used to open
+// the guardrail exactly at an exit throat; chainage-based so it survives any
+// mirror/rotation of the road. No gaps -> plain hwWall.
+function hwWallGapped(edgePts, yBase, h, thick, mat, colTag, minY, gaps) {
+  if (!gaps || !gaps.length) { hwWall(edgePts, yBase, h, thick, mat, colTag, minY); return; }
+  var cum = rmCum(edgePts), total = cum[cum.length - 1];
+  var g2 = gaps.slice().sort(function (a, b) { return a[0] - b[0]; });
+  var keeps = [], cursor = 0, i;
+  for (i = 0; i < g2.length; i++) {
+    var s0 = Math.max(0, g2[i][0]), s1 = Math.min(total, g2[i][1]);
+    if (s0 > cursor) keeps.push([cursor, s0]);
+    cursor = Math.max(cursor, s1);
+  }
+  if (cursor < total) keeps.push([cursor, total]);
+  for (var k = 0; k < keeps.length; k++) {
+    var k0 = keeps[k][0], k1 = keeps[k][1]; if (k1 - k0 < 0.3) continue;
+    var a = rmAt(edgePts, cum, k0), sub = [[a.x, a.z]];
+    for (var v = 0; v < edgePts.length; v++) if (cum[v] > k0 + 0.2 && cum[v] < k1 - 0.2) sub.push(edgePts[v]);
+    var b = rmAt(edgePts, cum, k1); sub.push([b.x, b.z]);
+    hwWall(sub, yBase, h, thick, mat, colTag, minY);
+  }
+}
 // flat drivable deck surface: OBB colliders flagged .deck (never block) with a
 // topY so surfaceHeightAt raises a car onto them once its feet reach deck level.
 function hwDeckColliders(pts, hw, topY) {
@@ -3018,8 +3041,13 @@ function buildHighway(r) {
   hwWall(rmOffsetPts(pts, -(hw - 0.05)), deckY - 0.55, 0.57, 0.35, hwUnderM, null);
   hwDeckColliders(pts, hw, deckY + 0.02);                                // drivable deck surface (2.5D)
   var barM = deckY - 0.3;                                                 // barriers block only movers up on the deck
-  hwWall(rmOffsetPts(pts, hw - 0.35), deckY, 1.05, 0.5, hwConcreteM, 'hw:barrier', barM);    // outer Jersey barriers
-  hwWall(rmOffsetPts(pts, -(hw - 0.35)), deckY, 1.05, 0.5, hwConcreteM, 'hw:barrier', barM);
+  // outer Jersey barriers — opened at exit throats via r.barGap ({side:+1/-1,
+  // s0,s1} chainage ranges; +side = +normal edge). Guardrails stay continuous
+  // except across the actual road opening.
+  var gapPos = [], gapNeg = [], bgi;
+  if (r.barGap) for (bgi = 0; bgi < r.barGap.length; bgi++) { var bg = r.barGap[bgi]; (bg.side > 0 ? gapPos : gapNeg).push([bg.s0, bg.s1]); }
+  hwWallGapped(rmOffsetPts(pts, hw - 0.35), deckY, 1.05, 0.5, hwConcreteM, 'hw:barrier', barM, gapPos);
+  hwWallGapped(rmOffsetPts(pts, -(hw - 0.35)), deckY, 1.05, 0.5, hwConcreteM, 'hw:barrier', barM, gapNeg);
   if (!oneway) hwWall(pts, deckY, 1.15, 0.85, hwConcreteM, 'hw:median', barM);   // center median (2-way only)
   // rectangular-prism piers: twin columns (one per direction) joined by a cap
   // beam on a 2-way deck; a single central column on a narrow one-way deck.
@@ -3720,7 +3748,7 @@ function buildRemapRoads() {
   // parsed roads with cumulative chainage
   for (i = 0; i < REMAP_ROADS.length; i++) {
     r = REMAP_ROADS[i];
-    RM.roads.push({ id: r.id, cls: r.cls, hw: r.hw, dirt: !!r.dirt, kind: r.kind, elev: r.elev, endHw: r.endHw, oneway: r.oneway, lanes: r.lanes, pts: r.pts, cum: rmCum(r.pts) });
+    RM.roads.push({ id: r.id, cls: r.cls, hw: r.hw, dirt: !!r.dirt, kind: r.kind, elev: r.elev, endHw: r.endHw, oneway: r.oneway, lanes: r.lanes, barGap: r.barGap, pts: r.pts, cum: rmCum(r.pts) });
   }
   // ---- stitch points: road endpoints touching another road (<=3.5u) ----
   // every stitch gets a junction pad; stitches between lane-graph roads
