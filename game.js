@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.78.10';
+var GAME_VERSION = 'v1.78.11';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -3505,6 +3505,9 @@ function remapInClear(x, z, grow) {
   return false;
 }
 // project (x,z) on a polyline -> {s: chainage, d: distance}
+// special road kinds that render their own full-width 3D structure (and so must
+// never get a flat ground junction pad dropped at their endpoints)
+function rmSpecialKind(k) { return k === 'highway' || k === 'ramp' || k === 'merge' || k === 'water'; }
 function rmProject(pts, cum, x, z) {
   var bs = 0, bd = 1e9;
   for (var j = 0; j < pts.length - 1; j++) {
@@ -3609,7 +3612,7 @@ function buildRemapRoads() {
   // ---- stitch points: road endpoints touching another road (<=3.5u) ----
   // every stitch gets a junction pad; stitches between lane-graph roads
   // (cls<=1) also split the traffic edges so cars can turn there
-  var stitches = [];   // {x,z,ri (touched road), s, hw (max of pair), lane:bool}
+  var stitches = [];   // {x,z,ri (touched road), s, hw (max of pair), lane:bool, special:bool}
   for (i = 0; i < RM.roads.length; i++) {
     var re = RM.roads[i];
     var ends = [re.pts[0], re.pts[re.pts.length - 1]];
@@ -3619,13 +3622,19 @@ function buildRemapRoads() {
         var ro = RM.roads[j];
         var pr = rmProject(ro.pts, ro.cum, ends[ei][0], ends[ei][1]);
         if (pr.d > 3.5) continue;
-        stitches.push({ x: ends[ei][0], z: ends[ei][1], ri: j, s: pr.s, hw: Math.max(re.hw, ro.hw), lane: re.cls <= 1 && ro.cls <= 1 });
+        // a stitch touching an elevated / self-capping special road (highway,
+        // ramp, merge, river) must NOT drop a flat ground pad: those structures
+        // already render full-width geometry to their own endpoints, so a
+        // ground disc just gets stranded on the grass under the elevated deck.
+        var special = rmSpecialKind(re.kind) || rmSpecialKind(ro.kind);
+        stitches.push({ x: ends[ei][0], z: ends[ei][1], ri: j, s: pr.s, hw: Math.max(re.hw, ro.hw), lane: re.cls <= 1 && ro.cls <= 1, special: special });
       }
     }
   }
   // ---- junction pads (merged within 8u; radius from the widest road) ----
   for (i = 0; i < stitches.length; i++) {
     var st = stitches[i], merged = false;
+    if (st.special) continue;   // special roads self-cap; no ground pad
     for (j = 0; j < RM.pads.length; j++) {
       var pd = RM.pads[j];
       var ddx = pd.x - st.x, ddz = pd.z - st.z;
