@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.79.5';
+var GAME_VERSION = 'v1.79.6';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2977,7 +2977,7 @@ function hwWall(pts, yBase, h, thick, mat, colTag, minY) {
     var mx = (ax + bx) / 2, mz = (az + bz) / 2, yaw = Math.atan2(-dz, dx);
     var seg = new THREE.Mesh(new THREE.BoxGeometry(L + thick, h, thick), mat);
     seg.position.set(mx, yBase + h / 2, mz); seg.rotation.y = yaw; scene.add(seg);
-    if (colTag) { var oc = addColliderOBB(mx, mz, (L + thick) / 2, thick / 2, yaw, colTag); if (minY !== undefined) oc.minY = minY; }
+    if (colTag) { var oc = addColliderOBB(mx, mz, (L + thick) / 2, thick / 2, yaw, colTag); if (minY !== undefined) { oc.minY = minY; oc.topY = yBase + h; } }   // topY -> you can jump up onto the barrier and off the side
   }
 }
 // hwWall with holes: builds the barrier along edgePts EXCEPT within the given
@@ -3055,6 +3055,7 @@ function buildHighway(r) {
   var beamTopY = deckY - 0.6, colH = beamTopY - beamH;
   for (s = 20; s < total - 10; s += 34) {
     var p = rmAt(pts, cum, s), tt = rmTangentAt(pts, cum, s), yaw = Math.atan2(tt.x, tt.z);
+    if (groundRoadAt(p.x, p.z, half + 4)) continue;                                // don't drop a column onto a road passing underneath
     var g = new THREE.Group(); g.position.set(p.x, 0, p.z); g.rotation.y = yaw;
     var px = tt.z, pz = -tt.x;                                                      // perpendicular
     if (oneway) {
@@ -3135,7 +3136,7 @@ function buildRamp(r) {
   if (!oneway) for (i = 0; i < kc; i++) {
     var cs = total * i / kc, ce = total * (i + 1) / kc, cm = (cs + ce) / 2;
     var moc = addColliderOBB(a0[0] + ux * cm, a0[1] + uz * cm, (ce - cs + barThick) / 2, barThick / 2, myaw, 'ramp:median');
-    moc.minY = yAt(cs) - 0.3;
+    moc.minY = yAt(cs) - 0.3; moc.topY = yAt(cs) + barH;   // standable, follows the incline
   }
   // SOLID embankment side walls (ground -> deck + parapet), fixed offset
   var wallOff = hw - 0.35;
@@ -3259,6 +3260,7 @@ function buildExitDeck(r) {
     var bw = Math.hypot(inner[i][0] - outer[i][0], inner[i][1] - outer[i][1]);
     if (bw < 2.5) continue;                                              // too narrow near the tip -> no pier
     var cx = (inner[i][0] + outer[i][0]) / 2, cz = (inner[i][1] + outer[i][1]) / 2;
+    if (groundRoadAt(cx, cz, bw / 2 + 4)) continue;                      // don't drop a column onto a road passing underneath
     var tt = rmTangentAt(pts, cum, cum[i]), yaw = Math.atan2(tt.x, tt.z);
     var gg = new THREE.Group(); gg.position.set(cx, 0, cz); gg.rotation.y = yaw;
     gg.add(box(pierW, colH, pierW, hwConcreteM, 0, colH / 2, 0));
@@ -3713,7 +3715,24 @@ function remapInClear(x, z, grow) {
 // project (x,z) on a polyline -> {s: chainage, d: distance}
 // special road kinds that render their own full-width 3D structure (and so must
 // never get a flat ground junction pad dropped at their endpoints)
-function rmSpecialKind(k) { return k === 'highway' || k === 'ramp' || k === 'merge' || k === 'water'; }
+function rmSpecialKind(k) { return k === 'highway' || k === 'ramp' || k === 'merge' || k === 'water' || k === 'exitdeck' || k === 'gore'; }
+// true if a GROUND-LEVEL road (no elevation) runs within `pad` of (x,z). Used to
+// keep highway support columns from landing on a road that passes underneath.
+function groundRoadAt(x, z, pad) {
+  if (typeof REMAP_ROADS === 'undefined') return false;
+  for (var i = 0; i < REMAP_ROADS.length; i++) {
+    var r = REMAP_ROADS[i];
+    if (r.elev && r.elev >= 2) continue;                    // skip elevated roads (they don't obstruct piers)
+    var lim = (r.hw || 6) + pad, pts = r.pts;
+    for (var j = 0; j < pts.length - 1; j++) {
+      var ax = pts[j][0], az = pts[j][1], dx = pts[j + 1][0] - ax, dz = pts[j + 1][1] - az, L2 = dx * dx + dz * dz || 1;
+      var t = ((x - ax) * dx + (z - az) * dz) / L2; t = t < 0 ? 0 : (t > 1 ? 1 : t);
+      var qx = ax + dx * t - x, qz = az + dz * t - z;
+      if (qx * qx + qz * qz < lim * lim) return true;
+    }
+  }
+  return false;
+}
 function rmProject(pts, cum, x, z) {
   var bs = 0, bd = 1e9;
   for (var j = 0; j < pts.length - 1; j++) {
@@ -14191,7 +14210,7 @@ function updatePlaneWorld(dt) {
       plane.vel.copy(noseV).multiplyScalar(fwdSpd);            // carry momentum (nose pitched up => climbs)
     }
     planeBounds(g);
-    if (Math.abs(fwdSpd) > PLANE_CRASH_SPEED && planeHitBuilding(g.position.x, g.position.y, g.position.z)) { crashPlane(); return; }
+    if (Math.abs(fwdSpd) > PLANE_CRASH_SPEED && (planeHitBuilding(g.position.x, g.position.y, g.position.z) || planeHitHighway(g.position.x, g.position.y, g.position.z))) { crashPlane(); return; }
   } else {
     // ---------- AIRBORNE FLIGHT ----------
     // integrate angular rates in the plane's local frame (plane.js owns surface
@@ -14249,7 +14268,7 @@ function updatePlaneWorld(dt) {
       plane.groundPitch = 0;
       plane.vel.copy(noseV).multiplyScalar(Math.max(0, vel.dot(noseV)));
       if (impactV > 3) sfx('crash');
-    } else if (planeHitBuilding(g.position.x, g.position.y, g.position.z) && vel.length() > PLANE_CRASH_SPEED) {
+    } else if ((planeHitBuilding(g.position.x, g.position.y, g.position.z) || planeHitHighway(g.position.x, g.position.y, g.position.z)) && vel.length() > PLANE_CRASH_SPEED) {
       crashPlane(); return;
     }
   }
@@ -14276,6 +14295,23 @@ function planeHitBuilding(x, y, z) {
   for (var i = 0; i < mapBuildings.length; i++) {
     var b = mapBuildings[i];
     if (Math.abs(x - b.x) < b.w / 2 + 1 && Math.abs(z - b.z) < b.d / 2 + 1 && y < (b.h || 6) + 0.5) return true;
+  }
+  return false;
+}
+// highway crash test: the plane clips the elevated deck slab, a deck barrier, or
+// a support column. Deck/barriers only bite at deck level (you can fly UNDER the
+// overpass); columns bite from the ground up to the deck.
+function planeHitHighway(x, y, z) {
+  for (var i = 0; i < colliders.length; i++) {
+    var b = colliders[i];
+    if (b.active === false) continue;
+    var isDeck = b.deck, isPier = b.tag === 'hw:pillar', isBar = b.minY !== undefined;
+    if (!isDeck && !isPier && !isBar) continue;
+    if (x < b.x0 || x > b.x1 || z < b.z0 || z > b.z1) continue;          // AABB reject
+    if (b.obb) { var odx = x - b.x, odz = z - b.z, u = odx * b.c - odz * b.s, v = odx * b.s + odz * b.c; if (Math.abs(u) > b.hx || Math.abs(v) > b.hz) continue; }
+    if (isDeck && y < b.topY + 1.8 && y > b.topY - 1.4) return true;     // deck slab band
+    else if (isBar && y < b.topY + 0.6 && y > b.minY - 0.2) return true; // barrier band (above the deck)
+    else if (isPier && y < 6.8) return true;                            // support column (ground -> under-deck)
   }
   return false;
 }
@@ -23200,6 +23236,8 @@ window.__wc = {
   npcDoors: npcDoors, pointFree: pointFree, spawnCop: spawnCop,
   expWalkInfo: function () { return { res: expWalkRes.length, col: expWalkCol.length, resLen: Math.round(expWalkRes.total || 0), colLen: Math.round(expWalkCol.total || 0) }; },
   landCollidersRef: function () { return landColliders; }, pushOut: pushOut,
+  planeHitHighway: function (x, y, z) { return planeHitHighway(x, y, z); },
+  groundRoadAt: function (x, z, p) { return groundRoadAt(x, z, p); },
   solidMeshesReg: solidMeshes,
   buildFenceRun: function (pts, type, opts) { return buildFenceRun(pts, type, opts); }, fenceRuns: FENCE_RUNS,
   carHornStats: function () { return { count: carHornCount, lastHornT: lastHornT }; },
