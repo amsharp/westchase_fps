@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.78.20';
+var GAME_VERSION = 'v1.79.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2922,6 +2922,29 @@ var hwMergeT = tex(256, function (g, s) {
 });
 var hwMergeM = lamb({ map: hwMergeT, side: THREE.DoubleSide });   // textured concrete merge apron — deck grain, no baked lane lines (they skewed on the taper)
 var mergeLineM = lamb({ color: 0xe6cc3e, side: THREE.DoubleSide });   // solid double-yellow centre line (direction divider)
+var mergeWhiteM = lamb({ color: 0xf4f4ec, side: THREE.DoubleSide });   // dashed white lane divider (one-way merges)
+// one-way highway markings: solid white edges + dashed white lane dividers, NO
+// yellow (all lanes travel the same way). Used by exit spurs / 1-lane elevated
+// highways / ramps / the ground exit road. `lanes` sets how many lane cells.
+function oneWayTex(lanes, base, joint) {
+  return tex(256, function (g, s) {
+    g.fillStyle = base; g.fillRect(0, 0, s, s);
+    noise(g, s, 900, 0.12, 0.07);
+    if (joint) { g.fillStyle = 'rgba(48,48,46,0.5)'; g.fillRect(0, 0, 3, s); }   // transverse expansion joint
+    function bandY(v, dash) { var y = v * s, w = 3; g.fillStyle = '#f4f4ec';
+      if (dash) { for (var x = 0; x < s; x += 30) g.fillRect(x, y - w / 2, 16, w); }
+      else g.fillRect(0, y - w / 2, s, w); }
+    bandY(0.045, false); bandY(0.955, false);                              // solid outer edge lines
+    for (var L = 1; L < lanes; L++) bandY(0.045 + 0.91 * L / lanes, true);  // dashed lane dividers
+  });
+}
+var hwOneM = [null,
+  lamb({ map: oneWayTex(1, '#8f8f88', true) }),                            // 1-lane elevated concrete deck
+  lamb({ map: oneWayTex(2, '#8f8f88', true) }),                            // 2-lane elevated deck
+  lamb({ map: oneWayTex(3, '#8f8f88', true) })];                           // 3-lane elevated deck
+var roadOneM = [null, lamb({ map: oneWayTex(1, '#43434a', false) }),
+  lamb({ map: oneWayTex(2, '#43434a', false) }),                           // 2-lane one-way asphalt (ground)
+  lamb({ map: oneWayTex(3, '#43434a', false) })];
 var riverBedM = lamb({ color: 0x3a4b54 });
 var riverWaterM = new THREE.MeshLambertMaterial({ color: 0x2f6f9e, transparent: true, opacity: 0.74, side: THREE.DoubleSide, depthWrite: false });
 // point + unit tangent at chainage s along a polyline (cum precomputed by rmCum)
@@ -2987,7 +3010,9 @@ function medianLampAt(x, z, ux, uz, deckY) {
 }
 function buildHighway(r) {
   var pts = r.pts, hw = r.hw, deckY = r.elev || 8, cum = rmCum(pts), total = cum[cum.length - 1], s;
-  remapRibbon(pts, hw, deckY + 0.02, hwDeckM, 1 / 12, 1);                  // road surface (top)
+  var oneway = !!r.oneway, lanes = r.lanes || Math.max(1, Math.round(hw / 5));
+  var deckMat = oneway ? (hwOneM[lanes] || hwOneM[3]) : hwDeckM;
+  remapRibbon(pts, hw, deckY + 0.02, deckMat, 1 / 12, 1);                  // road surface (top)
   remapRibbon(pts, hw, deckY - 0.55, hwUnderM, 1 / 8, 1);                 // underside slab (DoubleSide -> solid from below)
   hwWall(rmOffsetPts(pts, hw - 0.05), deckY - 0.55, 0.57, 0.35, hwUnderM, null);   // deck-edge fascia (closes the sides)
   hwWall(rmOffsetPts(pts, -(hw - 0.05)), deckY - 0.55, 0.57, 0.35, hwUnderM, null);
@@ -2995,30 +3020,36 @@ function buildHighway(r) {
   var barM = deckY - 0.3;                                                 // barriers block only movers up on the deck
   hwWall(rmOffsetPts(pts, hw - 0.35), deckY, 1.05, 0.5, hwConcreteM, 'hw:barrier', barM);    // outer Jersey barriers
   hwWall(rmOffsetPts(pts, -(hw - 0.35)), deckY, 1.05, 0.5, hwConcreteM, 'hw:barrier', barM);
-  hwWall(pts, deckY, 1.15, 0.85, hwConcreteM, 'hw:median', barM);         // center median barrier
-  // twin rectangular-prism piers: one column centred under each direction of the
-  // deck, joined by a pier-cap beam across the top (cheaper than cylinders + truer
-  // to the real overpass). Colliders under each column block traffic passing below.
+  if (!oneway) hwWall(pts, deckY, 1.15, 0.85, hwConcreteM, 'hw:median', barM);   // center median (2-way only)
+  // rectangular-prism piers: twin columns (one per direction) joined by a cap
+  // beam on a 2-way deck; a single central column on a narrow one-way deck.
   var pierW = 2.6, pierD = 2.6, beamH = 1.4, half = hw / 2;
   var beamTopY = deckY - 0.6, colH = beamTopY - beamH;
   for (s = 20; s < total - 10; s += 34) {
     var p = rmAt(pts, cum, s), tt = rmTangentAt(pts, cum, s), yaw = Math.atan2(tt.x, tt.z);
     var g = new THREE.Group(); g.position.set(p.x, 0, p.z); g.rotation.y = yaw;
-    g.add(box(pierW, colH, pierD, hwConcreteM, half, colH / 2, 0));                 // column under +side
-    g.add(box(pierW, colH, pierD, hwConcreteM, -half, colH / 2, 0));                // column under -side
-    g.add(box(hw + pierW, beamH, 2.4, hwConcreteM, 0, beamTopY - beamH / 2, 0));    // pier-cap beam
-    scene.add(g);
     var px = tt.z, pz = -tt.x;                                                      // perpendicular
-    addColliderOBB(p.x + px * half, p.z + pz * half, pierW / 2 + 0.2, pierD / 2 + 0.2, yaw, 'hw:pillar');
-    addColliderOBB(p.x - px * half, p.z - pz * half, pierW / 2 + 0.2, pierD / 2 + 0.2, yaw, 'hw:pillar');
+    if (oneway) {
+      g.add(box(pierW, colH, pierD, hwConcreteM, 0, colH / 2, 0));                  // single central column
+      g.add(box(Math.max(hw + pierW, 3), beamH, 2.4, hwConcreteM, 0, beamTopY - beamH / 2, 0));  // cap beam
+      scene.add(g);
+      addColliderOBB(p.x, p.z, pierW / 2 + 0.2, pierD / 2 + 0.2, yaw, 'hw:pillar');
+    } else {
+      g.add(box(pierW, colH, pierD, hwConcreteM, half, colH / 2, 0));               // column under +side
+      g.add(box(pierW, colH, pierD, hwConcreteM, -half, colH / 2, 0));              // column under -side
+      g.add(box(hw + pierW, beamH, 2.4, hwConcreteM, 0, beamTopY - beamH / 2, 0));  // pier-cap beam
+      scene.add(g);
+      addColliderOBB(p.x + px * half, p.z + pz * half, pierW / 2 + 0.2, pierD / 2 + 0.2, yaw, 'hw:pillar');
+      addColliderOBB(p.x - px * half, p.z - pz * half, pierW / 2 + 0.2, pierD / 2 + 0.2, yaw, 'hw:pillar');
+    }
   }
-  for (s = 24; s < total - 12; s += 46) {                                 // double-arm median lamps
+  if (!oneway) for (s = 24; s < total - 12; s += 46) {                    // double-arm median lamps (2-way only)
     var p2 = rmAt(pts, cum, s), t2 = rmTangentAt(pts, cum, s);
     medianLampAt(p2.x, p2.z, t2.x, t2.z, deckY);
   }
   // green destination signs mounted UP on posts over the median barrier (not on
   // the ground) — highway signage where it belongs
-  if (typeof greenSign === 'function') for (s = 62; s < total - 22; s += 116) {
+  if (!oneway && typeof greenSign === 'function') for (s = 62; s < total - 22; s += 116) {
     var ps = rmAt(pts, cum, s), pt = rmTangentAt(pts, cum, s);
     var perpx = -pt.z, perpz = pt.x, postTop = deckY + 1.15, sy = postTop + 1.5;
     scene.add(cyl(0.08, 0.08, 2.6, 6, poleMetal, ps.x - perpx * 2.4, postTop + 1.3, ps.z - perpz * 2.4));
@@ -3031,6 +3062,7 @@ function buildRamp(r) {
   // STRAIGHT ramp built off the chord with FIXED width — no rmNormals miter, so
   // the terminal vertex can't flare (that endpoint 1.5x miter was the taper).
   var pts = r.pts, hw = r.hw || 18, hi = r.elev || 8, cum = rmCum(pts), total = cum[cum.length - 1] || 1, n = pts.length, i;
+  var oneway = !!r.oneway, lanes = r.lanes || Math.max(1, Math.round(hw / 5));
   var a0 = pts[0], a1 = pts[n - 1], rdx = a1[0] - a0[0], rdz = a1[1] - a0[1], rlen = Math.hypot(rdx, rdz) || 1, ux = rdx / rlen, uz = rdz / rlen;
   var px = -uz, pz = ux;                                                  // fixed perpendicular (uniform width)
   driveRamps.push({ ax: a0[0], az: a0[1], ux: ux, uz: uz, len: rlen, rise: hi, wid: hw * 2, grad: hi / rlen });
@@ -3051,13 +3083,14 @@ function buildRamp(r) {
     g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
     g.setIndex(idx); scene.add(new THREE.Mesh(g, mat));
   }
-  ribbon(hw, 0.02, hwDeckM);                                             // road surface (6-lane markings)
+  ribbon(hw, 0.02, oneway ? (hwOneM[lanes] || hwOneM[1]) : hwDeckM);      // road surface
   ribbon(hw, -0.55, hwUnderM);                                          // solid underside
   // CENTRE MEDIAN barrier down the ramp, tilted to lie on the incline so it
   // lines up with the highway's median where the ramp meets the deck. One
   // slope-following box per segment (basis matrix = along-slope / up / side).
+  // One-way ramps (exit spurs) carry no median.
   var barH = 1.15, barThick = 0.85;
-  for (i = 0; i < n - 1; i++) {
+  if (!oneway) for (i = 0; i < n - 1; i++) {
     var m0y = yAt(cum[i]) + 0.02, m1y = yAt(cum[i + 1]) + 0.02;
     var mdir = new THREE.Vector3(pts[i + 1][0] - pts[i][0], m1y - m0y, pts[i + 1][1] - pts[i][1]);
     var mlen = mdir.length() || 1; mdir.multiplyScalar(1 / mlen);
@@ -3071,7 +3104,7 @@ function buildRamp(r) {
   // graded colliders: block deck-level crossing but don't wall off the ground
   // under the elevated part (minY tracks the rising deck, like the hwy median)
   var kc = Math.max(2, Math.round(total / 6)), myaw = Math.atan2(-uz, ux);
-  for (i = 0; i < kc; i++) {
+  if (!oneway) for (i = 0; i < kc; i++) {
     var cs = total * i / kc, ce = total * (i + 1) / kc, cm = (cs + ce) / 2;
     var moc = addColliderOBB(a0[0] + ux * cm, a0[1] + uz * cm, (ce - cs + barThick) / 2, barThick / 2, myaw, 'ramp:median');
     moc.minY = yAt(cs) - 0.3;
@@ -3122,15 +3155,22 @@ function buildMerge(r) {
   mg.setAttribute('uv', new THREE.BufferAttribute(muv, 2));
   mg.setIndex([0, 1, 2, 0, 2, 3]); mg.computeVertexNormals();
   scene.add(new THREE.Mesh(mg, hwMergeM));   // plain light concrete (no baked lanes)
-  // solid double-yellow centre line separating the two travel directions
-  for (var sgn = -1; sgn <= 1; sgn += 2) {
-    var o0 = sgn * 0.28 - 0.11, o1 = sgn * 0.28 + 0.11;   // one 0.22u-wide stripe, pair straddles the centre
-    var lp = new Float32Array([a0[0] + px * o0, 0.17, a0[1] + pz * o0, a0[0] + px * o1, 0.17, a0[1] + pz * o1,
-      a1[0] + px * o1, 0.17, a1[1] + pz * o1, a1[0] + px * o0, 0.17, a1[1] + pz * o0]);
+  function stripe(o0, o1, f0, f1, mat) {      // quad along the centreline, offset o0..o1, from fraction f0..f1
+    var bx0 = a0[0] + (a1[0] - a0[0]) * f0, bz0 = a0[1] + (a1[1] - a0[1]) * f0;
+    var bx1 = a0[0] + (a1[0] - a0[0]) * f1, bz1 = a0[1] + (a1[1] - a0[1]) * f1;
+    var lp = new Float32Array([bx0 + px * o0, 0.17, bz0 + pz * o0, bx0 + px * o1, 0.17, bz0 + pz * o1,
+      bx1 + px * o1, 0.17, bz1 + pz * o1, bx1 + px * o0, 0.17, bz1 + pz * o0]);
     var lg = new THREE.BufferGeometry();
     lg.setAttribute('position', new THREE.BufferAttribute(lp, 3));
     lg.setIndex([0, 1, 2, 0, 2, 3]); lg.computeVertexNormals();
-    scene.add(new THREE.Mesh(lg, mergeLineM));
+    scene.add(new THREE.Mesh(lg, mat));
+  }
+  if (r.oneway) {                             // one-way merge: dashed white lane divider
+    var dcnt = Math.max(2, Math.round(L / 7));
+    for (var di = 0; di < dcnt; di++) stripe(-0.15, 0.15, (di + 0.12) / dcnt, (di + 0.68) / dcnt, mergeWhiteM);
+  } else {                                    // two-way merge: solid double-yellow centre line
+    stripe(-0.39, -0.17, 0, 1, mergeLineM);
+    stripe(0.17, 0.39, 0, 1, mergeLineM);
   }
   for (var j = 1; j < pts.length; j++) mapRoads.push({ x1: pts[j - 1][0], z1: pts[j - 1][1], x2: pts[j][0], z2: pts[j][1], hw: hw, cls: 4 });
 }
@@ -3140,6 +3180,23 @@ function buildRiver(r) {
   remapRibbon(pts, hw + 0.6, -1.6, riverBedM, 1 / 16, 1);                 // bed (wider, tucks under the cut edge)
   remapRibbon(pts, hw - 0.4, -0.32, riverWaterM, 1 / 20, 1);             // water surface (below grass = recessed)
 }
+// ground-level one-way road (exit lands here): flat asphalt ribbon with baked
+// one-way markings (solid edges + dashed lane dividers, no yellow).
+function buildOneWayRoad(r) {
+  var pts = r.pts, hw = r.hw || 10, lanes = r.lanes || Math.max(1, Math.round(hw / 5));
+  remapRibbon(pts, hw, 0.15, roadOneM[lanes] || roadOneM[2], 1 / 14, 1);
+  for (var j = 1; j < pts.length; j++) mapRoads.push({ x1: pts[j - 1][0], z1: pts[j - 1][1], x2: pts[j][0], z2: pts[j][1], hw: hw, cls: 1 });
+}
+// exit gore: the flat paved triangle nose where a lane diverges off the deck.
+// r.pts = 3 corners; sits just above the deck at r.elev.
+function buildHwGore(r) {
+  var p = r.pts, y = (r.elev || 8) + 0.03;
+  var gp = new Float32Array([p[0][0], y, p[0][1], p[1][0], y, p[1][1], p[2][0], y, p[2][1]]);
+  var gg = new THREE.BufferGeometry();
+  gg.setAttribute('position', new THREE.BufferAttribute(gp, 3));
+  gg.setIndex([0, 1, 2]); gg.computeVertexNormals();
+  scene.add(new THREE.Mesh(gg, hwMergeM));   // DoubleSide -> winding-proof
+}
 // Highway/ramp/river builds are DEFERRED: buildRemapRoads runs during the road
 // section (line ~2885), but the median lamps need streetLights/poleMetal/lamp
 // materials that aren't declared until the street-light section far below (var
@@ -3147,7 +3204,8 @@ function buildRiver(r) {
 // placeStreetlights() has set those up (buildPendingSpecialRoads).
 var pendingSpecial = [];
 function buildSpecialRoad(r) {
-  if (r.kind === 'highway' || r.kind === 'ramp' || r.kind === 'water' || r.kind === 'merge') { pendingSpecial.push(r); return true; }
+  if (r.kind === 'highway' || r.kind === 'ramp' || r.kind === 'water' || r.kind === 'merge'
+    || r.kind === 'owroad' || r.kind === 'gore') { pendingSpecial.push(r); return true; }
   return false;
 }
 function buildPendingSpecialRoads() {
@@ -3157,6 +3215,8 @@ function buildPendingSpecialRoads() {
     else if (r.kind === 'ramp') buildRamp(r);
     else if (r.kind === 'water') buildRiver(r);
     else if (r.kind === 'merge') buildMerge(r);
+    else if (r.kind === 'owroad') buildOneWayRoad(r);
+    else if (r.kind === 'gore') buildHwGore(r);
   }
   pendingSpecial = [];
 }
@@ -3660,7 +3720,7 @@ function buildRemapRoads() {
   // parsed roads with cumulative chainage
   for (i = 0; i < REMAP_ROADS.length; i++) {
     r = REMAP_ROADS[i];
-    RM.roads.push({ id: r.id, cls: r.cls, hw: r.hw, dirt: !!r.dirt, kind: r.kind, elev: r.elev, endHw: r.endHw, pts: r.pts, cum: rmCum(r.pts) });
+    RM.roads.push({ id: r.id, cls: r.cls, hw: r.hw, dirt: !!r.dirt, kind: r.kind, elev: r.elev, endHw: r.endHw, oneway: r.oneway, lanes: r.lanes, pts: r.pts, cum: rmCum(r.pts) });
   }
   // ---- stitch points: road endpoints touching another road (<=3.5u) ----
   // every stitch gets a junction pad; stitches between lane-graph roads
