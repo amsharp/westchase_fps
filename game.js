@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.78.18';
+var GAME_VERSION = 'v1.78.19';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2915,7 +2915,12 @@ var hwDeckM = lamb({ map: hwDeckT });
 var hwConcreteM = lamb({ color: 0xbcbbb4, side: THREE.DoubleSide });   // barriers + ramp embankment walls (DoubleSide so walls read both faces)
 var hwUnderM = lamb({ color: 0x6d6c67, side: THREE.DoubleSide });   // deck underside — DoubleSide so it's solid from below
 var hwApronM = new THREE.MeshLambertMaterial({ map: hwDeckT, side: THREE.DoubleSide });   // ground merge apron (DoubleSide = winding-proof)
-var hwMergeM = lamb({ color: 0x8f8f88, side: THREE.DoubleSide });   // plain concrete merge apron, matches hwDeckT base grey (baked lane lines skewed on the taper)
+var hwMergeT = tex(256, function (g, s) {
+  g.fillStyle = '#8f8f88'; g.fillRect(0, 0, s, s);                       // same base grey as hwDeckT
+  noise(g, s, 900, 0.12, 0.07);                                          // matching concrete grain
+  g.fillStyle = 'rgba(48,48,46,0.5)'; g.fillRect(0, 0, s, 3);            // transverse expansion joint (merge v runs along the road)
+});
+var hwMergeM = lamb({ map: hwMergeT, side: THREE.DoubleSide });   // textured concrete merge apron — deck grain, no baked lane lines (they skewed on the taper)
 var mergeLineM = lamb({ color: 0xe6cc3e, side: THREE.DoubleSide });   // solid double-yellow centre line (direction divider)
 var riverBedM = lamb({ color: 0x3a4b54 });
 var riverWaterM = new THREE.MeshLambertMaterial({ color: 0x2f6f9e, transparent: true, opacity: 0.74, side: THREE.DoubleSide, depthWrite: false });
