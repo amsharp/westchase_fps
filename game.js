@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.79.4';
+var GAME_VERSION = 'v1.79.5';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -3252,14 +3252,19 @@ function buildExitDeck(r) {
   if (ki > 0 && ki < n) hwWall(inner.slice(ki - 1), deckY, 1.05, 0.5, hwConcreteM, 'hw:barrier', barM);
   else hwWallGapped(inner, deckY, 1.05, 0.5, hwConcreteM, 'hw:barrier', barM, r.innerGap);
   hwDeckColliders(pts, hw, deckY + 0.02);
-  var total = cum[n - 1], pierW = 2.6, beamH = 1.4, beamTopY = deckY - 0.6, colH = beamTopY - beamH, s;
-  for (s = 16; s < total - 8; s += 30) {                                 // single central piers
-    var p = rmAt(pts, cum, s), tt = rmTangentAt(pts, cum, s), yaw = Math.atan2(tt.x, tt.z);
-    var gg = new THREE.Group(); gg.position.set(p.x, 0, p.z); gg.rotation.y = yaw;
+  // single central piers, placed at the DECK CENTRE with a cap beam sized to the
+  // LOCAL deck width (so the beam always tucks under the deck — never pokes out).
+  var pierW = 2.6, beamH = 1.4, beamTopY = deckY - 0.6, colH = beamTopY - beamH;
+  for (i = 1; i < n - 1; i++) {
+    var bw = Math.hypot(inner[i][0] - outer[i][0], inner[i][1] - outer[i][1]);
+    if (bw < 2.5) continue;                                              // too narrow near the tip -> no pier
+    var cx = (inner[i][0] + outer[i][0]) / 2, cz = (inner[i][1] + outer[i][1]) / 2;
+    var tt = rmTangentAt(pts, cum, cum[i]), yaw = Math.atan2(tt.x, tt.z);
+    var gg = new THREE.Group(); gg.position.set(cx, 0, cz); gg.rotation.y = yaw;
     gg.add(box(pierW, colH, pierW, hwConcreteM, 0, colH / 2, 0));
-    gg.add(box(Math.max(2 * hw + pierW, 3), beamH, 2.4, hwConcreteM, 0, beamTopY - beamH / 2, 0));
+    gg.add(box(Math.max(bw - 0.6, 2), beamH, 2.4, hwConcreteM, 0, beamTopY - beamH / 2, 0));   // cap beam ⊂ deck
     scene.add(gg);
-    addColliderOBB(p.x, p.z, pierW / 2 + 0.2, pierW / 2 + 0.2, yaw, 'hw:pillar');
+    addColliderOBB(cx, cz, pierW / 2 + 0.2, pierW / 2 + 0.2, yaw, 'hw:pillar');
   }
   for (var j = 1; j < n; j++) mapRoads.push({ x1: pts[j - 1][0], z1: pts[j - 1][1], x2: pts[j][0], z2: pts[j][1], hw: hw, cls: 4 });
 }
