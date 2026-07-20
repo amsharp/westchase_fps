@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.78.14';
+var GAME_VERSION = 'v1.78.15';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -3562,8 +3562,10 @@ function rmNormals(pts) {
     if (ml < 0.001) { mx = t2x; mz = t2z; ml = 1; }
     mx /= ml; mz /= ml;
     // miter compensation so the ribbon keeps width through bends (clamped —
-    // the polylines are arc-smoothed, so this stays near 1)
-    var sc = 1 / Math.max(0.667, mx * t2x + mz * t2z);
+    // the polylines are arc-smoothed, so this stays near 1). TERMINAL vertices
+    // have no bend (one tangent is zero -> dot 0 -> a spurious 1.5x flare that
+    // bulged every road's dead end); force scale 1 there so ends stay true width.
+    var sc = (i === 0 || i === n - 1) ? 1 : 1 / Math.max(0.667, mx * t2x + mz * t2z);
     out.push([-mz, mx, Math.min(1.5, sc)]);
   }
   return out;
