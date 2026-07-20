@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.78.13';
+var GAME_VERSION = 'v1.78.14';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2989,10 +2989,21 @@ function buildHighway(r) {
   hwWall(rmOffsetPts(pts, hw - 0.35), deckY, 1.05, 0.5, hwConcreteM, 'hw:barrier', barM);    // outer Jersey barriers
   hwWall(rmOffsetPts(pts, -(hw - 0.35)), deckY, 1.05, 0.5, hwConcreteM, 'hw:barrier', barM);
   hwWall(pts, deckY, 1.15, 0.85, hwConcreteM, 'hw:median', barM);         // center median barrier
-  for (s = 16; s < total - 8; s += 30) {                                  // support pillars (ground obstacles -> collide)
-    var p = rmAt(pts, cum, s);
-    scene.add(cyl(1.15, 1.35, deckY, 8, hwConcreteM, p.x, deckY / 2, p.z));
-    addCollider(p.x, p.z, 2.4, 2.4, 'hw:pillar');
+  // twin rectangular-prism piers: one column centred under each direction of the
+  // deck, joined by a pier-cap beam across the top (cheaper than cylinders + truer
+  // to the real overpass). Colliders under each column block traffic passing below.
+  var pierW = 2.6, pierD = 2.6, beamH = 1.4, half = hw / 2;
+  var beamTopY = deckY - 0.6, colH = beamTopY - beamH;
+  for (s = 20; s < total - 10; s += 34) {
+    var p = rmAt(pts, cum, s), tt = rmTangentAt(pts, cum, s), yaw = Math.atan2(tt.x, tt.z);
+    var g = new THREE.Group(); g.position.set(p.x, 0, p.z); g.rotation.y = yaw;
+    g.add(box(pierW, colH, pierD, hwConcreteM, half, colH / 2, 0));                 // column under +side
+    g.add(box(pierW, colH, pierD, hwConcreteM, -half, colH / 2, 0));                // column under -side
+    g.add(box(hw + pierW, beamH, 2.4, hwConcreteM, 0, beamTopY - beamH / 2, 0));    // pier-cap beam
+    scene.add(g);
+    var px = tt.z, pz = -tt.x;                                                      // perpendicular
+    addColliderOBB(p.x + px * half, p.z + pz * half, pierW / 2 + 0.2, pierD / 2 + 0.2, yaw, 'hw:pillar');
+    addColliderOBB(p.x - px * half, p.z - pz * half, pierW / 2 + 0.2, pierD / 2 + 0.2, yaw, 'hw:pillar');
   }
   for (s = 24; s < total - 12; s += 46) {                                 // double-arm median lamps
     var p2 = rmAt(pts, cum, s), t2 = rmTangentAt(pts, cum, s);
