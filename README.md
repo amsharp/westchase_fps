@@ -279,12 +279,37 @@ Westchase Guns & Ammo. He sells three guns:
 | Axe    | *found* | not for sale — see **The cabin in the woods** below. A solid melee hit **cleaves a body clean in half down the middle**; the two halves topple opposite ways onto the ground in a mess of blood. **Hold right-click to aim, then left-click to hurl it** — it spins through a gravity arc and bisects whoever it hits, then sticks in the ground where it lands for you to go pick back up |
 | Rifle  | $600  | one shot, one nap — right-click to scope |
 | AK-47  | $1000 | full-auto, long range, accurate |
-| Rocket launcher | $2000 | 5s reload; the blast doesn't care whose side you're on |
+| Rocket launcher | $2000 | one rocket per load, 5s hand-reload (R); the blast doesn't care whose side you're on |
 
 Each weapon carries its own **crosshair**: a tight cross-and-dot for the
 pistol, a wider spread for the SMG and AK (it blooms open as you spray), a
 fine cross for the scoped rifle (which vanishes at the scope), corner
 brackets for the rocket launcher, and a boxed reticle for alien tech.
+
+### Ammo &amp; reloading
+
+Every firearm now runs on **ammunition** and has to be **reloaded by hand
+with R**. There are four kinds of ammo, and guns that fire the same round
+**share one pool**:
+
+| Ammo | Guns | Mag | Reload | Price |
+|------|------|-----|--------|-------|
+| Pistol bullets | Pistol (15), SMG (30) | — | 1.5s / 2s | $25 / 30 rds |
+| Rifle bullets | Rifle (10), AK-47 (30) | — | 3s | $50 / 30 rds |
+| Shotgun shells | Shotgun (6) | — | 5s | $25 / 12 rds |
+| Rockets | Rocket launcher (1) | — | 5s | $200 / 1 rd |
+
+Buy a gun and it comes **loaded plus a spare** — two magazines' worth. When
+that runs dry, top up your **reserve** at the dealer (there's an **AMMO**
+section under the guns in his shop) and hit **R** to slap in a fresh mag.
+The HUD shows your **loaded / reserve** count above the weapon name; it goes
+amber when the mag's running low and red when it's empty. Empty the mag and
+the trigger just clicks — reload. The **rocket launcher** plays its full
+load-a-shell animation; every other gun simply **drops off-screen and swings
+back up** once the fresh mag is seated. Reloading mid-fire is safe but you
+can't shoot until it finishes, and switching weapons cancels it. The
+**alien energy guns** (ray gun and the quest rewards) never need ammo. Die
+and you drop your guns — and the ammo that was in them.
 
 ### The cabin in the woods
 
@@ -698,6 +723,7 @@ the same quiet noise bed as before, and the SFX volume slider controls it.
 
 - **WASD** — move, **Shift** — run, **Space** — jump, **Mouse** — look
 - **Left click** — punch / shoot
+- **R** — **reload** the equipped gun from your reserve (while driving, R cycles the car radio)
 - **Scroll wheel** — quick-swap to your next / previous weapon
 - **1 – 0** — jump straight to a weapon by number (its slot in your owned list —
   1 is fists; keys for weapons you don't own are ignored). A **quick-bar** along

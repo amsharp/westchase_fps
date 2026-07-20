@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.79.6';
+var GAME_VERSION = 'v1.80.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -51,12 +51,12 @@ var NE_EXIT_Z = -200, SE_EXIT_X = 278;
 var WEAPONS = {
   fists:  { name: 'FISTS',  melee: true, dmg: 34, rate: 0.42, range: 2.4 },
   axe:    { name: 'AXE',    price: 400, worldOnly: true, melee: true, dmg: 200, rate: 0.62, range: 2.8, bisect: true, desc: 'Heavy chopping axe — a solid hit cleaves a body clean in half.' },
-  pistol: { name: 'PISTOL', price: 150, dmg: 40, rate: 0.2, auto: false, spread: 0.014, desc: '9mm sidearm. Reliable.', flashAt: [0.26, -0.265, -0.9] },
-  smg:    { name: 'SMG',    price: 400, dmg: 15, rate: 0.065, auto: true, spread: 0.008, spreadMax: 0.05, bloomPerShot: 0.006, desc: 'First shots on target. Then it sprays.', flashAt: [0.26, -0.262, -1.2] },
-  rifle:  { name: 'RIFLE',  price: 600, dmg: 95, rate: 0.8,  auto: false, spread: 0.004, desc: 'One shot, one nap. Right-click to scope.', flashAt: [0.24, -0.235, -1.38] },
-  auto:   { name: 'AK-47',  price: 1000, dmg: 34, rate: 0.11, auto: true, spread: 0.012, desc: 'Full auto, long range.', flashAt: [0.26, -0.255, -1.2] },
-  shotgun: { name: 'SHOTGUN', price: 500, dmg: 17, rate: 0.85, auto: false, pellets: 9, spread: 0.06, falloff: 34, desc: 'Pump-action. Point-blank headshots take the head clean off.', flashAt: [0.24, -0.25, -1.0], flashScale: 1.25 },
-  rocket: { name: 'ROCKET LAUNCHER', price: 2000, rate: 5, rocket: true, desc: 'Danger close. 5s reload.', flashAt: [0.3, -0.28, -1.0] },
+  pistol: { name: 'PISTOL', price: 150, dmg: 40, rate: 0.2, auto: false, spread: 0.014, ammo: 'pistol', mag: 15, reload: 1.5, desc: '9mm sidearm. Reliable.', flashAt: [0.26, -0.265, -0.9] },
+  smg:    { name: 'SMG',    price: 400, dmg: 15, rate: 0.065, auto: true, spread: 0.008, spreadMax: 0.05, bloomPerShot: 0.006, ammo: 'pistol', mag: 30, reload: 2, desc: 'First shots on target. Then it sprays.', flashAt: [0.26, -0.262, -1.2] },
+  rifle:  { name: 'RIFLE',  price: 600, dmg: 95, rate: 0.8,  auto: false, spread: 0.004, ammo: 'rifle', mag: 10, reload: 3, desc: 'One shot, one nap. Right-click to scope.', flashAt: [0.24, -0.235, -1.38] },
+  auto:   { name: 'AK-47',  price: 1000, dmg: 34, rate: 0.11, auto: true, spread: 0.012, ammo: 'rifle', mag: 30, reload: 3, desc: 'Full auto, long range.', flashAt: [0.26, -0.255, -1.2] },
+  shotgun: { name: 'SHOTGUN', price: 500, dmg: 17, rate: 0.85, auto: false, pellets: 9, spread: 0.06, falloff: 34, ammo: 'shotgun', mag: 6, reload: 5, desc: 'Pump-action. Point-blank headshots take the head clean off.', flashAt: [0.24, -0.25, -1.0], flashScale: 1.25 },
+  rocket: { name: 'ROCKET LAUNCHER', price: 2000, rate: 5, rocket: true, ammo: 'rocket', mag: 1, reload: 5, desc: 'Danger close. Reload with R.', flashAt: [0.3, -0.28, -1.0] },
   raygun: { name: 'RAY GUN', price: 0, dmg: 70, rate: 0.22, auto: false, spread: 0, laser: true, desc: 'Alien tech. Semi-auto. Never misses.', flashAt: [0.26, -0.25, -0.95] },
   // #78 quest-reward guns (not purchasable; granted by Q6 / Q8)
   neon_blaster: { name: 'NEON BLASTER', price: 0, dmg: 68, rate: 0.19, auto: false, spread: 0.006, laser: true, quest: true, desc: '8-bit ray tech. ADS to bend time.', flashAt: [0.26, -0.25, -0.95] },
@@ -74,8 +74,61 @@ var state = {
   equipped: 'fists',
   lastHurt: -99, lastCarHit: -99, lastRob: -99,
   wanted: 0, civKills: 0, copKills: 0, snacks: 0,
-  stolen: 0   // heist loot held until the heat clears, then paid into money
+  stolen: 0,   // heist loot held until the heat clears, then paid into money
+  // AMMO (v1.80): `ammoRes` = shared reserve pool per ammo TYPE (pistol/rifle/
+  // shotgun/rocket bullets — guns of the same type draw from the same pool);
+  // `mag` = rounds currently loaded per GUN key. Reloading (R) tops the gun's
+  // mag from the type pool. Local per-player, never net-synced.
+  ammoRes: { pistol: 0, rifle: 0, shotgun: 0, rocket: 0 },
+  mag: {}
 };
+// ammo reload: the gun currently reloading (equipped weapon key) + when it began
+// and how long it takes. Only one gun reloads at a time; switching weapons cancels.
+var reloadGun = null, reloadStart = -99, reloadDur = 0, lastDryClick = -99;
+var AMMO_TYPES = {
+  pistol:  { name: 'PISTOL AMMO',  price: 25,  qty: 30 },
+  rifle:   { name: 'RIFLE AMMO',   price: 50,  qty: 30 },
+  shotgun: { name: 'SHOTGUN SHELLS', price: 25, qty: 12 },
+  rocket:  { name: 'ROCKETS',      price: 200, qty: 1 }
+};
+var AMMO_ORDER = ['pistol', 'rifle', 'shotgun', 'rocket'];
+// fill a freshly-acquired gun's magazine and (optionally) stock the shared
+// reserve. Buying = 2 mags worth (1 loaded + 1 in reserve); a scavenged pickup
+// = 1 loaded mag, nothing spare.
+function grantGunAmmo(kind, loadedMags, reserveMags) {
+  var w = WEAPONS[kind]; if (!w || !w.ammo) return;
+  if (!state.ammoRes) state.ammoRes = { pistol: 0, rifle: 0, shotgun: 0, rocket: 0 };
+  if (!state.mag) state.mag = {};
+  state.mag[kind] = w.mag * (loadedMags || 0);
+  if (reserveMags) state.ammoRes[w.ammo] = (state.ammoRes[w.ammo] || 0) + w.mag * reserveMags;
+}
+// start a manual reload of the equipped gun (R). No-ops if it doesn't use ammo,
+// is already full, is mid-reload, or the reserve pool is empty (dry click).
+function startReload() {
+  if (!state.running || state.menu || state.dead || driving) return;
+  var w = WEAPONS[state.equipped]; if (!w || !w.ammo) return;
+  if (reloadGun) return;                              // already reloading
+  var cur = state.mag[state.equipped] | 0;
+  if (cur >= w.mag) return;                           // mag already full
+  var res = state.ammoRes[w.ammo] | 0;
+  if (res <= 0) { if (T - lastDryClick > 0.4) { beep(150, 0.07, 0.09, 'square'); lastDryClick = T; } popup('OUT OF ' + (AMMO_TYPES[w.ammo] ? AMMO_TYPES[w.ammo].name : 'AMMO')); return; }
+  reloadGun = state.equipped; reloadStart = T; reloadDur = w.reload || 2;
+  sfx('reload');
+}
+// per-frame: complete a reload once its timer elapses (moves rounds from the
+// shared reserve into the mag). Also cancels if the player switched off the gun.
+function updateReload() {
+  if (!reloadGun) return;
+  if (reloadGun !== state.equipped || state.dead || driving) { reloadGun = null; return; }
+  if (T - reloadStart < reloadDur) return;
+  var w = WEAPONS[reloadGun]; var cur = state.mag[reloadGun] | 0;
+  var need = w.mag - cur, res = state.ammoRes[w.ammo] | 0;
+  var take = Math.min(need, res);
+  state.mag[reloadGun] = cur + take;
+  state.ammoRes[w.ammo] = res - take;
+  reloadGun = null;
+  sfx('reloaddone');
+}
 
 var keys = {}, mouseDown = false;
 var yaw = 0, pitch = 0;
@@ -15195,6 +15248,7 @@ function applyDropPickup(kind) {
     if (refund) sfx('cash');
   } else {
     state.owned[kind] = true;
+    grantGunAmmo(kind, 1, 0);   // scavenged gun: one loaded mag, no spare
     hotbarAdd(kind);
     popup('Picked up ' + WEAPONS[kind].name);
     sfx('buy');
@@ -18086,7 +18140,7 @@ function setEquipped(w) {
   }
   vm.visible = !zoomed && !driving && !state.dead;   // stay hidden during the death cinematic
   Object.keys(vmMap).forEach(function (k) { vmMap[k].visible = (k === w); });
-  var sub = w === 'fists' ? 'punch for cash' : (w === 'rifle' ? 'right-click: scope' : (w === 'rocket' ? '5s reload' : (w === 'axe' ? 'hold right-click: aim &amp; throw' : (w === 'snack' ? 'left-click: eat (+50 hp) — x' + state.snacks : (w === 'soda' ? 'left-click: drink (+25 hp) — x' + state.sodas : 'ammo: &#8734;')))));
+  var sub = w === 'fists' ? 'punch for cash' : (w === 'rifle' ? 'right-click: scope · R: reload' : (w === 'axe' ? 'hold right-click: aim &amp; throw' : (w === 'snack' ? 'left-click: eat (+50 hp) — x' + state.snacks : (w === 'soda' ? 'left-click: drink (+25 hp) — x' + state.sodas : (WEAPONS[w].ammo ? 'R: reload' : 'ammo: &#8734;')))));
   document.getElementById('weaponBox').innerHTML = WEAPONS[w].name + '<br><small>' + sub + '</small>';
   if (typeof refreshHotbarHud === 'function') refreshHotbarHud();
 }
@@ -18536,7 +18590,18 @@ function tryAttack() {
     return;
   }
   if (T - (lastShotBy[state.equipped] || -99) < w.rate) return;
+  // AMMO gate: guns with an ammo type can't fire on an empty mag or mid-reload.
+  // An empty trigger-pull dry-clicks and nudges the player to reload (manual R).
+  if (w.ammo) {
+    if (reloadGun === state.equipped) return;
+    if ((state.mag[state.equipped] | 0) <= 0) {
+      if (T - lastDryClick > 0.25) { beep(140, 0.05, 0.09, 'square'); lastDryClick = T; }
+      if (state.equipped === 'rocket' || !w.auto) popup('RELOAD (R)');
+      return;
+    }
+  }
   lastShotBy[state.equipped] = T; lastShot = T; recoil = 1;
+  if (w.ammo) state.mag[state.equipped] = (state.mag[state.equipped] | 0) - 1;   // consume one round/shell/rocket
   if (w.rocket) {
     // RPG: no front muzzle flash — the launch kicks smoke out the REAR tube
     recoil = 2.2;
@@ -18800,6 +18865,8 @@ function hurtPlayer(d, sx, sz) {
     // guns drop as pickups; snacks/sodas just vanish. Then wipe the hotbar down to
     // fists so you can't still scroll to gear you no longer own (report: kept stuff).
     state.snacks = 0; state.sodas = 0; state.bag = [];
+    state.mag = {}; state.ammoRes = { pistol: 0, rifle: 0, shotgun: 0, rocket: 0 };   // carried ammo is lost with the dropped guns
+    reloadGun = null;
     if (typeof pruneHotbar === 'function') pruneHotbar();
     if (typeof refreshHotbarHud === 'function') refreshHotbarHud();
     setEquipped('fists');
@@ -19966,6 +20033,8 @@ function sfx(kind, at) {
     case 'splash': nb(0.22, 1900, 0.5); bp(360, 0.1, 0.09, 'sine', 150); setTimeout(function () { nb(0.16, 1200, 0.3); }, 60); setTimeout(function () { nb(0.13, 800, 0.2); }, 150); break;   // car hits the water
     case 'glass': nb(0.07, 3400, 0.5); bp(190, 0.09, 0.14, 'square', 70); setTimeout(function () { nb(0.1, 2700, 0.38); }, 70); setTimeout(function () { nb(0.14, 2100, 0.28); }, 160); break;
     case 'boom': nb(0.8, 320, 1.3); bp(60, 0.6, 0.6, 'sine', 24); setTimeout(function () { nb(0.4, 700, 0.4); }, 120); break;
+    case 'reload': nb(0.04, 1800, 0.16); setTimeout(function () { bp(220, 0.05, 0.12, 'square', 130); }, 90); break;   // mag-out click + release
+    case 'reloaddone': bp(300, 0.05, 0.14, 'square', 180); setTimeout(function () { nb(0.045, 2200, 0.2); bp(520, 0.05, 0.1, 'square', 300); }, 100); break;   // fresh mag seats + charging handle
     case 'tick': bp(1500, 0.03, 0.11, 'square', 0); break;   // crisp hitmarker blip
     case 'killtick': bp(1650, 0.035, 0.14, 'square', -260); setTimeout(function () { bp(1050, 0.05, 0.12, 'square', -180); }, 45); break;   // two-note kill confirm
     case 'cardoor': bp(110, 0.09, 0.22, 'square', 55); nb(0.05, 900, 0.16); break;              // synth fallback (pack normally covers these)
@@ -20033,10 +20102,30 @@ function refreshShop() {
     var pl = price < w.price ? '<span class="cash">$' + price + '</span> <small style="opacity:.6;text-decoration:line-through">$' + w.price + '</small>' : '<span class="cash">$' + price + '</span>';
     var left = document.createElement('div'); left.innerHTML = '<b>' + w.name + '</b> — ' + pl + '<small>' + w.desc + '</small>'; row.appendChild(left);
     if (state.owned[k]) { var sp = document.createElement('span'); sp.className = 'owned'; sp.textContent = 'OWNED'; row.appendChild(sp); }
-    else { var btn = document.createElement('button'); btn.textContent = 'BUY'; btn.disabled = state.money < price; btn.onclick = function () { if (state.dead) return; if (state.money < price) { playVoiceAny(['dealer_nocash_1', 'dealer_nocash_2'], 0.5, 'dealerNo', 5, { ref: dealer }); sfx('deny'); return; } state.money -= price; state.owned[k] = true; hotbarAdd(k); shopBought = true; playVoiceAny(['dealer_buy_1', 'dealer_buy_2'], 0.5, 'dealerBuy', 4, { ref: dealer }); sfx('buy'); popup(w.name + ' purchased!'); refreshShop(); }; row.appendChild(btn); }
+    else { var btn = document.createElement('button'); btn.textContent = 'BUY'; btn.disabled = state.money < price; btn.onclick = function () { if (state.dead) return; if (state.money < price) { playVoiceAny(['dealer_nocash_1', 'dealer_nocash_2'], 0.5, 'dealerNo', 5, { ref: dealer }); sfx('deny'); return; } state.money -= price; state.owned[k] = true; grantGunAmmo(k, 1, 1); hotbarAdd(k); shopBought = true; playVoiceAny(['dealer_buy_1', 'dealer_buy_2'], 0.5, 'dealerBuy', 4, { ref: dealer }); sfx('buy'); popup(w.name + ' purchased!'); refreshShop(); }; row.appendChild(btn); }
     rows.appendChild(row);
   });
-  // sell-junk-to-dealer feature removed with the scavenge-item system
+  // ---- ammo counter: buy rounds for the four ammo types. Guns of the same
+  // type share the reserve pool the mag reloads from (R). ----
+  var ahdr = document.createElement('div'); ahdr.className = 'row';
+  ahdr.innerHTML = '<b style="color:#ffd98a; letter-spacing:2px;">— AMMO —</b>'; rows.appendChild(ahdr);
+  AMMO_ORDER.forEach(function (typ) {
+    var a = AMMO_TYPES[typ], row = document.createElement('div'); row.className = 'row';
+    var have = (state.ammoRes && state.ammoRes[typ]) | 0;
+    var left = document.createElement('div');
+    left.innerHTML = '<b>' + a.name + '</b> — <span class="cash">$' + a.price + '</span> / ' + a.qty + ' rds<small>you have ' + have + ' in reserve</small>';
+    row.appendChild(left);
+    var btn = document.createElement('button'); btn.textContent = 'BUY'; btn.disabled = state.money < a.price;
+    btn.onclick = function () {
+      if (state.dead) return;
+      if (state.money < a.price) { playVoiceAny(['dealer_nocash_1', 'dealer_nocash_2'], 0.5, 'dealerNo', 5, { ref: dealer }); sfx('deny'); return; }
+      state.money -= a.price;
+      if (!state.ammoRes) state.ammoRes = { pistol: 0, rifle: 0, shotgun: 0, rocket: 0 };
+      state.ammoRes[typ] = (state.ammoRes[typ] | 0) + a.qty;
+      sfx('buy'); popup('+' + a.qty + ' ' + a.name); refreshShop();
+    };
+    row.appendChild(btn); rows.appendChild(row);
+  });
   document.getElementById('shopCash').textContent = '$' + state.money;
 }
 // dealer buys junk & valuables out of your bag for the def's value
@@ -22157,6 +22246,8 @@ document.addEventListener('keydown', function (e) {
   if (e.code === 'KeyM' && !e.repeat && state.running && !state.menu && !state.dead) { e.preventDefault(); toggleWaypointAtLook(); return; }
   // R: cycle the car radio (OFF -> Electronic -> Rap -> Chill -> Rock -> OFF) — only while driving.
   if (e.code === 'KeyR' && !e.repeat && state.running && !state.menu && !state.dead && driving) { e.preventDefault(); radioCycle(); return; }
+  // R (on foot): manually reload the equipped gun from the shared reserve pool
+  if (e.code === 'KeyR' && !e.repeat && state.running && !state.menu && !state.dead && !driving) { e.preventDefault(); startReload(); return; }
   // QoL: number-key direct weapon select (1..9, 0 = slot 10).
   if (!e.repeat && state.running && !state.menu && !state.dead) {
     var wslot = -1;
@@ -22242,6 +22333,7 @@ function updatePlayer(dt) {
     return;
   }
   updateBreakIn(dt);
+  updateReload();   // finish a manual reload once its timer elapses
   var f = 0, s = 0;
   if (keys['KeyW']) f += 1; if (keys['KeyS']) f -= 1; if (keys['KeyD']) s += 1; if (keys['KeyA']) s -= 1;
   if (state.sitting) { if (f || s || keys['Space']) state.sitting = false; else { f = 0; s = 0; } }   // env sit: stand on any move input
@@ -22411,16 +22503,27 @@ function updatePlayer(dt) {
       wg.rotation.z = -0.6 * ek;
       wg.rotation.x = 0.35 * ek;
     }
+    // manual reload (non-rocket guns): drop the gun off the bottom of the screen
+    // and raise it back when the fresh mag is seated. The rocket has its own
+    // dip-and-load anim below.
+    if (reloadGun === state.equipped && state.equipped !== 'rocket') {
+      var rp = reloadDur > 0 ? (T - reloadStart) / reloadDur : 1;   // 0..1
+      var dd = rp < 0.22 ? rp / 0.22 : (rp > 0.78 ? Math.max(0, (1 - rp) / 0.22) : 1);
+      dd = dd * dd * (3 - 2 * dd);
+      wg.position.y = vlift - 0.95 * dd;
+      wg.rotation.x = 0.55 * dd;
+      wg.rotation.z = -0.25 * dd;
+    }
   }
   if (state.equipped === 'rocket' && wg) {
-    var rcd = T - (lastShotBy.rocket || -99);
-    if (rcd >= 0 && rcd < WEAPONS.rocket.rate) {
+    if (reloadGun === 'rocket') {
+      var rcd = T - reloadStart, rdur = reloadDur || WEAPONS.rocket.reload;
       // reload: launcher dips down-right, a fresh rocket slides into the muzzle
-      var dip = Math.min(1, rcd / 0.55, (WEAPONS.rocket.rate - rcd) / 0.7);
+      var dip = Math.min(1, rcd / 0.55, (rdur - rcd) / 0.7);
       dip = dip * dip * (3 - 2 * dip);
       wg.position.x += 0.11 * dip; wg.position.y += -0.19 * dip;
       wg.rotation.z += -0.45 * dip; wg.rotation.x += 0.18 * dip;
-      var rf = rcd / WEAPONS.rocket.rate;
+      var rf = rcd / rdur;
       if (rocketHead.userData.seatVisible) {
         // procedural launcher (no Meshy rpg7): a fresh cone rocket slides in from
         // out-front into the empty tube
@@ -22437,6 +22540,11 @@ function updatePlayer(dt) {
       }
       rocketCdEl.classList.remove('hidden');
       rocketCdBar.style.width = (rf * 100).toFixed(1) + '%';
+    } else if ((state.mag.rocket | 0) <= 0) {
+      // fired but not yet reloaded — empty tube, press R to load a fresh rocket
+      rocketHead.visible = false;
+      if (rpgWarhead) rpgWarhead.visible = false;
+      rocketCdEl.classList.add('hidden');
     } else {
       rocketHead.visible = rocketHead.userData.seatVisible;
       rocketHead.position.copy(rocketSeat);
@@ -22811,6 +22919,18 @@ function drawHudCanvas() {
     var sm = wb.querySelector('small'); sub = sm ? sm.textContent : '';
   }
   main = (main || '').trim(); sub = (sub || '').replace(/\u00a0/g, ' ').trim();
+  // ammo readout (above the weapon name): loaded mag / shared reserve, or a
+  // RELOADING banner while topping up. Only for guns that use ammo.
+  var _aw = WEAPONS[state.equipped];
+  if (_aw && _aw.ammo && !driving) {
+    var mg = state.mag[state.equipped] | 0, res = (state.ammoRes && state.ammoRes[_aw.ammo]) | 0;
+    if (reloadGun === state.equipped) {
+      drawPix('RELOADING', W - M, H - M - 66, 2, '#ffd200', 'right');
+    } else {
+      var acol = mg <= 0 ? '#ff5a3a' : (mg <= Math.max(1, _aw.mag * 0.25) ? '#ffb03a' : '#e8e2cc');
+      drawPix(mg + ' / ' + res, W - M, H - M - 66, 3, acol, 'right');
+    }
+  }
   drawPix(main, W - M, H - M - 38, 3, '#ffd200', 'right');   // 21px glyphs + clear gap above the flavor line
   if (sub) hudText(sub, W - M, H - M, 12, '#b9b19a', 'right');
   // rocket cooldown (just below the crosshair)
@@ -23314,7 +23434,10 @@ window.__wc = {
   settingsView: function () { return { lookSens: lookSens, lookInvert: lookInvert, baseFov: baseFov, camFov: camera.fov, viewDistScale: viewDistScale, crt: CRT_FX, crtHidden: (document.getElementById('crtFx') || {}).className, settingsOpen: settingsOpen }; },
   getPlayerChar: function () { return playerChar; },
   setPlayerChar: function (c) { playerChar = c; },
-  ownWeapon: function (k) { if (WEAPONS[k]) { state.owned[k] = true; return true; } return false; },
+  ownWeapon: function (k) { if (WEAPONS[k]) { state.owned[k] = true; grantGunAmmo(k, 1, 1); return true; } return false; },
+  giveAmmo: function (typ, n) { if (!state.ammoRes) state.ammoRes = { pistol: 0, rifle: 0, shotgun: 0, rocket: 0 }; state.ammoRes[typ] = (state.ammoRes[typ] | 0) + (n || 30); return state.ammoRes[typ]; },
+  ammoState: function () { return { mag: state.mag, res: state.ammoRes, reloading: reloadGun }; },
+  reloadNow: function () { startReload(); return reloadGun; },
   getEnvProp: getEnvProp, itemDef: itemDef, itemTex: itemTex, bagAdd: bagAdd, bagCount: bagCount,
   // --- flyable plane (Learjet) — local/singleplayer test hooks ---
   spawnPlane: function () { return spawnPlane(); },
