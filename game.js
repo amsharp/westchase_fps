@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.80.1';
+var GAME_VERSION = 'v1.80.2';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -3076,6 +3076,23 @@ function hwDeckColliders(pts, hw, topY) {
     oc.deck = true; oc.topY = topY;
   }
 }
+// deck floor colliders that follow the ACTUAL rendered strip (inner/outer edge
+// arrays) rather than a centerline ± hw. Needed by the exit spur, whose deck is
+// offset toward the mainline through the gore — a centerline collider left a
+// band of walkable-looking deck with no floor under it (fall-through). Over-
+// covers a touch (length + width pad) so segments overlap and never leave a seam.
+function deckStripColliders(inner, outer, topY) {
+  for (var i = 0; i < inner.length - 1; i++) {
+    var ax = (inner[i][0] + outer[i][0]) / 2, az = (inner[i][1] + outer[i][1]) / 2;
+    var bx = (inner[i + 1][0] + outer[i + 1][0]) / 2, bz = (inner[i + 1][1] + outer[i + 1][1]) / 2;
+    var dx = bx - ax, dz = bz - az, L = Math.hypot(dx, dz); if (L < 0.2) continue;
+    var mx = (ax + bx) / 2, mz = (az + bz) / 2, yaw = Math.atan2(-dz, dx);
+    var w0 = Math.hypot(inner[i][0] - outer[i][0], inner[i][1] - outer[i][1]);
+    var w1 = Math.hypot(inner[i + 1][0] - outer[i + 1][0], inner[i + 1][1] - outer[i + 1][1]);
+    var oc = addColliderOBB(mx, mz, (L + 1.6) / 2, Math.max(w0, w1) / 2 + 0.5, yaw, 'hw:deck');
+    oc.deck = true; oc.topY = topY;
+  }
+}
 // double-arm median lamp: pole rising from the deck, an arm + head over each way
 function medianLampAt(x, z, ux, uz, deckY) {
   var g = new THREE.Group(), poleH = 8.5;
@@ -3124,14 +3141,14 @@ function buildHighway(r) {
       g.add(box(pierW, colH, pierD, hwConcreteM, 0, colH / 2, 0));                  // single central column
       g.add(box(Math.max(hw + pierW, 3), beamH, 2.4, hwConcreteM, 0, beamTopY - beamH / 2, 0));  // cap beam
       scene.add(g);
-      addColliderOBB(p.x, p.z, pierW / 2 + 0.2, pierD / 2 + 0.2, yaw, 'hw:pillar');
+      var pc0 = addColliderOBB(p.x, p.z, pierW / 2 + 0.2, pierD / 2 + 0.2, yaw, 'hw:pillar'); pc0.topY = deckY;   // 2.5D: a car/player UP on the deck passes over the pier footprint (it only walls things below the deck)
     } else {
       g.add(box(pierW, colH, pierD, hwConcreteM, half, colH / 2, 0));               // column under +side
       g.add(box(pierW, colH, pierD, hwConcreteM, -half, colH / 2, 0));              // column under -side
       g.add(box(hw + pierW, beamH, 2.4, hwConcreteM, 0, beamTopY - beamH / 2, 0));  // pier-cap beam
       scene.add(g);
-      addColliderOBB(p.x + px * half, p.z + pz * half, pierW / 2 + 0.2, pierD / 2 + 0.2, yaw, 'hw:pillar');
-      addColliderOBB(p.x - px * half, p.z - pz * half, pierW / 2 + 0.2, pierD / 2 + 0.2, yaw, 'hw:pillar');
+      var pcA = addColliderOBB(p.x + px * half, p.z + pz * half, pierW / 2 + 0.2, pierD / 2 + 0.2, yaw, 'hw:pillar'); pcA.topY = deckY;
+      var pcB = addColliderOBB(p.x - px * half, p.z - pz * half, pierW / 2 + 0.2, pierD / 2 + 0.2, yaw, 'hw:pillar'); pcB.topY = deckY;
     }
   }
   if (!oneway) for (s = 24; s < total - 12; s += 46) {                    // double-arm median lamps (2-way only)
@@ -3231,6 +3248,12 @@ function buildRamp(r) {
   eg.setAttribute('position', new THREE.BufferAttribute(new Float32Array([eLx, 0.1, eLz, eRx, 0.1, eRz, eRx, hy, eRz, eLx, hy, eLz]), 3));
   eg.setIndex([0, 1, 2, 0, 2, 3]); eg.computeVertexNormals();
   scene.add(new THREE.Mesh(eg, hwConcreteM));
+  // END-WALL COLLIDER: without it you could walk in UNDER the elevated high end
+  // (through the visual wall) and driveSurfaceAt would pop you up onto the ramp.
+  // topY = wall top (just under the deck) so a car finishing the climb at deck
+  // level still passes over, but ground-level movers are blocked from behind.
+  var ewc = addColliderOBB(a1[0], a1[1], wallOff + 0.3, 0.4, Math.atan2(-pz, px), 'ramp:endwall');
+  ewc.topY = hy;
   for (var j = 1; j < pts.length; j++) mapRoads.push({ x1: pts[j - 1][0], z1: pts[j - 1][1], x2: pts[j][0], z2: pts[j][1], hw: hw, cls: 4 });
 }
 // ground-level transition: a flat road tapering from the ramp (6-lane, pts[0])
@@ -3314,7 +3337,7 @@ function buildExitDeck(r) {
   // guardrail) then follows the lane away. No rail along the shared gore edge.
   if (ki > 0 && ki < n) hwWall(inner.slice(ki - 1), deckY, 1.05, 0.5, hwConcreteM, 'hw:barrier', barM);
   else hwWallGapped(inner, deckY, 1.05, 0.5, hwConcreteM, 'hw:barrier', barM, r.innerGap);
-  hwDeckColliders(pts, hw, deckY + 0.02);
+  deckStripColliders(inner, outer, deckY + 0.02);   // floor follows the real tapered/gore strip (no fall-through near the junction)
   // single central piers, placed at the DECK CENTRE with a cap beam sized to the
   // LOCAL deck width (so the beam always tucks under the deck — never pokes out).
   var pierW = 2.6, beamH = 1.4, beamTopY = deckY - 0.6, colH = beamTopY - beamH;
@@ -3328,7 +3351,7 @@ function buildExitDeck(r) {
     gg.add(box(pierW, colH, pierW, hwConcreteM, 0, colH / 2, 0));
     gg.add(box(Math.max(bw - 0.6, 2), beamH, 2.4, hwConcreteM, 0, beamTopY - beamH / 2, 0));   // cap beam ⊂ deck
     scene.add(gg);
-    addColliderOBB(cx, cz, pierW / 2 + 0.2, pierW / 2 + 0.2, yaw, 'hw:pillar');
+    var epc = addColliderOBB(cx, cz, pierW / 2 + 0.2, pierW / 2 + 0.2, yaw, 'hw:pillar'); epc.topY = deckY;   // only walls things below the deck
   }
   for (var j = 1; j < n; j++) mapRoads.push({ x1: pts[j - 1][0], z1: pts[j - 1][1], x2: pts[j][0], z2: pts[j][1], hw: hw, cls: 4 });
 }
@@ -17888,8 +17911,8 @@ var vmShotgun = new THREE.Group();
   if (hasMeshyGun('shotgun')) {
     // barrel authored -x; yaw -PI/2 aims it down-range (-z), small +cant toes it
     // toward center. Framed lower-right like the other long guns.
-    var mg = getGunMesh('shotgun', 1.0);
-    mg.position.set(0.22, -0.26, -0.6);
+    var mg = getGunMesh('shotgun', 1.16);
+    mg.position.set(0.22, -0.27, -0.62);
     mg.rotation.order = 'YXZ';
     mg.rotation.set(0.02, -Math.PI / 2 + 0.10, 0);
     vmShotgun.add(mg);
