@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.78.16';
+var GAME_VERSION = 'v1.78.17';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2915,6 +2915,8 @@ var hwDeckM = lamb({ map: hwDeckT });
 var hwConcreteM = lamb({ color: 0xbcbbb4, side: THREE.DoubleSide });   // barriers + ramp embankment walls (DoubleSide so walls read both faces)
 var hwUnderM = lamb({ color: 0x6d6c67, side: THREE.DoubleSide });   // deck underside — DoubleSide so it's solid from below
 var hwApronM = new THREE.MeshLambertMaterial({ map: hwDeckT, side: THREE.DoubleSide });   // ground merge apron (DoubleSide = winding-proof)
+var hwMergeM = lamb({ color: 0x9d9d95, side: THREE.DoubleSide });   // plain light concrete merge apron (baked lane lines skewed on the taper)
+var mergeLineM = lamb({ color: 0xe6cc3e, side: THREE.DoubleSide });   // solid double-yellow centre line (direction divider)
 var riverBedM = lamb({ color: 0x3a4b54 });
 var riverWaterM = new THREE.MeshLambertMaterial({ color: 0x2f6f9e, transparent: true, opacity: 0.74, side: THREE.DoubleSide, depthWrite: false });
 // point + unit tangent at chainage s along a polyline (cum precomputed by rmCum)
@@ -3091,7 +3093,17 @@ function buildMerge(r) {
   mg.setAttribute('position', new THREE.BufferAttribute(mp, 3));
   mg.setAttribute('uv', new THREE.BufferAttribute(muv, 2));
   mg.setIndex([0, 1, 2, 0, 2, 3]); mg.computeVertexNormals();
-  scene.add(new THREE.Mesh(mg, hwApronM));
+  scene.add(new THREE.Mesh(mg, hwMergeM));   // plain light concrete (no baked lanes)
+  // solid double-yellow centre line separating the two travel directions
+  for (var sgn = -1; sgn <= 1; sgn += 2) {
+    var o0 = sgn * 0.28 - 0.11, o1 = sgn * 0.28 + 0.11;   // one 0.22u-wide stripe, pair straddles the centre
+    var lp = new Float32Array([a0[0] + px * o0, 0.17, a0[1] + pz * o0, a0[0] + px * o1, 0.17, a0[1] + pz * o1,
+      a1[0] + px * o1, 0.17, a1[1] + pz * o1, a1[0] + px * o0, 0.17, a1[1] + pz * o0]);
+    var lg = new THREE.BufferGeometry();
+    lg.setAttribute('position', new THREE.BufferAttribute(lp, 3));
+    lg.setIndex([0, 1, 2, 0, 2, 3]); lg.computeVertexNormals();
+    scene.add(new THREE.Mesh(lg, mergeLineM));
+  }
   for (var j = 1; j < pts.length; j++) mapRoads.push({ x1: pts[j - 1][0], z1: pts[j - 1][1], x2: pts[j][0], z2: pts[j][1], hw: hw, cls: 4 });
 }
 function buildRiver(r) {
