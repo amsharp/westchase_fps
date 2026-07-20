@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.78.15';
+var GAME_VERSION = 'v1.78.16';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -3620,7 +3620,7 @@ function buildRemapRoads() {
   // parsed roads with cumulative chainage
   for (i = 0; i < REMAP_ROADS.length; i++) {
     r = REMAP_ROADS[i];
-    RM.roads.push({ id: r.id, cls: r.cls, hw: r.hw, dirt: !!r.dirt, kind: r.kind, elev: r.elev, pts: r.pts, cum: rmCum(r.pts) });
+    RM.roads.push({ id: r.id, cls: r.cls, hw: r.hw, dirt: !!r.dirt, kind: r.kind, elev: r.elev, endHw: r.endHw, pts: r.pts, cum: rmCum(r.pts) });
   }
   // ---- stitch points: road endpoints touching another road (<=3.5u) ----
   // every stitch gets a junction pad; stitches between lane-graph roads
