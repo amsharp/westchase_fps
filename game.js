@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.80.2';
+var GAME_VERSION = 'v1.80.3';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -13249,8 +13249,8 @@ function updateCars(dt) {
         c.shoveT -= dt;
         c.svx *= 1 - dt * 1.8; c.svz *= 1 - dt * 1.8;
         c.sx += c.svx * dt; c.sz += c.svz * dt;
-        c.sx = Math.max(-HALF + 2, Math.min(HALF - 2, c.sx));
-        c.sz = Math.max(-HALF + 2, Math.min(HALF - 2, c.sz));
+        c.sx = Math.max(WLO + 2, Math.min(WHI - 2, c.sx));
+        c.sz = Math.max(WLO + 2, Math.min(WHI - 2, c.sz));
         c.car.group.position.set(c.sx, 0, c.sz);
         c.car.group.rotation.y += c.sspin * dt;
         c.sspin *= 1 - dt * 1.5;
@@ -13296,8 +13296,8 @@ function updateCars(dt) {
       var nbx = c.bvx * cv - c.bvz * sv, nbz = c.bvx * sv + c.bvz * cv;
       c.bvx = nbx; c.bvz = nbz;
       c.bx += c.bvx * dt; c.bz += c.bvz * dt;
-      c.bx = Math.max(-HALF + 2, Math.min(HALF - 2, c.bx));
-      c.bz = Math.max(-HALF + 2, Math.min(HALF - 2, c.bz));
+      c.bx = Math.max(WLO + 2, Math.min(WHI - 2, c.bx));
+      c.bz = Math.max(WLO + 2, Math.min(WHI - 2, c.bz));
       m.position.set(c.bx, 0, c.bz);
       m.rotation.y += c.spin * dt;
     } else if (c.shoveT > 0) {
@@ -13305,8 +13305,8 @@ function updateCars(dt) {
       c.shoveT -= dt;
       c.svx *= 1 - dt * 1.8; c.svz *= 1 - dt * 1.8;
       c.sx += c.svx * dt; c.sz += c.svz * dt;
-      c.sx = Math.max(-HALF + 2, Math.min(HALF - 2, c.sx));
-      c.sz = Math.max(-HALF + 2, Math.min(HALF - 2, c.sz));
+      c.sx = Math.max(WLO + 2, Math.min(WHI - 2, c.sx));
+      c.sz = Math.max(WLO + 2, Math.min(WHI - 2, c.sz));
       m.position.set(c.sx, 0, c.sz);
       m.rotation.y += c.sspin * dt;
       c.sspin *= 1 - dt * 1.5;
@@ -13476,6 +13476,7 @@ function startCoast(c, tvx, tvz, asp) {
   var m = c.car.group;
   c.coast = true; c.berserk = false; c.shoveT = 0;
   c.bx = m.position.x; c.bz = m.position.z;
+  c.coastY = (c.cy !== undefined ? c.cy : m.position.y) || 0;   // start the coast at the deck height it left on
   c.bvx = tvx * asp; c.bvz = tvz * asp;
   c.pspeed = 0; c.speed = 0; c.stolen = true; c.parked = false;
 }
@@ -13487,9 +13488,14 @@ function updateCoastCar(c, dt, i) {
   var m = c.car.group, cs = Math.sqrt(c.bvx * c.bvx + c.bvz * c.bvz);
   c.bvx *= Math.max(0, 1 - 1.0 * dt); c.bvz *= Math.max(0, 1 - 1.0 * dt);   // rolling resistance
   c.bx += c.bvx * dt; c.bz += c.bvz * dt;
-  c.bx = Math.max(-HALF + 2, Math.min(HALF - 2, c.bx));
-  c.bz = Math.max(-HALF + 2, Math.min(HALF - 2, c.bz));
-  m.position.set(c.bx, 0, c.bz);   // heading (m.rotation.y) stays as it was on exit
+  c.bx = Math.max(WLO + 2, Math.min(WHI - 2, c.bx));   // expanded world (was ±HALF — snapped bailed cars back to the old town edge)
+  c.bz = Math.max(WLO + 2, Math.min(WHI - 2, c.bz));
+  // ride the drivable surface so a car bailed out of at speed on a ramp/overpass
+  // coasts along the deck instead of dropping straight to the ground below it.
+  if (c.coastY === undefined) c.coastY = m.position.y || 0;
+  var csurf = surfaceHeightAt(c.bx, c.bz, false, c.coastY);
+  c.coastY += (csurf - c.coastY) * Math.min(1, 20 * dt);
+  m.position.set(c.bx, c.coastY, c.bz);   // heading (m.rotation.y) stays as it was on exit
   var spin = (cs * dt) / 0.34;
   for (var wi = 0; wi < 4; wi++) { var ww = c.car.wheels[wi]; ww.rotation.y -= spin * (ww.userData.sd || 1); }
   updateCarFeel(c, dt, cs, 0, 0);
@@ -13525,7 +13531,7 @@ function updateCoastCar(c, dt, i) {
 // ---- tuck & roll: third-person tumble out along the car's path, zoom to head ----
 var rollState = null;
 var _rollAxis = new THREE.Vector3(), _rollTravel = new THREE.Vector3(), _qLay = new THREE.Quaternion(), _qRoll = new THREE.Quaternion();
-function startRoll(x, z, tvx, tvz, asp) {
+function startRoll(x, z, tvx, tvz, asp, feetY) {
   var body = null;
   try {
     body = buildCharacter(playerChar || randomCharConfig());
@@ -13533,7 +13539,7 @@ function startRoll(x, z, tvx, tvz, asp) {
     scene.add(body);
   } catch (e) { body = null; }
   rollState = { t: 0, dur: 1.25, x: x, z: z, dx: tvx, dz: tvz, v: Math.min(20, asp * 0.55), body: body,
-                face: Math.atan2(tvx, -tvz) };
+                face: Math.atan2(tvx, -tvz), feetY: feetY || 0 };
   vm.visible = false;
   document.getElementById('crosshair').style.display = 'none';
 }
@@ -13543,8 +13549,9 @@ function updateRoll(dt) {
   var f = Math.min(1, r.t / r.dur);
   r.v *= Math.max(0, 1 - 2.4 * dt);
   var step = r.v * dt;
-  var p = pushOut(r.x + r.dx * step, r.z + r.dz * step, 0.5);
-  r.x = p.x; r.z = p.z; player.x = r.x; player.z = r.z; player.y = EYE;
+  var p = pushOut(r.x + r.dx * step, r.z + r.dz * step, 0.5, undefined, r.feetY);
+  r.x = p.x; r.z = p.z; player.x = r.x; player.z = r.z;
+  player.y = surfaceHeightAt(r.x, r.z, false, r.feetY) + EYE;   // tumble along the deck, not the ground below it
   if (r.body) {
     // LOG ROLL: lie flat and roll along the sides in the car's direction. The
     // body's long (head-to-toe) axis is laid horizontal, PERPENDICULAR to travel,
@@ -13605,9 +13612,13 @@ function exitCar(hijacked) {
   }
   driving = null;
   sfx('cardoor');
+  // step out AT the car's height: on the elevated highway c.cy is the deck level,
+  // so pass it as feetY to land on the deck's 2.5D floor instead of the ground
+  // under the overpass (report: exiting on the highway dropped you beneath it).
+  var exitFeet = (c.cy !== undefined && c.cy > 0.3) ? c.cy : 0;
   // fast bail -> tuck & roll (handles player pos + camera + vm restore itself)
-  if (coastable && asp > ROLL_MIN) { startRoll(p.x, p.z, tvx, tvz, asp); return; }
-  player.x = p.x; player.z = p.z; player.y = EYE; player.vy = 0;
+  if (coastable && asp > ROLL_MIN) { startRoll(p.x, p.z, tvx, tvz, asp, exitFeet); return; }
+  player.x = p.x; player.z = p.z; player.y = surfaceHeightAt(p.x, p.z, false, exitFeet) + EYE; player.vy = 0;
   vm.visible = true;
   document.getElementById('crosshair').style.display = '';
   setEquipped(state.equipped);
@@ -13756,7 +13767,7 @@ function carsOverlap(ax, az, aFx, aFz, bx, bz, bFx, bFz, aE, bE) {
 // (locked-brake stop or cornering slide). Pooled + faded: at the cap the
 // oldest strip is recycled, so cost is bounded. Local-only visual in MP.
 var skidMarks = [], SKID_MAX = 220, _skGeo = null;
-function emitSkid(x1, z1, x2, z2) {
+function emitSkid(x1, z1, x2, z2, feetY) {
   var dx = x2 - x1, dz = z2 - z1, len = Math.sqrt(dx * dx + dz * dz);
   if (len < 0.05) return;
   if (!_skGeo) _skGeo = new THREE.PlaneGeometry(1, 1);
@@ -13773,7 +13784,7 @@ function emitSkid(x1, z1, x2, z2) {
   var mx = (x1 + x2) / 2, mz = (z1 + z2) / 2;
   // ride the ACTUAL drivable surface (expanded-map paving sits higher than the
   // old 0.05 road plane; ramps are sloped) — thin offset avoids z-fighting
-  var gy = (typeof surfaceHeightAt === 'function' ? surfaceHeightAt(mx, mz) : 0.05) + 0.16;   // +0.16: the expanded map's junction slabs render ~0.13 above the physics surface
+  var gy = (typeof surfaceHeightAt === 'function' ? surfaceHeightAt(mx, mz, false, feetY) : 0.05) + 0.16;   // feetY (driver's deck height) picks up the elevated deck's 2.5D floor so skids sit ON the overpass, not the ground below it. +0.16: junction slabs render ~0.13 above the physics surface
   m.position.set(mx, gy, mz);
   m.rotation.y = Math.atan2(-dz, dx);
   m.scale.set(len + 0.08, 0.17, 1);
@@ -13803,7 +13814,7 @@ function trackSkids(c, screeching, airborne) {
     if (last) {
       var dx = _skV.x - last[0], dz = _skV.z - last[1];
       if (dx * dx + dz * dz > 0.14) {               // ~0.37 u segments
-        emitSkid(last[0], last[1], _skV.x, _skV.z);
+        emitSkid(last[0], last[1], _skV.x, _skV.z, c.cy);   // c.cy = deck height so marks land on the overpass, not the ground below
         c._sk[i] = [_skV.x, _skV.z];
       }
     } else c._sk[i] = [_skV.x, _skV.z];
@@ -13947,7 +13958,10 @@ function updateDriving(dt) {
       if (groundRise < 1.5 && c.rampV > 6 && asp > 18) {
         c.airborne = true; c.cvy = Math.min(c.rampV * 0.5, 4.5); c.rampV = 0;
       } else {
-        c.cy += (surf - c.cy) * Math.min(1, 12 * dt);
+        // follow the surface. On a ramp incline (gs.h>0.05) track it nearly
+        // instantly — the gentle lerp lagged cy below the rising ramp, sinking all
+        // four wheels into the deck as you climbed. Curbs keep the soft follow.
+        c.cy += (surf - c.cy) * Math.min(1, (gs.h > 0.05 ? 45 : 12) * dt);
       }
     }
   }
