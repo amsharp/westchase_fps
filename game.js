@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.78.6';
+var GAME_VERSION = 'v1.78.7';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2914,6 +2914,7 @@ var hwDeckT = tex(256, function (g, s) {
 var hwDeckM = lamb({ map: hwDeckT });
 var hwConcreteM = lamb({ color: 0xbcbbb4 });
 var hwUnderM = lamb({ color: 0x6d6c67, side: THREE.DoubleSide });   // deck underside — DoubleSide so it's solid from below
+var hwApronM = new THREE.MeshLambertMaterial({ map: hwDeckT, side: THREE.DoubleSide });   // ground merge apron (DoubleSide = winding-proof)
 var riverBedM = lamb({ color: 0x3a4b54 });
 var riverWaterM = new THREE.MeshLambertMaterial({ color: 0x2f6f9e, transparent: true, opacity: 0.74, side: THREE.DoubleSide, depthWrite: false });
 // point + unit tangent at chainage s along a polyline (cum precomputed by rmCum)
@@ -2997,42 +2998,68 @@ function buildHighway(r) {
     var p2 = rmAt(pts, cum, s), t2 = rmTangentAt(pts, cum, s);
     medianLampAt(p2.x, p2.z, t2.x, t2.z, deckY);
   }
+  // green destination signs mounted UP on posts over the median barrier (not on
+  // the ground) — highway signage where it belongs
+  if (typeof greenSign === 'function') for (s = 62; s < total - 22; s += 116) {
+    var ps = rmAt(pts, cum, s), pt = rmTangentAt(pts, cum, s);
+    var perpx = -pt.z, perpz = pt.x, postTop = deckY + 1.15, sy = postTop + 1.5;
+    scene.add(cyl(0.08, 0.08, 2.6, 6, poleMetal, ps.x - perpx * 2.4, postTop + 1.3, ps.z - perpz * 2.4));
+    scene.add(cyl(0.08, 0.08, 2.6, 6, poleMetal, ps.x + perpx * 2.4, postTop + 1.3, ps.z + perpz * 2.4));
+    greenSign(scene, ps.x, sy, ps.z, Math.atan2(pt.x, pt.z), 'WESTCHASE');
+  }
   for (var j = 1; j < pts.length; j++) mapRoads.push({ x1: pts[j - 1][0], z1: pts[j - 1][1], x2: pts[j][0], z2: pts[j][1], hw: hw, cls: 4 });
 }
 function buildRamp(r) {
   var pts = r.pts, hw = r.hw, hi = r.elev || 8, cum = rmCum(pts), total = cum[cum.length - 1] || 1, nor = rmNormals(pts), n = pts.length, i;
-  // physics: register the incline (straight approximation, pts[0]=ground end)
-  // so driveSurfaceAt lifts the car up the slope onto the deck. Curved ramps
-  // approximate to their chord for now.
-  var a0 = pts[0], a1 = pts[n - 1], rdx = a1[0] - a0[0], rdz = a1[1] - a0[1], rlen = Math.hypot(rdx, rdz) || 1;
-  driveRamps.push({ ax: a0[0], az: a0[1], ux: rdx / rlen, uz: rdz / rlen, len: rlen, rise: hi, wid: hw * 2, grad: hi / rlen });
-  var pos = new Float32Array(n * 6), nrm = new Float32Array(n * 6), uv = new Float32Array(n * 4);
+  var a0 = pts[0], a1 = pts[n - 1], rdx = a1[0] - a0[0], rdz = a1[1] - a0[1], rlen = Math.hypot(rdx, rdz) || 1, ux = rdx / rlen, uz = rdz / rlen;
+  // physics: register the incline (straight/chord approximation, pts[0]=ground end)
+  driveRamps.push({ ax: a0[0], az: a0[1], ux: ux, uz: uz, len: rlen, rise: hi, wid: hw * 2, grad: hi / rlen });
   function yAt(c) { return 0.15 + (hi - 0.15) * (c / total); }            // ramp low (ground) -> high (deck)
-  for (i = 0; i < n; i++) {
-    var y = yAt(cum[i]), w = hw * nor[i][2], nx = nor[i][0], nz = nor[i][1];
-    pos[i * 6] = pts[i][0] - nx * w; pos[i * 6 + 1] = y; pos[i * 6 + 2] = pts[i][1] - nz * w;
-    pos[i * 6 + 3] = pts[i][0] + nx * w; pos[i * 6 + 4] = y; pos[i * 6 + 5] = pts[i][1] + nz * w;
-    nrm[i * 6 + 1] = 1; nrm[i * 6 + 4] = 1;
-    var u = cum[i] / 12; uv[i * 4] = u; uv[i * 4 + 1] = 0; uv[i * 4 + 2] = u; uv[i * 4 + 3] = 1;
+  // sloped ribbon at a vertical offset (top road surface + solid underside)
+  function slopeRibbon(yoff, mat) {
+    var pos = new Float32Array(n * 6), nrm = new Float32Array(n * 6), uv = new Float32Array(n * 4), i2;
+    for (i2 = 0; i2 < n; i2++) {
+      var y = yAt(cum[i2]) + yoff, w = hw * nor[i2][2], nx = nor[i2][0], nz = nor[i2][1];
+      pos[i2 * 6] = pts[i2][0] - nx * w; pos[i2 * 6 + 1] = y; pos[i2 * 6 + 2] = pts[i2][1] - nz * w;
+      pos[i2 * 6 + 3] = pts[i2][0] + nx * w; pos[i2 * 6 + 4] = y; pos[i2 * 6 + 5] = pts[i2][1] + nz * w;
+      nrm[i2 * 6 + 1] = 1; nrm[i2 * 6 + 4] = 1;
+      var u = cum[i2] / 12; uv[i2 * 4] = u; uv[i2 * 4 + 1] = 0; uv[i2 * 4 + 2] = u; uv[i2 * 4 + 3] = 1;
+    }
+    var idx = []; for (var i3 = 0; i3 < n - 1; i3++) { var a = i3 * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+    var g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+    g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    g.setIndex(idx); scene.add(new THREE.Mesh(g, mat));
   }
-  var idx = []; for (i = 0; i < n - 1; i++) { var a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
-  var geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  geo.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
-  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-  geo.setIndex(idx); scene.add(new THREE.Mesh(geo, hwDeckM));
-  // sloped side guardrails (stop short of the top so the merge onto the deck is clean)
+  slopeRibbon(0.02, hwDeckM);                                             // road surface (6-lane markings)
+  slopeRibbon(-0.55, hwUnderM);                                          // solid underside (no see-through)
+  // guardrails that FOLLOW the incline angle, full length up into the deck
+  var XA = new THREE.Vector3(1, 0, 0);
   for (var side = -1; side <= 1; side += 2) {
     var edge = rmOffsetPts(pts, side * (hw - 0.3));
     for (i = 0; i < edge.length - 1; i++) {
-      if (cum[i] > total - 6) continue;                                   // clear the highway connection
       var y0 = yAt(cum[i]), y1 = yAt(cum[i + 1]);
       var ex = edge[i][0], ez = edge[i][1], fx = edge[i + 1][0], fz = edge[i + 1][1];
-      var dx = fx - ex, dz = fz - ez, L = Math.hypot(dx, dz); if (L < 0.4) continue;
-      var seg = new THREE.Mesh(new THREE.BoxGeometry(L + 0.5, 1.0, 0.4), hwConcreteM);
-      seg.position.set((ex + fx) / 2, (y0 + y1) / 2 + 0.5, (ez + fz) / 2); seg.rotation.y = Math.atan2(-dz, dx); scene.add(seg);
+      var v = new THREE.Vector3(fx - ex, y1 - y0, fz - ez), L3 = v.length(); if (L3 < 0.4) continue; v.normalize();
+      var seg = new THREE.Mesh(new THREE.BoxGeometry(L3 + 0.3, 1.0, 0.4), hwConcreteM);
+      seg.quaternion.setFromUnitVectors(XA, v);                          // tilt to match the slope
+      seg.position.set((ex + fx) / 2, (y0 + y1) / 2 + 0.5, (ez + fz) / 2);
+      scene.add(seg);
     }
   }
+  // ground merge apron at the base: flat taper from the full ramp width down to
+  // a normal road so the 6 lanes fan into the ground network.
+  var awx = -ux, awz = -uz, perpx = -awz, perpz = awx, aprLen = 48, endHw = 7;
+  var bx = a0[0], bz = a0[1], exx = a0[0] + awx * aprLen, ezz = a0[1] + awz * aprLen;
+  var ap = new Float32Array([bx - perpx * hw, 0.145, bz - perpz * hw, bx + perpx * hw, 0.145, bz + perpz * hw,
+    exx + perpx * endHw, 0.145, ezz + perpz * endHw, exx - perpx * endHw, 0.145, ezz - perpz * endHw]);
+  var auv = new Float32Array([0, 0, 1, 0, 1, aprLen / 8, 0, aprLen / 8]);
+  var ag = new THREE.BufferGeometry();
+  ag.setAttribute('position', new THREE.BufferAttribute(ap, 3));
+  ag.setAttribute('uv', new THREE.BufferAttribute(auv, 2));
+  ag.setIndex([0, 1, 2, 0, 2, 3]); ag.computeVertexNormals();
+  scene.add(new THREE.Mesh(ag, hwApronM));
   for (var j = 1; j < pts.length; j++) mapRoads.push({ x1: pts[j - 1][0], z1: pts[j - 1][1], x2: pts[j][0], z2: pts[j][1], hw: hw, cls: 4 });
 }
 function buildRiver(r) {
@@ -13680,13 +13707,15 @@ function updateDriving(dt) {
       netToHost({ t: 'carBoom', i: ii });
     }
   }
-  // player rides along
-  player.x = p.x; player.z = p.z; player.y = EYE;
-  // third-person orbit camera — mouse controls the view around the car
+  // player rides along (y tracks the car so it's elevated on the highway)
+  var carY = c.cy || 0;
+  player.x = p.x; player.z = p.z; player.y = EYE + carY;
+  // third-person orbit camera — mouse controls the view around the car; the
+  // whole rig lifts with the car so ramps / decks / airtime stay in frame
   var cfx = -Math.sin(yaw), cfz = -Math.cos(yaw);
-  var camH = Math.max(2.2, Math.min(9, 4.4 - pitch * 5));
+  var camH = carY + Math.max(2.2, Math.min(9, 4.4 - pitch * 5));
   camera.position.set(p.x - cfx * 8.5, camH, p.z - cfz * 8.5);
-  camera.lookAt(p.x + cfx * 2, 1.2, p.z + cfz * 2);
+  camera.lookAt(p.x + cfx * 2, carY + 1.2, p.z + cfz * 2);
 }
 
 // ============================================================================
