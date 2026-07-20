@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.78.9';
+var GAME_VERSION = 'v1.78.10';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -3010,20 +3010,19 @@ function buildHighway(r) {
   for (var j = 1; j < pts.length; j++) mapRoads.push({ x1: pts[j - 1][0], z1: pts[j - 1][1], x2: pts[j][0], z2: pts[j][1], hw: hw, cls: 4 });
 }
 function buildRamp(r) {
-  // ramp width == highway width so decks + lane markings flow through the seam;
-  // walls sit at the highway's barrier offset so they continue as one line
-  var pts = r.pts, hw = r.hw || 18, hi = r.elev || 8, cum = rmCum(pts), total = cum[cum.length - 1] || 1, nor = rmNormals(pts), n = pts.length, i;
+  // STRAIGHT ramp built off the chord with FIXED width — no rmNormals miter, so
+  // the terminal vertex can't flare (that endpoint 1.5x miter was the taper).
+  var pts = r.pts, hw = r.hw || 18, hi = r.elev || 8, cum = rmCum(pts), total = cum[cum.length - 1] || 1, n = pts.length, i;
   var a0 = pts[0], a1 = pts[n - 1], rdx = a1[0] - a0[0], rdz = a1[1] - a0[1], rlen = Math.hypot(rdx, rdz) || 1, ux = rdx / rlen, uz = rdz / rlen;
-  // physics: register the incline (straight/chord approximation, pts[0]=ground end)
+  var px = -uz, pz = ux;                                                  // fixed perpendicular (uniform width)
   driveRamps.push({ ax: a0[0], az: a0[1], ux: ux, uz: uz, len: rlen, rise: hi, wid: hw * 2, grad: hi / rlen });
-  function yAt(c) { return 0.15 + (hi - 0.15) * (c / total); }            // ramp low (ground) -> high (deck)
-  // sloped ribbon at a vertical offset (top road surface + solid underside)
-  function slopeRibbon(yoff, mat) {
+  function yAt(c) { return 0.15 + (hi - 0.15) * (c / total); }
+  function ribbon(offW, yoff, mat) {   // top surface / underside at fixed half-width offW
     var pos = new Float32Array(n * 6), nrm = new Float32Array(n * 6), uv = new Float32Array(n * 4), i2;
     for (i2 = 0; i2 < n; i2++) {
-      var y = yAt(cum[i2]) + yoff, w = hw * nor[i2][2], nx = nor[i2][0], nz = nor[i2][1];
-      pos[i2 * 6] = pts[i2][0] - nx * w; pos[i2 * 6 + 1] = y; pos[i2 * 6 + 2] = pts[i2][1] - nz * w;
-      pos[i2 * 6 + 3] = pts[i2][0] + nx * w; pos[i2 * 6 + 4] = y; pos[i2 * 6 + 5] = pts[i2][1] + nz * w;
+      var y = yAt(cum[i2]) + yoff;
+      pos[i2 * 6] = pts[i2][0] - px * offW; pos[i2 * 6 + 1] = y; pos[i2 * 6 + 2] = pts[i2][1] - pz * offW;
+      pos[i2 * 6 + 3] = pts[i2][0] + px * offW; pos[i2 * 6 + 4] = y; pos[i2 * 6 + 5] = pts[i2][1] + pz * offW;
       nrm[i2 * 6 + 1] = 1; nrm[i2 * 6 + 4] = 1;
       var u = cum[i2] / 12; uv[i2 * 4] = u; uv[i2 * 4 + 1] = 0; uv[i2 * 4 + 2] = u; uv[i2 * 4 + 3] = 1;
     }
@@ -3034,35 +3033,54 @@ function buildRamp(r) {
     g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
     g.setIndex(idx); scene.add(new THREE.Mesh(g, mat));
   }
-  slopeRibbon(0.02, hwDeckM);                                             // road surface (6-lane markings)
-  slopeRibbon(-0.55, hwUnderM);                                          // solid underside (no see-through)
-  // SOLID embankment side walls: a concrete face on each edge from the ground
-  // up to the deck (+ a short parapet above it) so the wedge under the ramp is
-  // filled — you can't drive beneath it. Colliders block driving into the sides.
+  ribbon(hw, 0.02, hwDeckM);                                             // road surface (6-lane markings)
+  ribbon(hw, -0.55, hwUnderM);                                          // solid underside
+  // SOLID embankment side walls (ground -> deck + parapet), fixed offset
+  var wallOff = hw - 0.35;
   for (var side = -1; side <= 1; side += 2) {
-    var edge = rmOffsetPts(pts, side * (hw - 0.35)), m = edge.length;   // == highway barrier offset -> continuous wall
-    var wp = new Float32Array(m * 6), wuv = new Float32Array(m * 4);
-    for (i = 0; i < m; i++) {
-      var topY = yAt(cum[i]) + 1.05;                                     // deck level + parapet (== highway barrier height)
-      wp[i * 6] = edge[i][0]; wp[i * 6 + 1] = 0.1; wp[i * 6 + 2] = edge[i][1];          // ground
-      wp[i * 6 + 3] = edge[i][0]; wp[i * 6 + 4] = topY; wp[i * 6 + 5] = edge[i][1];     // top
+    var wp = new Float32Array(n * 6), wuv = new Float32Array(n * 4);
+    for (i = 0; i < n; i++) {
+      var ex = pts[i][0] + px * wallOff * side, ez = pts[i][1] + pz * wallOff * side, topY = yAt(cum[i]) + 1.05;
+      wp[i * 6] = ex; wp[i * 6 + 1] = 0.1; wp[i * 6 + 2] = ez;
+      wp[i * 6 + 3] = ex; wp[i * 6 + 4] = topY; wp[i * 6 + 5] = ez;
       var wu = cum[i] / 8; wuv[i * 4] = wu; wuv[i * 4 + 1] = 0; wuv[i * 4 + 2] = wu; wuv[i * 4 + 3] = 1;
     }
-    var widx = []; for (i = 0; i < m - 1; i++) { var wa = i * 2; widx.push(wa, wa + 1, wa + 2, wa + 1, wa + 3, wa + 2); }
+    var widx = []; for (i = 0; i < n - 1; i++) { var wa = i * 2; widx.push(wa, wa + 1, wa + 2, wa + 1, wa + 3, wa + 2); }
     var wg = new THREE.BufferGeometry();
     wg.setAttribute('position', new THREE.BufferAttribute(wp, 3));
     wg.setAttribute('uv', new THREE.BufferAttribute(wuv, 2));
     wg.setIndex(widx); wg.computeVertexNormals();
     scene.add(new THREE.Mesh(wg, hwConcreteM));
-    for (i = 0; i < edge.length - 1; i++) {                             // colliders along the wall
-      var ex = edge[i][0], ez = edge[i][1], fx = edge[i + 1][0], fz = edge[i + 1][1];
-      var dx = fx - ex, dz = fz - ez, L = Math.hypot(dx, dz); if (L < 0.4) continue;
-      addColliderOBB((ex + fx) / 2, (ez + fz) / 2, (L + 0.5) / 2, 0.3, Math.atan2(-dz, dx), 'ramp:wall');
+    for (i = 0; i < n - 1; i++) {
+      var cax = pts[i][0] + px * wallOff * side, caz = pts[i][1] + pz * wallOff * side;
+      var cbx = pts[i + 1][0] + px * wallOff * side, cbz = pts[i + 1][1] + pz * wallOff * side;
+      var ddx = cbx - cax, ddz = cbz - caz, L = Math.hypot(ddx, ddz); if (L < 0.4) continue;
+      addColliderOBB((cax + cbx) / 2, (caz + cbz) / 2, (L + 0.5) / 2, 0.3, Math.atan2(-ddz, cbx - cax), 'ramp:wall');
     }
   }
-  // NOTE: no taper here — the ramp stays a STRAIGHT uniform-width incline. The
-  // 6->normal-lane merge belongs on a flat GROUND road connected at the base
-  // (drawn in the editor), not on the ramp itself.
+  // END WALL closing the high (elevated) end: spans between the two side walls,
+  // ground up to JUST UNDER the deck (stops below the road, never through it)
+  var hy = yAt(total) - 0.62;
+  var eLx = a1[0] - px * wallOff, eLz = a1[1] - pz * wallOff, eRx = a1[0] + px * wallOff, eRz = a1[1] + pz * wallOff;
+  var eg = new THREE.BufferGeometry();
+  eg.setAttribute('position', new THREE.BufferAttribute(new Float32Array([eLx, 0.1, eLz, eRx, 0.1, eRz, eRx, hy, eRz, eLx, hy, eLz]), 3));
+  eg.setIndex([0, 1, 2, 0, 2, 3]); eg.computeVertexNormals();
+  scene.add(new THREE.Mesh(eg, hwConcreteM));
+  for (var j = 1; j < pts.length; j++) mapRoads.push({ x1: pts[j - 1][0], z1: pts[j - 1][1], x2: pts[j][0], z2: pts[j][1], hw: hw, cls: 4 });
+}
+// ground-level transition: a flat road tapering from the ramp (6-lane, pts[0])
+// down to a normal road width (pts[n-1]). Connects the ramp base to the street net.
+function buildMerge(r) {
+  var pts = r.pts, hw = r.hw || 18, n = pts.length, endHw = r.endHw || 6;
+  var a0 = pts[0], a1 = pts[n - 1], dx = a1[0] - a0[0], dz = a1[1] - a0[1], L = Math.hypot(dx, dz) || 1, ux = dx / L, uz = dz / L, px = -uz, pz = ux;
+  var mp = new Float32Array([a0[0] - px * hw, 0.15, a0[1] - pz * hw, a0[0] + px * hw, 0.15, a0[1] + pz * hw,
+    a1[0] + px * endHw, 0.15, a1[1] + pz * endHw, a1[0] - px * endHw, 0.15, a1[1] - pz * endHw]);
+  var muv = new Float32Array([0, 0, 1, 0, 1, L / 8, 0, L / 8]);
+  var mg = new THREE.BufferGeometry();
+  mg.setAttribute('position', new THREE.BufferAttribute(mp, 3));
+  mg.setAttribute('uv', new THREE.BufferAttribute(muv, 2));
+  mg.setIndex([0, 1, 2, 0, 2, 3]); mg.computeVertexNormals();
+  scene.add(new THREE.Mesh(mg, hwApronM));
   for (var j = 1; j < pts.length; j++) mapRoads.push({ x1: pts[j - 1][0], z1: pts[j - 1][1], x2: pts[j][0], z2: pts[j][1], hw: hw, cls: 4 });
 }
 function buildRiver(r) {
@@ -3078,7 +3096,7 @@ function buildRiver(r) {
 // placeStreetlights() has set those up (buildPendingSpecialRoads).
 var pendingSpecial = [];
 function buildSpecialRoad(r) {
-  if (r.kind === 'highway' || r.kind === 'ramp' || r.kind === 'water') { pendingSpecial.push(r); return true; }
+  if (r.kind === 'highway' || r.kind === 'ramp' || r.kind === 'water' || r.kind === 'merge') { pendingSpecial.push(r); return true; }
   return false;
 }
 function buildPendingSpecialRoads() {
@@ -3087,6 +3105,7 @@ function buildPendingSpecialRoads() {
     if (r.kind === 'highway') buildHighway(r);
     else if (r.kind === 'ramp') buildRamp(r);
     else if (r.kind === 'water') buildRiver(r);
+    else if (r.kind === 'merge') buildMerge(r);
   }
   pendingSpecial = [];
 }
