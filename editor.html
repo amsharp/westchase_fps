@@ -880,7 +880,7 @@ document.getElementById('redoBtn').onclick=redo;
 document.getElementById('fitBtn').onclick=fitView;
 document.getElementById('helpBtn').onclick=function(){ document.getElementById('help').style.display='flex'; };
 document.getElementById('helpClose').onclick=function(){ document.getElementById('help').style.display='none'; };
-document.getElementById('resetBtn').onclick=function(){ if(confirm('Reload the original game map? Unsaved changes are lost.')){ loadFromGame(); buildProps(); toast('Reset to the current game map'); } };
+document.getElementById('resetBtn').onclick=function(){ if(confirm('Reload the original game map? Unsaved changes are lost.')){ loadFromGame(); buildProps(); autosave(); render(); toast('Reset to the current game map'); } };
 document.getElementById('loadBtn').onclick=function(){ document.getElementById('fileIn').click(); };
 document.getElementById('fileIn').onchange=function(e){ var f=e.target.files[0]; if(!f) return; var rd=new FileReader();
   rd.onload=function(){ try{ loadObj(JSON.parse(rd.result)); toast('Loaded '+f.name); }catch(err){ alert('Bad map file: '+err); } }; rd.readAsText(f); };
