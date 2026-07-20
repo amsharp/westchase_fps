@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.78.12';
+var GAME_VERSION = 'v1.78.13';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -17345,12 +17345,12 @@ var vmPistol = new THREE.Group();
   if (hasMeshyGun('glock19')) {
     // Meshy Glock 19 (real length 0.19m, drawn a touch big to read on 480p)
     var mg = getGunMesh('glock19', 0.30);
-    mg.position.set(0.27, -0.33, -0.40);   // v1.43: retracted 0.10 toward camera (matches ANCHOR_OFF)
+    mg.position.set(0.27, -0.45, -0.40);   // v1.78.13: lowered 0.12 (was held too high)
     mg.rotation.order = 'YXZ';
     mg.rotation.y = -Math.PI / 2 + 0.22;   // nose forward (-z), classic inward cant
     mg.rotation.x = 0.05;
     vmPistol.add(mg);
-    var pAr = vmArm(0.29, -0.47, -0.34, 0.18); pAr.userData.gunArm = 1; vmPistol.add(pAr);
+    var pAr = vmArm(0.29, -0.59, -0.34, 0.18); pAr.userData.gunArm = 1; vmPistol.add(pAr);
     WEAPONS.pistol.flashAt = meshyMuzzleAt(mg);
     WEAPONS.pistol.flashScale = 0.55;   // muzzle sits closer to camera than the old model
     return;
