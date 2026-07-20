@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.78.8';
+var GAME_VERSION = 'v1.78.9';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -3010,9 +3010,9 @@ function buildHighway(r) {
   for (var j = 1; j < pts.length; j++) mapRoads.push({ x1: pts[j - 1][0], z1: pts[j - 1][1], x2: pts[j][0], z2: pts[j][1], hw: hw, cls: 4 });
 }
 function buildRamp(r) {
-  // hw pulled in 0.6 so the ramp lines up with the highway's between-barrier
-  // drivable channel instead of sticking out past it
-  var pts = r.pts, hw = (r.hw || 18) - 0.6, hi = r.elev || 8, cum = rmCum(pts), total = cum[cum.length - 1] || 1, nor = rmNormals(pts), n = pts.length, i;
+  // ramp width == highway width so decks + lane markings flow through the seam;
+  // walls sit at the highway's barrier offset so they continue as one line
+  var pts = r.pts, hw = r.hw || 18, hi = r.elev || 8, cum = rmCum(pts), total = cum[cum.length - 1] || 1, nor = rmNormals(pts), n = pts.length, i;
   var a0 = pts[0], a1 = pts[n - 1], rdx = a1[0] - a0[0], rdz = a1[1] - a0[1], rlen = Math.hypot(rdx, rdz) || 1, ux = rdx / rlen, uz = rdz / rlen;
   // physics: register the incline (straight/chord approximation, pts[0]=ground end)
   driveRamps.push({ ax: a0[0], az: a0[1], ux: ux, uz: uz, len: rlen, rise: hi, wid: hw * 2, grad: hi / rlen });
@@ -3040,10 +3040,10 @@ function buildRamp(r) {
   // up to the deck (+ a short parapet above it) so the wedge under the ramp is
   // filled — you can't drive beneath it. Colliders block driving into the sides.
   for (var side = -1; side <= 1; side += 2) {
-    var edge = rmOffsetPts(pts, side * hw), m = edge.length;
+    var edge = rmOffsetPts(pts, side * (hw - 0.35)), m = edge.length;   // == highway barrier offset -> continuous wall
     var wp = new Float32Array(m * 6), wuv = new Float32Array(m * 4);
     for (i = 0; i < m; i++) {
-      var topY = yAt(cum[i]) + 0.55;                                     // deck level + parapet
+      var topY = yAt(cum[i]) + 1.05;                                     // deck level + parapet (== highway barrier height)
       wp[i * 6] = edge[i][0]; wp[i * 6 + 1] = 0.1; wp[i * 6 + 2] = edge[i][1];          // ground
       wp[i * 6 + 3] = edge[i][0]; wp[i * 6 + 4] = topY; wp[i * 6 + 5] = edge[i][1];     // top
       var wu = cum[i] / 8; wuv[i * 4] = wu; wuv[i * 4 + 1] = 0; wuv[i * 4 + 2] = wu; wuv[i * 4 + 3] = 1;
@@ -3060,18 +3060,9 @@ function buildRamp(r) {
       addColliderOBB((ex + fx) / 2, (ez + fz) / 2, (L + 0.5) / 2, 0.3, Math.atan2(-dz, dx), 'ramp:wall');
     }
   }
-  // ground merge apron at the base: flat taper from the full ramp width down to
-  // a normal road so the 6 lanes fan into the ground network.
-  var awx = -ux, awz = -uz, perpx = -awz, perpz = awx, aprLen = 48, endHw = 7;
-  var bx = a0[0], bz = a0[1], exx = a0[0] + awx * aprLen, ezz = a0[1] + awz * aprLen;
-  var ap = new Float32Array([bx - perpx * hw, 0.145, bz - perpz * hw, bx + perpx * hw, 0.145, bz + perpz * hw,
-    exx + perpx * endHw, 0.145, ezz + perpz * endHw, exx - perpx * endHw, 0.145, ezz - perpz * endHw]);
-  var auv = new Float32Array([0, 0, 1, 0, 1, aprLen / 8, 0, aprLen / 8]);
-  var ag = new THREE.BufferGeometry();
-  ag.setAttribute('position', new THREE.BufferAttribute(ap, 3));
-  ag.setAttribute('uv', new THREE.BufferAttribute(auv, 2));
-  ag.setIndex([0, 1, 2, 0, 2, 3]); ag.computeVertexNormals();
-  scene.add(new THREE.Mesh(ag, hwApronM));
+  // NOTE: no taper here — the ramp stays a STRAIGHT uniform-width incline. The
+  // 6->normal-lane merge belongs on a flat GROUND road connected at the base
+  // (drawn in the editor), not on the ramp itself.
   for (var j = 1; j < pts.length; j++) mapRoads.push({ x1: pts[j - 1][0], z1: pts[j - 1][1], x2: pts[j][0], z2: pts[j][1], hw: hw, cls: 4 });
 }
 function buildRiver(r) {
