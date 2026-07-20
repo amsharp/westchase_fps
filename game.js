@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.80.5';
+var GAME_VERSION = 'v1.80.6';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -19145,8 +19145,12 @@ function updateWorldFx(dt) {
     var m = c.car.group.position;
     // ride the top surface (road/curb/lot/ramp) — tyres were pinned to y=0 and
     // sank into every raised layer. The driven car sets its own y (updateDriving);
-    // exploded/flooded/sunk husks manage theirs.
-    if (c !== driving && !c.exploded && !c.flooding && !c.sunk) m.y = surfaceHeightAt(m.x, m.z);
+    // exploded/flooded/sunk husks manage theirs. A car already UP on the deck
+    // (m.y>1: parked/coasting after a highway exit) passes its own height as feetY
+    // so the deck's 2.5D floor holds it — without it, an exited car dropped
+    // straight through the overpass to the ground below (and re-entering re-lifted
+    // it). Ground cars keep the cheap no-feetY path (byte-for-byte as before).
+    if (c !== driving && !c.exploded && !c.flooding && !c.sunk) m.y = surfaceHeightAt(m.x, m.z, false, m.y > 1 ? m.y : undefined);
     var hx = c._bx === undefined ? m.x : c._bx, hz = c._bz === undefined ? m.z : c._bz;
     var mvx = m.x - hx, mvz = m.z - hz;
     c._bx = m.x; c._bz = m.z;
