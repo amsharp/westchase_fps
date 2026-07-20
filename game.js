@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.79.2';
+var GAME_VERSION = 'v1.79.3';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -3202,6 +3202,58 @@ function buildMerge(r) {
   }
   for (var j = 1; j < pts.length; j++) mapRoads.push({ x1: pts[j - 1][0], z1: pts[j - 1][1], x2: pts[j][0], z2: pts[j][1], hw: hw, cls: 4 });
 }
+// elevated deck between two explicit edge polylines (inner + outer). Lets the
+// exit lane WIDEN from a point on the highway edge (a true off-ramp gore): the
+// inner edge stays flush on the mainline (clampLine) so the deck + guardrail
+// connect seamlessly, while the outer edge diverges. Reusable / mirror-safe.
+function deckStrip(inner, outer, cum, y, mat, uScale) {
+  var n = inner.length, pos = new Float32Array(n * 6), nr = new Float32Array(n * 6), uv = new Float32Array(n * 4), i;
+  for (i = 0; i < n; i++) {
+    pos[i * 6] = inner[i][0]; pos[i * 6 + 1] = y; pos[i * 6 + 2] = inner[i][1];
+    pos[i * 6 + 3] = outer[i][0]; pos[i * 6 + 4] = y; pos[i * 6 + 5] = outer[i][1];
+    nr[i * 6 + 1] = 1; nr[i * 6 + 4] = 1;
+    var u = cum[i] * uScale; uv[i * 4] = u; uv[i * 4 + 1] = 0; uv[i * 4 + 2] = u; uv[i * 4 + 3] = 1;
+  }
+  var idx = []; for (var k = 0; k < n - 1; k++) { var a = k * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }   // inner=2i / outer=2i+1 -> top faces up
+  var g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(nr, 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  g.setIndex(idx); scene.add(new THREE.Mesh(g, mat));
+}
+function buildExitDeck(r) {
+  var pts = r.pts, hw = r.hw || 5, deckY = r.elev || 8, lanes = r.lanes || 1, n = pts.length, i;
+  var cum = rmCum(pts), nrm = rmNormals(pts), taper = r.taper || 34, side = r.clampSide || 1;
+  var CL = r.clampLine, hasC = !!CL, Lnx = 0, Lnz = 0, l0x = 0, l0z = 0, cs = r.clampSign || 1;
+  if (hasC) { var ldx = CL[1][0] - CL[0][0], ldz = CL[1][1] - CL[0][1], ll = Math.hypot(ldx, ldz) || 1;
+    Lnx = -ldz / ll; Lnz = ldx / ll; l0x = CL[0][0]; l0z = CL[0][1]; }
+  var inner = [], outer = [];
+  for (i = 0; i < n; i++) {
+    var w = hw * Math.min(1, cum[i] / taper);                             // width ramps 0 -> hw over the taper
+    var nx = nrm[i][0] * side, nz = nrm[i][1] * side;                     // unit normal toward the mainline
+    var ix = pts[i][0] + nx * w, iz = pts[i][1] + nz * w;
+    var ox = pts[i][0] - nx * w, oz = pts[i][1] - nz * w;
+    if (hasC) { var sd = (ix - l0x) * Lnx + (iz - l0z) * Lnz;             // keep inner edge flush on the mainline
+      if (sd * cs > 0) { ix -= Lnx * sd; iz -= Lnz * sd; } }
+    inner.push([ix, iz]); outer.push([ox, oz]);
+  }
+  deckStrip(inner, outer, cum, deckY + 0.02, hwOneM[lanes] || hwOneM[1], 1 / 12);   // road surface
+  deckStrip(inner, outer, cum, deckY - 0.55, hwUnderM, 1 / 8);                      // underside slab
+  var barM = deckY - 0.3;
+  hwWallGapped(inner, deckY, 1.05, 0.5, hwConcreteM, 'hw:barrier', barM, r.innerGap);   // gore-side rail
+  hwWallGapped(outer, deckY, 1.05, 0.5, hwConcreteM, 'hw:barrier', barM, r.outerGap);   // outer rail
+  hwDeckColliders(pts, hw, deckY + 0.02);
+  var total = cum[n - 1], pierW = 2.6, beamH = 1.4, beamTopY = deckY - 0.6, colH = beamTopY - beamH, s;
+  for (s = 16; s < total - 8; s += 30) {                                 // single central piers
+    var p = rmAt(pts, cum, s), tt = rmTangentAt(pts, cum, s), yaw = Math.atan2(tt.x, tt.z);
+    var gg = new THREE.Group(); gg.position.set(p.x, 0, p.z); gg.rotation.y = yaw;
+    gg.add(box(pierW, colH, pierW, hwConcreteM, 0, colH / 2, 0));
+    gg.add(box(Math.max(2 * hw + pierW, 3), beamH, 2.4, hwConcreteM, 0, beamTopY - beamH / 2, 0));
+    scene.add(gg);
+    addColliderOBB(p.x, p.z, pierW / 2 + 0.2, pierW / 2 + 0.2, yaw, 'hw:pillar');
+  }
+  for (var j = 1; j < n; j++) mapRoads.push({ x1: pts[j - 1][0], z1: pts[j - 1][1], x2: pts[j][0], z2: pts[j][1], hw: hw, cls: 4 });
+}
 function buildRiver(r) {
   // grass hole is cut in ground(); render the sunken bed + transparent water into it
   var pts = r.pts, hw = r.hw;
@@ -3233,7 +3285,7 @@ function buildHwGore(r) {
 var pendingSpecial = [];
 function buildSpecialRoad(r) {
   if (r.kind === 'highway' || r.kind === 'ramp' || r.kind === 'water' || r.kind === 'merge'
-    || r.kind === 'owroad' || r.kind === 'gore') { pendingSpecial.push(r); return true; }
+    || r.kind === 'owroad' || r.kind === 'gore' || r.kind === 'exitdeck') { pendingSpecial.push(r); return true; }
   return false;
 }
 function buildPendingSpecialRoads() {
@@ -3245,6 +3297,7 @@ function buildPendingSpecialRoads() {
     else if (r.kind === 'merge') buildMerge(r);
     else if (r.kind === 'owroad') buildOneWayRoad(r);
     else if (r.kind === 'gore') buildHwGore(r);
+    else if (r.kind === 'exitdeck') buildExitDeck(r);
   }
   pendingSpecial = [];
 }
@@ -3748,7 +3801,8 @@ function buildRemapRoads() {
   // parsed roads with cumulative chainage
   for (i = 0; i < REMAP_ROADS.length; i++) {
     r = REMAP_ROADS[i];
-    RM.roads.push({ id: r.id, cls: r.cls, hw: r.hw, dirt: !!r.dirt, kind: r.kind, elev: r.elev, endHw: r.endHw, oneway: r.oneway, lanes: r.lanes, barGap: r.barGap, pts: r.pts, cum: rmCum(r.pts) });
+    var rc = {}; for (var rk in r) if (r.hasOwnProperty(rk)) rc[rk] = r[rk];   // carry ALL authored fields (endHw/oneway/lanes/barGap/taper/clampLine/… — no more per-field drops)
+    rc.dirt = !!r.dirt; rc.cum = rmCum(r.pts); RM.roads.push(rc);
   }
   // ---- stitch points: road endpoints touching another road (<=3.5u) ----
   // every stitch gets a junction pad; stitches between lane-graph roads
