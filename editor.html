@@ -139,6 +139,10 @@
           and while drawing/dragging a vertex it <b>snaps onto</b> other roads' nodes (yellow ring) for seamless junctions —
           works across road types, so a ramp locks onto a highway and a ground road. Highways/ramps carry an
           <b>Elevation</b> in Properties.<br>
+          <b>Exit / Split:</b> pick the <b>Exit / Split</b> class, then <b>click on a highway</b> — a one-lane deck
+          peels off its edge (the guardrail opens automatically). In Properties choose one of the
+          <b>4 orientations</b> (Off/On-ramp × left/right side) and set its <b>Reach</b>. Snap a
+          <b>1-way ramp</b> + <b>road</b> off the wide end to bring the exit down to ground.<br>
           <b>Area (terrain):</b> stamp a <b>Forest</b>, <b>Lake</b>, or <b>Ocean</b> rectangle — resize/rotate like a building;
           overlap several for irregular coastlines or woods.<br>
           <b>Surface / Building / Prop:</b> pick a type at left, click to stamp. The yellow <b>▲ arrow</b> on a
@@ -176,10 +180,87 @@ var ROAD_CLASSES = [
   { cls:3, name:'Path/Drive', hw:4.5, color:'#5c5648', kind:'road' },
   { cls:4, name:'Highway',    hw:16,  color:'#2a2d33', kind:'highway', elev:8 },   // elevated
   { cls:5, name:'On/Off Ramp',hw:7,   color:'#34373d', kind:'ramp',    elev:8 },   // ground <-> highway
-  { cls:6, name:'River',      hw:18,  color:'#2f6f9e', kind:'water' }              // drawn like a road
+  { cls:6, name:'River',      hw:18,  color:'#2f6f9e', kind:'water' },             // drawn like a road
+  { cls:7, name:'Exit / Split',hw:5,  color:'#586070', kind:'exitdeck', elev:8, oneway:true, lanes:1 }  // click a highway; a lane peels off
 ];
 function roadClass(r){ return ROAD_CLASSES[r.cls] || ROAD_CLASSES[0]; }
 function roadKind(r){ return r.kind || (roadClass(r).kind) || 'road'; }
+// exit orientations: {mode: off/on ramp} x {side: left/right of the highway's travel}
+var EXIT_ORIENTS = [
+  { name:'Off-ramp ▸ right', mode:'off', sideN:-1 },
+  { name:'Off-ramp ◂ left',  mode:'off', sideN:+1 },
+  { name:'On-ramp ▸ right',  mode:'on',  sideN:-1 },
+  { name:'On-ramp ◂ left',   mode:'on',  sideN:+1 }
+];
+// nearest highway road to (wx,wz): returns the attach point on its centerline, the
+// chainage there, and the unit tangent (direction of increasing chainage).
+function nearestHighway(wx,wz){
+  var best=null;
+  for(var i=0;i<S.roads.length;i++){ var r=S.roads[i]; if(roadKind(r)!=='highway') continue;
+    var cum=0;
+    for(var j=0;j<r.pts.length-1;j++){ var ax=r.pts[j][0],az=r.pts[j][1],bx=r.pts[j+1][0],bz=r.pts[j+1][1];
+      var dx=bx-ax,dz=bz-az,l2=dx*dx+dz*dz||1,L=Math.sqrt(l2);
+      var t=((wx-ax)*dx+(wz-az)*dz)/l2; t=t<0?0:t>1?1:t;
+      var px=ax+dx*t, pz=az+dz*t, ddx=wx-px, ddz=wz-pz, d=Math.sqrt(ddx*ddx+ddz*ddz);
+      if(!best||d<best.dist){ best={ r:r, dist:d, px:px, pz:pz, s:cum+t*L, tx:dx/L, tz:dz/L }; }
+      cum+=L;
+    }
+  }
+  return best;
+}
+// build the full exitdeck geometry (centerline + clamp params) + the highway barGap
+// for a given attach + orientation + reach. All alignment is solved here so the
+// exported data drops straight into the game's buildExitDeck / buildHighway.
+function genExit(hw, s, orientIdx, reach){
+  var o=EXIT_ORIENTS[orientIdx]||EXIT_ORIENTS[0], sideN=o.sideN, along=(o.mode==='off')?1:-1;
+  // resample the highway at chainage s for a fresh attach point + tangent
+  var na=nearestHighwayChain(hw, s); var tx=na.tx, tz=na.tz, Hpx=na.px, Hpz=na.pz;
+  var nx=-tz, nz=tx;                                  // highway left normal
+  var HW=hw.hw||16, hwOff=HW, EHW=5;
+  var Epx=Hpx+sideN*nx*HW, Epz=Hpz+sideN*nz*HW;       // tip sits on the highway edge
+  var pts=[], K=5, latReach=reach*0.5;
+  for(var k=0;k<K;k++){ var f=k/(K-1);
+    var a=along*f*reach, lat=(f*f)*latReach;
+    pts.push([ round(Epx + tx*a + sideN*nx*lat), round(Epz + tz*a + sideN*nz*lat) ]);
+  }
+  // clamp line = the highway edge line (a point + the highway direction)
+  var clampLine=[[round(Epx),round(Epz)],[round(Epx+tx*10),round(Epz+tz*10)]];
+  var clampSign=-sideN;                                // highway sits opposite the edge normal
+  // clampSide: which normal of the EXIT centreline points back at the highway
+  var d0x=pts[1][0]-pts[0][0], d0z=pts[1][1]-pts[0][1], dl=Math.hypot(d0x,d0z)||1; d0x/=dl; d0z/=dl;
+  var nEx=-d0z, nEz=d0x, toHx=Hpx-Epx, toHz=Hpz-Epz;
+  var clampSide=(nEx*toHx+nEz*toHz)>0?1:-1;
+  var goreLen=Math.min(reach*0.5, 40), taper=12;
+  var throat=Math.min(reach*0.75, 44);
+  var s0=along>0? s : s-throat, s1=along>0? s+throat : s;
+  return { pts:pts, clampLine:clampLine, clampSide:clampSide, clampSign:clampSign, taper:taper, goreLen:round(goreLen),
+    barGap:{ side:sideN, s0:round(s0), s1:round(s1) }, attachId:hw._id };
+}
+// point + tangent on a highway polyline at chainage s (clamped)
+function nearestHighwayChain(r, s){
+  var cum=0;
+  for(var j=0;j<r.pts.length-1;j++){ var ax=r.pts[j][0],az=r.pts[j][1],bx=r.pts[j+1][0],bz=r.pts[j+1][1];
+    var dx=bx-ax,dz=bz-az,L=Math.hypot(dx,dz)||1;
+    if(s<=cum+L || j===r.pts.length-2){ var t=Math.max(0,Math.min(1,(s-cum)/L));
+      return { px:ax+dx*t, pz:az+dz*t, tx:dx/L, tz:dz/L }; }
+    cum+=L;
+  }
+  return { px:r.pts[0][0], pz:r.pts[0][1], tx:1, tz:0 };
+}
+// (re)build an exit road's geometry from its stored attach + orient + reach
+function regenExit(e){ var hw=null; for(var i=0;i<S.roads.length;i++) if(S.roads[i]._id===e.attachId){ hw=S.roads[i]; break; }
+  if(!hw){ return; } var g=genExit(hw, e.attachS, e.orient||0, e.reach||60);
+  e.pts=g.pts; e.clampLine=g.clampLine; e.clampSide=g.clampSide; e.clampSign=g.clampSign; e.taper=g.taper; e.goreLen=g.goreLen; e._barGap=g.barGap; }
+function stampExit(wx,wz){
+  var na=nearestHighway(wx,wz);
+  if(!na || na.dist > na.r.hw+30){ toast('Click near a highway to place an exit'); return; }
+  pushHistory();
+  var g=genExit(na.r, na.s, 0, 60);
+  var e={ _id:nid(), id:'exit_'+nid(), cls:7, kind:'exitdeck', hw:5, elev:na.r.elev||8, oneway:true, lanes:1,
+    orient:0, reach:60, attachId:na.r._id, attachS:na.s,
+    pts:g.pts, clampLine:g.clampLine, clampSide:g.clampSide, clampSign:g.clampSign, taper:g.taper, goreLen:g.goreLen, _barGap:g.barGap };
+  S.roads.push(e); setTool('select'); selectObj({kind:'road',ref:e}); autosave();
+}
 // terrain areas (rect footprints, like surfaces): forest + water bodies.
 var AREAS = [
   { kind:'forest', name:'Forest',  w:90, d:90,  color:'#2f5a2b' },
@@ -257,6 +338,7 @@ function loadFromGame() {
   if (typeof REMAP_ROADS !== 'undefined') {
     REMAP_ROADS.forEach(function(r){
       S.roads.push({ _id:nid(), id:r.id, cls:r.cls, hw:r.hw, dirt:!!r.dirt, kind:r.kind, elev:r.elev,
+        oneway:r.oneway, lanes:r.lanes, taper:r.taper, goreLen:r.goreLen, clampLine:r.clampLine, clampSide:r.clampSide, clampSign:r.clampSign, endHw:r.endHw, barGap:r.barGap, orient:r.orient, reach:r.reach,
         pts:r.pts.map(function(p){return [p[0],p[1]];}) });
     });
   }
@@ -283,9 +365,21 @@ function redo(){ if(!redoStack.length) return; undoStack.push(snapshot()); resto
 // ============================ persistence ============================
 function autosave(){ try{ localStorage.setItem('wc_editor_map', exportJSON()); }catch(e){} }
 function exportObj(){
+  var roads = S.roads.map(function(r){ var o={ id:r.id, cls:r.cls, hw:r.hw, dirt:r.dirt||false, pts:r.pts };
+    var k=roadKind(r); if(k!=='road'){ o.kind=k; } if(r.elev){ o.elev=round(r.elev); }
+    if(k==='exitdeck'){ o.oneway=true; o.lanes=r.lanes||1; o.taper=r.taper; o.goreLen=r.goreLen;
+      o.clampLine=r.clampLine; o.clampSide=r.clampSide; o.clampSign=r.clampSign; }
+    else if(r.oneway){ o.oneway=true; if(r.lanes) o.lanes=r.lanes; }
+    if(r.endHw!=null) o.endHw=r.endHw;
+    return o; });
+  // each exit opens its highway's guardrail: inject the barGap into that highway's export
+  S.roads.forEach(function(r){ if(roadKind(r)!=='exitdeck' || !r._barGap || !r.attachId) return;
+    for(var i=0;i<S.roads.length;i++){ if(S.roads[i]._id===r.attachId){ var ho=roads[i];
+      if(!ho.barGap) ho.barGap=[]; ho.barGap.push({ side:r._barGap.side, s0:r._barGap.s0, s1:r._barGap.s1 }); break; } }
+  });
   return {
     version:1, note:'Westchase map editor export',
-    roads: S.roads.map(function(r){ var o={ id:r.id, cls:r.cls, hw:r.hw, dirt:r.dirt||false, pts:r.pts }; var k=roadKind(r); if(k!=='road'){ o.kind=k; } if(r.elev){ o.elev=round(r.elev); } return o; }),
+    roads: roads,
     surfaces: S.surfaces.map(function(s){ return { kind:s.kind, x:round(s.x), z:round(s.z), rot:round(s.rot), w:round(s.w), d:round(s.d) }; }),
     buildings: S.buildings.map(function(b){ return { id:b.id||b.type, type:b.type, x:round(b.x), z:round(b.z), rot:round(b.rot), w:round(b.w), d:round(b.d) }; }),
     props: S.props.map(function(p){ return { type:p.type, x:round(p.x), z:round(p.z), rot:round(p.rot) }; }),
@@ -303,7 +397,7 @@ function saveMap(){
 }
 function loadObj(o){
   S = { roads:[], surfaces:[], buildings:[], props:[], zones:[], areas:[] };
-  (o.roads||[]).forEach(function(r){ S.roads.push({_id:nid(),id:r.id,cls:r.cls,hw:r.hw,dirt:!!r.dirt,kind:r.kind,elev:r.elev,pts:r.pts.map(function(p){return[p[0],p[1]];})}); });
+  (o.roads||[]).forEach(function(r){ S.roads.push({_id:nid(),id:r.id,cls:r.cls,hw:r.hw,dirt:!!r.dirt,kind:r.kind,elev:r.elev,oneway:r.oneway,lanes:r.lanes,taper:r.taper,goreLen:r.goreLen,clampLine:r.clampLine,clampSide:r.clampSide,clampSign:r.clampSign,endHw:r.endHw,barGap:r.barGap,orient:r.orient,reach:r.reach,pts:r.pts.map(function(p){return[p[0],p[1]];})}); });
   (o.surfaces||[]).forEach(function(s){ S.surfaces.push({_id:nid(),kind:s.kind,x:s.x,z:s.z,rot:s.rot||0,w:s.w,d:s.d}); });
   (o.buildings||[]).forEach(function(b){ S.buildings.push({_id:nid(),id:b.id,type:b.type,x:b.x,z:b.z,rot:b.rot||0,w:b.w,d:b.d}); });
   (o.props||[]).forEach(function(p){ S.props.push({_id:nid(),type:p.type,x:p.x,z:p.z,rot:p.rot||0}); });
@@ -495,6 +589,17 @@ function drawRoad(r){ var cl=roadClass(r), kind=roadKind(r); var sp=polyScreen(r
       ctx.beginPath(); ctx.moveTo(mx+dx*sz,my+dy*sz); ctx.lineTo(mx-dx*sz+px*sz,my-dy*sz+py*sz); ctx.lineTo(mx-dx*sz-px*sz,my-dy*sz-py*sz); ctx.closePath(); ctx.fill(); }
     return;
   }
+  if(kind==='exitdeck'){                                          // EXIT/SPLIT — one-lane deck peeling off, tip on the highway
+    ctx.strokeStyle='#00000040'; ctx.lineWidth=Math.max(3,r.hw*2.3*cam.zoom); strokePoly(offsetPts(r.pts,r.hw*0.5).map(function(p){return w2s(p[0],p[1]);}));
+    ctx.strokeStyle='#20232a'; ctx.lineWidth=Math.max(3,r.hw*2.2*cam.zoom); strokePoly(sp);
+    ctx.strokeStyle=cl.color; ctx.lineWidth=Math.max(2,r.hw*2*cam.zoom); strokePoly(sp);
+    ctx.strokeStyle='#cfd6e0'; ctx.lineWidth=Math.max(1,cam.zoom*0.4);
+    strokePoly(offsetPts(r.pts,r.hw*0.9).map(function(p){return w2s(p[0],p[1]);}));
+    strokePoly(offsetPts(r.pts,-r.hw*0.9).map(function(p){return w2s(p[0],p[1]);}));
+    var tip=w2s(r.pts[0][0],r.pts[0][1]);                          // tip meeting the highway edge
+    ctx.fillStyle='#ffd94a'; ctx.strokeStyle='#7a3b0e'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(tip[0],tip[1],4,0,7); ctx.fill(); ctx.stroke();
+    return;
+  }
   // ground road
   ctx.strokeStyle = r.dirt?'#8a744f':cl.color; ctx.lineWidth=Math.max(2,r.hw*2*cam.zoom); strokePoly(sp);
   if(r.cls<=1 && !r.dirt){ ctx.strokeStyle='#e8c23a'; ctx.lineWidth=Math.max(1,cam.zoom*0.5); ctx.setLineDash([6,7]); strokePoly(sp); ctx.setLineDash([]); }
@@ -568,7 +673,7 @@ cvs.addEventListener('mousedown', function(e){
   var w=s2w(sx,sz); mouseW=w;
   if(e.button===2 || e.button===1 || (e.button===0 && spaceDown)){ panning=true; lastMouse=[e.clientX,e.clientY]; return; }
   if(e.button!==0) return;
-  if(tool==='road'){ penClick(w); return; }
+  if(tool==='road'){ if(stamp.road===7){ stampExit(w[0],w[1]); } else penClick(w); return; }
   if(tool==='surface'){ addSurface(stamp.surface, snap(w[0]), snap(w[1])); return; }
   if(tool==='area'){ addArea(stamp.area, snap(w[0]), snap(w[1])); return; }
   if(tool==='building'){ addBuilding(stamp.building, snap(w[0]), snap(w[1])); return; }
@@ -735,6 +840,15 @@ function buildProps(){
     host.appendChild(selectField('Type', PROPS, o.type, function(v){ o.type=v; autosave(); }));
     var r3=el('div','prow'); r3.appendChild(field('X',round(o.x),function(v){o.x=v;},0.5)); r3.appendChild(field('Z',round(o.z),function(v){o.z=v;},0.5)); host.appendChild(r3);
     host.appendChild(field('Rotation°',round(o.rot),function(v){o.rot=v;},1));
+  } else if(sel.kind==='road' && roadKind(o)==='exitdeck'){
+    // exit / split: pick one of the 4 orientations; the geometry re-solves against its highway
+    var od=el('div','prop'); od.appendChild(el('label',null,'Orientation'));
+    var os=el('select'); EXIT_ORIENTS.forEach(function(op,i){ var o2=el('option',null,op.name); o2.value=i; if(i===(o.orient||0))o2.selected=true; os.appendChild(o2); });
+    os.onchange=function(){ o.orient=+os.value; regenExit(o); syncProps(); autosave(); }; od.appendChild(os); host.appendChild(od);
+    host.appendChild(field('Reach (length)', o.reach||60, function(v){ o.reach=Math.max(20,v); regenExit(o); autosave(); }, 2));
+    host.appendChild(field('Elevation (m)', o.elev||8, function(v){ o.elev=v; }, 0.5));
+    var en=el('div','prop'); en.style.fontSize='11px'; en.style.color='#8b97a8'; en.style.fontStyle='italic';
+    en.textContent='Off/On-ramp × left/right. The lane peels off the highway edge and opens its guardrail automatically. Add a 1-way ramp + road off the wide end to bring it to ground.'; host.appendChild(en);
   } else if(sel.kind==='road'){
     host.appendChild(selectField('Class', ROAD_CLASSES, o.cls, function(v){ var ncl=ROAD_CLASSES[+v]; o.cls=+v; o.hw=ncl.hw; o.kind=ncl.kind; o.elev=ncl.elev; syncProps(); }));
     host.appendChild(field('Half-width',o.hw,function(v){o.hw=v;},0.5));
@@ -786,7 +900,7 @@ function boot(){
   render();
 }
 boot();
-window.__ed = { get state(){return S;}, exportObj:exportObj, loadFromGame:loadFromGame, addBuilding:addBuilding, addSurface:addSurface, addProp:addProp, addArea:addArea, penClick:penClick, finishPen:finishPen, selectObj:selectObj, setTool:setTool, cam:cam, get stamp(){return stamp;}, get sel(){return sel;}, deleteSel:deleteSel, nodeSnap:nodeSnap, endpointAt:endpointAt };
+window.__ed = { get state(){return S;}, exportObj:exportObj, loadFromGame:loadFromGame, addBuilding:addBuilding, addSurface:addSurface, addProp:addProp, addArea:addArea, penClick:penClick, finishPen:finishPen, selectObj:selectObj, setTool:setTool, cam:cam, get stamp(){return stamp;}, get sel(){return sel;}, deleteSel:deleteSel, nodeSnap:nodeSnap, endpointAt:endpointAt, stampExit:stampExit, regenExit:regenExit, genExit:genExit, nearestHighway:nearestHighway };
 </script>
 </body>
 </html>
