@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.79.3';
+var GAME_VERSION = 'v1.79.4';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -3227,21 +3227,30 @@ function buildExitDeck(r) {
   var CL = r.clampLine, hasC = !!CL, Lnx = 0, Lnz = 0, l0x = 0, l0z = 0, cs = r.clampSign || 1;
   if (hasC) { var ldx = CL[1][0] - CL[0][0], ldz = CL[1][1] - CL[0][1], ll = Math.hypot(ldx, ldz) || 1;
     Lnx = -ldz / ll; Lnz = ldx / ll; l0x = CL[0][0]; l0z = CL[0][1]; }
+  var goreLen = r.goreLen != null ? r.goreLen : taper, ki = n;             // gore filled up to here; then the deck narrows to the lane
   var inner = [], outer = [];
   for (i = 0; i < n; i++) {
     var w = hw * Math.min(1, cum[i] / taper);                             // width ramps 0 -> hw over the taper
     var nx = nrm[i][0] * side, nz = nrm[i][1] * side;                     // unit normal toward the mainline
-    var ix = pts[i][0] + nx * w, iz = pts[i][1] + nz * w;
-    var ox = pts[i][0] - nx * w, oz = pts[i][1] - nz * w;
-    if (hasC) { var sd = (ix - l0x) * Lnx + (iz - l0z) * Lnz;             // keep inner edge flush on the mainline
-      if (sd * cs > 0) { ix -= Lnx * sd; iz -= Lnz * sd; } }
+    var ox = pts[i][0] - nx * w, oz = pts[i][1] - nz * w, ix, iz;
+    if (hasC && cum[i] < goreLen) {                                       // GORE fill: inner edge rides the mainline edge -> deck is contiguous with the highway (no grass gap)
+      var sc = (pts[i][0] - l0x) * Lnx + (pts[i][1] - l0z) * Lnz;
+      ix = pts[i][0] - Lnx * sc; iz = pts[i][1] - Lnz * sc;
+    } else {                                                              // LANE: normal inner edge (clamped so it never crosses the mainline)
+      if (ki === n) ki = i;                                              // first lane index (gore -> lane boundary = the nose)
+      ix = pts[i][0] + nx * w; iz = pts[i][1] + nz * w;
+      if (hasC) { var sd = (ix - l0x) * Lnx + (iz - l0z) * Lnz; if (sd * cs > 0) { ix -= Lnx * sd; iz -= Lnz * sd; } }
+    }
     inner.push([ix, iz]); outer.push([ox, oz]);
   }
   deckStrip(inner, outer, cum, deckY + 0.02, hwOneM[lanes] || hwOneM[1], 1 / 12);   // road surface
   deckStrip(inner, outer, cum, deckY - 0.55, hwUnderM, 1 / 8);                      // underside slab
   var barM = deckY - 0.3;
-  hwWallGapped(inner, deckY, 1.05, 0.5, hwConcreteM, 'hw:barrier', barM, r.innerGap);   // gore-side rail
-  hwWallGapped(outer, deckY, 1.05, 0.5, hwConcreteM, 'hw:barrier', barM, r.outerGap);   // outer rail
+  hwWallGapped(outer, deckY, 1.05, 0.5, hwConcreteM, 'hw:barrier', barM, r.outerGap);   // outer rail (full length)
+  // gore-side rail: starts on the mainline edge at the nose (connects to the hwy
+  // guardrail) then follows the lane away. No rail along the shared gore edge.
+  if (ki > 0 && ki < n) hwWall(inner.slice(ki - 1), deckY, 1.05, 0.5, hwConcreteM, 'hw:barrier', barM);
+  else hwWallGapped(inner, deckY, 1.05, 0.5, hwConcreteM, 'hw:barrier', barM, r.innerGap);
   hwDeckColliders(pts, hw, deckY + 0.02);
   var total = cum[n - 1], pierW = 2.6, beamH = 1.4, beamTopY = deckY - 0.6, colH = beamTopY - beamH, s;
   for (s = 16; s < total - 8; s += 30) {                                 // single central piers
