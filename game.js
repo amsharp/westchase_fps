@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.78.19';
+var GAME_VERSION = 'v1.78.20';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -3053,6 +3053,29 @@ function buildRamp(r) {
   }
   ribbon(hw, 0.02, hwDeckM);                                             // road surface (6-lane markings)
   ribbon(hw, -0.55, hwUnderM);                                          // solid underside
+  // CENTRE MEDIAN barrier down the ramp, tilted to lie on the incline so it
+  // lines up with the highway's median where the ramp meets the deck. One
+  // slope-following box per segment (basis matrix = along-slope / up / side).
+  var barH = 1.15, barThick = 0.85;
+  for (i = 0; i < n - 1; i++) {
+    var m0y = yAt(cum[i]) + 0.02, m1y = yAt(cum[i + 1]) + 0.02;
+    var mdir = new THREE.Vector3(pts[i + 1][0] - pts[i][0], m1y - m0y, pts[i + 1][1] - pts[i][1]);
+    var mlen = mdir.length() || 1; mdir.multiplyScalar(1 / mlen);
+    var mside = new THREE.Vector3(px, 0, pz);                             // horizontal, ⟂ ramp
+    var mup = new THREE.Vector3().crossVectors(mside, mdir);              // unit up (normal to deck)
+    var mseg = new THREE.Mesh(new THREE.BoxGeometry(mlen + barThick, barH, barThick), hwConcreteM);
+    mseg.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(mdir, mup, mside));
+    mseg.position.set((pts[i][0] + pts[i + 1][0]) / 2 + mup.x * barH / 2, (m0y + m1y) / 2 + mup.y * barH / 2, (pts[i][1] + pts[i + 1][1]) / 2 + mup.z * barH / 2);
+    scene.add(mseg);
+  }
+  // graded colliders: block deck-level crossing but don't wall off the ground
+  // under the elevated part (minY tracks the rising deck, like the hwy median)
+  var kc = Math.max(2, Math.round(total / 6)), myaw = Math.atan2(-uz, ux);
+  for (i = 0; i < kc; i++) {
+    var cs = total * i / kc, ce = total * (i + 1) / kc, cm = (cs + ce) / 2;
+    var moc = addColliderOBB(a0[0] + ux * cm, a0[1] + uz * cm, (ce - cs + barThick) / 2, barThick / 2, myaw, 'ramp:median');
+    moc.minY = yAt(cs) - 0.3;
+  }
   // SOLID embankment side walls (ground -> deck + parapet), fixed offset
   var wallOff = hw - 0.35;
   for (var side = -1; side <= 1; side += 2) {
