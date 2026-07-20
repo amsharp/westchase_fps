@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.78.7';
+var GAME_VERSION = 'v1.78.8';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2912,7 +2912,7 @@ var hwDeckT = tex(256, function (g, s) {
   line(0.538, '#e6cc3e', false, 3); line(0.68, '#f4f4ec', true, 3); line(0.82, '#f4f4ec', true, 3); line(0.965, '#f4f4ec', false, 3);
 });
 var hwDeckM = lamb({ map: hwDeckT });
-var hwConcreteM = lamb({ color: 0xbcbbb4 });
+var hwConcreteM = lamb({ color: 0xbcbbb4, side: THREE.DoubleSide });   // barriers + ramp embankment walls (DoubleSide so walls read both faces)
 var hwUnderM = lamb({ color: 0x6d6c67, side: THREE.DoubleSide });   // deck underside — DoubleSide so it's solid from below
 var hwApronM = new THREE.MeshLambertMaterial({ map: hwDeckT, side: THREE.DoubleSide });   // ground merge apron (DoubleSide = winding-proof)
 var riverBedM = lamb({ color: 0x3a4b54 });
@@ -3010,7 +3010,9 @@ function buildHighway(r) {
   for (var j = 1; j < pts.length; j++) mapRoads.push({ x1: pts[j - 1][0], z1: pts[j - 1][1], x2: pts[j][0], z2: pts[j][1], hw: hw, cls: 4 });
 }
 function buildRamp(r) {
-  var pts = r.pts, hw = r.hw, hi = r.elev || 8, cum = rmCum(pts), total = cum[cum.length - 1] || 1, nor = rmNormals(pts), n = pts.length, i;
+  // hw pulled in 0.6 so the ramp lines up with the highway's between-barrier
+  // drivable channel instead of sticking out past it
+  var pts = r.pts, hw = (r.hw || 18) - 0.6, hi = r.elev || 8, cum = rmCum(pts), total = cum[cum.length - 1] || 1, nor = rmNormals(pts), n = pts.length, i;
   var a0 = pts[0], a1 = pts[n - 1], rdx = a1[0] - a0[0], rdz = a1[1] - a0[1], rlen = Math.hypot(rdx, rdz) || 1, ux = rdx / rlen, uz = rdz / rlen;
   // physics: register the incline (straight/chord approximation, pts[0]=ground end)
   driveRamps.push({ ax: a0[0], az: a0[1], ux: ux, uz: uz, len: rlen, rise: hi, wid: hw * 2, grad: hi / rlen });
@@ -3034,18 +3036,28 @@ function buildRamp(r) {
   }
   slopeRibbon(0.02, hwDeckM);                                             // road surface (6-lane markings)
   slopeRibbon(-0.55, hwUnderM);                                          // solid underside (no see-through)
-  // guardrails that FOLLOW the incline angle, full length up into the deck
-  var XA = new THREE.Vector3(1, 0, 0);
+  // SOLID embankment side walls: a concrete face on each edge from the ground
+  // up to the deck (+ a short parapet above it) so the wedge under the ramp is
+  // filled — you can't drive beneath it. Colliders block driving into the sides.
   for (var side = -1; side <= 1; side += 2) {
-    var edge = rmOffsetPts(pts, side * (hw - 0.3));
-    for (i = 0; i < edge.length - 1; i++) {
-      var y0 = yAt(cum[i]), y1 = yAt(cum[i + 1]);
+    var edge = rmOffsetPts(pts, side * hw), m = edge.length;
+    var wp = new Float32Array(m * 6), wuv = new Float32Array(m * 4);
+    for (i = 0; i < m; i++) {
+      var topY = yAt(cum[i]) + 0.55;                                     // deck level + parapet
+      wp[i * 6] = edge[i][0]; wp[i * 6 + 1] = 0.1; wp[i * 6 + 2] = edge[i][1];          // ground
+      wp[i * 6 + 3] = edge[i][0]; wp[i * 6 + 4] = topY; wp[i * 6 + 5] = edge[i][1];     // top
+      var wu = cum[i] / 8; wuv[i * 4] = wu; wuv[i * 4 + 1] = 0; wuv[i * 4 + 2] = wu; wuv[i * 4 + 3] = 1;
+    }
+    var widx = []; for (i = 0; i < m - 1; i++) { var wa = i * 2; widx.push(wa, wa + 1, wa + 2, wa + 1, wa + 3, wa + 2); }
+    var wg = new THREE.BufferGeometry();
+    wg.setAttribute('position', new THREE.BufferAttribute(wp, 3));
+    wg.setAttribute('uv', new THREE.BufferAttribute(wuv, 2));
+    wg.setIndex(widx); wg.computeVertexNormals();
+    scene.add(new THREE.Mesh(wg, hwConcreteM));
+    for (i = 0; i < edge.length - 1; i++) {                             // colliders along the wall
       var ex = edge[i][0], ez = edge[i][1], fx = edge[i + 1][0], fz = edge[i + 1][1];
-      var v = new THREE.Vector3(fx - ex, y1 - y0, fz - ez), L3 = v.length(); if (L3 < 0.4) continue; v.normalize();
-      var seg = new THREE.Mesh(new THREE.BoxGeometry(L3 + 0.3, 1.0, 0.4), hwConcreteM);
-      seg.quaternion.setFromUnitVectors(XA, v);                          // tilt to match the slope
-      seg.position.set((ex + fx) / 2, (y0 + y1) / 2 + 0.5, (ez + fz) / 2);
-      scene.add(seg);
+      var dx = fx - ex, dz = fz - ez, L = Math.hypot(dx, dz); if (L < 0.4) continue;
+      addColliderOBB((ex + fx) / 2, (ez + fz) / 2, (L + 0.5) / 2, 0.3, Math.atan2(-dz, dx), 'ramp:wall');
     }
   }
   // ground merge apron at the base: flat taper from the full ramp width down to
