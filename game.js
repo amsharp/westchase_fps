@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.78.4';
+var GAME_VERSION = 'v1.78.5';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2936,15 +2936,28 @@ function rmTangentAt(pts, cum, s) {
   }
   return { x: 1, z: 0 };
 }
-// concrete wall / guardrail along a polyline (boxes per segment; optional collider)
-function hwWall(pts, yBase, h, thick, mat, colTag) {
+// concrete wall / guardrail along a polyline (boxes per segment; optional
+// collider). minY (deck-barrier): the collider only blocks movers whose feet
+// are at/above minY, so it walls the deck but not the ground underneath.
+function hwWall(pts, yBase, h, thick, mat, colTag, minY) {
   for (var i = 0; i < pts.length - 1; i++) {
     var ax = pts[i][0], az = pts[i][1], bx = pts[i + 1][0], bz = pts[i + 1][1];
     var dx = bx - ax, dz = bz - az, L = Math.hypot(dx, dz); if (L < 0.4) continue;
     var mx = (ax + bx) / 2, mz = (az + bz) / 2, yaw = Math.atan2(-dz, dx);
     var seg = new THREE.Mesh(new THREE.BoxGeometry(L + thick, h, thick), mat);
     seg.position.set(mx, yBase + h / 2, mz); seg.rotation.y = yaw; scene.add(seg);
-    if (colTag) addColliderOBB(mx, mz, (L + thick) / 2, thick / 2, yaw, colTag);
+    if (colTag) { var oc = addColliderOBB(mx, mz, (L + thick) / 2, thick / 2, yaw, colTag); if (minY !== undefined) oc.minY = minY; }
+  }
+}
+// flat drivable deck surface: OBB colliders flagged .deck (never block) with a
+// topY so surfaceHeightAt raises a car onto them once its feet reach deck level.
+function hwDeckColliders(pts, hw, topY) {
+  for (var i = 0; i < pts.length - 1; i++) {
+    var ax = pts[i][0], az = pts[i][1], bx = pts[i + 1][0], bz = pts[i + 1][1];
+    var dx = bx - ax, dz = bz - az, L = Math.hypot(dx, dz); if (L < 0.5) continue;
+    var mx = (ax + bx) / 2, mz = (az + bz) / 2, yaw = Math.atan2(-dz, dx);
+    var oc = addColliderOBB(mx, mz, (L + 2) / 2, hw, yaw, 'hw:deck');
+    oc.deck = true; oc.topY = topY;
   }
 }
 // double-arm median lamp: pole rising from the deck, an arm + head over each way
@@ -2970,9 +2983,11 @@ function buildHighway(r) {
   remapRibbon(pts, hw, deckY - 0.55, hwUnderM, 1 / 8, 1);                 // underside slab (DoubleSide -> solid from below)
   hwWall(rmOffsetPts(pts, hw - 0.05), deckY - 0.55, 0.57, 0.35, hwUnderM, null);   // deck-edge fascia (closes the sides)
   hwWall(rmOffsetPts(pts, -(hw - 0.05)), deckY - 0.55, 0.57, 0.35, hwUnderM, null);
-  hwWall(rmOffsetPts(pts, hw - 0.35), deckY, 1.05, 0.5, hwConcreteM, null);    // outer Jersey barriers
-  hwWall(rmOffsetPts(pts, -(hw - 0.35)), deckY, 1.05, 0.5, hwConcreteM, null);
-  hwWall(pts, deckY, 1.15, 0.85, hwConcreteM, null);                      // center median barrier
+  hwDeckColliders(pts, hw, deckY + 0.02);                                // drivable deck surface (2.5D)
+  var barM = deckY - 0.3;                                                 // barriers block only movers up on the deck
+  hwWall(rmOffsetPts(pts, hw - 0.35), deckY, 1.05, 0.5, hwConcreteM, 'hw:barrier', barM);    // outer Jersey barriers
+  hwWall(rmOffsetPts(pts, -(hw - 0.35)), deckY, 1.05, 0.5, hwConcreteM, 'hw:barrier', barM);
+  hwWall(pts, deckY, 1.15, 0.85, hwConcreteM, 'hw:median', barM);         // center median barrier
   for (s = 16; s < total - 8; s += 30) {                                  // support pillars (ground obstacles -> collide)
     var p = rmAt(pts, cum, s);
     scene.add(cyl(1.15, 1.35, deckY, 8, hwConcreteM, p.x, deckY / 2, p.z));
@@ -2986,6 +3001,11 @@ function buildHighway(r) {
 }
 function buildRamp(r) {
   var pts = r.pts, hw = r.hw, hi = r.elev || 8, cum = rmCum(pts), total = cum[cum.length - 1] || 1, nor = rmNormals(pts), n = pts.length, i;
+  // physics: register the incline (straight approximation, pts[0]=ground end)
+  // so driveSurfaceAt lifts the car up the slope onto the deck. Curved ramps
+  // approximate to their chord for now.
+  var a0 = pts[0], a1 = pts[n - 1], rdx = a1[0] - a0[0], rdz = a1[1] - a0[1], rlen = Math.hypot(rdx, rdz) || 1;
+  driveRamps.push({ ax: a0[0], az: a0[1], ux: rdx / rlen, uz: rdz / rlen, len: rlen, rise: hi, wid: hw * 2, grad: hi / rlen });
   var pos = new Float32Array(n * 6), nrm = new Float32Array(n * 6), uv = new Float32Array(n * 4);
   function yAt(c) { return 0.15 + (hi - 0.15) * (c / total); }            // ramp low (ground) -> high (deck)
   for (i = 0; i < n; i++) {
@@ -13507,7 +13527,8 @@ function updateDriving(dt) {
   // the DRIVEN car may cross the shoreline into the water — use the lake-filtered
   // collider list. Airborne cars clear low props (feetY = their height).
   if (!landColliders) landColliders = colliders.filter(function (cc) { return !cc.lake; });
-  var p = pushOut(nx, nz, 1.7, landColliders, airborne ? (c.cy || 5) : undefined);
+  var hwFeet = c.cy > 1 ? c.cy : undefined;   // only engage elevated-highway logic once climbing (ground driving stays byte-for-byte unchanged; the ramp lifts via driveSurfaceAt regardless)
+  var p = pushOut(nx, nz, 1.7, landColliders, hwFeet);   // pass under overpasses; hit deck barriers only when up on the deck
   if (Math.abs(p.x - nx) > 0.01 || Math.abs(p.z - nz) > 0.01) {
     if (asp > 8) sfx('crash', { x: p.x, z: p.z, range: 80 });
     c.svy = (c.svy || 0) - Math.min(1.6, asp * 0.09);   // suspension slam
@@ -13529,7 +13550,7 @@ function updateDriving(dt) {
   //      small, hard-capped hop (~half the old amount), never a ramp-sized launch.
   var gs = driveSurfaceAt(p.x, p.z), rgx = -fz, rgz = fx;   // car's right vector
   var rampGrad = gs.gx * fx + gs.gz * fz;                   // along-travel grade (>0 climbing a ramp, <0 descending)
-  var surf = surfaceHeightAt(p.x, p.z);
+  var surf = surfaceHeightAt(p.x, p.z, false, hwFeet);   // feetY lets the deck (topY collider) hold the car once it climbs the ramp
   if (c.cy === undefined) c.cy = surf;
   if (c.csurf === undefined) c.csurf = surf;
   var groundRise = (surf - c.csurf) / dt; c.csurf = surf;   // vertical speed of the ground under the car (curb steps spike this)
@@ -16749,6 +16770,13 @@ function pushOut(px, pz, r, list, feetY) {
   for (var i = 0; i < L.length; i++) {
     var b = L[i];
     if (b.active === false) continue;   // toppled prop's trunk collider — sits out until it respawns
+    // elevated-highway 2.5D: a deck collider is a pure floor (surfaceHeightAt
+    // raises you onto it via topY) — it must NEVER block horizontally, so you
+    // can drive underneath the overpass freely.
+    if (b.deck) continue;
+    // a deck barrier only blocks movers up ON the deck (feetY at deck level);
+    // anything at ground (feetY undefined or below minY) passes its footprint.
+    if (b.minY !== undefined && (feetY === undefined || feetY < b.minY)) continue;
     // 2.5D: if the mover's feet are at/above this box's top, it's a floor, not a
     // wall — skip the horizontal block so they pass over / stand on it. (feetY
     // omitted by NPCs/cars/traffic -> everything blocks, exactly as before.)
