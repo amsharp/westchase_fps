@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.85.1';
+var GAME_VERSION = 'v1.85.2';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -5887,7 +5887,18 @@ function grgMats() {
   var ft = tex(128, function (g, s) { g.fillStyle = '#b4b2aa'; g.fillRect(0, 0, s, s); noise(g, s, 700, 0.09, 0.05); g.strokeStyle = 'rgba(150,148,140,0.5)'; g.lineWidth = 2; for (var k = 1; k < 4; k++) { g.beginPath(); g.moveTo(s * k / 4, 0); g.lineTo(s * k / 4, s); g.stroke(); } });
   _grgFloorM = lamb({ map: ft });
   _grgWallM = lamb({ color: 0xc0beb6, side: THREE.DoubleSide });
-  _grgRampM = lamb({ color: 0xa9a79f, side: THREE.DoubleSide });
+  // ramp surface: darker concrete with a bold yellow up-slope chevron every tile,
+  // so a ramp reads instantly as a ramp instead of blending into the flat floors.
+  var rt = tex(64, function (g, s) {
+    g.fillStyle = '#5f5d56'; g.fillRect(0, 0, s, s);   // dark ramp base (contrasts the light floors)
+    g.fillStyle = '#f2d426';                            // one BIG bold yellow chevron (points up the slope, toward +u)
+    g.beginPath();
+    g.moveTo(s * 0.96, s * 0.5); g.lineTo(s * 0.44, s * 0.02); g.lineTo(s * 0.16, s * 0.02);
+    g.lineTo(s * 0.68, s * 0.5); g.lineTo(s * 0.16, s * 0.98); g.lineTo(s * 0.44, s * 0.98);
+    g.closePath(); g.fill();
+  });
+  rt.wrapS = rt.wrapT = THREE.RepeatWrapping; rt.magFilter = THREE.LinearFilter; rt.minFilter = THREE.LinearFilter;
+  _grgRampM = lamb({ map: rt, side: THREE.DoubleSide });
 }
 function buildParkingGarage(cx, cz, opts) {
   grgMats();
@@ -5920,20 +5931,36 @@ function buildParkingGarage(cx, cz, opts) {
     scene.add(box(1.1, ch, 1.1, _grgWallM, x, y + ch / 2, z));
     colliders.push({ x0: x - 0.62, x1: x + 0.62, z0: z - 0.62, z1: z + 0.62, minY: bandMinY(y), topY: top });
   }
-  // ---- ramp: sloped concrete slab + feetY-aware garageRamps entry ----
+  // ---- ramp: sloped concrete slab (chevron-marked top + raised side curbs so it
+  // reads clearly as a ramp) + feetY-aware garageRamps entry ----
   function ramp(ax, az, ux, uz, len, rise, base, wid) {
     garageRamps.push({ ax: ax, az: az, ux: ux, uz: uz, len: len, rise: rise, base: base, wid: wid, grad: rise / len });
-    var nx = -uz, nz = ux, th = 0.35;
+    var nx = -uz, nz = ux, th = 0.35, hw2 = wid / 2, yb = base, yt = base + rise;
     function P(s, t, y) { return [ax + ux * s + nx * t, y, az + uz * s + nz * t]; }
-    var yb = base, yt = base + rise, hw2 = wid / 2, pos = [], idx = [], v = 0;
-    function tri(A, B, C) { pos.push(A[0], A[1], A[2], B[0], B[1], B[2], C[0], C[1], C[2]); idx.push(v, v + 1, v + 2); v += 3; }
-    function quad(A, B, C, D) { tri(A, B, C); tri(A, C, D); }
-    quad(P(0, -hw2, yb), P(len, -hw2, yt), P(len, hw2, yt), P(0, hw2, yb));                 // top surface
-    quad(P(0, -hw2, yb - th), P(0, hw2, yb - th), P(len, hw2, yt - th), P(len, -hw2, yt - th)); // underside
+    // textured top surface: u runs up the slope (chevrons repeat ~every 3.5m), v across
+    var uMax = len / 7, pos = [], uv = [], idx = [], v = 0;
+    function vert(s, t, y, u, vv) { var p = P(s, t, y); pos.push(p[0], p[1], p[2]); uv.push(u, vv); return v++; }
+    var a = vert(0, -hw2, yb, 0, 0), b = vert(len, -hw2, yt, uMax, 0), c = vert(len, hw2, yt, uMax, 1), d = vert(0, hw2, yb, 0, 1);
+    idx.push(a, b, c, a, c, d);
+    var e = vert(0, -hw2, yb - th, 0, 0), f = vert(0, hw2, yb - th, 0, 1), gg = vert(len, hw2, yt - th, uMax, 1), hh = vert(len, -hw2, yt - th, uMax, 0);
+    idx.push(e, f, gg, e, gg, hh);   // underside
     var geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uv), 2));
     geo.setIndex(idx); geo.computeVertexNormals();
     scene.add(new THREE.Mesh(geo, _grgRampM));
+    // raised side curbs following the incline (a thin wall strip up each edge)
+    var cbH = 0.35, cp2 = [], ci2 = [], cv2 = 0;
+    function cq(A, B, C, D) { [A, B, C, A, C, D].forEach(function (p) { cp2.push(p[0], p[1], p[2]); }); ci2.push(cv2, cv2 + 1, cv2 + 2, cv2 + 3, cv2 + 4, cv2 + 5); cv2 += 6; }
+    for (var sgn = -1; sgn <= 1; sgn += 2) {
+      var tt = sgn * hw2;
+      cq(P(0, tt, yb), P(len, tt, yt), P(len, tt, yt + cbH), P(0, tt, yb + cbH));            // outer face
+      cq(P(0, tt, yb + cbH), P(len, tt, yt + cbH), P(len, tt - sgn * 0.18, yt + cbH), P(0, tt - sgn * 0.18, yb + cbH)); // top cap
+    }
+    var cg = new THREE.BufferGeometry();
+    cg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(cp2), 3));
+    cg.setIndex(ci2); cg.computeVertexNormals();
+    scene.add(new THREE.Mesh(cg, _grgWallM));
   }
   // ---- ramp bay geometry (north strip). Two lanes: A (north) = up/east ramps
   // (levels 0->1 and 2->3), B (south) = the 1->2 ramp coming back west. ----
