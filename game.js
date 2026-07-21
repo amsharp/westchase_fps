@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.88.2';
+var GAME_VERSION = 'v1.88.3';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -14874,7 +14874,7 @@ function boardPlane() {
   plane.mRud = 0; plane.mElev = 0;
   document.getElementById('crosshair').style.display = 'none';
   var wb = document.getElementById('weaponBox');
-  if (wb) wb.innerHTML = 'FLYING<br><small>[E] exit &middot; W/S throttle &middot; A/D roll &middot; mouse: down=climb, L/R=rudder</small>';
+  if (wb) wb.innerHTML = 'FLYING<br><small>[E] exit &middot; W/S throttle &middot; A/D steer (roll in air) &middot; mouse: down=climb, L/R=rudder</small>';
 }
 // exit / bail. Safe only when slow AND low; otherwise the pilot is thrown clear
 // carrying the plane's velocity and takes (usually lethal) fall damage.
@@ -14927,14 +14927,21 @@ function updatePlaneWorld(dt) {
   // ---- controls: gather target commands ----
   var tAil = 0, tElev = 0, tRud = 0, tThrottle = plane.throttle;
   if (plane.piloting) {
-    // mouse accumulators drive RUDDER (X) + elevator (Y); they decay so the
-    // controls re-center when the mouse stops. mouse-DOWN => climb (elevator +),
-    // mouse LEFT/RIGHT => rudder (yaw). A/D keys work the AILERONS (roll).
+    // mouse accumulators (X=rudder, Y=elevator) decay so the controls re-center
+    // when the mouse stops; mouse-DOWN => climb (elevator +). The lateral inputs
+    // differ on the ground vs in the air:
     plane.mRud *= Math.max(0, 1 - 7 * dt);
     plane.mElev *= Math.max(0, 1 - 7 * dt);
-    tAil = (keys['KeyD'] ? 1 : 0) - (keys['KeyA'] ? 1 : 0);   // D=roll right, A=roll left
     tElev = Math.max(-1, Math.min(1, plane.mElev));
-    tRud = Math.max(-1, Math.min(1, plane.mRud));             // mouse left/right = rudder
+    if (plane.onGround) {
+      // taxiing: A/D steer the nosewheel (via the rudder); ailerons idle, mouse-yaw unused
+      tRud = (keys['KeyA'] ? 1 : 0) - (keys['KeyD'] ? 1 : 0);   // A=left, D=right (nosewheel steer)
+      tAil = 0;
+    } else {
+      // flying: A/D work the AILERONS (roll); mouse LEFT/RIGHT works the RUDDER (yaw)
+      tAil = (keys['KeyD'] ? 1 : 0) - (keys['KeyA'] ? 1 : 0);   // D=roll right, A=roll left
+      tRud = Math.max(-1, Math.min(1, plane.mRud));             // mouse left/right = rudder
+    }
     if (keys['KeyW']) tThrottle += PLANE_THROTTLE_RATE * dt;
     if (keys['KeyS']) tThrottle -= PLANE_THROTTLE_RATE * dt;
     plane.throttle = Math.max(0, Math.min(1, tThrottle));
@@ -15141,7 +15148,10 @@ function updatePlaneHud() {
   if (w.terrain) warns.push('TERRAIN'); if (w.sink) warns.push('SINK RATE');
   if (w.bank) warns.push('BANK ANGLE');
   var warnHtml = warns.length ? '<br><b style="color:#ff3b30">⚠ ' + warns.join(' &middot; ') + '</b>' : '';
-  wb.innerHTML = 'FLYING &middot; ALT ' + alt + ' &middot; SPD ' + spd + ' &middot; THR ' + Math.round(plane.throttle * 100) + '%' + warnHtml + '<br><small>[E] exit &middot; W/S throttle &middot; A/D roll &middot; mouse: down=climb, L/R=rudder</small>';
+  var hint = plane.onGround
+    ? '[E] exit &middot; W/S throttle &middot; A/D steer &middot; mouse: down=nose up'
+    : '[E] exit &middot; W/S throttle &middot; A/D roll &middot; mouse: down=climb, L/R=rudder';
+  wb.innerHTML = 'FLYING &middot; ALT ' + alt + ' &middot; SPD ' + spd + ' &middot; THR ' + Math.round(plane.throttle * 100) + '%' + warnHtml + '<br><small>' + hint + '</small>';
 }
 // GPWS-style cockpit warnings. Sets plane.warn.* flags (drawn on the HUD) and
 // sounds the single highest-priority alarm on a repeating cadence. The audio
