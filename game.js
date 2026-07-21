@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.84.0';
+var GAME_VERSION = 'v1.85.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -5766,6 +5766,26 @@ if (WC_REMAP) (function r3Junction() {
 // surface, then pitches/rolls the body to the local grade. No collider (you
 // drive onto it, not into it); on-foot players don't climb it yet.
 var driveRamps = [];
+// ---- parking-garage ramps: feetY-AWARE sloped floors. Unlike driveRamps (which
+// return the max height regardless of your feet, and can launch you at the crest),
+// a garage ramp only raises you when your feet are already in its level band — so a
+// mover on the ground under an upper ramp is NOT lifted, and stacked ramps in a
+// switchback stay per-level. base~0 ramps engage for everyone (drive up from the
+// ground). No launch physics — you just follow the slope. ----
+var garageRamps = [];
+function garageSurfAt(x, z, feetY, curH) {
+  var h = curH;
+  for (var i = 0; i < garageRamps.length; i++) {
+    var r = garageRamps[i];
+    var dx = x - r.ax, dz = z - r.az;
+    var s = dx * r.ux + dz * r.uz, t = -dx * r.uz + dz * r.ux;
+    if (t < -r.wid / 2 || t > r.wid / 2 || s < 0 || s > r.len) continue;
+    var rh = r.base + r.grad * s;
+    var engage = r.base <= 0.15 ? true : (feetY !== undefined && feetY >= r.base - 1.6 && feetY <= r.base + r.rise + 1.6);
+    if (engage && rh > h) h = rh;
+  }
+  return h;
+}
 // wood plank texture for the jump ramps (rampwood.js, AI-generated, 256px).
 // Built once + repeat-wrapped; falls back to a flat wood color if absent.
 var _rampWoodTex = null, _rampMat = null;
@@ -5853,6 +5873,144 @@ function placeRamps() {
 }
 placeRamps();
 
+// ================= MULTI-LEVEL PARKING GARAGE =================
+// Reusable concrete parking structure. buildParkingGarage(cx,cz,opts) drops a
+// 4-level (configurable) open-deck garage: per-level concrete floor slabs, a
+// switchback ramp up the north bay (feetY-aware garageRamps → collision + surface
+// height stay per-level, nothing on the ground is affected by the decks above),
+// open spandrel sides (so you get a view), ground entrances on the E + W sides,
+// concrete columns clear of the lanes, and randomly parked cars on each level.
+// Placed from GARAGE_SPOTS so the same structure can be reused across the city.
+var _grgFloorM = null, _grgWallM = null, _grgRampM = null;
+function grgMats() {
+  if (_grgFloorM) return;
+  var ft = tex(128, function (g, s) { g.fillStyle = '#b4b2aa'; g.fillRect(0, 0, s, s); noise(g, s, 700, 0.09, 0.05); g.strokeStyle = 'rgba(150,148,140,0.5)'; g.lineWidth = 2; for (var k = 1; k < 4; k++) { g.beginPath(); g.moveTo(s * k / 4, 0); g.lineTo(s * k / 4, s); g.stroke(); } });
+  _grgFloorM = lamb({ map: ft });
+  _grgWallM = lamb({ color: 0xc0beb6, side: THREE.DoubleSide });
+  _grgRampM = lamb({ color: 0xa9a79f, side: THREE.DoubleSide });
+}
+function buildParkingGarage(cx, cz, opts) {
+  grgMats();
+  opts = opts || {};
+  var HW = opts.hw || 30, HD = opts.hd || 22, NLEV = opts.levels || 4, LH = opts.lh || 3.4, WT = 0.5;
+  var x0 = cx - HW, x1 = cx + HW, z0 = cz - HD, z1 = cz + HD;
+  function ly(l) { return l * LH; }
+  var slabTh = 0.4;
+  // ---- floor slab rect: visual + feetY "stand-on" deck collider (never blocks) ----
+  function floorRect(ax0, ax1, az0, az1, y) {
+    var w = ax1 - ax0, d = az1 - az0; if (w <= 0.2 || d <= 0.2) return;
+    scene.add(box(w, slabTh, d, _grgFloorM, (ax0 + ax1) / 2, y - slabTh / 2, (az0 + az1) / 2));
+    colliders.push({ x0: ax0, x1: ax1, z0: az0, z1: az1, deck: true, topY: y });
+  }
+  // ---- perimeter/edge wall: low spandrel visual, FULL-height band collider so you
+  // can't walk/drive off the open edge (blocks only movers on that level) ----
+  // ground-level colliders (y~0) must block EVERYONE, incl cars/NPCs that pass
+  // feetY=undefined; pushOut skips a minY collider when feetY is undefined, so
+  // ground pieces get NO minY (topY still lets an upper-level mover pass over).
+  // Upper levels DO get minY so they only block movers whose feet are on them.
+  function bandMinY(y) { return y > 0.1 ? y - 0.3 : undefined; }
+  function edgeWall(ax0, ax1, az0, az1, y, visH) {
+    var w = Math.max(0.3, ax1 - ax0), d = Math.max(0.3, az1 - az0);
+    scene.add(box(w, visH, d, _grgWallM, (ax0 + ax1) / 2, y + visH / 2, (az0 + az1) / 2));
+    colliders.push({ x0: ax0, x1: ax1, z0: az0, z1: az1, minY: bandMinY(y), topY: y + LH });
+  }
+  function column(x, z, y) {
+    scene.add(box(1.1, LH, 1.1, _grgWallM, x, y + LH / 2, z));
+    colliders.push({ x0: x - 0.62, x1: x + 0.62, z0: z - 0.62, z1: z + 0.62, minY: bandMinY(y), topY: y + LH });
+  }
+  // ---- ramp: sloped concrete slab + feetY-aware garageRamps entry ----
+  function ramp(ax, az, ux, uz, len, rise, base, wid) {
+    garageRamps.push({ ax: ax, az: az, ux: ux, uz: uz, len: len, rise: rise, base: base, wid: wid, grad: rise / len });
+    var nx = -uz, nz = ux, th = 0.35;
+    function P(s, t, y) { return [ax + ux * s + nx * t, y, az + uz * s + nz * t]; }
+    var yb = base, yt = base + rise, hw2 = wid / 2, pos = [], idx = [], v = 0;
+    function tri(A, B, C) { pos.push(A[0], A[1], A[2], B[0], B[1], B[2], C[0], C[1], C[2]); idx.push(v, v + 1, v + 2); v += 3; }
+    function quad(A, B, C, D) { tri(A, B, C); tri(A, C, D); }
+    quad(P(0, -hw2, yb), P(len, -hw2, yt), P(len, hw2, yt), P(0, hw2, yb));                 // top surface
+    quad(P(0, -hw2, yb - th), P(0, hw2, yb - th), P(len, hw2, yt - th), P(len, -hw2, yt - th)); // underside
+    var geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+    geo.setIndex(idx); geo.computeVertexNormals();
+    scene.add(new THREE.Mesh(geo, _grgRampM));
+  }
+  // ---- ramp bay geometry (north strip). Two lanes: A (north) = up/east ramps
+  // (levels 0->1 and 2->3), B (south) = the 1->2 ramp coming back west. ----
+  var bayZ1 = z1 - WT, bayDepth = 12, bayZ0 = bayZ1 - bayDepth;
+  var laneAz = bayZ1 - 3, laneBz = bayZ0 + 3, laneW = 5.4;
+  var ixL = x0 + WT + 8, ixR = x1 - WT - 8;                 // ramp incline extent (turning bays at both ends)
+  var rampLen = ixR - ixL, grad = LH / rampLen;
+  var parkZ0 = z0 + WT, parkZ1 = bayZ0;                     // parking zone (south of the bay)
+
+  // ground concrete slab (visual only; surfaceHeightAt already returns ~0 here)
+  scene.add(box(2 * HW, 0.12, 2 * HD, _grgFloorM, cx, 0.02, cz));
+
+  for (var L = 0; L < NLEV; L++) {
+    var y = ly(L);
+    // --- floor decks (skip ground: it's the real ground) ---
+    if (L > 0) {
+      floorRect(x0 + WT, x1 - WT, parkZ0, parkZ1, y);                       // parking-zone floor (solid)
+      // bay floor with a HOLE over whichever ramp inclines up THROUGH this level
+      // L1: ramp 0->1 climbs through lane A ; L2: ramp 1->2 through lane B ; L3: ramp 2->3 through lane A
+      var holeLaneN = (L % 2 === 1);                                        // odd levels: hole in lane A (north)
+      var holeZ0 = holeLaneN ? laneAz - laneW / 2 : laneBz - laneW / 2;
+      var holeZ1 = holeLaneN ? laneAz + laneW / 2 : laneBz + laneW / 2;
+      floorRect(x0 + WT, x1 - WT, bayZ0, holeZ0, y);                        // bay strip south of the hole
+      floorRect(x0 + WT, x1 - WT, holeZ1, bayZ1, y);                        // bay strip north of the hole
+      floorRect(x0 + WT, ixL, holeZ0, holeZ1, y);                           // west turning bay
+      floorRect(ixR, x1 - WT, holeZ0, holeZ1, y);                           // east turning bay
+    }
+    // --- ramp climbing OFF this level to the next ---
+    if (L < NLEV - 1) {
+      if (L % 2 === 0) ramp(ixL, laneAz, 1, 0, rampLen, LH, y, laneW);      // even level: up eastbound in lane A
+      else ramp(ixR, laneBz, -1, 0, rampLen, LH, y, laneW);                 // odd level: up westbound in lane B
+    }
+    // --- perimeter open-deck spandrel walls (ground has E+W entrances) ---
+    var visH = (L === NLEV - 1) ? 1.0 : 1.05;
+    edgeWall(x0, x1, z1 - WT, z1, y, visH);                                 // north
+    edgeWall(x0, x1, z0, z0 + WT, y, visH);                                 // south
+    if (L === 0) {
+      var gap = 7, gz0 = cz - gap, gz1 = cz + gap;                          // ground drive-through openings
+      edgeWall(x0, x0 + WT, z0, gz0, y, visH); edgeWall(x0, x0 + WT, gz1, z1, y, visH);   // west (split)
+      edgeWall(x1 - WT, x1, z0, gz0, y, visH); edgeWall(x1 - WT, x1, gz1, z1, y, visH);   // east (split)
+    } else {
+      edgeWall(x0, x0 + WT, z0, z1, y, visH);                               // west (solid)
+      edgeWall(x1 - WT, x1, z0, z1, y, visH);                               // east (solid)
+    }
+    // --- columns: a grid in the parking zone, clear of the central drive aisle ---
+    var colZs = [parkZ0 + 3.5, parkZ1 - 3.5];
+    for (var ci = 0; ci < colZs.length; ci++) for (var gx = x0 + WT + 6; gx < x1 - WT - 4; gx += 11) column(gx, colZs[ci], y);
+    // --- parked cars: nose-in bays along both edges, each car rotated 90° to the
+    // row so it sits perpendicular (nose toward the aisle). Sparse + random — most
+    // spots sit empty. ---
+    var rowZ = [parkZ0 + 3.4, parkZ1 - 3.4];
+    for (var ri = 0; ri < rowZ.length; ri++) {
+      for (var sx = x0 + WT + 4; sx < x1 - WT - 4; sx += 2.7) {              // one bay ~2.7m
+        if (Math.random() > 0.22) continue;                                 // ~1 in 5 spots taken
+        var mc = makeCar(); if (!mc || !mc.group) continue;
+        var gg = mc.group; gg.position.set(sx, y + 0.02, rowZ[ri]); gg.rotation.y = (ri === 0 ? Math.PI / 2 : -Math.PI / 2);
+        scene.add(gg);
+        colliders.push({ x0: sx - 1.1, x1: sx + 1.1, z0: rowZ[ri] - 2.4, z1: rowZ[ri] + 2.4, minY: bandMinY(y), topY: y + LH - 1.2 });
+      }
+    }
+  }
+  // --- big concrete corner pillars, ground → above the top deck (full-height, so
+  // the tower reads as structurally supporting every level). Plain colliders (no
+  // level band) so they block on every floor. ---
+  var topAll = NLEV * LH, cp = 1.3;
+  var corners = [[x0 + WT + cp, z0 + WT + cp], [x1 - WT - cp, z0 + WT + cp], [x0 + WT + cp, z1 - WT - cp], [x1 - WT - cp, z1 - WT - cp]];
+  for (var qi = 0; qi < corners.length; qi++) {
+    var q = corners[qi];
+    scene.add(box(2.5, topAll + 0.6, 2.5, _grgWallM, q[0], (topAll + 0.6) / 2, q[1]));
+    colliders.push({ x0: q[0] - 1.3, x1: q[0] + 1.3, z0: q[1] - 1.3, z1: q[1] + 1.3 });   // full height → blocks on all levels
+  }
+}
+var GARAGE_SPOTS = [
+  // [cx, cz]  (axis-aligned; add more to reuse the structure elsewhere)
+  [-245, 585]
+];
+function placeGarages() { for (var i = 0; i < GARAGE_SPOTS.length; i++) buildParkingGarage(GARAGE_SPOTS[i][0], GARAGE_SPOTS[i][1], GARAGE_SPOTS[i][2]); }
+placeGarages();
+
 // Top walkable/drivable surface height at (x,z): people + cars ride ON the
 // highest layer (grass 0 / road .05 / lot .10 / sidewalk .12 / pad .13 /
 // drive .14 / ramp) instead of clipping through it (feet/tyres were pinned to
@@ -5866,6 +6024,7 @@ function surfRect(x, z, list, y, h) {
 function surfaceHeightAt(x, z, skipRects, feetY) {
   if (typeof inLake === 'function' && inLake(x, z)) return lakeBedY(x, z);
   var h = driveSurfaceAt(x, z).h;                                      // ramps
+  if (garageRamps.length) h = garageSurfAt(x, z, feetY, h);           // multi-level garage ramps (feetY-aware)
   if (typeof REMAP_ROADS !== 'undefined') {
     if (!remapPointClear(x, z, 0)) { if (0.05 > h) h = 0.05; }         // road asphalt / junction
     else if (onSidewalk(x, z)) { if (0.12 > h) h = 0.12; }            // flanking sidewalk

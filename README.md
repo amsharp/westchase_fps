@@ -637,6 +637,28 @@ train** rides it:
 The **test guideway** is a curved (L-shaped) line in the open field east of
 town (around x 500, z 380).
 
+## Parking garage
+
+A **multi-level concrete parking garage** you can actually drive and walk
+through. It's a reusable structure (`buildParkingGarage`, placed from
+`GARAGE_SPOTS`), so the same design can drop into several spots around the city:
+
+- **Four levels** of open-air concrete decks, with a **switchback ramp** up the
+  north bay — drive (or walk) up and down between floors. The **top level has no
+  ceiling**, so you get a view out over the town.
+- **Ground floor has drive-through entrances on both sides** (east + west), so
+  traffic and pedestrians can come and go. Big **concrete corner pillars** run
+  the full height at all four corners, with a grid of interior columns holding up
+  the decks — the lanes and ramps are kept clear.
+- **Cars park nose-in** across the decks — sparse and random, so most bays sit
+  empty.
+- **Collision is strictly per-level.** Standing/driving on level 3 you're blocked
+  only by level-3 walls; walk underneath on the ground and nothing up above
+  touches you. Ground movers can't clip through the walls, and a car on the
+  ground isn't yanked up onto the decks overhead.
+
+The test garage sits in the open field southwest of town (around x −245, z 585).
+
 ## Trees
 
 The oaks and bushes are real PS1-style assets — flat textured branch
