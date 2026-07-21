@@ -10,9 +10,25 @@ const src = process.argv[2] || '/tmp/claude-0/-home-user-westchase-fps/efaef73e-
 const map = JSON.parse(fs.readFileSync(src, 'utf8'));
 const r2 = n => Math.round(n * 100) / 100;
 
-// ---- roads (carry the new kinds: highway/ramp/river + elevation) ----
-const roads = map.roads.map(r => ({ id: r.id, cls: r.cls, hw: r.hw, pts: r.pts, dirt: r.dirt ? 1 : undefined,
-  kind: (r.kind && r.kind !== 'road') ? r.kind : undefined, elev: r.elev || undefined }));
+// ---- roads (carry every kind + its special params: highway/ramp/merge/water/
+// exitdeck + elevation, one-way/lanes, merge endHw, exit taper/gore/clamp,
+// highway barGap) ----
+const roads = map.roads.map(r => {
+  const o = { id: r.id, cls: r.cls, hw: r.hw, pts: r.pts.map(p => [r2(p[0]), r2(p[1])]) };
+  if (r.dirt) o.dirt = 1;
+  if (r.kind && r.kind !== 'road') o.kind = r.kind;
+  if (r.elev) o.elev = r.elev;
+  if (r.oneway) o.oneway = true;
+  if (r.lanes) o.lanes = r.lanes;
+  if (r.endHw != null) o.endHw = r.endHw;
+  if (r.taper != null) o.taper = r.taper;
+  if (r.goreLen != null) o.goreLen = r.goreLen;
+  if (r.clampLine) o.clampLine = r.clampLine.map(p => [r2(p[0]), r2(p[1])]);
+  if (r.clampSide != null) o.clampSide = r.clampSide;
+  if (r.clampSign != null) o.clampSign = r.clampSign;
+  if (r.barGap) o.barGap = r.barGap.map(g => ({ side: g.side, s0: r2(g.s0), s1: r2(g.s1) }));
+  return o;
+});
 
 // ---- exits: any road endpoint on a wall, inward dir toward the adjacent point ----
 // (rivers don't make road exits — no ROAD CLOSED barrier across a waterway)
