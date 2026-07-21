@@ -187,7 +187,8 @@ var ROAD_CLASSES = [
   { cls:6, name:'River',      hw:18,  color:'#2f6f9e', kind:'water' },             // drawn like a road
   { cls:7, name:'Exit / Split',hw:5,  color:'#586070', kind:'exitdeck', elev:8, oneway:true, lanes:1 },  // click a highway; a lane peels off
   { cls:8, name:'Merge Lane',  hw:14, color:'#40454e', kind:'merge', endHw:8 },    // ground taper: wide ramp/highway base -> normal road
-  { cls:9, name:'Streetcar Rail',hw:2.4, color:'#8a8f99', kind:'rail' }            // twin steel rails; a single tram runs end-to-end between stations
+  { cls:9, name:'Streetcar Rail',hw:2.4, color:'#8a8f99', kind:'rail' },           // twin steel rails; a single tram runs end-to-end between stations
+  { cls:10,name:'Monorail',    hw:5,   color:'#b7b5ad', kind:'monorail', elev:9 }  // elevated concrete guideway w/ rails; a 2-car train shuttles end-to-end
 ];
 function roadClass(r){ return ROAD_CLASSES[r.cls] || ROAD_CLASSES[0]; }
 function roadKind(r){ return r.kind || (roadClass(r).kind) || 'road'; }
@@ -622,6 +623,16 @@ function drawRoad(r){ var cl=roadClass(r), kind=roadKind(r); var sp=polyScreen(r
     ctx.strokeStyle=r.oneway?'#cfd6e0':'#e8c23a'; ctx.lineWidth=Math.max(1,cam.zoom*0.5); ctx.setLineDash([6,7]); strokePoly(sp); ctx.setLineDash([]);
     return;
   }
+  if(kind==='monorail'){                                          // MONORAIL — elevated concrete guideway + rails (drop shadow shows it's raised)
+    var shadow=offsetPts(r.pts,r.hw*0.4).map(function(p){return w2s(p[0],p[1]);});
+    ctx.strokeStyle='#00000038'; ctx.lineWidth=Math.max(3,r.hw*2.2*cam.zoom); strokePoly(shadow);
+    ctx.strokeStyle='#7f7d75'; ctx.lineWidth=Math.max(3,r.hw*2*cam.zoom); strokePoly(sp);                 // concrete deck edge
+    ctx.strokeStyle=cl.color; ctx.lineWidth=Math.max(2,r.hw*1.7*cam.zoom); strokePoly(sp);                // concrete deck
+    ctx.strokeStyle='#c3c8d0'; ctx.lineWidth=Math.max(1.2,cam.zoom*0.5);                                  // twin rails on top
+    strokePoly(offsetPts(r.pts,r.hw*0.42).map(function(p){return w2s(p[0],p[1]);}));
+    strokePoly(offsetPts(r.pts,-r.hw*0.42).map(function(p){return w2s(p[0],p[1]);}));
+    return;
+  }
   if(kind==='rail'){                                              // STREETCAR RAIL — just twin steel rails (no ballast/ties)
     ctx.strokeStyle='#5b6068'; ctx.lineWidth=Math.max(1,cam.zoom*0.35); ctx.setLineDash([3,5]); strokePoly(sp); ctx.setLineDash([]);  // faint centre guide (editor only)
     ctx.strokeStyle='#c3c8d0'; ctx.lineWidth=Math.max(1.5,cam.zoom*0.55);
@@ -903,6 +914,9 @@ function buildProps(){
     if(rk==='highway'||rk==='ramp'){ host.appendChild(field('Elevation (m)', o.elev||8, function(v){ o.elev=v; }, 0.5));
       var note=el('div','prop'); note.style.fontSize='11px'; note.style.color='#8b97a8'; note.style.fontStyle='italic';
       note.textContent=(rk==='ramp'?'Ramp: snap one end to a ground-road node, the other to a highway node.':'Elevated deck — add a ramp to drive up onto it.'); host.appendChild(note); }
+    if(rk==='monorail'){ host.appendChild(field('Elevation (m)', o.elev||9, function(v){ o.elev=v; }, 0.5));
+      var mrn=el('div','prop'); mrn.style.fontSize='11px'; mrn.style.color='#8b97a8'; mrn.style.fontStyle='italic';
+      mrn.textContent='Elevated monorail guideway — fully above ground on piers (no ramps needed). A 2-car train shuttles end-to-end and reverses at each end.'; host.appendChild(mrn); }
     if(rk==='merge'){ host.appendChild(field('End half-width', o.endHw!=null?o.endHw:8, function(v){ o.endHw=Math.max(1,v); }, 0.5));
       var mn=el('div','prop'); mn.style.fontSize='11px'; mn.style.color='#8b97a8'; mn.style.fontStyle='italic';
       mn.textContent='Ground taper — width goes from Half-width (start point) to End half-width (end point). Draw start at the wide ramp/highway base, end where it meets the normal road.'; host.appendChild(mn); }

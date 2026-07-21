@@ -617,6 +617,26 @@ want a stop. Then it runs itself:
 There's a **test line with two stations** out in the open field southwest of
 town (around x −140, z 520) to see it in action.
 
+## The monorail
+
+High overhead there's an **elevated monorail** — a concrete guideway up on
+piers (no ramps, no ground connection; it's a world fixture) with steel rails
+on top, drawn in the editor with the **Monorail** road class. A **two-car
+train** rides it:
+
+- The **two cars are linked** but each follows the rail at its own point, so
+  the pair **articulates through curves** like a real train — they angle apart
+  on a bend and line back up on the straights.
+- **No stations** — it simply runs to the end of the guideway, **reverses**,
+  and heads back.
+- Its collision lives **up at guideway height**, so it **never touches the
+  ground** — walk, drive, or fight right underneath it and nothing happens.
+  (Only something up at its level — say, a stray plane clipping the deck —
+  would get hit.) It's not rideable.
+
+The **test guideway** is a curved (L-shaped) line in the open field east of
+town (around x 500, z 380).
+
 ## Trees
 
 The oaks and bushes are real PS1-style assets — flat textured branch

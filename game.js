@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.82.0';
+var GAME_VERSION = 'v1.83.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -3418,6 +3418,37 @@ function buildRail(r) {
   remapRibbon(railOffsetPoly(pts, nrm, -gauge), 0.12, 0.14, railSteelM, 1 / 3, 1);
   tramRails.push({ pts: pts, cum: cum, len: len, hw: hw });
 }
+// ---- elevated monorail guideway (kind:'monorail') ----
+// A concrete deck up on piers (reuses the one-lane highway deck build), no road
+// markings, with two steel rails on top. Fully above ground — no ramps. A single
+// two-car train shuttles end to end (initMonorails). Registered in monoGuideways.
+var monoGuideways = [];
+var monoDeckT = tex(128, function (g, s) { g.fillStyle = '#b7b5ad'; g.fillRect(0, 0, s, s); noise(g, s, 900, 0.1, 0.05); g.strokeStyle = 'rgba(120,118,110,0.35)'; for (var k = 0; k < 4; k++) { g.beginPath(); g.moveTo(0, s * k / 4); g.lineTo(s, s * k / 4); g.stroke(); } });
+var monoDeckM = lamb({ map: monoDeckT });
+function buildMonorail(r) {
+  var pts = r.pts, hw = r.hw || 5, deckY = r.elev || 9, cum = rmCum(pts), total = cum[cum.length - 1], s;
+  if (total < 3 || pts.length < 2) return;
+  remapRibbon(pts, hw, deckY + 0.02, monoDeckM, 1 / 10, 1);                  // concrete deck top (no markings)
+  remapRibbon(pts, hw, deckY - 0.55, hwUnderM, 1 / 8, 1);                    // underside slab
+  hwWall(rmOffsetPts(pts, hw - 0.05), deckY - 0.55, 0.62, 0.35, hwUnderM, null);   // deck-edge fascia
+  hwWall(rmOffsetPts(pts, -(hw - 0.05)), deckY - 0.55, 0.62, 0.35, hwUnderM, null);
+  // twin steel rails ON the deck (offset copies of the centreline follow curves)
+  var nrm = rmNormals(pts), gauge = hw * 0.42;
+  remapRibbon(railOffsetPoly(pts, nrm, gauge), 0.14, deckY + 0.2, railSteelM, 1 / 3, 1);
+  remapRibbon(railOffsetPoly(pts, nrm, -gauge), 0.14, deckY + 0.2, railSteelM, 1 / 3, 1);
+  // central support piers every ~30u (skip where a ground road passes underneath)
+  var pierW = 2.2, beamH = 1.2, beamTopY = deckY - 0.6, colH = beamTopY - beamH;
+  for (s = 16; s < total - 8; s += 30) {
+    var p = rmAt(pts, cum, s), tt = rmTangentAt(pts, cum, s), yaw = Math.atan2(tt.x, tt.z);
+    if (groundRoadAt(p.x, p.z, hw / 2 + 4)) continue;
+    var g = new THREE.Group(); g.position.set(p.x, 0, p.z); g.rotation.y = yaw;
+    g.add(box(pierW, colH, pierW, hwConcreteM, 0, colH / 2, 0));               // central column
+    g.add(box(hw * 1.6 + pierW, beamH, 2.2, hwConcreteM, 0, beamTopY - beamH / 2, 0));   // cap beam
+    scene.add(g);
+    var pc = addColliderOBB(p.x, p.z, pierW / 2 + 0.2, pierW / 2 + 0.2, yaw, 'mono:pillar'); pc.topY = deckY;
+  }
+  monoGuideways.push({ pts: pts, cum: cum, len: total, hw: hw, elev: deckY });
+}
 // Highway/ramp/river builds are DEFERRED: buildRemapRoads runs during the road
 // section (line ~2885), but the median lamps need streetLights/poleMetal/lamp
 // materials that aren't declared until the street-light section far below (var
@@ -3426,7 +3457,7 @@ function buildRail(r) {
 var pendingSpecial = [];
 function buildSpecialRoad(r) {
   if (r.kind === 'highway' || r.kind === 'ramp' || r.kind === 'water' || r.kind === 'merge'
-    || r.kind === 'owroad' || r.kind === 'gore' || r.kind === 'exitdeck' || r.kind === 'rail') { pendingSpecial.push(r); return true; }
+    || r.kind === 'owroad' || r.kind === 'gore' || r.kind === 'exitdeck' || r.kind === 'rail' || r.kind === 'monorail') { pendingSpecial.push(r); return true; }
   return false;
 }
 function buildPendingSpecialRoads() {
@@ -3440,6 +3471,7 @@ function buildPendingSpecialRoads() {
     else if (r.kind === 'gore') buildHwGore(r);
     else if (r.kind === 'exitdeck') buildExitDeck(r);
     else if (r.kind === 'rail') buildRail(r);
+    else if (r.kind === 'monorail') buildMonorail(r);
   }
   pendingSpecial = [];
 }
@@ -3841,7 +3873,7 @@ function remapInClear(x, z, grow) {
 // project (x,z) on a polyline -> {s: chainage, d: distance}
 // special road kinds that render their own full-width 3D structure (and so must
 // never get a flat ground junction pad dropped at their endpoints)
-function rmSpecialKind(k) { return k === 'highway' || k === 'ramp' || k === 'merge' || k === 'water' || k === 'exitdeck' || k === 'gore' || k === 'rail'; }
+function rmSpecialKind(k) { return k === 'highway' || k === 'ramp' || k === 'merge' || k === 'water' || k === 'exitdeck' || k === 'gore' || k === 'rail' || k === 'monorail'; }
 // true if a GROUND-LEVEL road (no elevation) runs within `pad` of (x,z). Used to
 // keep highway support columns from landing on a road that passes underneath.
 function groundRoadAt(x, z, pad) {
@@ -6167,6 +6199,82 @@ function respawnStreetcar(t) {
 }
 placeTramStations();
 initStreetcars();
+
+// ================= ELEVATED MONORAIL =================
+// A two-car train (cars linked but each aligned to its own rail tangent, so the
+// pair articulates through curves like a real train) shuttles along an elevated
+// guideway. No stations — it just reverses at each end. Collision is gated to the
+// guideway's ELEVATION, so it never touches anything on the ground. Not rideable,
+// not rocket-destructible (nothing's up there to fight it). Local per-peer.
+var monorails = [];
+var MONO_SPEED = 9, MONO_DWELL = 1.4, MONO_CARLEN = 9, MONO_GAP = 1.4;
+function makeMonoCar() {
+  var g = new THREE.Group();
+  var L = MONO_CARLEN, W = 2.3, H = 2.2, y0 = 0.5;
+  var shell = phong({ color: 0xdfe3e8, shininess: 70, specular: 0x9099a2 });
+  var blue = lamb({ color: 0x2f6fb0 });
+  var glass = phong({ color: 0x1b2730, shininess: 130, specular: 0xaaccdd, transparent: true, opacity: 0.6 });
+  var trimM = lamb({ color: 0x2a2d33 });
+  g.add(box(L, H, W, shell, 0, y0 + H / 2, 0));                         // body
+  g.add(box(L - 0.6, 0.85, W + 0.03, glass, 0, y0 + H - 0.55, 0));      // window band
+  g.add(box(L, 0.3, W + 0.02, blue, 0, y0 + 0.5, 0));                   // livery stripe
+  g.add(box(L + 0.05, 0.4, W - 0.1, trimM, 0, y0, 0));                  // skirt over the beam
+  // slightly rounded nose caps
+  for (var e = -1; e <= 1; e += 2) {
+    g.add(box(0.5, H - 0.5, W - 0.5, blue, e * (L / 2 + 0.06), y0 + H / 2, 0));
+    g.add(box(0.12, 0.5, W - 0.9, new THREE.MeshBasicMaterial({ color: 0xfff2c0 }), e * (L / 2 + 0.12), y0 + 0.7, 0));  // headlight
+  }
+  // straddle guide skirt underneath (grips the beam)
+  g.add(box(L - 1, 0.5, 0.5, trimM, 0, y0 - 0.35, 0));
+  return g;
+}
+function posMonoCar(gw, car, s) {
+  var p = rmAt(gw.pts, gw.cum, s);
+  car.position.set(p.x, gw.elev + 0.34, p.z);
+  car.rotation.y = Math.atan2(-p.ux, p.uz);   // each car aligns to the tangent AT ITS OWN chainage -> the two cars angle apart on a curve
+}
+function initMonorails() {
+  for (var i = 0; i < monoGuideways.length; i++) {
+    var gw = monoGuideways[i];
+    var span = MONO_CARLEN * 2 + MONO_GAP;      // both cars must fit on the guideway
+    if (gw.len < span + 2) continue;
+    var c0 = makeMonoCar(), c1 = makeMonoCar(); scene.add(c0); scene.add(c1);
+    var t = { gw: gw, cars: [c0, c1], s: span, dir: 1, dwell: MONO_DWELL, spacing: MONO_CARLEN + MONO_GAP, span: span, cx: 0, cz: 0, ux: 1, uz: 0, fx: 1, fz: 0 };
+    posMonorail(t); monorails.push(t);
+  }
+}
+function posMonorail(t) {
+  posMonoCar(t.gw, t.cars[0], t.s);                 // front car
+  posMonoCar(t.gw, t.cars[1], t.s - t.spacing);     // trailing car
+  var mid = rmAt(t.gw.pts, t.gw.cum, t.s - t.spacing / 2);
+  t.cx = mid.x; t.cz = mid.z; t.ux = mid.ux; t.uz = mid.uz; t.fx = t.dir * mid.ux; t.fz = t.dir * mid.uz;
+}
+function monoInBox(t, x, z, r) {
+  // whole-train box: from the front car nose to the trailing car tail
+  var half = (t.span + MONO_CARLEN) / 2 + r, dx = x - t.cx, dz = z - t.cz, nx = -t.uz, nz = t.ux;
+  return Math.abs(dx * t.ux + dz * t.uz) < half && Math.abs(dx * nx + dz * nz) < 1.6 + r;
+}
+function monoCollide(t) {
+  var elev = t.gw.elev, BAND = 3.2;   // only hit things at the guideway's height; ground stuff is untouched
+  if (!isClient()) {
+    var i;
+    for (i = 0; i < npcs.length; i++) { var n = npcs[i]; if (n.state === 'down' || n.state === 'ragdoll' || n.state === 'hidden') continue; if (Math.abs((n.y || 0) - elev) < BAND && monoInBox(t, n.x, n.z, 0.5)) killNpcRagdoll(n, t.fx, t.fz, 16); }
+    for (i = 0; i < cars.length; i++) { var car = cars[i]; if (car.exploded) continue; var gp = car.car.group.position; if (Math.abs(gp.y - elev) < BAND && monoInBox(t, gp.x, gp.z, 1.6)) explodeCar(car); }
+  }
+  if (!state.dead && Math.abs(player.y - elev) < BAND + 1 && !inside && monoInBox(t, player.x, player.z, 0.5)) hurtPlayer(300, t.cx, t.cz);
+}
+function updateMonorail(dt) {
+  for (var i = 0; i < monorails.length; i++) {
+    var t = monorails[i];
+    if (t.dwell > 0) { t.dwell -= dt; monoCollide(t); continue; }
+    var hi = t.gw.len, lo = t.span;
+    t.s += t.dir * MONO_SPEED * dt;
+    if (t.s >= hi) { t.s = hi; t.dir = -1; t.dwell = MONO_DWELL; }
+    else if (t.s <= lo) { t.s = lo; t.dir = 1; t.dwell = MONO_DWELL; }
+    posMonorail(t); monoCollide(t);
+  }
+}
+initMonorails();
 
 // ---- terminal curbs at true-road dead-ends (WC_REMAP) ----
 // Several surveyed street stubs just stop in open ground — the raw asphalt
@@ -23325,7 +23433,7 @@ function loop(now) {
   if (photoMode) { updatePhotoCam(dt); renderer.render(scene, camera); return; }
   T += dt;
   var sdt = dt;
-  updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
+  updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
   if (state.dead) updateDeathCam(dt);   // top-down zoom-out cinematic drives the camera while dead
   renderer.render(scene, camera);
 }
@@ -23512,6 +23620,9 @@ window.__wc = {
   destroyStreetcar: function (i) { if (streetcars[i || 0]) return destroyStreetcar(streetcars[i || 0]); return false; },
   streetcarState: function () { return streetcars.map(function (t) { return { s: Math.round(t.s * 10) / 10, si: t.si, dir: t.dir, dwell: Math.round(t.dwell * 10) / 10, dead: t.dead, respawnT: Math.round(t.respawnT * 10) / 10, stops: t.stops.map(function (v) { return Math.round(v); }), len: Math.round(t.rail.len), x: Math.round(t.group.position.x), z: Math.round(t.group.position.z) }; }); },
   setTramS: function (i, s) { var t = streetcars[i || 0]; if (t) { t.s = s; posTram(t); } },   // debug: jump a tram to chainage s
+  monorails: function () { return monorails; }, monoGuidewaysRef: function () { return monoGuideways; },
+  monorailState: function () { return monorails.map(function (t) { return { s: Math.round(t.s * 10) / 10, dir: t.dir, dwell: Math.round(t.dwell * 10) / 10, len: Math.round(t.gw.len), elev: t.gw.elev, cars: t.cars.map(function (c) { return { x: Math.round(c.position.x), y: Math.round(c.position.y * 10) / 10, z: Math.round(c.position.z), yaw: Math.round(c.rotation.y * 57.3) }; }) }; }); },
+  setMonoS: function (i, s) { var t = monorails[i || 0]; if (t) { t.s = s; posMonorail(t); } },   // debug: jump a train to chainage s
   puffs: puffs, bHoles: bHoles, densityPlaced: densityPlaced,   // vfx debug (blood/impact routing + bullet holes + sign placement)
   // ---- social groups (#67) ----
   spawnSharpGroup: function (sons) { return grpSummary(spawnSharpGroup(sons)); },
@@ -23730,7 +23841,7 @@ window.__wc = {
   // lightweight physics step (no render, no NPC/cop/car sim) — fast headless
   // stepping for plane/fall tests. Renders only when you call renderer yourself.
   stepLite: function (dt) { T += dt; updatePlayer(dt); updatePlaneWorld(dt); },
-  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
+  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
 };
 
 // ---------------- boot screen handoff + menu cover art ----------------
