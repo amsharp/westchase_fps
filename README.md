@@ -793,6 +793,12 @@ the same quiet noise bed as before, and the SFX volume slider controls it.
   item to use it, right-click or **Q** to drop one)
 - **K** — spawn the **Learjet** in front of you and hop in as pilot (see
   **Flying**)
+- **G** — toggle **noclip** (free-fly debug/sightseeing mode): you become
+  **invincible** and fly **through everything** with no collision or gravity.
+  **WASD** flies in the direction you're looking, **Space / Ctrl** go straight
+  up / down, and **Shift** is a big speed boost for crossing the map fast.
+  Press **G** again to drop back to normal (and mortal). A green **NOCLIP**
+  readout sits under the coordinates while it's on.
 - **Enter** — open text chat (multiplayer), **Esc** to cancel
 - **Hold V** — push-to-talk voice chat (multiplayer)
 - **F8** — report a bug (grabs a screenshot + your note, sent for triage —

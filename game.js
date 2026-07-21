@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.83.0';
+var GAME_VERSION = 'v1.84.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -19142,7 +19142,7 @@ function doRespawn() {
   if (state.running) lockPointer();
 }
 function hurtPlayer(d, sx, sz) {
-  if (state.dead) return;
+  if (state.dead || noclip) return;   // noclip = invincible
   state.hp -= d; state.lastHurt = T;
   // directional hit indicator (report mregrr51): remember where it came from
   if (sx !== undefined) {
@@ -22588,6 +22588,7 @@ document.addEventListener('keydown', function (e) {
   // pilot (single plane — re-spawns/replaces any existing one). Temporary test
   // key — this whole spawn-on-keypress goes away once airports exist.
   if (e.code === 'KeyK' && !e.repeat) { e.preventDefault(); if (!state.running || state.dead || state.menu) return; spawnPlane(); return; }
+  if (e.code === 'KeyG' && !e.repeat && state.running && !state.menu && !state.dead && !(plane && plane.piloting)) { e.preventDefault(); toggleNoclip(); return; }
   if (e.code === 'KeyQ' && state.menu === 'inv') { e.preventDefault(); if (bagSel >= 0 && state.bag[bagSel]) bagDrop(bagSel); return; }
   // #46 minimap zoom: [ zooms out (wider), ] zooms in (closer)
   if (!e.repeat && state.running && !state.menu) {
@@ -22666,8 +22667,38 @@ document.addEventListener('pointerlockchange', function () { if (document.pointe
 
 // ---------------- player update ----------------
 var stepPhase = 0;   // footstep cadence accumulator (#47)
+// ---- noclip (debug free-fly): fly through everything, invincible, fast. Toggle
+// with G. Disables all collision + gravity; hurtPlayer bails while it's on. ----
+var noclip = false;
+function toggleNoclip() {
+  if (driving) exitCar(true);
+  noclip = !noclip;
+  player.vy = 0; player.grounded = false;
+  if (noclip) { state.hp = 100; setWanted(0); }
+  popup2(noclip ? 'NOCLIP ON' : 'NOCLIP OFF');
+}
 function updatePlayer(dt) {
   if (state.menu || state.dead) return;
+  if (noclip) {   // free-fly: WASD along look dir, Space/Ctrl up/down, Shift = turbo
+    var flySpd = (keys['ShiftLeft'] || keys['ShiftRight'] ? 165 : 62);
+    var dir = new THREE.Vector3(); camera.getWorldDirection(dir);
+    var rt = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 1, 0));
+    if (rt.lengthSq() < 1e-4) rt.set(1, 0, 0); else rt.normalize();
+    var mf = 0, ms = 0, mu = 0;
+    if (keys['KeyW']) mf += 1; if (keys['KeyS']) mf -= 1; if (keys['KeyD']) ms += 1; if (keys['KeyA']) ms -= 1;
+    if (keys['Space']) mu += 1; if (keys['ControlLeft'] || keys['ControlRight'] || keys['KeyC']) mu -= 1;
+    player.x += (dir.x * mf + rt.x * ms) * flySpd * dt;
+    player.y += (dir.y * mf + mu) * flySpd * dt;
+    player.z += (dir.z * mf + rt.z * ms) * flySpd * dt;
+    player.x = Math.max(WLO + 1.2, Math.min(WHI - 1.2, player.x));   // stay over the map
+    player.z = Math.max(WLO + 1.2, Math.min(WHI - 1.2, player.z));
+    player.vy = 0; player.grounded = false; state.hp = 100;   // no gravity, invincible
+    camera.position.set(player.x, player.y, player.z); camera.rotation.y = yaw; camera.rotation.x = pitch;
+    if (flashT > 0) { flashT -= dt; if (flashT <= 0) flash.visible = false; }
+    document.getElementById('prompt').textContent = '';
+    rocketCdEl.classList.add('hidden');
+    return;
+  }
   if (rollState) { updateRoll(dt); return; }   // tuck-and-roll cinematic owns the camera until it finishes
   updateKamehameha(dt);   // rare fists beam: aim/sweep/expire (no-op unless active)
   if (driving) {
@@ -23352,7 +23383,9 @@ function drawHudCanvas() {
   if (settings && settings.coords && state.running) {
     var pxc = Math.round(player.x), pzc = Math.round(player.z), pyc = Math.round((player.y - EYE) * 10) / 10;
     hudText('X ' + pxc + '  Z ' + pzc + '  Y ' + pyc, M, leftY, 12, '#bfe3ff', 'left');
+    leftY += 16;
   }
+  if (noclip && state.running) hudText('NOCLIP  (G to exit · Shift boost · Space/Ctrl up-down)', M, leftY, 12, '#7dffb0', 'left');
 }
 // low-HP vignette (#QoL): sustained red edge glow that fades in below 30% HP
 // and pulses; cleared when healthy / dead / not playing. Cache el + last opacity
@@ -23623,6 +23656,7 @@ window.__wc = {
   monorails: function () { return monorails; }, monoGuidewaysRef: function () { return monoGuideways; },
   monorailState: function () { return monorails.map(function (t) { return { s: Math.round(t.s * 10) / 10, dir: t.dir, dwell: Math.round(t.dwell * 10) / 10, len: Math.round(t.gw.len), elev: t.gw.elev, cars: t.cars.map(function (c) { return { x: Math.round(c.position.x), y: Math.round(c.position.y * 10) / 10, z: Math.round(c.position.z), yaw: Math.round(c.rotation.y * 57.3) }; }) }; }); },
   setMonoS: function (i, s) { var t = monorails[i || 0]; if (t) { t.s = s; posMonorail(t); } },   // debug: jump a train to chainage s
+  toggleNoclip: toggleNoclip, isNoclip: function () { return noclip; }, setNoclip: function (v) { if (!!v !== noclip) toggleNoclip(); },
   puffs: puffs, bHoles: bHoles, densityPlaced: densityPlaced,   // vfx debug (blood/impact routing + bullet holes + sign placement)
   // ---- social groups (#67) ----
   spawnSharpGroup: function (sons) { return grpSummary(spawnSharpGroup(sons)); },
