@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.88.0';
+var GAME_VERSION = 'v1.88.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -7005,9 +7005,11 @@ function updateRainbow(dt) {
 }
 function updateEnv(dt) {
   envT += dt;
-  // the sky dome (r=520) is smaller than the expanded map — keep it centered
-  // on the camera so the far corners never poke outside it
-  if (skyDome) { skyDome.position.x = camera.position.x; skyDome.position.z = camera.position.z; }
+  // the sky dome (r=1000) is smaller than the expanded map — keep it centered
+  // on the camera so the far corners never poke outside it. It also tracks the
+  // camera's ALTITUDE so you can fly up high (see planeBounds' raised ceiling)
+  // without climbing out of the sky into the void.
+  if (skyDome) { skyDome.position.x = camera.position.x; skyDome.position.z = camera.position.z; skyDome.position.y = Math.max(0, camera.position.y - 40); }
   // rain + weather scheduling. weatherMode !== 'auto' pins a forced state; else
   // the host/SP rolls rain on/off (with a random intensity) plus occasional
   // independent overcast/haze spells. Clients follow the host's on/off flag but
@@ -14808,6 +14810,7 @@ var PLANE_GEAR_UP_ALT = 15;   // altitude above which gear auto-retracts
 var PLANE_GEAR_DN_ALT = 12;   // altitude below which gear auto-deploys
 var PLANE_BAIL_SPD = 12;      // exit is only safe below this speed AND alt
 var PLANE_BAIL_ALT = 6;
+var PLANE_CEILING = 1500;     // altitude ceiling (raised from 400; sky dome tracks the camera up so the sky stays wrapped around you at height)
 // ---- stall / angle-of-attack (user: high AoA or extreme maneuvers should stall
 // the wing and cost you control for a moment; you can no longer hover at low speed) ----
 var PLANE_STALL_AOA = 0.30;          // ~17deg: past this angle of attack the wing stalls
@@ -15087,7 +15090,7 @@ function updatePlaneWorld(dt) {
 function planeBounds(g) {
   g.position.x = Math.max(WLO + 4, Math.min(WHI - 4, g.position.x));   // full expanded world (was ±HALF — trapped the plane at the old town edge)
   g.position.z = Math.max(WLO + 4, Math.min(WHI - 4, g.position.z));
-  if (g.position.y > 400) g.position.y = 400;
+  if (g.position.y > PLANE_CEILING) g.position.y = PLANE_CEILING;   // altitude ceiling (sky dome tracks the camera up, so this can be high)
 }
 // building crash test: inside any mapBuildings footprint AND below its roof
 function planeHitBuilding(x, y, z) {

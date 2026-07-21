@@ -593,7 +593,8 @@ too far), **SINK RATE** (dropping too fast), **TERRAIN** (low and fast), and
 Hold the runway with the throttle open; once you're past takeoff speed and
 pull the nose up, the jet **rotates and lifts off**. Below takeoff speed
 there's not enough lift and you'll just sink back down — so build speed
-first. The **landing gear retracts** on its own once you're well clear of
+first. There's plenty of **vertical room to climb** now — you can take it
+way up high, and the sky stays wrapped around you the whole way. The **landing gear retracts** on its own once you're well clear of
 the ground and **drops back down** as you come in to land. Set it down
 gently, wheels-down and slow, and it's a clean landing; come in too fast,
 too steep, or slam a building and the jet **crashes** — a fireball, ten
