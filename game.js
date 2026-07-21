@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.85.2';
+var GAME_VERSION = 'v1.86.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -3449,6 +3449,63 @@ function buildMonorail(r) {
   }
   monoGuideways.push({ pts: pts, cum: cum, len: total, hw: hw, elev: deckY });
 }
+// ---- airport runway (kind:'runway') + taxiway (kind:'taxiway') ----
+// A runway is a WIDE dark-asphalt strip with painted edge lines, dashed centreline
+// and threshold "piano keys", flanked by edge lights that glow at night (registered
+// into streetLights so setLamps toggles them like street lamps). Green threshold
+// lights cap each end. NO cars/NPCs/sidewalks/streetlights (it's a special road, so
+// buildRemapRoads skips all that). A taxiway is a plain thin strip with a solid
+// yellow centreline for planes to taxi to the runway.
+var runwayT = tex(256, function (g, s) {
+  g.fillStyle = '#212327'; g.fillRect(0, 0, s, s);
+  noise(g, s, 900, 0.06, 0.04);
+  g.fillStyle = '#d9d7cf';
+  g.fillRect(s * 0.03, 0, s * 0.02, s); g.fillRect(s * 0.95, 0, s * 0.02, s);   // solid edge lines
+  g.fillRect(s * 0.487, s * 0.1, s * 0.026, s * 0.55);                          // dashed centreline (one dash per tile)
+});
+var runwayM = lamb({ map: runwayT });
+var taxiwayT = tex(128, function (g, s) {
+  g.fillStyle = '#2b2e33'; g.fillRect(0, 0, s, s);
+  noise(g, s, 400, 0.05, 0.03);
+  g.fillStyle = '#e0bf2c'; g.fillRect(s * 0.47, 0, s * 0.06, s);                // solid yellow taxiway centreline
+});
+var taxiwayM = lamb({ map: taxiwayT });
+var runwayMarkM = new THREE.MeshBasicMaterial({ color: 0xe8e6df });             // threshold bars (unlit white)
+function addRunwayLight(x, z, col, sc) {
+  var head = box(0.4, 0.35, 0.4, lampOffM, x, 0.24, z); scene.add(head);
+  var glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: lampGlowT, color: col, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+  glow.scale.set(sc || 2.4, sc || 2.4, 1); glow.position.set(x, 0.55, z); glow.visible = false; scene.add(glow);
+  streetLights.push({ head: head, glow: glow, pool: new THREE.Object3D(), broken: false, x: x, z: z, runway: true });
+}
+function buildRunway(r) {
+  var pts = r.pts, hw = r.hw || 24, cum = rmCum(pts), total = cum[cum.length - 1];
+  if (total < 8 || pts.length < 2) return;
+  remapRibbon(pts, hw, 0.05, runwayM, 1 / 46, 1);                                // dark asphalt + baked edge lines / centreline dashes
+  // threshold "piano keys" at each end (longitudinal white stripes)
+  for (var end = 0; end < 2; end++) {
+    var se = end === 0 ? 2 : total - 2, dir = end === 0 ? 1 : -1;
+    var p = rmAt(pts, cum, se), yaw = Math.atan2(p.ux * dir, p.uz * dir), nx = -p.uz, nz = p.ux;
+    for (var k = -3; k <= 3; k++) {
+      if (k === 0) continue;
+      var off = k * hw * 0.24;
+      var bar = box(1.4, 0.02, 16, runwayMarkM, p.x + nx * off + p.ux * dir * 9, 0.07, p.z + nz * off + p.uz * dir * 9);
+      bar.rotation.y = yaw; scene.add(bar);
+    }
+    // green threshold light bar across the end
+    for (var gk = -1; gk <= 1; gk++) addRunwayLight(p.x + nx * gk * hw * 0.7, p.z + nz * gk * hw * 0.7, 0x40ff70, 2.8);
+  }
+  // white edge lights down both sides (~every 18u), glowing at night
+  for (var s = 8; s < total - 6; s += 18) {
+    var q = rmAt(pts, cum, s), qnx = -q.uz, qnz = q.ux;
+    addRunwayLight(q.x + qnx * (hw + 1), q.z + qnz * (hw + 1), 0xfff0c8, 2.4);
+    addRunwayLight(q.x - qnx * (hw + 1), q.z - qnz * (hw + 1), 0xfff0c8, 2.4);
+  }
+}
+function buildTaxiway(r) {
+  var pts = r.pts, hw = r.hw || 7, cum = rmCum(pts), total = cum[cum.length - 1];
+  if (total < 4 || pts.length < 2) return;
+  remapRibbon(pts, hw, 0.05, taxiwayM, 1 / 14, 1);                               // plain asphalt + solid yellow centreline
+}
 // Highway/ramp/river builds are DEFERRED: buildRemapRoads runs during the road
 // section (line ~2885), but the median lamps need streetLights/poleMetal/lamp
 // materials that aren't declared until the street-light section far below (var
@@ -3457,7 +3514,8 @@ function buildMonorail(r) {
 var pendingSpecial = [];
 function buildSpecialRoad(r) {
   if (r.kind === 'highway' || r.kind === 'ramp' || r.kind === 'water' || r.kind === 'merge'
-    || r.kind === 'owroad' || r.kind === 'gore' || r.kind === 'exitdeck' || r.kind === 'rail' || r.kind === 'monorail') { pendingSpecial.push(r); return true; }
+    || r.kind === 'owroad' || r.kind === 'gore' || r.kind === 'exitdeck' || r.kind === 'rail' || r.kind === 'monorail'
+    || r.kind === 'runway' || r.kind === 'taxiway') { pendingSpecial.push(r); return true; }
   return false;
 }
 function buildPendingSpecialRoads() {
@@ -3472,6 +3530,8 @@ function buildPendingSpecialRoads() {
     else if (r.kind === 'exitdeck') buildExitDeck(r);
     else if (r.kind === 'rail') buildRail(r);
     else if (r.kind === 'monorail') buildMonorail(r);
+    else if (r.kind === 'runway') buildRunway(r);
+    else if (r.kind === 'taxiway') buildTaxiway(r);
   }
   pendingSpecial = [];
 }
@@ -3873,7 +3933,7 @@ function remapInClear(x, z, grow) {
 // project (x,z) on a polyline -> {s: chainage, d: distance}
 // special road kinds that render their own full-width 3D structure (and so must
 // never get a flat ground junction pad dropped at their endpoints)
-function rmSpecialKind(k) { return k === 'highway' || k === 'ramp' || k === 'merge' || k === 'water' || k === 'exitdeck' || k === 'gore' || k === 'rail' || k === 'monorail'; }
+function rmSpecialKind(k) { return k === 'highway' || k === 'ramp' || k === 'merge' || k === 'water' || k === 'exitdeck' || k === 'gore' || k === 'rail' || k === 'monorail' || k === 'runway' || k === 'taxiway'; }
 // true if a GROUND-LEVEL road (no elevation) runs within `pad` of (x,z). Used to
 // keep highway support columns from landing on a road that passes underneath.
 function groundRoadAt(x, z, pad) {

@@ -188,7 +188,9 @@ var ROAD_CLASSES = [
   { cls:7, name:'Exit / Split',hw:5,  color:'#586070', kind:'exitdeck', elev:8, oneway:true, lanes:1 },  // click a highway; a lane peels off
   { cls:8, name:'Merge Lane',  hw:14, color:'#40454e', kind:'merge', endHw:8 },    // ground taper: wide ramp/highway base -> normal road
   { cls:9, name:'Streetcar Rail',hw:2.4, color:'#8a8f99', kind:'rail' },           // twin steel rails; a single tram runs end-to-end between stations
-  { cls:10,name:'Monorail',    hw:5,   color:'#b7b5ad', kind:'monorail', elev:9 }  // elevated concrete guideway w/ rails; a 2-car train shuttles end-to-end
+  { cls:10,name:'Monorail',    hw:5,   color:'#b7b5ad', kind:'monorail', elev:9 }, // elevated concrete guideway w/ rails; a 2-car train shuttles end-to-end
+  { cls:11,name:'Runway',      hw:24,  color:'#26282c', kind:'runway' },           // wide airport runway w/ markings + edge lights (no cars/sidewalks)
+  { cls:12,name:'Taxiway',     hw:7,   color:'#3a3d42', kind:'taxiway' }           // plain airport taxiway (yellow centreline) connecting to the runway
 ];
 function roadClass(r){ return ROAD_CLASSES[r.cls] || ROAD_CLASSES[0]; }
 function roadKind(r){ return r.kind || (roadClass(r).kind) || 'road'; }
@@ -621,6 +623,24 @@ function drawRoad(r){ var cl=roadClass(r), kind=roadKind(r); var sp=polyScreen(r
     for(var j2=R.length-1;j2>=0;j2--) ctx.lineTo(R[j2][0],R[j2][1]); ctx.closePath();
     ctx.fillStyle=cl.color; ctx.fill(); ctx.strokeStyle='#20232a'; ctx.lineWidth=1.5; ctx.stroke();
     ctx.strokeStyle=r.oneway?'#cfd6e0':'#e8c23a'; ctx.lineWidth=Math.max(1,cam.zoom*0.5); ctx.setLineDash([6,7]); strokePoly(sp); ctx.setLineDash([]);
+    return;
+  }
+  if(kind==='runway'){                                            // RUNWAY — wide dark asphalt, centre dashes, edge-light dots
+    ctx.strokeStyle='#e8e6e0'; ctx.lineWidth=Math.max(3,r.hw*2.1*cam.zoom); strokePoly(sp);            // painted edge margin
+    ctx.strokeStyle=cl.color; ctx.lineWidth=Math.max(2,r.hw*2*cam.zoom); strokePoly(sp);               // asphalt
+    ctx.strokeStyle='#f2f0ea'; ctx.lineWidth=Math.max(1,cam.zoom*0.7); ctx.setLineDash([12,10]); strokePoly(sp); ctx.setLineDash([]);  // centre dashes
+    // edge-light dots along both sides
+    ctx.fillStyle='#ffe9a8';
+    for(var ei2=0;ei2<sp.length-1;ei2++){ var ax1=sp[ei2][0],ay1=sp[ei2][1],bx1=sp[ei2+1][0],by1=sp[ei2+1][1];
+      var dx1=bx1-ax1,dy1=by1-ay1,l1=Math.hypot(dx1,dy1)||1,st=Math.max(9,cam.zoom*4),px1=-dy1/l1,py1=dx1/l1, ew=r.hw*cam.zoom;
+      for(var d1=0;d1<l1;d1+=st){ var mx1=ax1+dx1*d1/l1,my1=ay1+dy1*d1/l1;
+        ctx.beginPath(); ctx.arc(mx1+px1*ew,my1+py1*ew,1.6,0,7); ctx.fill();
+        ctx.beginPath(); ctx.arc(mx1-px1*ew,my1-py1*ew,1.6,0,7); ctx.fill(); } }
+    return;
+  }
+  if(kind==='taxiway'){                                           // TAXIWAY — plain asphalt with a solid yellow centreline
+    ctx.strokeStyle='#2c2f34'; ctx.lineWidth=Math.max(2,r.hw*2*cam.zoom); strokePoly(sp);
+    ctx.strokeStyle='#e6c22a'; ctx.lineWidth=Math.max(1,cam.zoom*0.6); strokePoly(sp);
     return;
   }
   if(kind==='monorail'){                                          // MONORAIL — elevated concrete guideway + rails (drop shadow shows it's raised)

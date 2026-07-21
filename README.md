@@ -659,6 +659,22 @@ through. It's a reusable structure (`buildParkingGarage`, placed from
 
 The test garage sits in the open field southwest of town (around x −245, z 585).
 
+## Airport runway & taxiway
+
+Two new **airport** road types you draw in the editor, for the airfield build:
+
+- **Runway** — a **wide** dark-asphalt strip with painted **edge lines, a dashed
+  centreline and threshold "piano keys"** at each end, flanked by **edge lights**
+  that (like the street lamps) **glow at night** so you can pick out the runway in
+  the dark. Green threshold lights cap each end. No cars, sidewalks, streetlights
+  or NPC traffic — it's aircraft-only.
+- **Taxiway** — a **thinner, plain** strip with a solid yellow centreline, for
+  taxiing to/from the runway. Also car-free.
+
+Both are placed like any road in the editor (Runway / Taxiway classes). A test
+runway + connecting taxiway sit in the open field south of town (runway centred
+around x 60, z 550).
+
 ## Trees
 
 The oaks and bushes are real PS1-style assets — flat textured branch
