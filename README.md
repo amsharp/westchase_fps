@@ -567,10 +567,12 @@ drop straight into the pilot's seat. Flying is third-person, chase-cam,
 and deliberately arcade — forgiving and fun, not a study sim:
 
 - **W / S** — throttle up / down (you need speed for lift).
-- **A / D** — rudder: yaw left / right.
-- **Mouse** — the yoke: push the mouse **DOWN to climb** and up to descend
-  (yoke-style, intentionally inverted from the on-foot look), and **left /
-  right to roll**. Bank into a turn and the plane carves around.
+- **A / D** — ailerons: **roll** left / right. Bank into a turn and the plane
+  carves around.
+- **Mouse** — push the mouse **DOWN to climb** and up to descend (yoke-style,
+  intentionally inverted from the on-foot look), and **left / right to work the
+  rudder** (yaw). On the ground the rudder steers the nosewheel, so you taxi
+  with the mouse.
 - **E** — get out (and, once parked, **[E] near the plane climbs back in**).
 
 The turbines **spool up as you feed in throttle** and settle to a steady

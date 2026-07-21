@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.88.1';
+var GAME_VERSION = 'v1.88.2';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -14853,7 +14853,7 @@ function spawnPlane() {
     group: built.group, parts: built.parts, vel: new THREE.Vector3(),
     throttle: 0, gearT: 0, onGround: true, groundPitch: 0, alive: true, piloting: false,
     ail: 0, elev: 0, rud: 0,            // smoothed control positions
-    mAil: 0, mElev: 0,                  // mouse-driven command accumulators
+    mRud: 0, mElev: 0,                  // mouse-driven command accumulators (X=rudder, Y=elevator)
     stalled: false, stallT: 0, buffet: 0, vspeed: 0,   // stall/AoA state
     warn: { terrain: false, sink: false, pullup: false, bank: false, stall: false },
     warnActive: null, warnT: 0,         // which alarm is sounding + its repeat cadence
@@ -14871,10 +14871,10 @@ function boardPlane() {
   startJet();                                            // spin up the turbine loop
   setZoom(false);
   vm.visible = false;                                    // hide FP arms/viewmodel like driving
-  plane.mAil = 0; plane.mElev = 0;
+  plane.mRud = 0; plane.mElev = 0;
   document.getElementById('crosshair').style.display = 'none';
   var wb = document.getElementById('weaponBox');
-  if (wb) wb.innerHTML = 'FLYING<br><small>[E] exit &middot; W/S throttle &middot; A/D rudder &middot; mouse: down=climb, L/R=roll</small>';
+  if (wb) wb.innerHTML = 'FLYING<br><small>[E] exit &middot; W/S throttle &middot; A/D roll &middot; mouse: down=climb, L/R=rudder</small>';
 }
 // exit / bail. Safe only when slow AND low; otherwise the pilot is thrown clear
 // carrying the plane's velocity and takes (usually lethal) fall damage.
@@ -14927,13 +14927,14 @@ function updatePlaneWorld(dt) {
   // ---- controls: gather target commands ----
   var tAil = 0, tElev = 0, tRud = 0, tThrottle = plane.throttle;
   if (plane.piloting) {
-    // mouse accumulators drive aileron (X) + elevator (Y); they decay so the
-    // controls re-center when the mouse stops. mouse-DOWN => climb (elevator +).
-    plane.mAil *= Math.max(0, 1 - 7 * dt);
+    // mouse accumulators drive RUDDER (X) + elevator (Y); they decay so the
+    // controls re-center when the mouse stops. mouse-DOWN => climb (elevator +),
+    // mouse LEFT/RIGHT => rudder (yaw). A/D keys work the AILERONS (roll).
+    plane.mRud *= Math.max(0, 1 - 7 * dt);
     plane.mElev *= Math.max(0, 1 - 7 * dt);
-    tAil = Math.max(-1, Math.min(1, plane.mAil));
+    tAil = (keys['KeyD'] ? 1 : 0) - (keys['KeyA'] ? 1 : 0);   // D=roll right, A=roll left
     tElev = Math.max(-1, Math.min(1, plane.mElev));
-    tRud = (keys['KeyA'] ? 1 : 0) - (keys['KeyD'] ? 1 : 0);   // v1.68.2: A=left, D=right (was reversed)
+    tRud = Math.max(-1, Math.min(1, plane.mRud));             // mouse left/right = rudder
     if (keys['KeyW']) tThrottle += PLANE_THROTTLE_RATE * dt;
     if (keys['KeyS']) tThrottle -= PLANE_THROTTLE_RATE * dt;
     plane.throttle = Math.max(0, Math.min(1, tThrottle));
@@ -15140,7 +15141,7 @@ function updatePlaneHud() {
   if (w.terrain) warns.push('TERRAIN'); if (w.sink) warns.push('SINK RATE');
   if (w.bank) warns.push('BANK ANGLE');
   var warnHtml = warns.length ? '<br><b style="color:#ff3b30">⚠ ' + warns.join(' &middot; ') + '</b>' : '';
-  wb.innerHTML = 'FLYING &middot; ALT ' + alt + ' &middot; SPD ' + spd + ' &middot; THR ' + Math.round(plane.throttle * 100) + '%' + warnHtml + '<br><small>[E] exit &middot; W/S throttle &middot; A/D rudder &middot; mouse: down=climb, L/R=roll</small>';
+  wb.innerHTML = 'FLYING &middot; ALT ' + alt + ' &middot; SPD ' + spd + ' &middot; THR ' + Math.round(plane.throttle * 100) + '%' + warnHtml + '<br><small>[E] exit &middot; W/S throttle &middot; A/D roll &middot; mouse: down=climb, L/R=rudder</small>';
 }
 // GPWS-style cockpit warnings. Sets plane.warn.* flags (drawn on the HUD) and
 // sounds the single highest-priority alarm on a repeating cadence. The audio
@@ -22555,10 +22556,10 @@ document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 document.addEventListener('mousemove', function (e) {
   if (document.pointerLockElement !== canvas || state.menu) return;
   if (plane && plane.piloting) {
-    // yoke-style: mouse DOWN (movementY+) => climb; mouse RIGHT => roll right.
-    // v1.68.2: roll sign flipped (was reversed — mouse-left rolled right).
+    // yoke/pedal-style: mouse DOWN (movementY+) => climb; mouse LEFT/RIGHT => rudder
+    // (yaw left/right). Rolling the wings is on the A/D keys now.
     plane.mElev = Math.max(-1.4, Math.min(1.4, plane.mElev + e.movementY * PLANE_MOUSE_SENS));
-    plane.mAil = Math.max(-1.4, Math.min(1.4, plane.mAil - e.movementX * PLANE_MOUSE_SENS));
+    plane.mRud = Math.max(-1.4, Math.min(1.4, plane.mRud - e.movementX * PLANE_MOUSE_SENS));
     return;                                   // intercept: don't drive the FPS look
   }
   var sens = 0.0022 * (zoomed ? 0.35 : 1) * lookSens; yaw -= e.movementX * sens; pitch -= (lookInvert ? -1 : 1) * e.movementY * sens; pitch = Math.max(-1.45, Math.min(1.45, pitch));
@@ -24326,7 +24327,7 @@ window.__wc = {
       debris: planeDebris.length, scorch: planeScorch.length
     };
   },
-  planeMouse: function (dx, dy) { if (plane && plane.piloting) { plane.mElev = Math.max(-1.4, Math.min(1.4, plane.mElev + dy * PLANE_MOUSE_SENS)); plane.mAil = Math.max(-1.4, Math.min(1.4, plane.mAil - dx * PLANE_MOUSE_SENS)); } },
+  planeMouse: function (dx, dy) { if (plane && plane.piloting) { plane.mElev = Math.max(-1.4, Math.min(1.4, plane.mElev + dy * PLANE_MOUSE_SENS)); plane.mRud = Math.max(-1.4, Math.min(1.4, plane.mRud - dx * PLANE_MOUSE_SENS)); } },
   planeProps: function () { return { debris: planeDebris.length, scorch: planeScorch.length }; },
   updatePlaneWorld: updatePlaneWorld,
   // jet-engine audio debug: gain rises with throttle (headless verification hook)
