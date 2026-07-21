@@ -143,6 +143,9 @@
           peels off its edge (the guardrail opens automatically). In Properties choose one of the
           <b>4 orientations</b> (Off/On-ramp × left/right side) and set its <b>Reach</b>. Snap a
           <b>1-way ramp</b> + <b>road</b> off the wide end to bring the exit down to ground.<br>
+          <b>Merge Lane:</b> a ground-level taper that goes from its start-point <b>Half-width</b> to its end-point
+          <b>End half-width</b> (both in Properties) — use it to blend a wide ramp/highway base smoothly into a
+          normal road. Draw the <b>wide</b> end first, the narrow end last; toggle <b>one-way</b> for exit chains.<br>
           <b>Area (terrain):</b> stamp a <b>Forest</b>, <b>Lake</b>, or <b>Ocean</b> rectangle — resize/rotate like a building;
           overlap several for irregular coastlines or woods.<br>
           <b>Surface / Building / Prop:</b> pick a type at left, click to stamp. The yellow <b>▲ arrow</b> on a
@@ -181,7 +184,8 @@ var ROAD_CLASSES = [
   { cls:4, name:'Highway',    hw:16,  color:'#2a2d33', kind:'highway', elev:8 },   // elevated
   { cls:5, name:'On/Off Ramp',hw:7,   color:'#34373d', kind:'ramp',    elev:8 },   // ground <-> highway
   { cls:6, name:'River',      hw:18,  color:'#2f6f9e', kind:'water' },             // drawn like a road
-  { cls:7, name:'Exit / Split',hw:5,  color:'#586070', kind:'exitdeck', elev:8, oneway:true, lanes:1 }  // click a highway; a lane peels off
+  { cls:7, name:'Exit / Split',hw:5,  color:'#586070', kind:'exitdeck', elev:8, oneway:true, lanes:1 },  // click a highway; a lane peels off
+  { cls:8, name:'Merge Lane',  hw:14, color:'#40454e', kind:'merge', endHw:8 }     // ground taper: wide ramp/highway base -> normal road
 ];
 function roadClass(r){ return ROAD_CLASSES[r.cls] || ROAD_CLASSES[0]; }
 function roadKind(r){ return r.kind || (roadClass(r).kind) || 'road'; }
@@ -600,6 +604,21 @@ function drawRoad(r){ var cl=roadClass(r), kind=roadKind(r); var sp=polyScreen(r
     ctx.fillStyle='#ffd94a'; ctx.strokeStyle='#7a3b0e'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(tip[0],tip[1],4,0,7); ctx.fill(); ctx.stroke();
     return;
   }
+  if(kind==='merge'){                                             // MERGE — ground taper: Half-width -> End half-width along its length
+    var eh=(r.endHw!=null?r.endHw:r.hw), n=r.pts.length;
+    var cum=[0]; for(var q=1;q<n;q++) cum[q]=cum[q-1]+Math.hypot(r.pts[q][0]-r.pts[q-1][0], r.pts[q][1]-r.pts[q-1][1]);
+    var tot=cum[n-1]||1;
+    function mNrm(i){ var ax,az; if(i===0){ax=r.pts[1][0]-r.pts[0][0];az=r.pts[1][1]-r.pts[0][1];}
+      else if(i===n-1){ax=r.pts[i][0]-r.pts[i-1][0];az=r.pts[i][1]-r.pts[i-1][1];}
+      else {ax=r.pts[i+1][0]-r.pts[i-1][0];az=r.pts[i+1][1]-r.pts[i-1][1];} var l=Math.hypot(ax,az)||1; return [-az/l,ax/l]; }
+    var L=[],R=[]; for(var i2=0;i2<n;i2++){ var hwi=r.hw+(eh-r.hw)*(cum[i2]/tot), nn=mNrm(i2);
+      L.push(w2s(r.pts[i2][0]+nn[0]*hwi, r.pts[i2][1]+nn[1]*hwi)); R.push(w2s(r.pts[i2][0]-nn[0]*hwi, r.pts[i2][1]-nn[1]*hwi)); }
+    ctx.beginPath(); L.forEach(function(p,i){ i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]); });
+    for(var j2=R.length-1;j2>=0;j2--) ctx.lineTo(R[j2][0],R[j2][1]); ctx.closePath();
+    ctx.fillStyle=cl.color; ctx.fill(); ctx.strokeStyle='#20232a'; ctx.lineWidth=1.5; ctx.stroke();
+    ctx.strokeStyle=r.oneway?'#cfd6e0':'#e8c23a'; ctx.lineWidth=Math.max(1,cam.zoom*0.5); ctx.setLineDash([6,7]); strokePoly(sp); ctx.setLineDash([]);
+    return;
+  }
   // ground road
   ctx.strokeStyle = r.dirt?'#8a744f':cl.color; ctx.lineWidth=Math.max(2,r.hw*2*cam.zoom); strokePoly(sp);
   if(r.cls<=1 && !r.dirt){ ctx.strokeStyle='#e8c23a'; ctx.lineWidth=Math.max(1,cam.zoom*0.5); ctx.setLineDash([6,7]); strokePoly(sp); ctx.setLineDash([]); }
@@ -850,12 +869,20 @@ function buildProps(){
     var en=el('div','prop'); en.style.fontSize='11px'; en.style.color='#8b97a8'; en.style.fontStyle='italic';
     en.textContent='Off/On-ramp × left/right. The lane peels off the highway edge and opens its guardrail automatically. Add a 1-way ramp + road off the wide end to bring it to ground.'; host.appendChild(en);
   } else if(sel.kind==='road'){
-    host.appendChild(selectField('Class', ROAD_CLASSES, o.cls, function(v){ var ncl=ROAD_CLASSES[+v]; o.cls=+v; o.hw=ncl.hw; o.kind=ncl.kind; o.elev=ncl.elev; syncProps(); }));
+    host.appendChild(selectField('Class', ROAD_CLASSES, o.cls, function(v){ var ncl=ROAD_CLASSES[+v]; o.cls=+v; o.hw=ncl.hw; o.kind=ncl.kind; o.elev=ncl.elev; o.endHw=(ncl.endHw!=null?ncl.endHw:undefined); o.oneway=!!ncl.oneway; if(ncl.lanes)o.lanes=ncl.lanes; syncProps(); }));
     host.appendChild(field('Half-width',o.hw,function(v){o.hw=v;},0.5));
     var rk=roadKind(o);
     if(rk==='highway'||rk==='ramp'){ host.appendChild(field('Elevation (m)', o.elev||8, function(v){ o.elev=v; }, 0.5));
       var note=el('div','prop'); note.style.fontSize='11px'; note.style.color='#8b97a8'; note.style.fontStyle='italic';
       note.textContent=(rk==='ramp'?'Ramp: snap one end to a ground-road node, the other to a highway node.':'Elevated deck — add a ramp to drive up onto it.'); host.appendChild(note); }
+    if(rk==='merge'){ host.appendChild(field('End half-width', o.endHw!=null?o.endHw:8, function(v){ o.endHw=Math.max(1,v); }, 0.5));
+      var mn=el('div','prop'); mn.style.fontSize='11px'; mn.style.color='#8b97a8'; mn.style.fontStyle='italic';
+      mn.textContent='Ground taper — width goes from Half-width (start point) to End half-width (end point). Draw start at the wide ramp/highway base, end where it meets the normal road.'; host.appendChild(mn); }
+    // one-way + lanes (ramps/merges/roads that carry traffic in a single direction — e.g. an exit chain)
+    if(rk==='road'||rk==='ramp'||rk==='merge'||rk==='highway'){
+      var ol=el('label','layer'); var oc=el('input'); oc.type='checkbox'; oc.checked=!!o.oneway; oc.onchange=function(){o.oneway=oc.checked; syncProps();}; ol.appendChild(oc); ol.appendChild(el('span',null,'one-way')); host.appendChild(ol);
+      if(o.oneway) host.appendChild(field('Lanes', o.lanes||1, function(v){ o.lanes=Math.max(1,Math.round(v)); }, 1));
+    }
     if(rk==='road'){ var dl=el('label','layer'); var dc=el('input'); dc.type='checkbox'; dc.checked=!!o.dirt; dc.onchange=function(){o.dirt=dc.checked;}; dl.appendChild(dc); dl.appendChild(el('span',null,'dirt road')); host.appendChild(dl); }
     host.appendChild(el('div','prop','vertices: '+o.pts.length));
   }
