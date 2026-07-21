@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.86.1';
+var GAME_VERSION = 'v1.87.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -3474,6 +3474,7 @@ var runwayMarkM = new THREE.MeshBasicMaterial({ color: 0xe8e6df });             
 // walkable/drivable surface height for runways+taxiways (surfaceHeightAt consults
 // this so you stand ON the asphalt instead of sinking into the grass under it)
 var airSurfaces = [];
+var padRects = [];   // airport pavement aprons (axis-aligned {x0,x1,z0,z1,y}) — walkable surface height
 function addRunwayLight(x, z, col, sc) {
   var head = box(0.4, 0.35, 0.4, lampOffM, x, 0.24, z); scene.add(head);
   var glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: lampGlowT, color: col, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
@@ -3545,6 +3546,26 @@ function buildPendingSpecialRoads() {
 // true polylines instead — buildRemapRoads registers the same mapRoads
 // entries, so every downstream consumer (expClear, NPC walk tables, minimap)
 // follows the true network automatically.
+// ---- AIRPORT road network (monorails / runways / taxiway / access road) ----
+// Composed from the reusable special-road kinds, injected into REMAP_ROADS so the
+// normal pipeline (buildRemapRoads -> buildPendingSpecialRoads) renders them. The
+// procedural buildings (buildAirport, below) use the SAME AIRPORT_ORIGIN so
+// everything lines up. West terminal at x=AX-165, east at AX+165; runways run north
+// off each terminal and join at a north taxiway; access road runs N-S through the
+// garage + main building.
+var AIRPORT_ORIGIN = { x: 150, z: 1250 };
+(function airportRoads() {
+  if (typeof REMAP_ROADS === 'undefined') return;
+  var AX = AIRPORT_ORIGIN.x, AZ = AIRPORT_ORIGIN.z, wx = AX - 165, ex = AX + 165;
+  REMAP_ROADS.push(
+    { id: 'ap_mono_w', cls: 10, hw: 5, kind: 'monorail', elev: 6, pts: [[AX - 22, AZ], [wx + 15, AZ]] },   // main -> west terminal (ends inside each)
+    { id: 'ap_mono_e', cls: 10, hw: 5, kind: 'monorail', elev: 6, pts: [[AX + 22, AZ], [ex - 15, AZ]] },   // main -> east terminal
+    { id: 'ap_rwy_w', cls: 11, hw: 22, kind: 'runway', pts: [[wx, AZ - 30], [wx, AZ - 270]] },              // west runway (N-S)
+    { id: 'ap_rwy_e', cls: 11, hw: 22, kind: 'runway', pts: [[ex, AZ - 30], [ex, AZ - 270]] },              // east runway
+    { id: 'ap_taxi_n', cls: 12, hw: 8, kind: 'taxiway', pts: [[wx, AZ - 270], [ex, AZ - 270]] },            // north connector taxiway
+    { id: 'ap_road', cls: 3, hw: 5, pts: [[AX, AZ + 135], [AX, AZ - 34]] }                                  // access road through garage + main
+  );
+})();
 if (!WC_REMAP) { for (var eri = 0; eri < EXP_ROADS.length; eri++) expRoadPoly(eri, EXP_ROADS[eri]); }
 else buildRemapRoads();
 
@@ -6105,6 +6126,63 @@ var GARAGE_SPOTS = [
 function placeGarages() { for (var i = 0; i < GARAGE_SPOTS.length; i++) buildParkingGarage(GARAGE_SPOTS[i][0], GARAGE_SPOTS[i][1], GARAGE_SPOTS[i][2]); }
 placeGarages();
 
+// ================= AIRPORT (structures) =================
+// The runways / monorails / taxiway / access road are already in REMAP_ROADS
+// (airportRoads, above); this builds the buildings + pavement at the SAME origin:
+// a central main terminal building with two monorails running out to a west + east
+// terminal (the tracks run into all three so it reads as people shuttling inside),
+// each terminal fronting a runway, the two runways joined by a north taxiway, an
+// ATC tower + a row of hangars up north (opposite the terminals), and a parking
+// garage on the landside. Central area is paved; the runways run out over grass.
+function buildAirport(AX, AZ) {
+  var wx = AX - 165, ex = AX + 165;
+  var glassM = phong({ color: 0x27343d, shininess: 120, specular: 0x99bbcc, transparent: true, opacity: 0.6 });
+  var wallM = lamb({ color: 0xd6d2c6 }), wallM2 = lamb({ color: 0xaeb4bb });
+  var roofM = lamb({ color: 0x565c64 }), darkM = lamb({ color: 0x14161a }), hangM = lamb({ color: 0x8a9099 });
+  var paveT = tex(128, function (g, s) { g.fillStyle = '#9a9a92'; g.fillRect(0, 0, s, s); noise(g, s, 500, 0.06, 0.04); g.strokeStyle = 'rgba(120,120,112,0.3)'; for (var k = 1; k < 4; k++) { g.beginPath(); g.moveTo(0, s * k / 4); g.lineTo(s, s * k / 4); g.stroke(); } });
+  var paveM = lamb({ map: paveT });
+  function pad(x0, x1, z0, z1) { scene.add(box(x1 - x0, 0.08, z1 - z0, paveM, (x0 + x1) / 2, 0.02, (z0 + z1) / 2)); padRects.push({ x0: x0, x1: x1, z0: z0, z1: z1, y: 0.05 }); }
+  pad(AX - 220, AX + 220, AZ - 45, AZ + 132);          // landside apron (main + garage + terminals + drop-off)
+  pad(wx - 34, ex + 34, AZ - 308, AZ - 244);           // north apron (taxiway ends + hangars + ATC)
+  // ---- box building: solid body, roof cap, glass window ribbon, wall collider;
+  // `portal` (±1) cuts a dark tunnel mouth on that x-wall at monorail height ----
+  function bld(cx, cz, w, d, h, body, portal) {
+    var g = new THREE.Group();
+    g.add(box(w, h, d, body, 0, h / 2, 0));
+    g.add(box(w + 0.7, 0.5, d + 0.7, roofM, 0, h + 0.25, 0));
+    g.add(box(w + 0.12, h * 0.34, d + 0.12, glassM, 0, h * 0.58, 0));
+    g.position.set(cx, 0, cz); scene.add(g);
+    colliders.push({ x0: cx - w / 2, x1: cx + w / 2, z0: cz - d / 2, z1: cz + d / 2, topY: h });
+    if (portal) scene.add(box(0.5, 5, 10, darkM, cx + portal * (w / 2 - 0.2), 6.2, cz));   // monorail tunnel mouth
+  }
+  bld(AX, AZ, 64, 40, 16, wallM);                       // main terminal
+  scene.add(box(30, 4, 20, wallM2, AX, 18, AZ));        // main roof clerestory
+  scene.add(box(0.5, 5, 10, darkM, AX - 32 + 0.2, 6.2, AZ));   // main tunnel mouths (both monorails)
+  scene.add(box(0.5, 5, 10, darkM, AX + 32 - 0.2, 6.2, AZ));
+  bld(wx, AZ, 46, 30, 13, wallM, +1);                   // west terminal (monorail enters east wall)
+  bld(ex, AZ, 46, 30, 13, wallM, -1);                   // east terminal (enters west wall)
+  // ATC tower (north, central)
+  var tx = AX, tz = AZ - 278, th = 34;
+  scene.add(box(5, th, 5, wallM2, tx, th / 2, tz));
+  scene.add(box(9, 4, 9, wallM, tx, th + 2, tz));
+  scene.add(box(8.4, 3, 8.4, glassM, tx, th + 4, tz));
+  scene.add(box(9.6, 0.5, 9.6, roofM, tx, th + 6, tz));
+  colliders.push({ x0: tx - 2.6, x1: tx + 2.6, z0: tz - 2.6, z1: tz + 2.6 });
+  // hangars — north of the runways (opposite the terminals), big doors facing south
+  function hangar(cx, cz) {
+    var w = 38, d = 26, h = 15;
+    scene.add(box(w, h, d, hangM, cx, h / 2, cz));
+    scene.add(box(w + 1, 3, d + 1, roofM, cx, h + 1.2, cz));
+    scene.add(box(w - 3, 2, d - 5, roofM, cx, h + 2.7, cz));
+    scene.add(box(w - 8, h - 3, 0.5, darkM, cx, (h - 3) / 2, cz + d / 2 - 0.1));   // hangar door (toward runway)
+    colliders.push({ x0: cx - w / 2, x1: cx + w / 2, z0: cz - d / 2, z1: cz + d / 2, topY: h });
+  }
+  hangar(wx, AZ - 292); hangar(ex, AZ - 292); hangar(AX - 72, AZ - 294); hangar(AX + 72, AZ - 294);
+  // parking garage on the landside, just east of the access road
+  buildParkingGarage(AX + 72, AZ + 84, { hw: 26, hd: 18 });
+}
+buildAirport(AIRPORT_ORIGIN.x, AIRPORT_ORIGIN.z);
+
 // Top walkable/drivable surface height at (x,z): people + cars ride ON the
 // highest layer (grass 0 / road .05 / lot .10 / sidewalk .12 / pad .13 /
 // drive .14 / ramp) instead of clipping through it (feet/tyres were pinned to
@@ -6122,6 +6200,10 @@ function surfaceHeightAt(x, z, skipRects, feetY) {
   for (var asi = 0; asi < airSurfaces.length; asi++) {                // runway/taxiway asphalt — stand on top, not in the grass
     var as = airSurfaces[asi];
     if (as.y > h && rmProject(as.pts, as.cum, x, z).d < as.hw) h = as.y;
+  }
+  for (var pri = 0; pri < padRects.length; pri++) {                    // airport pavement aprons
+    var pr = padRects[pri];
+    if (pr.y > h && x > pr.x0 && x < pr.x1 && z > pr.z0 && z < pr.z1) h = pr.y;
   }
   if (typeof REMAP_ROADS !== 'undefined') {
     if (!remapPointClear(x, z, 0)) { if (0.05 > h) h = 0.05; }         // road asphalt / junction

@@ -675,6 +675,25 @@ Both are placed like any road in the editor (Runway / Taxiway classes). A test
 runway + connecting taxiway sit in the open field south of town (runway centred
 around x 60, z 550).
 
+## Airport
+
+A full **airport** is laid out in the open expansion land to the south-east
+(around x 150, z 1250). It's built from the reusable pieces above:
+
+- A central **main terminal** building with a raised clerestory roof, flanked by
+  a **west** and **east terminal**.
+- An **elevated monorail** runs from the main terminal out to each side terminal,
+  its track disappearing into a dark portal on every building so it reads as
+  people being shuttled *inside* from the main hall to the gates.
+- Each side terminal fronts its own **runway** running north; the two runways are
+  joined at the far end by a **taxiway**.
+- An **air-traffic-control tower** stands on the north apron between the runways,
+  with a **row of hangars** (big south-facing doors) lined up opposite the
+  terminals.
+- The terminals, garage, tower and hangars all sit on **paved aprons**; a
+  **parking garage** and an **access road** serve the landside. Where the runways
+  run out past the pavement they cross open **grass**.
+
 ## Trees
 
 The oaks and bushes are real PS1-style assets — flat textured branch
