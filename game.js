@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.86.0';
+var GAME_VERSION = 'v1.86.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -3471,6 +3471,9 @@ var taxiwayT = tex(128, function (g, s) {
 });
 var taxiwayM = lamb({ map: taxiwayT });
 var runwayMarkM = new THREE.MeshBasicMaterial({ color: 0xe8e6df });             // threshold bars (unlit white)
+// walkable/drivable surface height for runways+taxiways (surfaceHeightAt consults
+// this so you stand ON the asphalt instead of sinking into the grass under it)
+var airSurfaces = [];
 function addRunwayLight(x, z, col, sc) {
   var head = box(0.4, 0.35, 0.4, lampOffM, x, 0.24, z); scene.add(head);
   var glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: lampGlowT, color: col, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
@@ -3481,6 +3484,7 @@ function buildRunway(r) {
   var pts = r.pts, hw = r.hw || 24, cum = rmCum(pts), total = cum[cum.length - 1];
   if (total < 8 || pts.length < 2) return;
   remapRibbon(pts, hw, 0.05, runwayM, 1 / 46, 1);                                // dark asphalt + baked edge lines / centreline dashes
+  airSurfaces.push({ pts: pts, cum: cum, hw: hw, y: 0.06 });                     // stand ON the asphalt
   // threshold "piano keys" at each end (longitudinal white stripes)
   for (var end = 0; end < 2; end++) {
     var se = end === 0 ? 2 : total - 2, dir = end === 0 ? 1 : -1;
@@ -3505,6 +3509,7 @@ function buildTaxiway(r) {
   var pts = r.pts, hw = r.hw || 7, cum = rmCum(pts), total = cum[cum.length - 1];
   if (total < 4 || pts.length < 2) return;
   remapRibbon(pts, hw, 0.05, taxiwayM, 1 / 14, 1);                               // plain asphalt + solid yellow centreline
+  airSurfaces.push({ pts: pts, cum: cum, hw: hw, y: 0.06 });
 }
 // Highway/ramp/river builds are DEFERRED: buildRemapRoads runs during the road
 // section (line ~2885), but the median lamps need streetLights/poleMetal/lamp
@@ -6114,6 +6119,10 @@ function surfaceHeightAt(x, z, skipRects, feetY) {
   if (typeof inLake === 'function' && inLake(x, z)) return lakeBedY(x, z);
   var h = driveSurfaceAt(x, z).h;                                      // ramps
   if (garageRamps.length) h = garageSurfAt(x, z, feetY, h);           // multi-level garage ramps (feetY-aware)
+  for (var asi = 0; asi < airSurfaces.length; asi++) {                // runway/taxiway asphalt — stand on top, not in the grass
+    var as = airSurfaces[asi];
+    if (as.y > h && rmProject(as.pts, as.cum, x, z).d < as.hw) h = as.y;
+  }
   if (typeof REMAP_ROADS !== 'undefined') {
     if (!remapPointClear(x, z, 0)) { if (0.05 > h) h = 0.05; }         // road asphalt / junction
     else if (onSidewalk(x, z)) { if (0.12 > h) h = 0.12; }            // flanking sidewalk
