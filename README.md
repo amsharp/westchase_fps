@@ -593,6 +593,30 @@ height now hurts — a big drop is lethal — so a safe exit means slow and low.
 The plane is a **local, single-player toy** for now; it isn't shared in
 multiplayer.
 
+## Streetcars on rails
+
+The city's got a **streetcar** — a yellow-and-maroon trolley that trundles
+along its own **rail line**, recreating the real town's rail streetcars.
+Rails are drawn in the map editor just like roads (the **Streetcar Rail**
+class), and a **station platform** prop drops beside the track wherever you
+want a stop. Then it runs itself:
+
+- **One tram per line.** It spawns at a station, **crawls slowly** along the
+  rails to the station at the other end, **waits** there a few seconds, and
+  **reverses** back — endlessly. The rails can **curve**, and the tram leans
+  through the bends, following the track exactly.
+- **You can't ride it** — it's part of the world, not a vehicle.
+- **Stay off the tracks.** Anything at ground level in its path gets flattened:
+  it **kills NPCs, cops, and you**, and **wrecks any car** it catches. The
+  collision is **ground-level only**, though — fly a plane over it or drive
+  across on a **highway overpass** and it passes harmlessly beneath you.
+- **Only a rocket stops it.** Bullets and cars bounce off; a **rocket** blows
+  it apart in a fireball. It's gone for a little while, then a fresh tram
+  **respawns at a station** and the line runs again.
+
+There's a **test line with two stations** out in the open field southwest of
+town (around x −140, z 520) to see it in action.
+
 ## Trees
 
 The oaks and bushes are real PS1-style assets — flat textured branch

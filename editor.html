@@ -186,7 +186,8 @@ var ROAD_CLASSES = [
   { cls:5, name:'On/Off Ramp',hw:7,   color:'#34373d', kind:'ramp',    elev:8 },   // ground <-> highway
   { cls:6, name:'River',      hw:18,  color:'#2f6f9e', kind:'water' },             // drawn like a road
   { cls:7, name:'Exit / Split',hw:5,  color:'#586070', kind:'exitdeck', elev:8, oneway:true, lanes:1 },  // click a highway; a lane peels off
-  { cls:8, name:'Merge Lane',  hw:14, color:'#40454e', kind:'merge', endHw:8 }     // ground taper: wide ramp/highway base -> normal road
+  { cls:8, name:'Merge Lane',  hw:14, color:'#40454e', kind:'merge', endHw:8 },    // ground taper: wide ramp/highway base -> normal road
+  { cls:9, name:'Streetcar Rail',hw:2.4, color:'#8a8f99', kind:'rail' }            // twin steel rails; a single tram runs end-to-end between stations
 ];
 function roadClass(r){ return ROAD_CLASSES[r.cls] || ROAD_CLASSES[0]; }
 function roadKind(r){ return r.kind || (roadClass(r).kind) || 'road'; }
@@ -306,7 +307,8 @@ var PROPS = [
   { type:'mailbox',    name:'Mailbox',    color:'#2f4fb0', r:0.5 },
   { type:'bikerack',   name:'Bike Rack',  color:'#888f99', r:1.0 },
   { type:'bush',       name:'Bush',       color:'#3f7f34', r:1.0 },
-  { type:'cone',       name:'Cone',       color:'#ff8c22', r:0.4 }
+  { type:'cone',       name:'Cone',       color:'#ff8c22', r:0.4 },
+  { type:'station',    name:'Tram Station',color:'#c9a24a', r:2.4 }   // streetcar platform: place beside a rail; the tram stops at the nearest rail point
 ];
 var SURFACES = [
   { kind:'parking',  name:'Parking Lot', w:44, d:24, color:'#585c63' },
@@ -620,6 +622,13 @@ function drawRoad(r){ var cl=roadClass(r), kind=roadKind(r); var sp=polyScreen(r
     ctx.strokeStyle=r.oneway?'#cfd6e0':'#e8c23a'; ctx.lineWidth=Math.max(1,cam.zoom*0.5); ctx.setLineDash([6,7]); strokePoly(sp); ctx.setLineDash([]);
     return;
   }
+  if(kind==='rail'){                                              // STREETCAR RAIL — just twin steel rails (no ballast/ties)
+    ctx.strokeStyle='#5b6068'; ctx.lineWidth=Math.max(1,cam.zoom*0.35); ctx.setLineDash([3,5]); strokePoly(sp); ctx.setLineDash([]);  // faint centre guide (editor only)
+    ctx.strokeStyle='#c3c8d0'; ctx.lineWidth=Math.max(1.5,cam.zoom*0.55);
+    strokePoly(offsetPts(r.pts,r.hw*0.55).map(function(p){return w2s(p[0],p[1]);}));
+    strokePoly(offsetPts(r.pts,-r.hw*0.55).map(function(p){return w2s(p[0],p[1]);}));
+    return;
+  }
   // ground road
   ctx.strokeStyle = r.dirt?'#8a744f':cl.color; ctx.lineWidth=Math.max(2,r.hw*2*cam.zoom); strokePoly(sp);
   if(r.cls<=1 && !r.dirt){ ctx.strokeStyle='#e8c23a'; ctx.lineWidth=Math.max(1,cam.zoom*0.5); ctx.setLineDash([6,7]); strokePoly(sp); ctx.setLineDash([]); }
@@ -655,6 +664,15 @@ function drawBuilding(b){ var meta=bldByType(b.type); var c=bcorners(b).map(func
     ctx.fillText(meta.name, fc[0], fc[1]); }
 }
 function drawProp(p){ var meta=propByType(p.type); var sc=w2s(p.x,p.z); var r=Math.max(3,meta.r*cam.zoom);
+  if(p.type==='station'){                                         // draw the platform footprint (8 x 3.2) oriented by rot
+    var a=(p.rot||0)*Math.PI/180, ux=Math.cos(a), uz=-Math.sin(a), vx=Math.sin(a), vz=Math.cos(a), hl=4, hd=1.6;
+    var cor=[[hl,hd],[hl,-hd],[-hl,-hd],[-hl,hd]].map(function(c){ return w2s(p.x+ux*c[0]+vx*c[1], p.z+uz*c[0]+vz*c[1]); });
+    ctx.fillStyle=meta.color; ctx.strokeStyle='#5a3a18'; ctx.lineWidth=1.5;
+    ctx.beginPath(); cor.forEach(function(q,i){ i?ctx.lineTo(q[0],q[1]):ctx.moveTo(q[0],q[1]); }); ctx.closePath(); ctx.fill(); ctx.stroke();
+    drawFrontArrow(p, 3.2);                                        // arrow points toward the track side the platform faces
+    if(layersOn.labels && cam.zoom>1.2){ ctx.fillStyle='#1a1208'; ctx.font='9px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('Station', sc[0], sc[1]); }
+    return;
+  }
   ctx.fillStyle=meta.color; ctx.strokeStyle='#0007'; ctx.lineWidth=1;
   ctx.beginPath(); ctx.arc(sc[0],sc[1],r,0,7); ctx.fill(); ctx.stroke();
   if(layersOn.labels && cam.zoom>1.6){ ctx.fillStyle='#0a0a0a'; ctx.font='9px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='top';

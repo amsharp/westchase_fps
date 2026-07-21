@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.81.1';
+var GAME_VERSION = 'v1.82.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -3399,6 +3399,25 @@ function buildHwGore(r) {
   gg.setIndex([0, 1, 2]); gg.computeVertexNormals();
   scene.add(new THREE.Mesh(gg, hwMergeM));   // DoubleSide -> winding-proof
 }
+// ---- streetcar rails (kind:'rail') ----
+// A rail is a ground-level twin-track ribbon: gravel ballast bed, wooden ties,
+// two steel rails. Each rail registers a route in tramRails; initStreetcars()
+// later spawns ONE tram per rail that shuttles between its stations.
+var tramRails = [];
+var railSteelM = phong({ color: 0xaab0ba, shininess: 130, specular: 0x8892a0 });
+function railOffsetPoly(pts, nrm, dist) {
+  var o = []; for (var i = 0; i < pts.length; i++) o.push([pts[i][0] + nrm[i][0] * dist, pts[i][1] + nrm[i][1] * dist]); return o;
+}
+function buildRail(r) {
+  var pts = r.pts, cum = rmCum(pts), len = cum[cum.length - 1];
+  if (len < 3 || pts.length < 2) return;
+  var hw = r.hw || 2.4, gauge = hw * 0.55, nrm = rmNormals(pts);
+  // JUST the two steel rails — no ballast, no ties. Each rail is a thin ribbon
+  // laid along an offset copy of the centreline (follows every curve).
+  remapRibbon(railOffsetPoly(pts, nrm, gauge), 0.12, 0.14, railSteelM, 1 / 3, 1);
+  remapRibbon(railOffsetPoly(pts, nrm, -gauge), 0.12, 0.14, railSteelM, 1 / 3, 1);
+  tramRails.push({ pts: pts, cum: cum, len: len, hw: hw });
+}
 // Highway/ramp/river builds are DEFERRED: buildRemapRoads runs during the road
 // section (line ~2885), but the median lamps need streetLights/poleMetal/lamp
 // materials that aren't declared until the street-light section far below (var
@@ -3407,7 +3426,7 @@ function buildHwGore(r) {
 var pendingSpecial = [];
 function buildSpecialRoad(r) {
   if (r.kind === 'highway' || r.kind === 'ramp' || r.kind === 'water' || r.kind === 'merge'
-    || r.kind === 'owroad' || r.kind === 'gore' || r.kind === 'exitdeck') { pendingSpecial.push(r); return true; }
+    || r.kind === 'owroad' || r.kind === 'gore' || r.kind === 'exitdeck' || r.kind === 'rail') { pendingSpecial.push(r); return true; }
   return false;
 }
 function buildPendingSpecialRoads() {
@@ -3420,6 +3439,7 @@ function buildPendingSpecialRoads() {
     else if (r.kind === 'owroad') buildOneWayRoad(r);
     else if (r.kind === 'gore') buildHwGore(r);
     else if (r.kind === 'exitdeck') buildExitDeck(r);
+    else if (r.kind === 'rail') buildRail(r);
   }
   pendingSpecial = [];
 }
@@ -3821,7 +3841,7 @@ function remapInClear(x, z, grow) {
 // project (x,z) on a polyline -> {s: chainage, d: distance}
 // special road kinds that render their own full-width 3D structure (and so must
 // never get a flat ground junction pad dropped at their endpoints)
-function rmSpecialKind(k) { return k === 'highway' || k === 'ramp' || k === 'merge' || k === 'water' || k === 'exitdeck' || k === 'gore'; }
+function rmSpecialKind(k) { return k === 'highway' || k === 'ramp' || k === 'merge' || k === 'water' || k === 'exitdeck' || k === 'gore' || k === 'rail'; }
 // true if a GROUND-LEVEL road (no elevation) runs within `pad` of (x,z). Used to
 // keep highway support columns from landing on a road that passes underneath.
 function groundRoadAt(x, z, pad) {
@@ -6010,6 +6030,143 @@ function streetlight(x, z, ax, az) {
 // now that streetLights + lamp materials exist, build the deferred highways/
 // ramps/rivers (their median lamps register into streetLights)
 if (typeof buildPendingSpecialRoads === 'function') buildPendingSpecialRoads();
+
+// ================= STREETCAR ON RAILS =================
+// A single tram per rail shuttles between its stations: it crawls the rail
+// centreline, dwells at a station, then reverses to the other station. It kills
+// any NPC/cop/player and wrecks any car in its path — but ONLY at ground level
+// (a plane overhead or a car up on a highway deck passes safely above it). It is
+// indestructible to everything except a rocket; a destroyed tram respawns at a
+// station after a delay. You cannot ride it. Local per-peer (deterministic on a
+// shared rail), like breakables — kills stay host-authoritative.
+var streetcars = [], tramStations = [];
+var TRAM_SPEED = 6.5, TRAM_DWELL = 4.5, TRAM_RESPAWN = 14;
+function makeStreetcar() {
+  var g = new THREE.Group();
+  var L = 13, W = 2.5, floorY = 0.95, H = 2.35;
+  var yellow = phong({ color: 0xecb928, shininess: 55, specular: 0x4a3a10 });
+  var maroon = lamb({ color: 0x6e1f24 });
+  var roofM = lamb({ color: 0x384038 });
+  var glass = phong({ color: 0x1e2b33, shininess: 130, specular: 0xaaccdd, transparent: true, opacity: 0.62 });
+  var trimM = lamb({ color: 0x24262a });
+  var wheelM = lamb({ color: 0x15161a });
+  var lightM = new THREE.MeshBasicMaterial({ color: 0xfff2c0 });
+  g.add(box(L, 0.7, W, maroon, 0, floorY - 0.3, 0));                     // lower skirt
+  g.add(box(L, H, W - 0.12, yellow, 0, floorY + H / 2, 0));              // main body
+  g.add(box(L - 1.0, 0.95, W + 0.04, glass, 0, floorY + H - 0.55, 0));   // window band
+  g.add(box(L - 0.5, 0.34, W - 0.16, roofM, 0, floorY + H + 0.12, 0));   // roof
+  g.add(box(L - 3.4, 0.3, W - 1.0, roofM, 0, floorY + H + 0.4, 0));      // clerestory hump
+  // maroon belt line + end caps
+  g.add(box(L + 0.04, 0.18, W + 0.02, maroon, 0, floorY + 0.55, 0));
+  for (var e = -1; e <= 1; e += 2) {
+    g.add(box(0.25, H - 0.3, W - 0.1, maroon, e * (L / 2 - 0.1), floorY + H / 2, 0));   // dark front/back cap
+    g.add(box(0.14, 0.22, 0.34, lightM, e * (L / 2 + 0.02), floorY + 0.5, W * 0.28));    // headlights
+    g.add(box(0.14, 0.22, 0.34, lightM, e * (L / 2 + 0.02), floorY + 0.5, -W * 0.28));
+    // wheel trucks
+    var tk = box(2.4, 0.45, W - 0.5, trimM, e * L * 0.3, 0.32, 0); g.add(tk);
+    for (var ws = -1; ws <= 1; ws += 2) {
+      var wl = cyl(0.42, 0.42, 0.28, 10, wheelM, e * L * 0.3 - 0.7, 0.32, ws * (W / 2 - 0.35)); wl.rotation.x = Math.PI / 2; g.add(wl);
+      var wr = cyl(0.42, 0.42, 0.28, 10, wheelM, e * L * 0.3 + 0.7, 0.32, ws * (W / 2 - 0.35)); wr.rotation.x = Math.PI / 2; g.add(wr);
+    }
+  }
+  // trolley pole leaning back off the roof
+  var pole = cyl(0.05, 0.05, 3.0, 6, trimM, -L * 0.18, floorY + H + 1.6, 0);
+  pole.rotation.z = 0.32; g.add(pole);
+  g.add(box(0.6, 0.1, 0.5, trimM, -L * 0.18 - 0.95, floorY + H + 3.0, 0));   // pole shoe
+  return g;
+}
+function makeStation() {
+  var g = new THREE.Group();
+  var slabM = lamb({ color: 0xa9a49a }), postM = lamb({ color: 0x5a4a34 }), roofM = lamb({ color: 0x7a2f24 }), benchM = lamb({ color: 0x6a5030 });
+  g.add(box(8.4, 0.4, 3.4, slabM, 0, 0.2, 0));                            // platform slab (raised)
+  for (var px = -1; px <= 1; px += 2) for (var pz = -1; pz <= 1; pz += 2) g.add(cyl(0.12, 0.12, 2.7, 6, postM, px * 3.5, 1.55, pz * 1.3));
+  g.add(box(9.0, 0.22, 3.9, roofM, 0, 3.0, 0));                           // flat canopy roof
+  g.add(box(9.0, 0.4, 0.22, roofM, 0, 2.7, 1.95));                        // roof fascia
+  g.add(box(5.0, 0.28, 0.55, benchM, 0, 0.75, 1.0));                      // bench
+  g.add(box(5.0, 0.5, 0.12, benchM, 0, 1.05, 1.25));                      // bench back
+  return g;
+}
+function placeTramStations() {
+  if (typeof REMAP_STATIONS === 'undefined') return;
+  for (var i = 0; i < REMAP_STATIONS.length; i++) {
+    var st = REMAP_STATIONS[i];
+    var g = makeStation(); g.position.set(st.x, 0, st.z); g.rotation.y = (st.rot || 0) * Math.PI / 180; scene.add(g);
+    tramStations.push({ x: st.x, z: st.z });
+  }
+}
+function initStreetcars() {
+  for (var i = 0; i < tramRails.length; i++) {
+    var rail = tramRails[i], stops = [];
+    for (var j = 0; j < tramStations.length; j++) {
+      var pr = rmProject(rail.pts, rail.cum, tramStations[j].x, tramStations[j].z);
+      if (pr.d < 40) stops.push(pr.s);
+    }
+    stops.sort(function (a, b) { return a - b; });
+    var dd = []; for (var k = 0; k < stops.length; k++) if (!dd.length || stops[k] - dd[dd.length - 1] > 4) dd.push(stops[k]);
+    stops = dd;
+    if (stops.length < 2) stops = [0, rail.len];   // no stations -> shuttle end to end
+    var g = makeStreetcar(); scene.add(g);
+    var t = { rail: rail, group: g, stops: stops, si: 0, dir: 1, s: stops[0], dwell: TRAM_DWELL, dead: false, respawnT: 0, cx: 0, cz: 0, ux: 1, uz: 0, fx: 1, fz: 0 };
+    posTram(t); streetcars.push(t);
+  }
+}
+function posTram(t) {
+  var p = rmAt(t.rail.pts, t.rail.cum, t.s);
+  t.group.position.set(p.x, 0, p.z);
+  t.group.rotation.y = Math.atan2(-p.uz, p.ux);   // body length (local +X) runs ALONG the rail; symmetric, so no spin at reversal
+  t.cx = p.x; t.cz = p.z; t.ux = p.ux; t.uz = p.uz;
+  t.fx = t.dir * p.ux; t.fz = t.dir * p.uz;       // actual travel direction (for knockback)
+}
+function tramInBox(t, x, z, r) {
+  var dx = x - t.cx, dz = z - t.cz, nx = -t.uz, nz = t.ux;
+  var along = dx * t.ux + dz * t.uz, lat = dx * nx + dz * nz;
+  return Math.abs(along) < 6.8 + r && Math.abs(lat) < 1.7 + r;
+}
+function tramCollide(t) {
+  var GY = 3.2;   // ground-level gate: entities above this (plane / highway deck) are safe
+  if (!isClient()) {
+    var i;
+    for (i = 0; i < npcs.length; i++) { var n = npcs[i]; if (n.state === 'down' || n.state === 'ragdoll' || n.state === 'hidden') continue; if (tramInBox(t, n.x, n.z, 0.5)) killNpcRagdoll(n, t.fx, t.fz, 17); }
+    for (i = 0; i < cops.length; i++) { var c = cops[i]; if (c.state === 'down' || c.interior) continue; if (tramInBox(t, c.x, c.z, 0.5)) damageCop(c, 999, t.fx, t.fz); }
+    for (i = 0; i < cars.length; i++) { var car = cars[i]; if (car.exploded) continue; var gp = car.car.group.position; if (gp.y > GY) continue; if (tramInBox(t, gp.x, gp.z, 1.7)) explodeCar(car); }
+  }
+  if (!state.dead && player.y < GY + 2 && !inside && tramInBox(t, player.x, player.z, 0.5)) hurtPlayer(300, t.cx, t.cz);
+}
+function updateStreetcar(dt) {
+  for (var i = 0; i < streetcars.length; i++) {
+    var t = streetcars[i];
+    if (t.dead) { t.respawnT -= dt; if (t.respawnT <= 0) respawnStreetcar(t); continue; }
+    if (t.dwell > 0) { t.dwell -= dt; tramCollide(t); continue; }
+    var ti = t.si + t.dir;
+    if (ti < 0 || ti >= t.stops.length) { t.dir *= -1; ti = t.si + t.dir; }
+    var target = t.stops[ti], ds = TRAM_SPEED * dt;
+    if (Math.abs(target - t.s) <= ds) {
+      t.s = target; t.si = ti; t.dwell = TRAM_DWELL;
+      if (t.si <= 0) t.dir = 1; else if (t.si >= t.stops.length - 1) t.dir = -1;
+    } else t.s += (target > t.s ? 1 : -1) * ds;
+    posTram(t); tramCollide(t);
+  }
+}
+function destroyStreetcar(t) {
+  if (t.dead) return true;
+  var p = t.group.position;
+  boomAt(p.x, p.z);
+  for (var k = 0; k < 7; k++) puff(new THREE.Vector3(p.x + (Math.random() - 0.5) * 8, 1 + Math.random() * 3, p.z + (Math.random() - 0.5) * 3), k % 2 ? 0x333333 : 0xd86a20);
+  t.group.visible = false; t.dead = true; t.respawnT = TRAM_RESPAWN;
+  return true;
+}
+// rocket blast within reach of a live tram wrecks it (rockets ONLY — see fireRocket path)
+function rocketHitStreetcars(x, z) {
+  var any = false;
+  for (var i = 0; i < streetcars.length; i++) { var t = streetcars[i]; if (t.dead) continue; var p = t.group.position; if (Math.abs(p.x - x) < 9 && Math.abs(p.z - z) < 9) any = destroyStreetcar(t) || any; }
+  return any;
+}
+function respawnStreetcar(t) {
+  t.dead = false; t.group.visible = true;
+  t.si = 0; t.dir = 1; t.s = t.stops[0]; t.dwell = TRAM_DWELL; posTram(t);
+}
+placeTramStations();
+initStreetcars();
 
 // ---- terminal curbs at true-road dead-ends (WC_REMAP) ----
 // Several surveyed street stubs just stop in open ground — the raw asphalt
@@ -15175,6 +15332,7 @@ function detonateRocket(r, i) {
   scene.remove(r.mesh);
   rockets.splice(i, 1);
   boomAt(r.x, r.z);
+  if (typeof rocketHitStreetcars === 'function') rocketHitStreetcars(r.x, r.z);   // rockets are the ONLY thing that wrecks a tram
 }
 function updateRockets(dt) {
   for (var i = rockets.length - 1; i >= 0; i--) {
@@ -15193,6 +15351,7 @@ function updateRockets(dt) {
       for (var n = 0; n < npcs.length && !hit; n++) { var nn = npcs[n]; if (nn.state === 'down' || nn.state === 'ragdoll' || nn.state === 'hidden') continue; var dx = nn.x - r.x, dz = nn.z - r.z; if (dx * dx + dz * dz < 1.7) hit = true; }
       for (var cpi = 0; cpi < cops.length && !hit; cpi++) { var cp = cops[cpi]; if (cp.state === 'down') continue; var cdx = cp.x - r.x, cdz = cp.z - r.z; if (cdx * cdx + cdz * cdz < 1.7) hit = true; }
       for (var ci2 = 0; ci2 < cars.length && !hit; ci2++) { var cc = cars[ci2]; if (cc.exploded) continue; var om = cc.car.group.position; if (Math.abs(om.x - r.x) < 2.8 && Math.abs(om.z - r.z) < 2.2) hit = true; }
+      for (var tri = 0; tri < streetcars.length && !hit; tri++) { var tc = streetcars[tri]; if (tc.dead) continue; if (tramInBox(tc, r.x, r.z, 1.0)) hit = true; }
     }
     if (hit) detonateRocket(r, i);
   }
@@ -23166,7 +23325,7 @@ function loop(now) {
   if (photoMode) { updatePhotoCam(dt); renderer.render(scene, camera); return; }
   T += dt;
   var sdt = dt;
-  updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
+  updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
   if (state.dead) updateDeathCam(dt);   // top-down zoom-out cinematic drives the camera while dead
   renderer.render(scene, camera);
 }
@@ -23349,6 +23508,10 @@ window.__wc = {
   listPowerlines: function () { return powerPoles; },
   powerlineStats: function () { return { poles: powerPoles.length, wires: powerWireCount, spans: powerSpanCount, serviceDrops: powerServiceDrops }; },
   cars: cars, boomAt: boomAt, killNpcRagdoll: killNpcRagdoll,
+  streetcars: function () { return streetcars; }, tramRailsRef: function () { return tramRails; }, tramStationsRef: function () { return tramStations; },
+  destroyStreetcar: function (i) { if (streetcars[i || 0]) return destroyStreetcar(streetcars[i || 0]); return false; },
+  streetcarState: function () { return streetcars.map(function (t) { return { s: Math.round(t.s * 10) / 10, si: t.si, dir: t.dir, dwell: Math.round(t.dwell * 10) / 10, dead: t.dead, respawnT: Math.round(t.respawnT * 10) / 10, stops: t.stops.map(function (v) { return Math.round(v); }), len: Math.round(t.rail.len), x: Math.round(t.group.position.x), z: Math.round(t.group.position.z) }; }); },
+  setTramS: function (i, s) { var t = streetcars[i || 0]; if (t) { t.s = s; posTram(t); } },   // debug: jump a tram to chainage s
   puffs: puffs, bHoles: bHoles, densityPlaced: densityPlaced,   // vfx debug (blood/impact routing + bullet holes + sign placement)
   // ---- social groups (#67) ----
   spawnSharpGroup: function (sons) { return grpSummary(spawnSharpGroup(sons)); },
@@ -23567,7 +23730,7 @@ window.__wc = {
   // lightweight physics step (no render, no NPC/cop/car sim) — fast headless
   // stepping for plane/fall tests. Renders only when you call renderer yourself.
   stepLite: function (dt) { T += dt; updatePlayer(dt); updatePlaneWorld(dt); },
-  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
+  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
 };
 
 // ---------------- boot screen handoff + menu cover art ----------------

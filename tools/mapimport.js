@@ -63,6 +63,11 @@ const surfaces = map.surfaces.map(s => ({ kind: s.kind, x: r2(s.x), z: r2(s.z), 
 // ---- terrain areas: forest / lake / ocean rect footprints ----
 const areas = (map.areas || []).map(a => ({ kind: a.kind, x: r2(a.x), z: r2(a.z), rot: a.rot || 0, w: a.w, d: a.d }));
 
+// ---- streetcar stations: props of type 'station' (a tram stops at the nearest
+// rail point; rails are ordinary roads with kind:'rail', already carried above) ----
+const stations = (map.props || []).filter(p => p.type === 'station')
+  .map(p => ({ x: r2(p.x), z: r2(p.z), rot: p.rot || 0 }));
+
 // ---- emit ----
 const J = o => JSON.stringify(o);
 let out = '';
@@ -75,10 +80,12 @@ out += 'var REMAP_CLEAR = ' + J(clears) + ';\n';
 out += 'var REMAP_VENUES = ' + J(venues) + ';\n';
 out += 'var REMAP_SURFACES = ' + J(surfaces) + ';\n';
 out += 'var REMAP_AREAS = ' + J(areas) + ';\n';
+out += 'var REMAP_STATIONS = ' + J(stations) + ';\n';
 // strip the undefined dirt keys JSON dropped already; ensure dirt:1 kept
 out = out.replace(/"dirt":null/g, '').replace(/,\}/g, '}');
 fs.writeFileSync('remapdata.js', out);
 const hw = roads.filter(r => r.kind === 'highway').length, rmp = roads.filter(r => r.kind === 'ramp').length, riv = roads.filter(r => r.kind === 'water').length;
 console.log('roads:', roads.length, '(highway ' + hw + ', ramp ' + rmp + ', river ' + riv + ') | exits:', exits.length, exits.map(e => e.edge + ':' + e.id).join(', '));
-console.log('venues:', venues.length, '| clears:', clears.length, '| surfaces:', surfaces.length, '| areas:', areas.length);
+const rail = roads.filter(r => r.kind === 'rail').length;
+console.log('venues:', venues.length, '| clears:', clears.length, '| surfaces:', surfaces.length, '| areas:', areas.length, '| rails:', rail, '| stations:', stations.length);
 console.log('wrote remapdata.js', out.length, 'bytes');
