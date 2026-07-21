@@ -5,7 +5,7 @@
 const fs = require('fs');
 const HALF = 600;                        // legacy (unused by bounds now)
 // world bounds after the E+S expansion: town in the NW corner
-const WLO = -600, WHI = 1800;
+const WLO = -600, WHI = 3000;
 const src = process.argv[2] || '/tmp/claude-0/-home-user-westchase-fps/efaef73e-76aa-5d75-8d6c-935e41bd5d2d/scratchpad/westchase_map.json';
 const map = JSON.parse(fs.readFileSync(src, 'utf8'));
 const r2 = n => Math.round(n * 100) / 100;

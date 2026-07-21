@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.81.0';
+var GAME_VERSION = 'v1.81.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -31,7 +31,7 @@ var HALF = 600;                     // original centered-map half — town road/
 // ---- world bounds (map expansion): the town keeps its coordinates in the NW
 // corner; the world grows EAST (+x) and SOUTH (+z). West/North walls stay at
 // WLO, East/South walls move out to WHI. 2400x2400 = 4x the original area. ----
-var WLO = -600, WHI = 1800;
+var WLO = -600, WHI = 3000;
 var WSPAN = WHI - WLO, WMID = (WLO + WHI) / 2;   // 2400, 600
 var TOTAL = WSPAN;                  // full world span (minimap scale)
 var CORE = 340;                     // original hand-built map half-size — all
@@ -3166,10 +3166,31 @@ function buildHighway(r) {
   }
   for (var j = 1; j < pts.length; j++) mapRoads.push({ x1: pts[j - 1][0], z1: pts[j - 1][1], x2: pts[j][0], z2: pts[j][1], hw: hw, cls: 4 });
 }
+// A ramp rises from pts[0] (ground) to pts[last] (deck). If it was drawn the
+// other way (deck end first), the incline builds inverted. Detect the deck end
+// by proximity to a highway/exit endpoint and return the pts ground-end-first.
+function rampGroundFirst(r, pts) {
+  if (typeof REMAP_ROADS === 'undefined') return pts;
+  var n = pts.length;
+  function nearHigh(x, z) {
+    var best = 1e9;
+    for (var k = 0; k < REMAP_ROADS.length; k++) {
+      var rk = REMAP_ROADS[k];
+      if (rk.id === r.id || (rk.kind !== 'highway' && rk.kind !== 'exitdeck')) continue;
+      var e0 = rk.pts[0], e1 = rk.pts[rk.pts.length - 1];
+      best = Math.min(best, Math.hypot(x - e0[0], z - e0[1]), Math.hypot(x - e1[0], z - e1[1]));
+    }
+    return best;
+  }
+  var d0 = nearHigh(pts[0][0], pts[0][1]), d1 = nearHigh(pts[n - 1][0], pts[n - 1][1]);
+  // pts[0] is clearly nearer a highway end than pts[last] -> pts[0] is the deck end -> flip
+  if (d0 < d1 - 1 && d0 < 8) return pts.slice().reverse();
+  return pts;
+}
 function buildRamp(r) {
   // STRAIGHT ramp built off the chord with FIXED width — no rmNormals miter, so
   // the terminal vertex can't flare (that endpoint 1.5x miter was the taper).
-  var pts = r.pts, hw = r.hw || 18, hi = r.elev || 8, cum = rmCum(pts), total = cum[cum.length - 1] || 1, n = pts.length, i;
+  var pts = rampGroundFirst(r, r.pts), hw = r.hw || 18, hi = r.elev || 8, cum = rmCum(pts), total = cum[cum.length - 1] || 1, n = pts.length, i;
   var oneway = !!r.oneway, lanes = r.lanes || Math.max(1, Math.round(hw / 5));
   var a0 = pts[0], a1 = pts[n - 1], rdx = a1[0] - a0[0], rdz = a1[1] - a0[1], rlen = Math.hypot(rdx, rdz) || 1, ux = rdx / rlen, uz = rdz / rlen;
   var px = -uz, pz = ux;                                                  // fixed perpendicular (uniform width)
@@ -13981,7 +14002,10 @@ function updateDriving(dt) {
     if (c.eng) engineTick(c, dt, c.pspeed, keys['KeyW'] ? 1 : 0, 0, true);
   }
   var moving = Math.abs(c.pspeed) > 3;
-  if (moving) {
+  // up on the elevated deck/ramp: don't run over pedestrians/cops that are on the
+  // ground below the overpass (2.5D — they only share your x,z, not your height)
+  var elevated = (c.cy || 0) > 4;
+  if (moving && !elevated) {
     var sgn = c.pspeed > 0 ? 1 : -1;
     // run over pedestrians — this is on you
     for (var i = 0; i < npcs.length; i++) {
