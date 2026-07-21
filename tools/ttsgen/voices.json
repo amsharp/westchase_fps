@@ -32,6 +32,10 @@
   "ref": "8c67d2ba6cb74355b37583ae65212335",
   "desc": "XANDER - laid-back young male gamer (I paused my game to be here)"
  },
+ "atc": {
+  "ref": "57edb16ea01a4d12adaf5e7ea518be0e",
+  "desc": "Air Traffic Controller - clear authoritative middle-aged male (radio-crunched 8kHz); stolen-airport-jet tower barks (atc_* lines)"
+ },
  "_shop_comment": "Shop-interior PER-ROLE voices for the shop-life pack (shop_lines.json -> shopvoices*.js). Five NEW Fish refs below; the remaining roles REUSE existing voices — SUSHI=RIKO, STOCKER=ped_m, DELI=DENISE, DUNKIN=TINA, DOLLAR=ped_f; CUSTOMER round-robins ped_f/ped_old/GLORIA/SKYLER/BRAD/KEISHA; STAFF banter round-robins the role voices. Full mapping in shop_lines.json._voices and SHOPDIALOG.md.",
  "SHOP_CASHIER": {
   "ref": "ef92ae1f0735429693345308e5c8b2b6",

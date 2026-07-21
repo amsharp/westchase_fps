@@ -162,5 +162,21 @@
  "xander_8": {
   "text": "Alright, catch you later. Add me online.",
   "voice": "8c67d2ba6cb74355b37583ae65212335"
+ },
+ "atc_runway_1": {
+  "text": "(confused) Unknown aircraft, you are not cleared for takeoff. Vacate the runway immediately.",
+  "voice": "57edb16ea01a4d12adaf5e7ea518be0e"
+ },
+ "atc_runway_2": {
+  "text": "(annoyed) Hold your position! You are not authorized. Get off the active runway, now!",
+  "voice": "57edb16ea01a4d12adaf5e7ea518be0e"
+ },
+ "atc_hijack_1": {
+  "text": "(shouting) All units — aircraft departing without clearance! Possible hijack in progress!",
+  "voice": "57edb16ea01a4d12adaf5e7ea518be0e"
+ },
+ "atc_hijack_2": {
+  "text": "(nervous) Unauthorized departure — we have a possible hijacking. Notify the authorities!",
+  "voice": "57edb16ea01a4d12adaf5e7ea518be0e"
  }
 }

@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.88.3';
+var GAME_VERSION = 'v1.89.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -3485,7 +3485,7 @@ function buildRunway(r) {
   var pts = r.pts, hw = r.hw || 24, cum = rmCum(pts), total = cum[cum.length - 1];
   if (total < 8 || pts.length < 2) return;
   remapRibbon(pts, hw, 0.05, runwayM, 1 / 46, 1);                                // dark asphalt + baked edge lines / centreline dashes
-  airSurfaces.push({ pts: pts, cum: cum, hw: hw, y: 0.06 });                     // stand ON the asphalt
+  airSurfaces.push({ pts: pts, cum: cum, hw: hw, y: 0.06, kind: 'runway' });     // stand ON the asphalt (kind: ATC "on the runway" test)
   // threshold "piano keys" at each end (longitudinal white stripes)
   for (var end = 0; end < 2; end++) {
     var se = end === 0 ? 2 : total - 2, dir = end === 0 ? 1 : -1;
@@ -14864,9 +14864,42 @@ function spawnPlane() {
   boardPlane();
   return plane;
 }
+// A Learjet parked at the airport (beside the east terminal, nose toward the
+// east runway) for the player to STEAL: walk up + press E to board it (the E
+// handler already re-boards a parked, unpiloted plane). Boarding it arms the
+// air-traffic-control sequence (updatePlaneATC). Local/singleplayer like every
+// plane. Spawned once at load; if it's flown off or wrecked it doesn't respawn.
+function spawnAirportPlane() {
+  if (typeof WC_PLANE === 'undefined' || typeof AIRPORT_ORIGIN === 'undefined') return null;
+  if (plane) return plane;                               // don't stomp an existing plane
+  var built = WC_PLANE.build();
+  var clr = (WC_PLANE.GROUND_CLEARANCE !== undefined ? WC_PLANE.GROUND_CLEARANCE : 1.4);
+  var px = AIRPORT_ORIGIN.x + 205, pz = AIRPORT_ORIGIN.z + 8;   // apron just east of the east terminal (clear of the wall)
+  built.group.position.set(px, planeGroundY(px, pz) + clr, pz);
+  built.group.quaternion.setFromEuler(new THREE.Euler(0, Math.PI, 0, 'YXZ'));   // nose north (toward the runway)
+  scene.add(built.group);
+  plane = {
+    group: built.group, parts: built.parts, vel: new THREE.Vector3(),
+    throttle: 0, gearT: 0, onGround: true, groundPitch: 0, alive: true, piloting: false,
+    ail: 0, elev: 0, rud: 0, mRud: 0, mElev: 0,
+    stalled: false, stallT: 0, buffet: 0, vspeed: 0,
+    warn: { terrain: false, sink: false, pullup: false, bank: false, stall: false },
+    warnActive: null, warnT: 0,
+    airport: true, atc: null,           // stealable airport jet; atc armed on first board
+    clr: clr, camPos: new THREE.Vector3(), camInit: false
+  };
+  WC_PLANE.setGear(plane.parts, 0);
+  WC_PLANE.setControls(plane.parts, 0, 0, 0);
+  return plane;                                          // NOT boarded — parked for the taking
+}
 function boardPlane() {
   if (!plane) return;
   if (driving) exitCar();
+  // stealing the parked airport jet arms air-traffic control
+  if (plane.airport && !plane.atc) {
+    plane.atc = { warnCD: 0, tookOff: false, wasOnGround: true };
+    popup2('You steal the jet. The radio crackles to life...');
+  }
   plane.piloting = true;
   startJet();                                            // spin up the turbine loop
   setZoom(false);
@@ -15091,6 +15124,7 @@ function updatePlaneWorld(dt) {
     player.x = g.position.x; player.z = g.position.z; player.y = g.position.y;
     updateJet(dt, plane.throttle);                       // turbine loudness/brightness track throttle
     updatePlaneAlarms(dt);                               // GPWS-style warning alarms
+    updatePlaneATC(dt);                                  // air-traffic control (stolen airport jet)
     updatePlaneCam(dt);
     updatePlaneHud();
   }
@@ -15185,6 +15219,45 @@ function updatePlaneAlarms(dt) {
       plane.warnT = (active === 'stall' || active === 'bank') ? 0.8 : 1.15;             // steady tone vs repeated callout
     }
   } else { plane.warnActive = null; plane.warnT = 0; }
+}
+// ---- air-traffic control for the STOLEN airport jet (plane.atc) --------------
+// While taxiing on a runway the tower barks at you to get off (you're not
+// cleared). The moment you take off it declares a possible hijacking and slaps
+// you with 3 stars. Voice = the "Air Traffic Controller" Fish voice, crunched
+// to muffled radio (voicelines.js atc_*); plays non-positionally, over your
+// cockpit radio. Falls back to silent (with an on-screen caption) if the voice
+// pack is absent.
+function planeOnRunway(x, z) {
+  for (var i = 0; i < airSurfaces.length; i++) {
+    var as = airSurfaces[i];
+    if (as.kind === 'runway' && rmProject(as.pts, as.cum, x, z).d < as.hw) return true;
+  }
+  return false;
+}
+var _atcRR = { runway: 0, hijack: 0 };
+function atcSay(kind, caption) {
+  var list = kind === 'hijack' ? ['atc_hijack_1', 'atc_hijack_2'] : ['atc_runway_1', 'atc_runway_2'];
+  var id = list[(_atcRR[kind]++) % list.length];
+  playVoice(id, 0.95, 0);                                // radio: loud, non-positional, no cooldown gate
+  popup2(caption);                                       // subtitle so it lands even without the voice pack
+}
+function updatePlaneATC(dt) {
+  var a = plane.atc; if (!a) return;
+  var g = plane.group;
+  if (plane.onGround) {
+    if (planeOnRunway(g.position.x, g.position.z)) {
+      a.warnCD -= dt;
+      if (a.warnCD <= 0) { atcSay('runway', 'TOWER: You are NOT cleared for takeoff — get off the runway!'); a.warnCD = 7; }
+    } else { a.warnCD = 0; }                              // off the runway: re-arm so it nags promptly if you roll back on
+    a.wasOnGround = true;
+  } else {
+    if (a.wasOnGround && !a.tookOff) {                    // the takeoff moment
+      a.tookOff = true;
+      atcSay('hijack', 'TOWER: Unauthorized departure — possible HIJACKING!');
+      setWanted(Math.max(state.wanted, 3));
+    }
+    a.wasOnGround = false;
+  }
 }
 // ---- crash: explosion, debris scatter, scorch decal, remove plane, kill pilot
 function crashPlane() {
@@ -21332,6 +21405,7 @@ function startGame() {
   state.running = true;
   seedHotbar();   // auto-fill the hotbar from owned items (fists + any guns)
   lockPointer();
+  spawnAirportPlane();   // park the stealable Learjet at the airport (once; respawns on a fresh start if it's gone)
   toast('Welcome to <b>Westchase</b>. Punch people for cash, rob the gas station (the <b style="color:#e05a3a">G</b> on your minimap), and buy guns from the dealer (the gold <b style="color:#ffd94a">$</b>). <b>TAB</b> = inventory.', 11000);
 }
 

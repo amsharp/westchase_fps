@@ -563,8 +563,17 @@ dark every car projects real headlight pools onto the asphalt.
 ## Flying (Learjet)
 
 Press **K** to spawn a **Learjet 35** on the ground in front of you and
-drop straight into the pilot's seat. Flying is third-person, chase-cam,
-and deliberately arcade — forgiving and fun, not a study sim:
+drop straight into the pilot's seat. Or **steal one**: a Learjet sits parked
+on the apron beside the east terminal at the airport — walk up and press **E**
+to climb in and take it. The moment you do, the tower's radio crackles to life.
+Taxi it onto the runway and the **air-traffic controller** barks over your
+radio, confused, telling you you're not cleared and to get off the active
+runway. Gun it and take off anyway and he declares your plane a **possible
+hijacking** — and you pick up **3 wanted stars** for the stunt. (His voice is
+AI-generated and crunched down to muffled tower-radio static.)
+
+Flying is third-person, chase-cam, and deliberately arcade — forgiving and fun,
+not a study sim:
 
 - **W / S** — throttle up / down (you need speed for lift).
 - **A / D** — **on the ground they steer** (nosewheel) so you can taxi and line
