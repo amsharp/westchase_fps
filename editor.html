@@ -138,7 +138,8 @@
           Every road shows small ring <b>nodes</b> at its ends; click a node with the Road tool to <b>extend</b> that road,
           and while drawing/dragging a vertex it <b>snaps onto</b> other roads' nodes (yellow ring) for seamless junctions —
           works across road types, so a ramp locks onto a highway and a ground road. Highways/ramps carry an
-          <b>Elevation</b> in Properties.<br>
+          <b>Elevation</b> in Properties. <b><kbd>Alt</kbd>+click a vertex to delete just that point</b> (the rest of
+          the road stays; drop below 2 points and the whole road goes).<br>
           <b>Exit / Split:</b> pick the <b>Exit / Split</b> class, then <b>click on a highway</b> — a one-lane deck
           peels off its edge (the guardrail opens automatically). In Properties choose one of the
           <b>4 orientations</b> (Off/On-ramp × left/right side) and set its <b>Reach</b>. Snap a
@@ -702,6 +703,15 @@ cvs.addEventListener('mousedown', function(e){
   var ch=cornerHandleAt(sx,sz);
   if(ch>=0){ var o=sel.ref, fixed=bcorners(o)[(ch+2)%4]; drag={type:'scale',o:o,fx:fixed[0],fz:fixed[1]}; pushHistory(); return; }
   var rv=roadVertexAt(w[0],w[1]);
+  if(rv && e.altKey){                                  // Alt+click a vertex -> delete just that point
+    pushHistory();
+    if(rv.r.pts.length<=2){                             // a road needs >=2 points; removing one leaves it invalid
+      S.roads=S.roads.filter(function(r){return r!==rv.r;});
+      if(sel && sel.ref===rv.r) selectObj(null);
+      toast('Only 2 points left — deleted the whole road');
+    } else { rv.r.pts.splice(rv.i,1); toast('Deleted vertex ('+rv.r.pts.length+' left)'); }
+    buildProps(); autosave(); return;
+  }
   if(rv){ drag={type:'vertex',r:rv.r,i:rv.i}; pushHistory(); return; }
   var hit=pick(w[0],w[1]);
   if(hit){ selectObj(hit);
