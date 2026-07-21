@@ -576,6 +576,20 @@ and deliberately arcade — forgiving and fun, not a study sim:
 The turbines **spool up as you feed in throttle** and settle to a steady
 whine at cruise, so you can fly by ear as much as by the speed readout.
 
+The jet **flies on its momentum** — it doesn't hover. Lift comes from
+**airspeed over the wings**, so if you let it get slow it can no longer hold
+itself up and it **sinks**; you can't just float gently down at a walking
+pace anymore. Ease off the throttle and it **coasts**, bleeding speed only
+slowly, the way a real jet carries its energy. Yank the nose up too hard, or
+throw it into an extreme maneuver, and the wing exceeds its angle of attack
+and **stalls**: the controls go mushy, the nose drops, and you have to dive
+to rebuild speed and fly out of it — a real, if brief, **loss of control**.
+
+A set of **cockpit warning alarms** watches for trouble and calls it out
+(shown on the HUD, with a warning tone): **STALL**, **BANK ANGLE** (rolled
+too far), **SINK RATE** (dropping too fast), **TERRAIN** (low and fast), and
+**PULL UP** (low and diving at the ground).
+
 Hold the runway with the throttle open; once you're past takeoff speed and
 pull the nose up, the jet **rotates and lifts off**. Below takeoff speed
 there's not enough lift and you'll just sink back down — so build speed

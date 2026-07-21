@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.87.1';
+var GAME_VERSION = 'v1.88.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -14792,7 +14792,7 @@ var PLANE_GRAV = 15;          // gravity pulling the plane down (u/s^2)
 var PLANE_LIFT_K = 0.7;       // lift accel per unit speed, along local up (>grav at takeoff spd => climbs)
 var PLANE_LIFT_CAP = 34;      // speed cap feeding lift (prevents runaway)
 var PLANE_TAKEOFF = 24;       // speed at liftoff — above the ~21 u/s lift/gravity balance, so it climbs
-var PLANE_DRAG_PAR = 0.3;     // parallel drag rate (low so a climb sustains speed)
+var PLANE_DRAG_PAR = 0.14;    // parallel drag rate — LOW so the jet keeps its momentum when you ease off the throttle (user: planes should keep momentum)
 var PLANE_MAX_SPD = 62;       // hard top speed clamp (arcade)
 var PLANE_DRAG_PERP = 2.5;    // perpendicular drag => velocity realigns to the nose (wings)
 var PLANE_ROLL_RATE = 2.4;    // rad/s at full aileron
@@ -14808,6 +14808,22 @@ var PLANE_GEAR_UP_ALT = 15;   // altitude above which gear auto-retracts
 var PLANE_GEAR_DN_ALT = 12;   // altitude below which gear auto-deploys
 var PLANE_BAIL_SPD = 12;      // exit is only safe below this speed AND alt
 var PLANE_BAIL_ALT = 6;
+// ---- stall / angle-of-attack (user: high AoA or extreme maneuvers should stall
+// the wing and cost you control for a moment; you can no longer hover at low speed) ----
+var PLANE_STALL_AOA = 0.30;          // ~17deg: past this angle of attack the wing stalls
+var PLANE_STALL_RECOVER_AOA = 0.18;  // AoA must fall back below this to recover
+var PLANE_STALL_SPD = 16;            // forward airspeed below which the wing can't hold lift
+var PLANE_STALL_MIN = 1.1;           // minimum seconds of mushy controls once a stall begins
+var PLANE_STALL_DROP = 0.9;          // rad/s nose-DOWN pitching moment while stalled (drops you into a recovery dive)
+var PLANE_STALL_AUTH = 0.35;         // fraction of control authority retained during a stall
+// ---- cockpit warning alarms (owner supplies the WAVs via SFX_PACK: warn_terrain
+// / warn_sink / warn_pullup / warn_bank / warn_stall — synth placeholders until then) ----
+var PLANE_WARN_BANK = 1.0;           // |roll| rad (~57deg) -> "BANK ANGLE"
+var PLANE_WARN_SINK = 14;            // descent rate u/s -> "SINK RATE"
+var PLANE_WARN_TERR_ALT = 42;        // low altitude ...
+var PLANE_WARN_TERR_SPD = 34;        // ... at high speed -> "TERRAIN"
+var PLANE_WARN_PULLUP_ALT = 20;      // very low ...
+var PLANE_WARN_PULLUP_VY = 11;       // ... and diving at the ground -> "PULL UP"
 var FALL_SAFE_VSPEED = 12;    // land harder than this (downward) and you take damage
 var FALL_DMG_K = 6;           // hp per (u/s) of impact over the safe threshold
 var PLANE_DEBRIS_LIFE = 60;   // seconds before crash props (debris + scorch) despawn
@@ -14835,6 +14851,9 @@ function spawnPlane() {
     throttle: 0, gearT: 0, onGround: true, groundPitch: 0, alive: true, piloting: false,
     ail: 0, elev: 0, rud: 0,            // smoothed control positions
     mAil: 0, mElev: 0,                  // mouse-driven command accumulators
+    stalled: false, stallT: 0, buffet: 0, vspeed: 0,   // stall/AoA state
+    warn: { terrain: false, sink: false, pullup: false, bank: false, stall: false },
+    warnActive: null, warnT: 0,         // which alarm is sounding + its repeat cadence
     clr: clr, camPos: new THREE.Vector3(), camInit: false
   };
   WC_PLANE.setGear(plane.parts, 0);
@@ -14928,6 +14947,7 @@ function updatePlaneWorld(dt) {
   var gy = planeGroundY(g.position.x, g.position.z);
   if (plane.onGround) {
     // ---------- GROUND HANDLING (taxi / takeoff roll) ----------
+    plane.stalled = false; plane.stallT = 0;             // wheels down => no stall
     var heading = Math.atan2(noseV.x, noseV.z);
     var fwdSpd = plane.vel.dot(noseV);
     // throttle accelerates the roll; idle rolls off with rolling friction
@@ -14957,14 +14977,41 @@ function updatePlaneWorld(dt) {
     if (Math.abs(fwdSpd) > PLANE_CRASH_SPEED && (planeHitBuilding(g.position.x, g.position.y, g.position.z) || planeHitHighway(g.position.x, g.position.y, g.position.z))) { crashPlane(); return; }
   } else {
     // ---------- AIRBORNE FLIGHT ----------
+    var vel = plane.vel;
+    // --- angle of attack + stall bookkeeping (from the pre-rotation basis) ---
+    // AoA = signed angle between the nose and the actual flight path in the pitch
+    // plane; + means the nose points ABOVE where we're really going. Yank the nose
+    // up faster than the jet can follow (or bleed off airspeed) and it climbs past
+    // the wing's limit and stalls.
+    var preSpd = vel.length();
+    var preFwd = vel.dot(noseV);
+    var preUp = vel.dot(upV);
+    var aoa = preSpd > 1 ? Math.atan2(-preUp, Math.max(0.001, preFwd)) : 0;
+    if (!plane.stalled) {
+      if (aoa > PLANE_STALL_AOA || preFwd < PLANE_STALL_SPD) { plane.stalled = true; plane.stallT = PLANE_STALL_MIN; if (plane.piloting) popup2('STALL!'); }
+    } else {
+      plane.stallT -= dt;
+      // recover only once the nose is back down AND some airspeed is rebuilt
+      if (plane.stallT <= 0 && aoa < PLANE_STALL_RECOVER_AOA && preFwd > PLANE_STALL_SPD * 1.15) plane.stalled = false;
+    }
+    var ctrlAuth = plane.stalled ? PLANE_STALL_AUTH : 1;   // controls go mushy in the stall
     // integrate angular rates in the plane's local frame (plane.js owns surface
     // deflection signs; these are the physical rotation signs).
-    var rollA = -plane.ail * PLANE_ROLL_RATE * dt;         // ail +1 => roll right
-    var pitchA = -plane.elev * PLANE_PITCH_RATE * dt;      // elev +1 => nose up
-    var yawA = plane.rud * PLANE_YAW_RATE * dt;            // rud +1 => yaw right
-    // gentle auto-level on roll when the stick is centered (keeps it flyable)
+    var rollA = -plane.ail * PLANE_ROLL_RATE * ctrlAuth * dt;   // ail +1 => roll right
+    var pitchA = -plane.elev * PLANE_PITCH_RATE * ctrlAuth * dt; // elev +1 => nose up
+    var yawA = plane.rud * PLANE_YAW_RATE * ctrlAuth * dt;      // rud +1 => yaw right
+    if (plane.stalled) {
+      // the nose falls toward (and through) the flight path — that bleeds AoA off
+      // and builds speed in the dive, which is how you fly out of a stall; a bit of
+      // buffet rolls/yaws the airframe so it feels like a genuine loss of control.
+      pitchA += PLANE_STALL_DROP * dt;                    // +pitchA = nose DOWN
+      plane.buffet += dt * 37;
+      rollA += Math.sin(plane.buffet) * 0.6 * dt;
+      yawA += Math.sin(plane.buffet * 0.7) * 0.4 * dt;
+    }
+    // gentle auto-level on roll when the stick is centered (keeps it flyable) — off in a stall
     var bank = Math.atan2(rightV.y, upV.y);
-    if (Math.abs(plane.ail) < 0.08) rollA += -Math.sin(bank) * PLANE_AUTO_LEVEL * dt;
+    if (Math.abs(plane.ail) < 0.08 && !plane.stalled) rollA += -Math.sin(bank) * PLANE_AUTO_LEVEL * dt;
     _planeTmpQ.setFromEuler(new THREE.Euler(pitchA, yawA, rollA, 'XYZ'));
     g.quaternion.multiply(_planeTmpQ);
     // banked lift curves the flight path — yaw about WORLD up proportional to bank
@@ -14977,27 +15024,34 @@ function updatePlaneWorld(dt) {
     // refresh basis after all rotation
     noseV.set(0, 0, 1).applyQuaternion(g.quaternion);
     upV.set(0, 1, 0).applyQuaternion(g.quaternion);
-    var vel = plane.vel;
     var fwd = vel.dot(noseV);
-    // perpendicular drag: wings bite, velocity realigns toward the nose
+    // perpendicular drag: the wings bite, so velocity swings toward the nose. This
+    // is also what converts a nose-down dive back into forward airspeed (recovery).
     var latV = new THREE.Vector3().copy(vel).addScaledVector(noseV, -fwd);
     vel.addScaledVector(latV, -Math.min(1, PLANE_DRAG_PERP * dt));
-    // overall drag (sets terminal speed with thrust)
+    // parallel drag: LOW, so the jet coasts and keeps momentum when you back off
     vel.multiplyScalar(Math.max(0, 1 - PLANE_DRAG_PAR * dt));
     // thrust along the nose
     vel.addScaledVector(noseV, plane.throttle * PLANE_THRUST * dt);
-    // lift along local up, driven by SPEED (not just fwd) so pitching the nose up
-    // to climb doesn't instantly stall — you only lose lift when you actually
-    // slow below takeoff speed. Below takeoff, gravity wins and the plane sinks.
-    var spd = vel.length();
-    var liftF = Math.max(0, Math.min(PLANE_LIFT_CAP, spd));
-    vel.addScaledVector(upV, PLANE_LIFT_K * liftF * dt);
-    // gravity
+    // LIFT — driven by FORWARD AIRSPEED, not total speed. A jet that has slowed
+    // down can no longer hold itself up and SINKS; the sink does NOT feed back into
+    // lift, so there's no more parachute-style "floaty hover" at low speed (the old
+    // total-speed lift let a descent regenerate its own lift). Stall / low airspeed
+    // collapse the lift further.
+    var airspeed = Math.max(0, fwd);
+    var liftF = Math.min(PLANE_LIFT_CAP, airspeed);
+    var stallLift = 1;
+    if (aoa > PLANE_STALL_AOA) stallLift = Math.max(0.12, 1 - (aoa - PLANE_STALL_AOA) * 3.2);
+    if (airspeed < PLANE_STALL_SPD) stallLift *= Math.max(0.12, airspeed / PLANE_STALL_SPD);
+    vel.addScaledVector(upV, PLANE_LIFT_K * liftF * stallLift * dt);
+    if (plane.stalled) vel.multiplyScalar(Math.max(0, 1 - 0.25 * dt));   // extra stall drag
+    // gravity — always pulling down; it wins the instant lift collapses
     vel.y -= PLANE_GRAV * dt;
     // arcade top-speed clamp (also a NaN/runaway safety net)
     if (vel.lengthSq() > PLANE_MAX_SPD * PLANE_MAX_SPD) vel.setLength(PLANE_MAX_SPD);
     // integrate position
     g.position.addScaledVector(vel, dt);
+    plane.vspeed = vel.y;                                 // for the sink-rate / terrain alarms
     planeBounds(g);
     // ---- ground contact ----
     if (g.position.y <= gy + plane.clr) {
@@ -15025,6 +15079,7 @@ function updatePlaneWorld(dt) {
   if (plane.piloting) {
     player.x = g.position.x; player.z = g.position.z; player.y = g.position.y;
     updateJet(dt, plane.throttle);                       // turbine loudness/brightness track throttle
+    updatePlaneAlarms(dt);                               // GPWS-style warning alarms
     updatePlaneCam(dt);
     updatePlaneHud();
   }
@@ -15076,7 +15131,46 @@ function updatePlaneHud() {
   var g = plane.group, alt = Math.round(g.position.y - planeGroundY(g.position.x, g.position.z));
   var spd = Math.round(plane.vel.length());
   var wb = document.getElementById('weaponBox');
-  if (wb) wb.innerHTML = 'FLYING &middot; ALT ' + alt + ' &middot; SPD ' + spd + ' &middot; THR ' + Math.round(plane.throttle * 100) + '%<br><small>[E] exit &middot; W/S throttle &middot; A/D rudder &middot; mouse: down=climb, L/R=roll</small>';
+  if (!wb) return;
+  var w = plane.warn, warns = [];
+  if (w.pullup) warns.push('PULL UP'); if (w.stall) warns.push('STALL');
+  if (w.terrain) warns.push('TERRAIN'); if (w.sink) warns.push('SINK RATE');
+  if (w.bank) warns.push('BANK ANGLE');
+  var warnHtml = warns.length ? '<br><b style="color:#ff3b30">⚠ ' + warns.join(' &middot; ') + '</b>' : '';
+  wb.innerHTML = 'FLYING &middot; ALT ' + alt + ' &middot; SPD ' + spd + ' &middot; THR ' + Math.round(plane.throttle * 100) + '%' + warnHtml + '<br><small>[E] exit &middot; W/S throttle &middot; A/D rudder &middot; mouse: down=climb, L/R=roll</small>';
+}
+// GPWS-style cockpit warnings. Sets plane.warn.* flags (drawn on the HUD) and
+// sounds the single highest-priority alarm on a repeating cadence. The audio
+// keys (warn_terrain / warn_sink / warn_pullup / warn_bank / warn_stall) fall
+// back to synth placeholders until owner WAVs are dropped into SFX_PACK.
+function updatePlaneAlarms(dt) {
+  if (!plane || !plane.piloting) return;
+  var g = plane.group, w = plane.warn;
+  if (plane.onGround) {   // no warnings while taxiing / rolling out
+    w.terrain = w.sink = w.pullup = w.bank = w.stall = false;
+    plane.warnActive = null; plane.warnT = 0; return;
+  }
+  var alt = g.position.y - planeGroundY(g.position.x, g.position.z) - plane.clr;
+  var vy = plane.vspeed || plane.vel.y, spd = plane.vel.length();
+  var rV = _planeTmpV.set(1, 0, 0).applyQuaternion(g.quaternion);
+  var uV = _planeTmpV2.set(0, 1, 0).applyQuaternion(g.quaternion);
+  var bank = Math.abs(Math.atan2(rV.y, uV.y));
+  w.stall = !!plane.stalled;
+  w.bank = bank > PLANE_WARN_BANK;
+  w.sink = vy < -PLANE_WARN_SINK && alt < 140;
+  w.terrain = alt < PLANE_WARN_TERR_ALT && spd > PLANE_WARN_TERR_SPD && vy < -2;
+  w.pullup = alt < PLANE_WARN_PULLUP_ALT && vy < -PLANE_WARN_PULLUP_VY;
+  // highest-priority audible alarm (PULL UP is the most urgent — imminent impact)
+  var order = ['pullup', 'stall', 'terrain', 'sink', 'bank'], active = null;
+  for (var i = 0; i < order.length; i++) { if (w[order[i]]) { active = order[i]; break; } }
+  plane.warnT -= dt;
+  if (active) {
+    if (plane.warnActive !== active) { plane.warnActive = active; plane.warnT = 0; }   // sound immediately on a new alarm
+    if (plane.warnT <= 0) {
+      sfx('warn_' + active);
+      plane.warnT = (active === 'stall' || active === 'bank') ? 0.8 : 1.15;             // steady tone vs repeated callout
+    }
+  } else { plane.warnActive = null; plane.warnT = 0; }
 }
 // ---- crash: explosion, debris scatter, scorch decal, remove plane, kill pilot
 function crashPlane() {
@@ -20584,7 +20678,12 @@ var SFX_MAP = {
   gore: { k: 'gore', g: 1.3, j: 0.05 },
   // owner-supplied shotgun blast (carsfx.js SFX_PACK.shotgun): the shotgun's own
   // gunshot. Pack-mapped so it overrides the synth gunShot for 'shotgun'.
-  shotgun: { k: 'shotgun', g: 0.95, j: 0.04 }
+  shotgun: { k: 'shotgun', g: 0.95, j: 0.04 },
+  // owner-supplied cockpit warning alarms (drop WAVs into SFX_PACK under these
+  // keys). Each falls back to a synth placeholder in sfx() until then.
+  warn_terrain: { k: 'warn_terrain', g: 0.8 }, warn_sink: { k: 'warn_sink', g: 0.8 },
+  warn_pullup: { k: 'warn_pullup', g: 0.9 }, warn_bank: { k: 'warn_bank', g: 0.8 },
+  warn_stall: { k: 'warn_stall', g: 0.85 }
 };
 function sfxLogPush(kind, pack) {
   if (!window.__sfxLog) return;
@@ -20723,6 +20822,12 @@ function sfx(kind, at) {
     case 'buy': bp(660, 0.09, 0.15, 'square'); setTimeout(function () { bp(990, 0.12, 0.15, 'square'); }, 80); break;
     case 'deny': bp(150, 0.2, 0.25, 'sawtooth', 110); break;
     case 'alarm': bp(760, 0.18, 0.2, 'square'); setTimeout(function () { bp(560, 0.18, 0.2, 'square'); }, 180); setTimeout(function () { bp(760, 0.18, 0.2, 'square'); }, 360); break;
+    // cockpit warning-alarm placeholders (owner WAVs in SFX_PACK override these)
+    case 'warn_stall': bp(430, 0.16, 0.28, 'square'); setTimeout(function () { bp(430, 0.16, 0.28, 'square'); }, 190); break;      // steady stall horn
+    case 'warn_pullup': bp(720, 0.13, 0.3, 'sawtooth', 540); setTimeout(function () { bp(720, 0.13, 0.3, 'sawtooth', 540); }, 175); break;  // "whoop whoop"
+    case 'warn_terrain': bp(560, 0.15, 0.26, 'square', 720); break;
+    case 'warn_sink': bp(500, 0.17, 0.24, 'triangle', 360); break;
+    case 'warn_bank': bp(650, 0.11, 0.22, 'square'); break;
     case 'copshot': gunShot(GUNSPEC.copshot, at); break;
     case 'copsmg': gunShot(GUNSPEC.copsmg, at); break;
     case 'grunt': { var gf = at && at.fem; bp(gf ? 265 : 150, gf ? 0.24 : 0.28, 0.4, 'sawtooth', gf ? 130 : 55); nb(0.1, gf ? 950 : 600, gf ? 0.12 : 0.18); if (window.__voiceLog) { window.__voiceLog.push({ kind: 'grunt', role: gf ? 'F' : 'M', cat: 'grunt', len: 1, t: 0 }); if (window.__voiceLog.length > 240) window.__voiceLog.shift(); } } break;
@@ -24212,6 +24317,8 @@ window.__wc = {
       gearT: Math.round(plane.gearT * 100) / 100,
       onGround: plane.onGround, piloting: plane.piloting, alive: plane.alive,
       x: Math.round(g.position.x * 10) / 10, y: Math.round(g.position.y * 10) / 10, z: Math.round(g.position.z * 10) / 10,
+      vspeed: Math.round((plane.vspeed || plane.vel.y) * 10) / 10,
+      stalled: !!plane.stalled, warn: plane.warn ? Object.assign({}, plane.warn) : null, warnActive: plane.warnActive || null,
       controls: { aileron: Math.round(plane.ail * 100) / 100, elevator: Math.round(plane.elev * 100) / 100, rudder: Math.round(plane.rud * 100) / 100 },
       debris: planeDebris.length, scorch: planeScorch.length
     };
