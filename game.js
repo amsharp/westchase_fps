@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.85.0';
+var GAME_VERSION = 'v1.85.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -5896,6 +5896,7 @@ function buildParkingGarage(cx, cz, opts) {
   var x0 = cx - HW, x1 = cx + HW, z0 = cz - HD, z1 = cz + HD;
   function ly(l) { return l * LH; }
   var slabTh = 0.4;
+  var railH = 1.0, guardTop = ly(NLEV - 1) + railH;   // top of the top-level guard rail — columns/pillars stop here, not above
   // ---- floor slab rect: visual + feetY "stand-on" deck collider (never blocks) ----
   function floorRect(ax0, ax1, az0, az1, y) {
     var w = ax1 - ax0, d = az1 - az0; if (w <= 0.2 || d <= 0.2) return;
@@ -5915,8 +5916,9 @@ function buildParkingGarage(cx, cz, opts) {
     colliders.push({ x0: ax0, x1: ax1, z0: az0, z1: az1, minY: bandMinY(y), topY: y + LH });
   }
   function column(x, z, y) {
-    scene.add(box(1.1, LH, 1.1, _grgWallM, x, y + LH / 2, z));
-    colliders.push({ x0: x - 0.62, x1: x + 0.62, z0: z - 0.62, z1: z + 0.62, minY: bandMinY(y), topY: y + LH });
+    var top = Math.min(y + LH, guardTop), ch = top - y;                    // top-level columns stop at guard-rail height, not a storey above
+    scene.add(box(1.1, ch, 1.1, _grgWallM, x, y + ch / 2, z));
+    colliders.push({ x0: x - 0.62, x1: x + 0.62, z0: z - 0.62, z1: z + 0.62, minY: bandMinY(y), topY: top });
   }
   // ---- ramp: sloped concrete slab + feetY-aware garageRamps entry ----
   function ramp(ax, az, ux, uz, len, rise, base, wid) {
@@ -5993,15 +5995,15 @@ function buildParkingGarage(cx, cz, opts) {
       }
     }
   }
-  // --- big concrete corner pillars, ground → above the top deck (full-height, so
-  // the tower reads as structurally supporting every level). Plain colliders (no
-  // level band) so they block on every floor. ---
-  var topAll = NLEV * LH, cp = 1.3;
+  // --- big concrete corner pillars, ground → top-level guard-rail height (so the
+  // tower runs the full height of the structure without poking above the roof).
+  // Plain colliders (no level band) so they block on every floor. ---
+  var cp = 1.3;
   var corners = [[x0 + WT + cp, z0 + WT + cp], [x1 - WT - cp, z0 + WT + cp], [x0 + WT + cp, z1 - WT - cp], [x1 - WT - cp, z1 - WT - cp]];
   for (var qi = 0; qi < corners.length; qi++) {
     var q = corners[qi];
-    scene.add(box(2.5, topAll + 0.6, 2.5, _grgWallM, q[0], (topAll + 0.6) / 2, q[1]));
-    colliders.push({ x0: q[0] - 1.3, x1: q[0] + 1.3, z0: q[1] - 1.3, z1: q[1] + 1.3 });   // full height → blocks on all levels
+    scene.add(box(2.5, guardTop, 2.5, _grgWallM, q[0], guardTop / 2, q[1]));
+    colliders.push({ x0: q[0] - 1.3, x1: q[0] + 1.3, z0: q[1] - 1.3, z1: q[1] + 1.3, topY: guardTop });   // blocks every floor up to the roof
   }
 }
 var GARAGE_SPOTS = [
