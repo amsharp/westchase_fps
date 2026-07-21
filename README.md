@@ -801,7 +801,8 @@ dry land, which makes the water a decent (slow) escape route.
 
 ## Weather & time
 
-Day fades into properly dark night on a cycle; street lights along the
+Day fades into properly dark night on a long cycle (about twelve minutes),
+with **daytime lasting noticeably longer than night**; street lights along the
 roads and parking lots switch on automatically, each casting a soft warm
 pool of light on the asphalt below — and the ornate park lamps (Publix lot
 edge, the strip-mall plaza, the lakeside path) light their globes right
@@ -809,12 +810,15 @@ along with them. After dark the town reads as lived-in:
 windows glow warm in a scattered, inhabited pattern across the buildings,
 and the storefront and venue signs (RaceTrac, Publix, Dollar Tree and the
 rest) pick up a warm neon backglow. All of it is gated to night and fades
-away by morning. Rain rolls in at random —
-grey skies by day, pitch black at night — and now comes in different
-strengths, from a light drizzle to a heavy downpour, each with matching
-rain density, sound, and haze. Overcast spells drift through on their own,
-softening the sky, and once a heavier rain clears on a bright day you might
-catch a faint rainbow arc over the intersection.
+away by morning. **Rain is uncommon — roughly one day in three** — but when
+it does roll in it settles in for a good long stretch, grey skies by day and
+pitch black at night, in different strengths from a light drizzle to a heavy
+downpour, each with matching rain density, sound, and haze. Overcast spells
+drift through on their own now and then, softening the sky, and once a heavier
+rain clears on a bright day you might catch a faint rainbow arc over the
+intersection. On a clear day you can **see a long way across town** — the
+distant streets and treeline melt gently into a soft haze at the horizon
+rather than a wall of fog.
 
 The town also has its own soundscape that shifts with the clock: gentle
 birdsong and a soft suburban hum by day, a cicada/cricket shimmer at night,

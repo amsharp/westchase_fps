@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.87.0';
+var GAME_VERSION = 'v1.87.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -189,7 +189,7 @@ document.getElementById('game').appendChild(renderer.domElement);
 var MAXANISO = renderer.capabilities.getMaxAnisotropy ? Math.min(4, renderer.capabilities.getMaxAnisotropy()) : 1;
 
 var scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0xcfe4ee, 110, 520);
+scene.fog = new THREE.Fog(0xcfe4ee, 160, 820);
 
 var camera = new THREE.PerspectiveCamera(72, 16 / 9, 0.1, 1000);
 camera.rotation.order = 'YXZ';
@@ -795,7 +795,7 @@ var skyDome = null;
     }
   }
   var t = new THREE.CanvasTexture(c); t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter;
-  skyDome = new THREE.Mesh(new THREE.SphereGeometry(520, 20, 12), new THREE.MeshBasicMaterial({ map: t, side: THREE.BackSide, fog: false }));
+  skyDome = new THREE.Mesh(new THREE.SphereGeometry(1000, 28, 16), new THREE.MeshBasicMaterial({ map: t, side: THREE.BackSide, fog: false }));
   scene.add(skyDome);
 })();
 
@@ -818,12 +818,12 @@ var horizonSkirt = (function () {
   gr.addColorStop(1, 'rgba(255,255,255,1)');
   g.fillStyle = gr; g.fillRect(0, 0, 8, 128);
   var t = new THREE.CanvasTexture(c); t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter;
-  // radius just inside the dome; spans y -90..100 around the camera — opaque up
-  // to ~+39 (walls top out at 28), fully transparent by +100. The top must stay
-  // BELOW y~124: above that the 505 cylinder pokes outside the r=520 dome
-  // (sqrt(520^2-505^2)) and the dome's low-poly triangles clip it into zigzag
-  // wedges in the sky (seen in the first verification pass).
-  var geo = new THREE.CylinderGeometry(505, 505, 190, 96, 1, true);   // 96 segs: a coarser rim sags between vertices and prints faint chevrons in the fade zone
+  // radius just inside the enlarged r=1000 dome; spans y -165..175 around the
+  // camera — opaque across the horizon band (walls top out at 28), fading out by
+  // ~+175. The top must stay BELOW y~280: above that the 960 cylinder pokes
+  // outside the r=1000 dome (sqrt(1000^2-960^2)) and the dome's low-poly
+  // triangles clip it into zigzag wedges in the sky.
+  var geo = new THREE.CylinderGeometry(960, 960, 340, 96, 1, true);   // 96 segs: a coarser rim sags between vertices and prints faint chevrons in the fade zone
   var m = new THREE.MeshBasicMaterial({ map: t, transparent: true, side: THREE.BackSide, fog: false, depthWrite: false });
   var mesh = new THREE.Mesh(geo, m);
   mesh.position.y = 5;
@@ -6825,10 +6825,15 @@ function setLamps(on) {
 }
 
 // ---------------- day/night + rain ----------------
-var DAY_LEN = 360;             // full day/night cycle (6 min)
-var envT = 60;                 // start in daylight
+var DAY_LEN = 720;             // full day/night cycle (12 min) — longer overall; daytime lasts longer than night (see dayFactor)
+var envT = 90;                 // start in daylight
 var wcNightGlow = 0;           // 0 = full day, 1 = full night (drives self-lit prop glows)
 var raining = false, rainLeft = 0, nextRainCheck = 25;
+// rain is now rolled ONCE PER DAY: ~1 in 3 days it rains, and when it does it
+// lasts a long stretch (a good part of the day). See the auto-weather block in
+// updateEnv. rainLeft is still the live "seconds left" counter (kept for MP env
+// sync + forced setWeather), it's just seeded from the day roll now.
+var rainDayRolled = -1, rainDayWet = false, rainDayStart = 0, rainDayDur = 0;
 // weather-variety pass: rain has a live INTENSITY (drizzle↔steady↔heavier) that
 // scales particle density / sound / fog; independent overcast/haze spells thicken
 // fog + desaturate the sky; weatherMode !== 'auto' pins a forced state (setWeather).
@@ -6846,7 +6851,9 @@ var C_RAIN_SKY = new THREE.Color(0x6a7078), C_RAINNIGHT_SKY = new THREE.Color(0x
 var C_SUN = new THREE.Color(0xfff0d0), C_MOON = new THREE.Color(0x9fb6e0), sunColTmp = new THREE.Color();
 function dayFactor() {
   var a = (envT / DAY_LEN) * Math.PI * 2;
-  return Math.max(0, Math.min(1, Math.sin(a) * 1.35 + 0.3));   // gentler dusk/dawn ramp
+  // raised bias (+0.58) keeps f high for more of the cycle, so daytime lasts
+  // noticeably longer than night; the lower amplitude gives gentler dusk/dawn ramps
+  return Math.max(0, Math.min(1, Math.sin(a) * 1.05 + 0.58));
 }
 function groundHeightAt(x, z) {
   for (var i = 0; i < mapBuildings.length; i++) {
@@ -7006,20 +7013,28 @@ function updateEnv(dt) {
   // independent overcast/haze spells. Clients follow the host's on/off flag but
   // roll their own local intensity/haze (weather variety is local flavor).
   if (weatherMode === 'auto' && !isClient()) {
+    // roll the day's weather once, when a new day rolls over: ~1 in 3 days it
+    // rains, and if so it rains for a long stretch (28-58% of the day) starting
+    // somewhere in the first half. rainLeft carries the live remaining seconds.
+    var _di = Math.floor(envT / DAY_LEN);
+    if (_di !== rainDayRolled) {
+      rainDayRolled = _di;
+      rainDayWet = Math.random() < 0.34;                            // ~1 in 3 days
+      rainDayStart = _di * DAY_LEN + DAY_LEN * (0.12 + Math.random() * 0.4);
+      rainDayDur = DAY_LEN * (0.28 + Math.random() * 0.3);          // long: ~3.4-6.9 min
+    }
     if (raining) {
       rainLeft -= dt;
-      if (rainLeft <= 0) { raining = false; nextRainCheck = 30 + Math.random() * 40; }
-    } else {
-      nextRainCheck -= dt;
-      if (nextRainCheck <= 0) {
-        nextRainCheck = 25 + Math.random() * 35;
-        if (Math.random() < 0.4) { raining = true; rainLeft = 35 + Math.random() * 35; rainTargetInten = rollInten(); }
-      }
+      if (rainLeft <= 0) raining = false;
+    } else if (rainDayWet && envT >= rainDayStart && envT < rainDayStart + rainDayDur) {
+      raining = true; rainLeft = rainDayStart + rainDayDur - envT; rainTargetInten = rollInten();
+      rainDayWet = false;                                           // this day's rain is spent
     }
+    // independent overcast/haze spells — now RARER and LIGHTER (fog was too frequent/strong)
     overcastCheck -= dt;
     if (overcastCheck <= 0) {
-      overcastCheck = 40 + Math.random() * 70;
-      overcastTarget = (overcast > 0.06) ? 0 : (Math.random() < 0.5 ? 0.32 + Math.random() * 0.42 : 0);
+      overcastCheck = 90 + Math.random() * 120;
+      overcastTarget = (overcast > 0.06) ? 0 : (Math.random() < 0.3 ? 0.16 + Math.random() * 0.26 : 0);
     }
   }
   // rain transitions (from any source) — roll a local intensity on start, and
@@ -7062,11 +7077,13 @@ function updateEnv(dt) {
   // horizon haze skirt tracks the LIVE fog color exactly (mrf7rtea) so the
   // fogged world always meets a matching sky band at the horizon
   if (horizonSkirt) horizonSkirt.material.color.copy(scene.fog.color);
-  // fog draw distance: heavier rain AND overcast/haze both thicken it
-  var rainFar = 135 - 55 * Math.max(0, Math.min(1, rainIntensity));   // drizzle ~118 .. heavy ~80
-  var farT = (raining ? rainFar : (120 + 400 * f)) * viewDistScale * (1 - 0.32 * overcast);
+  // fog draw distance: much clearer at range now (was pea-soup ~520 at noon).
+  // Clear day pushes out to ~860 (just inside the r=1000 sky dome); heavier rain
+  // AND overcast/haze still thicken it, but far less aggressively.
+  var rainFar = 240 - 90 * Math.max(0, Math.min(1, rainIntensity));   // drizzle ~210 .. heavy ~150
+  var farT = (raining ? rainFar : (300 + 560 * f)) * viewDistScale * (1 - 0.22 * overcast);
   scene.fog.far += (farT - scene.fog.far) * k;
-  var nearT = (raining ? 12 : 60 + 60 * f) * (1 - 0.3 * overcast);
+  var nearT = (raining ? 22 : 90 + 90 * f) * (1 - 0.25 * overcast);
   scene.fog.near += (nearT - scene.fog.near) * k;
   // rain sound — level scales with intensity
   if (rainGain) {
