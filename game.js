@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.91.0';
+var GAME_VERSION = 'v1.91.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -6566,7 +6566,7 @@ function buildMonoGeo() {
   var im = new Image(), tx = new THREE.Texture(im);
   tx.magFilter = THREE.LinearFilter; tx.minFilter = THREE.LinearMipmapLinearFilter;
   im.onload = function () { tx.needsUpdate = true; }; im.src = e.tex;
-  _monoMat = lamb({ map: tx });
+  _monoMat = lamb({ map: tx, side: THREE.DoubleSide });   // double-sided: the model's normals/winding are inconsistent, so render both faces
   _monoScale = MONO_CARLEN / e.dims[0];   // scale so the car length == MONO_CARLEN
 }
 function makeMonoCar() {
