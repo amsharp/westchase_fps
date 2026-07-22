@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.89.0';
+var GAME_VERSION = 'v1.90.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -6570,7 +6570,7 @@ function makeMonoCar() {
 function posMonoCar(gw, car, s) {
   var p = rmAt(gw.pts, gw.cum, s);
   car.position.set(p.x, gw.elev + 0.34, p.z);
-  car.rotation.y = Math.atan2(-p.ux, p.uz);   // each car aligns to the tangent AT ITS OWN chainage -> the two cars angle apart on a curve
+  car.rotation.y = Math.atan2(-p.uz, p.ux);   // body length (local +X) runs ALONG the guideway (matches posTram; was atan2(-ux,uz) = sideways)
 }
 function initMonorails() {
   for (var i = 0; i < monoGuideways.length; i++) {
@@ -13841,10 +13841,33 @@ function engineTickMirror(c, dt) {
   if (c.stolen && c.espd < 0.8) { if (c.eng) c.eng.g.gain.value = 0; return; }
   engineTick(c, dt, c.espd, 0, ed, false);
 }
+var CAR_ABANDON_TTL = 300;   // 5 min: an abandoned player car is reclaimed if you're far from it
+// Reclaim an abandoned player car: strip its stolen/driver state and recycle it
+// back into traffic (or its home parking slot), exactly like the exploded-car
+// respawn does — the array stays index-aligned, so multiplayer stays in sync.
+function recycleAbandonedCar(c) {
+  if (c.eng) stopEngine(c);
+  c.abandonT = undefined; c.stolen = false; c.jacked = false; c.jackCD = 0; c.playerDriven = false;
+  c.drivenBy = null; c.dmgT = 0; c.berserk = false; c.burning = false; c.carHP = undefined; c.shoveT = 0;
+  if (c.slot) {
+    c.parked = true; c.speed = 0;
+    c.car.group.position.set(c.slot.x, 0, c.slot.z); c.car.group.rotation.y = c.slot.ry;
+  } else if (WC_REMAP) {
+    c.parked = false; remapSeedCar(c);
+  } else {
+    c.parked = false; c.pos = c.dir === 1 ? -EDGE + 4 : EDGE - 4; c.lane = c.lane0; c.speed = 8 + Math.random() * 6;
+  }
+}
 function updateCars(dt) {
   if (isClient()) return;   // world traffic is mirrored from the host snapshot
   for (var i = 0; i < cars.length; i++) {
     var c = cars[i];
+    // abandoned player ride: reclaimed ~5 min after you walk off, if you're 100+
+    // units away, so left-behind cars don't litter the map (recycled into traffic).
+    if (c.abandonT !== undefined && c !== driving && !c.exploded && !c.coast && T - c.abandonT > CAR_ABANDON_TTL) {
+      var adx = c.car.group.position.x - player.x, adz = c.car.group.position.z - player.z;
+      if (adx * adx + adz * adz > 100 * 100) { recycleAbandonedCar(c); continue; }
+    }
     if (!c.parked && !c.flooding && !c.sunk) ensureEngine(c);   // parked/swamped cars never even build audio nodes
     // on fire: about to blow
     if (c.burning && !c.exploded) {
@@ -14094,6 +14117,7 @@ function enterCar(c) {
     if (state.wanted < 1) setWanted(1);
   }
   if (isClient()) netToHost({ t: 'steal', i: cars.indexOf(c) });
+  c.abandonT = undefined;              // back in the driver's seat — cancel the abandoned-car reclaim timer
   setZoom(false);
   vm.visible = false;
   sfx('cardoor');   // door slam (Lyria pack; synth fallback)
@@ -14254,6 +14278,9 @@ function exitCar(hijacked) {
     if (!isClient()) c.pspeed = 0;
     else netToHost({ t: 'park', i: cars.indexOf(c), x: Math.round(g.position.x * 10) / 10, z: Math.round(g.position.z * 10) / 10, ry: Math.round(h * 100) / 100 });
   }
+  // a car you were driving and walk away from is reclaimed after ~5 min if you're
+  // far from it (host/SP only; see updateCars). Re-entering clears the timer.
+  if (!hijacked && !isClient()) c.abandonT = T;
   driving = null;
   sfx('cardoor');
   // step out AT the car's height: on the elevated highway c.cy is the deck level,
@@ -14813,12 +14840,13 @@ var PLANE_BAIL_ALT = 6;
 var PLANE_CEILING = 1500;     // altitude ceiling (raised from 400; sky dome tracks the camera up so the sky stays wrapped around you at height)
 // ---- stall / angle-of-attack (user: high AoA or extreme maneuvers should stall
 // the wing and cost you control for a moment; you can no longer hover at low speed) ----
-var PLANE_STALL_AOA = 0.30;          // ~17deg: past this angle of attack the wing stalls
+var PLANE_STALL_AOA = 0.27;          // ~15deg: past this angle of attack the wing stalls (yank the nose up hard)
 var PLANE_STALL_RECOVER_AOA = 0.18;  // AoA must fall back below this to recover
-var PLANE_STALL_SPD = 16;            // forward airspeed below which the wing can't hold lift
+var PLANE_STALL_SPD = 15;            // forward airspeed below which the wing can't hold lift
 var PLANE_STALL_MIN = 1.1;           // minimum seconds of mushy controls once a stall begins
 var PLANE_STALL_DROP = 0.9;          // rad/s nose-DOWN pitching moment while stalled (drops you into a recovery dive)
 var PLANE_STALL_AUTH = 0.35;         // fraction of control authority retained during a stall
+var PLANE_STALL_MIN_ALT = 35;        // no stalls below this altitude — landing/low passes are safe (fix: it was stalling on approach)
 // ---- cockpit warning alarms (owner supplies the WAVs via SFX_PACK: warn_terrain
 // / warn_sink / warn_pullup / warn_bank / warn_stall — synth placeholders until then) ----
 var PLANE_WARN_BANK = 1.0;           // |roll| rad (~57deg) -> "BANK ANGLE"
@@ -14827,6 +14855,9 @@ var PLANE_WARN_TERR_ALT = 42;        // low altitude ...
 var PLANE_WARN_TERR_SPD = 34;        // ... at high speed -> "TERRAIN"
 var PLANE_WARN_PULLUP_ALT = 20;      // very low ...
 var PLANE_WARN_PULLUP_VY = 11;       // ... and diving at the ground -> "PULL UP"
+// per-alarm repeat cadence (s) — tuned to each owner clip's length so the looping
+// callouts butt up cleanly instead of overlapping (bank/master clip is ~2.6s)
+var PLANE_WARN_CADENCE = { pullup: 1.0, stall: 1.05, terrain: 1.25, sink: 1.25, bank: 2.9 };
 var FALL_SAFE_VSPEED = 12;    // land harder than this (downward) and you take damage
 var FALL_DMG_K = 6;           // hp per (u/s) of impact over the safe threshold
 var PLANE_DEBRIS_LIFE = 60;   // seconds before crash props (debris + scorch) despawn
@@ -14897,7 +14928,7 @@ function boardPlane() {
   if (driving) exitCar();
   // stealing the parked airport jet arms air-traffic control
   if (plane.airport && !plane.atc) {
-    plane.atc = { warnCD: 0, tookOff: false, wasOnGround: true };
+    plane.atc = { warnCD: 0, tookOff: false, wasOnGround: true, hijackAt: 0, busy: 0 };
     popup2('You steal the jet. The radio crackles to life...');
   }
   plane.piloting = true;
@@ -14949,6 +14980,26 @@ function removePlane() {
   scene.remove(plane.group);
   plane = null;
 }
+// The airport's stealable jet always comes back: if it's WRECKED (plane goes
+// null) it respawns at the airport after a short delay; if you fly it off and
+// ABANDON it out in the world for 5+ minutes it's reclaimed and reappears at the
+// airport. While you're actively flying it (or it's parked at the airport) it
+// stays put. Local/singleplayer, like the plane itself.
+var apRespawnT = 0, apIdleT = 0;
+var AP_ABANDON_TTL = 300;   // 5 min abandoned-away before the jet returns to the airport
+function updateAirportPlane(dt) {
+  if (!state.running) return;
+  if (plane && plane.airport) {
+    if (plane.piloting) { apIdleT = 0; return; }
+    apIdleT += dt;
+    var dx = plane.group.position.x - (AIRPORT_ORIGIN.x + 205), dz = plane.group.position.z - (AIRPORT_ORIGIN.z + 8);
+    if (apIdleT > AP_ABANDON_TTL && (dx * dx + dz * dz) > 55 * 55) { removePlane(); apRespawnT = 10; apIdleT = 0; }   // reclaim + respawn at the airport
+  } else if (!plane) {
+    if (apRespawnT <= 0) apRespawnT = 10;                // wrecked/reclaimed -> the jet returns in ~10s
+    apRespawnT -= dt;
+    if (apRespawnT <= 0) { spawnAirportPlane(); apIdleT = 0; }
+  }
+}
 // per-frame plane simulation (physics + controls + gear + camera + crash).
 // Runs on REAL dt (arcade; not scaled by bullet-time). Called from the main loop
 // and from __wc.tick so headless tests drive it.
@@ -14972,7 +15023,7 @@ function updatePlaneWorld(dt) {
       tAil = 0;
     } else {
       // flying: A/D work the AILERONS (roll); mouse LEFT/RIGHT works the RUDDER (yaw)
-      tAil = (keys['KeyD'] ? 1 : 0) - (keys['KeyA'] ? 1 : 0);   // D=roll right, A=roll left
+      tAil = (keys['KeyA'] ? 1 : 0) - (keys['KeyD'] ? 1 : 0);   // A=roll right, D=roll left (user: they were switched)
       tRud = Math.max(-1, Math.min(1, plane.mRud));             // mouse left/right = rudder
     }
     if (keys['KeyW']) tThrottle += PLANE_THROTTLE_RATE * dt;
@@ -15031,12 +15082,17 @@ function updatePlaneWorld(dt) {
     var preFwd = vel.dot(noseV);
     var preUp = vel.dot(upV);
     var aoa = preSpd > 1 ? Math.atan2(-preUp, Math.max(0.001, preFwd)) : 0;
+    // altitude above the ground — stalls are SUPPRESSED down low so landings and
+    // low passes don't trip a stall (user: it was stalling on approach). Up high,
+    // yanking the nose past the critical AoA (or bleeding off airspeed) stalls.
+    var stAlt = g.position.y - gy - plane.clr;
     if (!plane.stalled) {
-      if (aoa > PLANE_STALL_AOA || preFwd < PLANE_STALL_SPD) { plane.stalled = true; plane.stallT = PLANE_STALL_MIN; if (plane.piloting) popup2('STALL!'); }
+      if (stAlt > PLANE_STALL_MIN_ALT && (aoa > PLANE_STALL_AOA || preFwd < PLANE_STALL_SPD)) { plane.stalled = true; plane.stallT = PLANE_STALL_MIN; }
     } else {
       plane.stallT -= dt;
-      // recover only once the nose is back down AND some airspeed is rebuilt
-      if (plane.stallT <= 0 && aoa < PLANE_STALL_RECOVER_AOA && preFwd > PLANE_STALL_SPD * 1.15) plane.stalled = false;
+      // recover once the nose is back down AND some airspeed is rebuilt — OR the
+      // moment you drop into the low-altitude safe zone (never ride a stall into the ground)
+      if ((plane.stallT <= 0 && aoa < PLANE_STALL_RECOVER_AOA && preFwd > PLANE_STALL_SPD * 1.15) || stAlt < PLANE_STALL_MIN_ALT * 0.7) plane.stalled = false;
     }
     var ctrlAuth = plane.stalled ? PLANE_STALL_AUTH : 1;   // controls go mushy in the stall
     // integrate angular rates in the plane's local frame (plane.js owns surface
@@ -15216,7 +15272,7 @@ function updatePlaneAlarms(dt) {
     if (plane.warnActive !== active) { plane.warnActive = active; plane.warnT = 0; }   // sound immediately on a new alarm
     if (plane.warnT <= 0) {
       sfx('warn_' + active);
-      plane.warnT = (active === 'stall' || active === 'bank') ? 0.8 : 1.15;             // steady tone vs repeated callout
+      plane.warnT = PLANE_WARN_CADENCE[active] || 1.2;                                  // repeat cadence per clip length (no overlap)
     }
   } else { plane.warnActive = null; plane.warnT = 0; }
 }
@@ -15235,28 +15291,31 @@ function planeOnRunway(x, z) {
   return false;
 }
 var _atcRR = { runway: 0, hijack: 0 };
-function atcSay(kind, caption) {
+var ATC_LINE_LEN = 5.5;   // seconds a radio line occupies the frequency (keeps lines from overlapping)
+function atcSay(kind) {
   var list = kind === 'hijack' ? ['atc_hijack_1', 'atc_hijack_2'] : ['atc_runway_1', 'atc_runway_2'];
   var id = list[(_atcRR[kind]++) % list.length];
-  playVoice(id, 0.95, 0);                                // radio: loud, non-positional, no cooldown gate
-  popup2(caption);                                       // subtitle so it lands even without the voice pack
+  playVoice(id, 0.95, 0);                                // radio: loud, non-positional, audio only (no on-screen caption)
 }
 function updatePlaneATC(dt) {
   var a = plane.atc; if (!a) return;
   var g = plane.group;
+  if (a.busy > 0) a.busy -= dt;                          // the radio is occupied — never stack two lines
   if (plane.onGround) {
     if (planeOnRunway(g.position.x, g.position.z)) {
       a.warnCD -= dt;
-      if (a.warnCD <= 0) { atcSay('runway', 'TOWER: You are NOT cleared for takeoff — get off the runway!'); a.warnCD = 7; }
+      if (a.warnCD <= 0 && a.busy <= 0) { atcSay('runway'); a.warnCD = 7; a.busy = ATC_LINE_LEN; }   // "get off the runway" nag
     } else { a.warnCD = 0; }                              // off the runway: re-arm so it nags promptly if you roll back on
     a.wasOnGround = true;
+    a.hijackAt = 0;                                       // touched back down before the hijack call — cancel it
   } else {
-    if (a.wasOnGround && !a.tookOff) {                    // the takeoff moment
+    if (a.wasOnGround && !a.tookOff && !a.hijackAt) a.hijackAt = T + 8;   // schedule the hijack call 8s AFTER takeoff
+    a.wasOnGround = false;
+    if (a.hijackAt && !a.tookOff && T >= a.hijackAt) {    // 8s after takeoff: declare the hijack + 3 stars
       a.tookOff = true;
-      atcSay('hijack', 'TOWER: Unauthorized departure — possible HIJACKING!');
+      atcSay('hijack'); a.busy = ATC_LINE_LEN;
       setWanted(Math.max(state.wanted, 3));
     }
-    a.wasOnGround = false;
   }
 }
 // ---- crash: explosion, debris scatter, scorch decal, remove plane, kill pilot
@@ -19562,9 +19621,14 @@ function tryAttack() {
     else if (npcHit) {
       puff(h.point, 0xd93a2a, 'blood');
       meleeHit = state.equipped === 'fists';
+      // scoped RIFLE: a HEADSHOT is an instant kill that takes the head clean off
+      // (reuses the shotgun's decapitation gore) — at ANY range, that's the point of a scope.
+      var ru = npcHit.mesh && npcHit.mesh.userData ? npcHit.mesh.userData : null;
+      var rBehead = ru && !npcHit._headless && ((ru.head && ru.head.visible) || ru.headBone);
+      if (state.equipped === 'rifle' && h.point.y > 1.42 && rBehead) { decapitateNPC(npcHit, dir.x, dir.z); }
       // clients predict hp so the overhead bar drops on hit (mrg4gnea) — the
       // host stays authoritative for the actual kill/credit
-      if (isClient()) { netToHost({ t: 'dmgNpc', i: npcs.indexOf(npcHit), dmg: w.dmg, kx: dir.x, kz: dir.z }); npcHit.hp = Math.max(0, (npcHit.hp || 100) - w.dmg); }
+      else if (isClient()) { netToHost({ t: 'dmgNpc', i: npcs.indexOf(npcHit), dmg: w.dmg, kx: dir.x, kz: dir.z }); npcHit.hp = Math.max(0, (npcHit.hp || 100) - w.dmg); }
       else damageNPC(npcHit, w.dmg, dir.x, dir.z, false);
     }
     else if (remoteHit) { netSendHit(remoteHit, w.dmg, true); puff(h.point, 0xd93a2a, 'blood'); }
@@ -24015,7 +24079,7 @@ function loop(now) {
   if (photoMode) { updatePhotoCam(dt); renderer.render(scene, camera); return; }
   T += dt;
   var sdt = dt;
-  updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
+  updatePlayer(dt); updatePlaneWorld(dt); updateAirportPlane(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
   if (state.dead) updateDeathCam(dt);   // top-down zoom-out cinematic drives the camera while dead
   renderer.render(scene, camera);
 }
@@ -24392,6 +24456,7 @@ window.__wc = {
   getEnvProp: getEnvProp, itemDef: itemDef, itemTex: itemTex, bagAdd: bagAdd, bagCount: bagCount,
   // --- flyable plane (Learjet) — local/singleplayer test hooks ---
   spawnPlane: function () { return spawnPlane(); },
+  spawnAirportPlane: function () { return spawnAirportPlane(); }, updateAirportPlane: updateAirportPlane,
   plane: function () { return plane; },
   boardPlane: boardPlane, exitPlane: exitPlane, removePlane: removePlane,
   crashPlane: function () { crashPlane(); },

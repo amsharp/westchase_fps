@@ -277,7 +277,7 @@ Westchase Guns & Ammo. He sells three guns:
 | SMG (TEC-9) | $400 | full-auto; first shots fly true, then it sprays — feather the trigger |
 | Shotgun | $500 | pump-action cone of pellets, brutal up close and weak far off — a **point-blank shot to the head takes it clean off** in a spray of blood |
 | Axe    | *found* | not for sale — see **The cabin in the woods** below. A solid melee hit **cleaves a body clean in half down the middle**; the two halves topple opposite ways onto the ground in a mess of blood. **Hold right-click to aim, then left-click to hurl it** — it spins through a gravity arc and bisects whoever it hits, then sticks in the ground where it lands for you to go pick back up |
-| Rifle  | $600  | one shot, one nap — right-click to scope |
+| Rifle  | $600  | one shot, one nap — right-click to scope. A **headshot is an instant kill that takes the head clean off** (same gore as the shotgun), at any range |
 | AK-47  | $1000 | full-auto, long range, accurate |
 | Rocket launcher | $2000 | one rocket per load, 5s hand-reload (R); the blast doesn't care whose side you're on |
 
@@ -595,11 +595,17 @@ slowly, the way a real jet carries its energy. Yank the nose up too hard, or
 throw it into an extreme maneuver, and the wing exceeds its angle of attack
 and **stalls**: the controls go mushy, the nose drops, and you have to dive
 to rebuild speed and fly out of it — a real, if brief, **loss of control**.
+Stalls only bite up high where the aerobatics happen — you won't trip one on
+final approach or a low pass.
 
-A set of **cockpit warning alarms** watches for trouble and calls it out
-(shown on the HUD, with a warning tone): **STALL**, **BANK ANGLE** (rolled
-too far), **SINK RATE** (dropping too fast), **TERRAIN** (low and fast), and
-**PULL UP** (low and diving at the ground).
+A set of **cockpit warning alarms** (real Learjet-style tones) watches for
+trouble and blares over the radio, listed on the HUD: **STALL**, **BANK
+ANGLE** (rolled too far), **SINK RATE** (dropping too fast), **TERRAIN** (low
+and fast), and **PULL UP** (low and diving at the ground).
+
+The airport's jet always comes back: wreck it and a fresh one respawns at the
+airport; fly it off and leave it somewhere for a few minutes and it's reclaimed
+and returned to the terminal.
 
 Hold the runway with the throttle open; once you're past takeoff speed and
 pull the nose up, the jet **rotates and lifts off**. Below takeoff speed
