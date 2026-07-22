@@ -587,16 +587,14 @@ not a study sim:
 The turbines **spool up as you feed in throttle** and settle to a steady
 whine at cruise, so you can fly by ear as much as by the speed readout.
 
-The jet **flies on its momentum** — it doesn't hover. Lift comes from
-**airspeed over the wings**, so if you let it get slow it can no longer hold
-itself up and it **sinks**; you can't just float gently down at a walking
-pace anymore. Ease off the throttle and it **coasts**, bleeding speed only
-slowly, the way a real jet carries its energy. Yank the nose up too hard, or
-throw it into an extreme maneuver, and the wing exceeds its angle of attack
-and **stalls**: the controls go mushy, the nose drops, and you have to dive
-to rebuild speed and fly out of it — a real, if brief, **loss of control**.
-Stalls only bite up high where the aerobatics happen — you won't trip one on
-final approach or a low pass.
+The jet is **fast and flies on its momentum** — it doesn't hover. Lift comes
+from **airspeed over the wings**, and there's a **hard minimum flying speed**:
+let it drop below that in the air and the wing quits — you **fall out of the
+sky and spin out of control** until you point the nose down and build speed
+back up. So you have to keep your speed up at all times. Yank the nose up too
+hard, or throw it into an extreme maneuver, and it **stalls** the same way.
+Ease off the throttle and it **coasts**, bleeding speed only slowly, the way a
+real jet carries its energy.
 
 A set of **cockpit warning alarms** (real Learjet-style tones) watches for
 trouble and blares over the radio, listed on the HUD: **STALL**, **BANK
@@ -607,13 +605,16 @@ The airport's jet always comes back: wreck it and a fresh one respawns at the
 airport; fly it off and leave it somewhere for a few minutes and it's reclaimed
 and returned to the terminal.
 
-Hold the runway with the throttle open; once you're past takeoff speed and
-pull the nose up, the jet **rotates and lifts off**. Below takeoff speed
-there's not enough lift and you'll just sink back down — so build speed
-first. There's plenty of **vertical room to climb** now — you can take it
-way up high, and the sky stays wrapped around you the whole way. The **landing gear retracts** on its own once you're well clear of
-the ground and **drops back down** as you come in to land. Set it down
-gently, wheels-down and slow, and it's a clean landing; come in too fast,
+Takeoffs are a proper run: the roll **starts slow and gradually builds** as
+you hold the throttle, and you need a good chunk of runway speed before the
+jet **rotates and lifts off**. There's plenty of **vertical room to climb** —
+you can take it way up high, and the sky stays wrapped around you the whole
+way. The **landing gear retracts** on its own once you're well clear of the
+ground and **drops back down** as you come in to land. Because you can't fly
+slow, **landings happen fast**: come in hot with a shallow descent, touch down,
+and the jet **keeps its momentum and rolls out**, slowing gradually on the
+wheels until it's taxi speed. Set it down
+gently, wheels-down, and it's a clean landing; come in too fast,
 too steep, or slam a building and the jet **crashes** — a fireball, ten
 tumbling chunks of wreckage, and a scorched patch burned into the ground
 (the debris and scorch clear after about a minute). Crash while you're in

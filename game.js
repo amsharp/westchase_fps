@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.91.1';
+var GAME_VERSION = 'v1.92.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -14880,14 +14880,14 @@ if (typeof WC_PLANE === 'undefined') {
   })();
 }
 // --- flight tuning constants (arcade, forgiving) ----------------------------
-var PLANE_THRUST = 18;        // v1.68.2: fwd accel (u/s^2) at full throttle — lowered from 34 (user: "accelerates wayyy too quickly")
-var PLANE_THROTTLE_RATE = 0.4;  // v1.68.2: throttle spools in over ~2.5s (was 0.8) so power comes on gradually
-var PLANE_GRAV = 15;          // gravity pulling the plane down (u/s^2)
-var PLANE_LIFT_K = 0.7;       // lift accel per unit speed, along local up (>grav at takeoff spd => climbs)
-var PLANE_LIFT_CAP = 34;      // speed cap feeding lift (prevents runaway)
-var PLANE_TAKEOFF = 24;       // speed at liftoff — above the ~21 u/s lift/gravity balance, so it climbs
-var PLANE_DRAG_PAR = 0.14;    // parallel drag rate — LOW so the jet keeps its momentum when you ease off the throttle (user: planes should keep momentum)
-var PLANE_MAX_SPD = 62;       // hard top speed clamp (arcade)
+var PLANE_THRUST = 28;        // fwd accel (u/s^2) at full throttle — a proper fast jet now (user: make it faster)
+var PLANE_THROTTLE_RATE = 0.26; // throttle spools in over ~4s so power comes on gradually (slow-then-faster taxi/takeoff roll)
+var PLANE_GRAV = 17;          // gravity pulling the plane down (u/s^2) — heavier so it doesn't float
+var PLANE_LIFT_K = 0.45;      // lift accel per unit forward-airspeed; level-flight lift=grav balances at ~38 u/s
+var PLANE_LIFT_CAP = 65;      // speed cap feeding lift (lift keeps scaling well into the fast regime)
+var PLANE_TAKEOFF = 44;       // speed at liftoff — well above the ~38 u/s lift/gravity balance, so you need real runway speed to fly
+var PLANE_DRAG_PAR = 0.11;    // parallel drag rate — LOW so the jet keeps its momentum when you ease off the throttle
+var PLANE_MAX_SPD = 78;       // hard top speed clamp (arcade) — faster overall
 var PLANE_DRAG_PERP = 2.5;    // perpendicular drag => velocity realigns to the nose (wings)
 var PLANE_ROLL_RATE = 2.4;    // rad/s at full aileron
 var PLANE_PITCH_RATE = 1.2;   // rad/s at full elevator
@@ -14907,11 +14907,11 @@ var PLANE_CEILING = 1500;     // altitude ceiling (raised from 400; sky dome tra
 // the wing and cost you control for a moment; you can no longer hover at low speed) ----
 var PLANE_STALL_AOA = 0.27;          // ~15deg: past this angle of attack the wing stalls (yank the nose up hard)
 var PLANE_STALL_RECOVER_AOA = 0.18;  // AoA must fall back below this to recover
-var PLANE_STALL_SPD = 15;            // forward airspeed below which the wing can't hold lift
-var PLANE_STALL_MIN = 1.1;           // minimum seconds of mushy controls once a stall begins
-var PLANE_STALL_DROP = 0.9;          // rad/s nose-DOWN pitching moment while stalled (drops you into a recovery dive)
-var PLANE_STALL_AUTH = 0.35;         // fraction of control authority retained during a stall
-var PLANE_STALL_MIN_ALT = 35;        // no stalls below this altitude — landing/low passes are safe (fix: it was stalling on approach)
+var PLANE_STALL_SPD = 32;            // MINIMUM flying airspeed — drop below this in the air and you fall out of the sky + spin
+var PLANE_STALL_MIN = 1.4;           // minimum seconds of loss-of-control once a stall begins
+var PLANE_STALL_DROP = 1.5;          // rad/s nose-DOWN pitching moment while stalled (drops hard into a recovery dive)
+var PLANE_STALL_AUTH = 0.18;         // fraction of control authority retained during a stall (mostly gone = out of control)
+var PLANE_STALL_MIN_ALT = 35;        // the high-AoA stall is suppressed below this alt (so the landing flare doesn't AoA-stall); the LOW-SPEED stall applies at ALL altitudes
 // ---- cockpit warning alarms (owner supplies the WAVs via SFX_PACK: warn_terrain
 // / warn_sink / warn_pullup / warn_bank / warn_stall — synth placeholders until then) ----
 var PLANE_WARN_BANK = 1.0;           // |roll| rad (~57deg) -> "BANK ANGLE"
@@ -14950,7 +14950,7 @@ function spawnPlane() {
     throttle: 0, gearT: 0, onGround: true, groundPitch: 0, alive: true, piloting: false,
     ail: 0, elev: 0, rud: 0,            // smoothed control positions
     mRud: 0, mElev: 0,                  // mouse-driven command accumulators (X=rudder, Y=elevator)
-    stalled: false, stallT: 0, buffet: 0, vspeed: 0,   // stall/AoA state
+    stalled: false, stallT: 0, buffet: 0, vspeed: 0, spinDir: 1,   // stall/AoA state
     warn: { terrain: false, sink: false, pullup: false, bank: false, stall: false },
     warnActive: null, warnT: 0,         // which alarm is sounding + its repeat cadence
     clr: clr, camPos: new THREE.Vector3(), camInit: false
@@ -14978,7 +14978,7 @@ function spawnAirportPlane() {
     group: built.group, parts: built.parts, vel: new THREE.Vector3(),
     throttle: 0, gearT: 0, onGround: true, groundPitch: 0, alive: true, piloting: false,
     ail: 0, elev: 0, rud: 0, mRud: 0, mElev: 0,
-    stalled: false, stallT: 0, buffet: 0, vspeed: 0,
+    stalled: false, stallT: 0, buffet: 0, vspeed: 0, spinDir: 1,
     warn: { terrain: false, sink: false, pullup: false, bank: false, stall: false },
     warnActive: null, warnT: 0,
     airport: true, atc: null,           // stealable airport jet; atc armed on first board
@@ -15109,10 +15109,11 @@ function updatePlaneWorld(dt) {
     plane.stalled = false; plane.stallT = 0;             // wheels down => no stall
     var heading = Math.atan2(noseV.x, noseV.z);
     var fwdSpd = plane.vel.dot(noseV);
-    // throttle accelerates the roll; idle rolls off with rolling friction
+    // throttle accelerates the roll; idle coasts off with LOW rolling friction so it
+    // keeps its momentum on touchdown and slows down gradually as it rolls out
     fwdSpd += plane.throttle * PLANE_THRUST * dt;
-    fwdSpd *= Math.max(0, 1 - 0.35 * dt);
-    fwdSpd = Math.max(-6, Math.min(72, fwdSpd));
+    fwdSpd *= Math.max(0, 1 - 0.11 * dt);
+    fwdSpd = Math.max(-6, Math.min(88, fwdSpd));
     // nose-wheel steering (A/D), scaled by how fast we're rolling
     heading += plane.rud * PLANE_GROUND_STEER * dt * Math.max(0, Math.min(1, fwdSpd / 10));
     // rotate for takeoff: elevator-up past ~rotate speed lifts the nose
@@ -15150,13 +15151,19 @@ function updatePlaneWorld(dt) {
     // low passes don't trip a stall (user: it was stalling on approach). Up high,
     // yanking the nose past the critical AoA (or bleeding off airspeed) stalls.
     var stAlt = g.position.y - gy - plane.clr;
+    // LOW-SPEED stall applies at ANY altitude: drop below the minimum flying speed
+    // and you fall out of the sky + spin (so you MUST keep your speed up, and can
+    // only land while still fast). The high-AoA stall is suppressed down low so the
+    // landing flare doesn't trip it.
     if (!plane.stalled) {
-      if (stAlt > PLANE_STALL_MIN_ALT && (aoa > PLANE_STALL_AOA || preFwd < PLANE_STALL_SPD)) { plane.stalled = true; plane.stallT = PLANE_STALL_MIN; }
+      var lowSpeed = preFwd < PLANE_STALL_SPD;
+      var highAoA = stAlt > PLANE_STALL_MIN_ALT && aoa > PLANE_STALL_AOA;
+      if (lowSpeed || highAoA) { plane.stalled = true; plane.stallT = PLANE_STALL_MIN; plane.spinDir = (plane.rud >= 0 ? 1 : -1); }
     } else {
       plane.stallT -= dt;
-      // recover once the nose is back down AND some airspeed is rebuilt — OR the
-      // moment you drop into the low-altitude safe zone (never ride a stall into the ground)
-      if ((plane.stallT <= 0 && aoa < PLANE_STALL_RECOVER_AOA && preFwd > PLANE_STALL_SPD * 1.15) || stAlt < PLANE_STALL_MIN_ALT * 0.7) plane.stalled = false;
+      // recover only once the nose is back down AND airspeed is rebuilt well above
+      // the minimum (dive to fly out of it) — no free near-ground rescue anymore
+      if (plane.stallT <= 0 && aoa < PLANE_STALL_RECOVER_AOA && preFwd > PLANE_STALL_SPD * 1.15) plane.stalled = false;
     }
     var ctrlAuth = plane.stalled ? PLANE_STALL_AUTH : 1;   // controls go mushy in the stall
     // integrate angular rates in the plane's local frame (plane.js owns surface
@@ -15168,10 +15175,13 @@ function updatePlaneWorld(dt) {
       // the nose falls toward (and through) the flight path — that bleeds AoA off
       // and builds speed in the dive, which is how you fly out of a stall; a bit of
       // buffet rolls/yaws the airframe so it feels like a genuine loss of control.
-      pitchA += PLANE_STALL_DROP * dt;                    // +pitchA = nose DOWN
-      plane.buffet += dt * 37;
-      rollA += Math.sin(plane.buffet) * 0.6 * dt;
-      yawA += Math.sin(plane.buffet * 0.7) * 0.4 * dt;
+      pitchA += PLANE_STALL_DROP * dt;                    // +pitchA = nose DOWN (drop hard)
+      plane.buffet += dt * 40;
+      // a real spin: a persistent roll+yaw in one direction, plus buffet wobble — you
+      // tumble out of control until you build speed back up in the dive
+      var sd = plane.spinDir || 1;
+      rollA += (sd * 1.1 + Math.sin(plane.buffet) * 0.7) * dt;
+      yawA += (sd * 0.7 + Math.sin(plane.buffet * 0.7) * 0.4) * dt;
     }
     // gentle auto-level on roll when the stick is centered (keeps it flyable) — off in a stall
     var bank = Math.atan2(rightV.y, upV.y);
