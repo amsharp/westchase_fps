@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.90.1';
+var GAME_VERSION = 'v1.90.2';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -14926,10 +14926,9 @@ function spawnAirportPlane() {
 function boardPlane() {
   if (!plane) return;
   if (driving) exitCar();
-  // stealing the parked airport jet arms air-traffic control
+  // stealing the parked airport jet arms air-traffic control (audio only, no text)
   if (plane.airport && !plane.atc) {
     plane.atc = { warnCD: 0, tookOff: false, wasOnGround: true, hijackAt: 0, busy: 0 };
-    popup2('You steal the jet. The radio crackles to life...');
   }
   plane.piloting = true;
   startJet();                                            // spin up the turbine loop
