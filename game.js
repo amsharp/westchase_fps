@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.90.2';
+var GAME_VERSION = 'v1.90.3';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -21046,8 +21046,12 @@ function footSurface(x, z) {
 }
 
 // ---------------- UI ----------------
-function popup(txt) { var el = document.createElement('div'); el.className = 'pop'; el.textContent = txt; document.getElementById('popups').appendChild(el); setTimeout(function () { el.remove(); }, 900); }
-function popup2(txt) { var el = document.createElement('div'); el.className = 'pop bad'; el.textContent = txt; document.getElementById('popups').appendChild(el); setTimeout(function () { el.remove(); }, 900); }
+// Transient rising-text popups are DISABLED (owner: they clutter the screen with
+// stuff you already know, e.g. "CARJACKED"). Kept as no-ops so every call site
+// still works; real state lives on the HUD (money/hp/stars) and essential one-off
+// info still comes through toast() (e.g. the vault code).
+function popup(txt) { }
+function popup2(txt) { }
 function toast(html, ms) { var el = document.getElementById('toast'); el.innerHTML = html; el.classList.remove('hidden'); clearTimeout(toast._t); toast._t = setTimeout(function () { el.classList.add('hidden'); }, ms || 6000); }
 
 function refreshShop() {
