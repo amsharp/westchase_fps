@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.90.3';
+var GAME_VERSION = 'v1.91.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -54,7 +54,7 @@ var WEAPONS = {
   pistol: { name: 'PISTOL', price: 150, dmg: 40, rate: 0.2, auto: false, spread: 0.014, ammo: 'pistol', mag: 15, reload: 1.5, desc: '9mm sidearm. Reliable.', flashAt: [0.26, -0.265, -0.9] },
   smg:    { name: 'SMG',    price: 400, dmg: 15, rate: 0.065, auto: true, spread: 0.008, spreadMax: 0.05, bloomPerShot: 0.006, ammo: 'pistol', mag: 30, reload: 2, desc: 'First shots on target. Then it sprays.', flashAt: [0.26, -0.262, -1.2] },
   rifle:  { name: 'RIFLE',  price: 600, dmg: 95, rate: 0.8,  auto: false, spread: 0.004, ammo: 'rifle', mag: 10, reload: 3, desc: 'One shot, one nap. Right-click to scope.', flashAt: [0.24, -0.235, -1.38] },
-  auto:   { name: 'AK-47',  price: 1000, dmg: 34, rate: 0.11, auto: true, spread: 0.012, ammo: 'rifle', mag: 30, reload: 3, desc: 'Full auto, long range.', flashAt: [0.26, -0.255, -1.2] },
+  auto:   { name: 'AK-47',  price: 1000, dmg: 34, rate: 0.075, auto: true, spread: 0.012, ammo: 'rifle', mag: 30, reload: 3, desc: 'Full auto, long range.', flashAt: [0.26, -0.255, -1.2] },
   shotgun: { name: 'SHOTGUN', price: 500, dmg: 17, rate: 0.85, auto: false, pellets: 9, spread: 0.06, falloff: 34, ammo: 'shotgun', mag: 6, reload: 5, desc: 'Pump-action. Point-blank headshots take the head clean off.', flashAt: [0.24, -0.25, -1.0], flashScale: 1.25 },
   rocket: { name: 'ROCKET LAUNCHER', price: 2000, rate: 5, rocket: true, ammo: 'rocket', mag: 1, reload: 5, desc: 'Danger close. Reload with R.', flashAt: [0.3, -0.28, -1.0] },
   raygun: { name: 'RAY GUN', price: 0, dmg: 70, rate: 0.22, auto: false, spread: 0, laser: true, desc: 'Alien tech. Semi-auto. Never misses.', flashAt: [0.26, -0.25, -0.95] },
@@ -6547,7 +6547,38 @@ initStreetcars();
 // not rocket-destructible (nothing's up there to fight it). Local per-peer.
 var monorails = [];
 var MONO_SPEED = 9, MONO_DWELL = 1.4, MONO_CARLEN = 9, MONO_GAP = 1.4;
+// user-supplied monorail car model (monorail.js: MONORAIL_DATA {q,dims,p,u,i,tex}).
+// One car, reused for BOTH cars of the train. Falls back to the procedural box
+// car if monorail.js is absent. Model is authored length-along-X, base at y=0.
+var _monoGeo = null, _monoMat = null, _monoScale = 1;
+function buildMonoGeo() {
+  if (_monoGeo || typeof MONORAIL_DATA === 'undefined') return;
+  var e = MONORAIL_DATA;
+  var qp = new Int16Array(b64Bytes(e.p).buffer), qu = new Uint16Array(b64Bytes(e.u).buffer);
+  var fp = new Float32Array(qp.length), fu = new Float32Array(qu.length);
+  for (var i = 0; i < qp.length; i++) fp[i] = qp[i] / e.q;
+  for (i = 0; i < qu.length; i += 2) { fu[i] = qu[i] / 8192; fu[i + 1] = 1 - qu[i + 1] / 8192; }
+  _monoGeo = new THREE.BufferGeometry();
+  _monoGeo.setAttribute('position', new THREE.BufferAttribute(fp, 3));
+  _monoGeo.setAttribute('uv', new THREE.BufferAttribute(fu, 2));
+  _monoGeo.setIndex(new THREE.BufferAttribute(new Uint16Array(b64Bytes(e.i).buffer), 1));
+  _monoGeo.computeVertexNormals();
+  var im = new Image(), tx = new THREE.Texture(im);
+  tx.magFilter = THREE.LinearFilter; tx.minFilter = THREE.LinearMipmapLinearFilter;
+  im.onload = function () { tx.needsUpdate = true; }; im.src = e.tex;
+  _monoMat = lamb({ map: tx });
+  _monoScale = MONO_CARLEN / e.dims[0];   // scale so the car length == MONO_CARLEN
+}
 function makeMonoCar() {
+  buildMonoGeo();
+  if (_monoGeo) {
+    var g = new THREE.Group();
+    var m = new THREE.Mesh(_monoGeo, _monoMat);
+    m.scale.set(_monoScale, _monoScale, _monoScale);
+    g.add(m);
+    return g;
+  }
+  // ---- fallback: procedural box car ----
   var g = new THREE.Group();
   var L = MONO_CARLEN, W = 2.3, H = 2.2, y0 = 0.5;
   var shell = phong({ color: 0xdfe3e8, shininess: 70, specular: 0x9099a2 });
@@ -6602,6 +6633,27 @@ function monoCollide(t) {
   }
   if (!state.dead && Math.abs(player.y - elev) < BAND + 1 && !inside && monoInBox(t, player.x, player.z, 0.5)) hurtPlayer(300, t.cx, t.cz);
 }
+// a light electric "whirring" loop (NOT an engine) — bandpass-filtered noise +
+// a faint high tone, built once; its gain tracks the nearest MOVING monorail and
+// fades with distance. Routed through ac.destination (= sfxBus) so the SFX slider
+// governs it. Built lazily once the AudioContext exists.
+var monoWhirNodes = null;
+function buildMonoWhir() {
+  if (!ac || monoWhirNodes) return;
+  var len = ac.sampleRate * 2, buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
+  for (var i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  var src = ac.createBufferSource(); src.buffer = buf; src.loop = true;
+  var bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 2000; bp.Q.value = 5.5;
+  var ng = ac.createGain(); ng.gain.value = 0.55;
+  var w = ac.createOscillator(); w.type = 'triangle'; w.frequency.value = 540;
+  var wg = ac.createGain(); wg.gain.value = 0.14;
+  var master = ac.createGain(); master.gain.value = 0;
+  src.connect(bp); bp.connect(ng); ng.connect(master);
+  w.connect(wg); wg.connect(master);
+  master.connect(ac.destination);
+  try { src.start(); w.start(); } catch (e) { }
+  monoWhirNodes = { master: master };
+}
 function updateMonorail(dt) {
   for (var i = 0; i < monorails.length; i++) {
     var t = monorails[i];
@@ -6611,6 +6663,19 @@ function updateMonorail(dt) {
     if (t.s >= hi) { t.s = hi; t.dir = -1; t.dwell = MONO_DWELL; }
     else if (t.s <= lo) { t.s = lo; t.dir = 1; t.dwell = MONO_DWELL; }
     posMonorail(t); monoCollide(t);
+  }
+  // whir: loudest for the nearest MOVING monorail, fading out by ~75u
+  buildMonoWhir();
+  if (monoWhirNodes) {
+    var best = 999;
+    for (i = 0; i < monorails.length; i++) {
+      var m = monorails[i]; if (m.dwell > 0) continue;      // stopped at a terminal = quiet
+      var mdx = m.cx - camera.position.x, mdz = m.cz - camera.position.z, dd = Math.sqrt(mdx * mdx + mdz * mdz);
+      if (dd < best) best = dd;
+    }
+    var tgt = best < 75 ? (1 - best / 75) * 0.12 : 0;
+    var mg = monoWhirNodes.master.gain;
+    mg.value += (tgt - mg.value) * Math.min(1, dt * 3);
   }
 }
 initMonorails();
