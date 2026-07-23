@@ -721,9 +721,10 @@ A full **airport** is laid out in the open expansion land to the south-east
   people being shuttled *inside* from the main hall to the gates.
 - Each side terminal fronts its own **runway** running north; the two runways are
   joined at the far end by a **taxiway**.
-- An **air-traffic-control tower** stands on the north apron between the runways,
-  with a **row of hangars** (big south-facing doors) lined up opposite the
-  terminals.
+- A custom-modelled **air-traffic-control tower** (tapered shaft, glassed cab,
+  antennae) stands on the north apron between the runways, with a **row of
+  gable-roofed hangars** (custom models, big south-facing doors) lined up
+  opposite the terminals.
 - The terminals, garage, tower and hangars all sit on **paved aprons**; a
   **parking garage** and an **access road** serve the landside. Where the runways
   run out past the pavement they cross open **grass**.

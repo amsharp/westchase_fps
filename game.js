@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.92.2';
+var GAME_VERSION = 'v1.92.3';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -6135,46 +6135,53 @@ placeGarages();
 // ATC tower + a row of hangars up north (opposite the terminals), and a parking
 // garage on the landside. Central area is paved; the runways run out over grass.
 
-// user-supplied main terminal model (airport_main.js: AIRPORT_MAIN_DATA
-// {q,dims,p,u,i,tex}). Decoded like the monorail/gun packs. Scaled so its
-// WIDTH == MAIN_TERM_W; footprint drives the collider in buildAirport. Falls
-// back to a plain box terminal if airport_main.js is absent. Model base at y=0.
-var MAIN_TERM_W = 78;
-var _airMainGeo = null, _airMainMat = null, _airMainScale = 1;
-function buildAirportMainGeo() {
-  if (_airMainGeo || typeof AIRPORT_MAIN_DATA === 'undefined') return;
-  var e = AIRPORT_MAIN_DATA;
+// user-supplied airport models (airport_main.js / airport_atc.js /
+// airport_hangar.js: AIRPORT_*_DATA {q,dims,p,u,i,tex}). Decoded like the
+// monorail/gun packs, cached per model. Each is uniform-scaled so a chosen
+// dimension matches its footprint target; the placed footprint drives the
+// collider in buildAirport. Falls back to procedural boxes if a data file is
+// absent. Models authored base-at-y=0.
+function decodeAirModel(e, cache) {
+  if (cache.geo) return cache;
   var qp = new Int16Array(b64Bytes(e.p).buffer), qu = new Uint16Array(b64Bytes(e.u).buffer);
   var fp = new Float32Array(qp.length), fu = new Float32Array(qu.length);
   for (var i = 0; i < qp.length; i++) fp[i] = qp[i] / e.q;
   for (i = 0; i < qu.length; i += 2) { fu[i] = qu[i] / 8192; fu[i + 1] = 1 - qu[i + 1] / 8192; }
-  _airMainGeo = new THREE.BufferGeometry();
-  _airMainGeo.setAttribute('position', new THREE.BufferAttribute(fp, 3));
-  _airMainGeo.setAttribute('uv', new THREE.BufferAttribute(fu, 2));
-  _airMainGeo.setIndex(new THREE.BufferAttribute(new Uint16Array(b64Bytes(e.i).buffer), 1));
-  _airMainGeo.computeVertexNormals();
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(fp, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(fu, 2));
+  geo.setIndex(new THREE.BufferAttribute(new Uint16Array(b64Bytes(e.i).buffer), 1));
+  geo.computeVertexNormals();
   var im = new Image(), tx = new THREE.Texture(im);
   tx.magFilter = THREE.LinearFilter; tx.minFilter = THREE.LinearMipmapLinearFilter;
   im.onload = function () { tx.needsUpdate = true; }; im.src = e.tex;
-  _airMainMat = lamb({ map: tx, side: THREE.DoubleSide });
-  _airMainScale = MAIN_TERM_W / e.dims[0];   // scale so building width == MAIN_TERM_W
+  cache.geo = geo; cache.mat = lamb({ map: tx, side: THREE.DoubleSide }); cache.dims = e.dims;
+  return cache;
 }
-// returns {group, w, d, h} for the placed model, or null if no model available
-function makeAirportMain(cx, cz, rotY) {
-  buildAirportMainGeo();
-  if (!_airMainGeo) return null;
-  var e = AIRPORT_MAIN_DATA, s = _airMainScale;
+// place a decoded model at (cx,cz), uniform-scaled so dims[axis] == target
+// (axis 0=width). Returns {group,w,d,h} (footprint accounts for 90° rotations).
+function makeAirModel(data, cache, target, axis, cx, cz, rotY) {
+  if (typeof data === 'undefined') return null;
+  decodeAirModel(data, cache);
+  var s = target / cache.dims[axis || 0];
   var g = new THREE.Group();
-  var m = new THREE.Mesh(_airMainGeo, _airMainMat);
-  m.scale.set(s, s, s);
-  g.add(m);
-  g.position.set(cx, 0, cz);
-  g.rotation.y = rotY || 0;
-  scene.add(g);
-  var W = e.dims[0] * s, H = e.dims[1] * s, D = e.dims[2] * s;
-  // rotation by 90/270 swaps footprint width/depth for the collider
-  var swap = Math.abs(Math.sin(rotY || 0)) > 0.5;
+  var m = new THREE.Mesh(cache.geo, cache.mat);
+  m.scale.set(s, s, s); g.add(m);
+  g.position.set(cx, 0, cz); g.rotation.y = rotY || 0; scene.add(g);
+  var W = cache.dims[0] * s, H = cache.dims[1] * s, D = cache.dims[2] * s;
+  var swap = Math.abs(Math.sin(rotY || 0)) > 0.5;   // 90/270 swaps footprint w/d
   return { group: g, w: swap ? D : W, d: swap ? W : D, h: H };
+}
+var _airMainC = {}, _airAtcC = {}, _airHangC = {};
+var MAIN_TERM_W = 78, ATC_TOWER_H = 42, HANGAR_W = 34;
+function makeAirportMain(cx, cz, rotY) {
+  return makeAirModel(typeof AIRPORT_MAIN_DATA !== 'undefined' ? AIRPORT_MAIN_DATA : undefined, _airMainC, MAIN_TERM_W, 0, cx, cz, rotY);
+}
+function makeAirportAtc(cx, cz) {   // scaled to height (axis 1)
+  return makeAirModel(typeof AIRPORT_ATC_DATA !== 'undefined' ? AIRPORT_ATC_DATA : undefined, _airAtcC, ATC_TOWER_H, 1, cx, cz, 0);
+}
+function makeAirportHangar(cx, cz) {   // rotated so the big door faces +Z (toward the runway)
+  return makeAirModel(typeof AIRPORT_HANGAR_DATA !== 'undefined' ? AIRPORT_HANGAR_DATA : undefined, _airHangC, HANGAR_W, 0, cx, cz, -Math.PI / 2);
 }
 
 function buildAirport(AX, AZ) {
@@ -6212,15 +6219,26 @@ function buildAirport(AX, AZ) {
   scene.add(box(0.5, 5, 10, darkM, AX + mw / 2 - 0.2, 6.2, AZ));
   bld(wx, AZ, 46, 30, 13, wallM, +1);                   // west terminal (monorail enters east wall)
   bld(ex, AZ, 46, 30, 13, wallM, -1);                   // east terminal (enters west wall)
-  // ATC tower (north, central)
-  var tx = AX, tz = AZ - 278, th = 34;
-  scene.add(box(5, th, 5, wallM2, tx, th / 2, tz));
-  scene.add(box(9, 4, 9, wallM, tx, th + 2, tz));
-  scene.add(box(8.4, 3, 8.4, glassM, tx, th + 4, tz));
-  scene.add(box(9.6, 0.5, 9.6, roofM, tx, th + 6, tz));
-  colliders.push({ x0: tx - 2.6, x1: tx + 2.6, z0: tz - 2.6, z1: tz + 2.6 });
-  // hangars — north of the runways (opposite the terminals), big doors facing south
+  // ATC tower (north, central) — user-supplied model (fallback: box tower).
+  // Collider hugs the tapered shaft (~55% of the flared-cab footprint).
+  var tx = AX, tz = AZ - 278;
+  var atcM = makeAirportAtc(tx, tz);
+  if (atcM) {
+    var acw = atcM.w * 0.28, acd = atcM.d * 0.28;
+    colliders.push({ x0: tx - acw, x1: tx + acw, z0: tz - acd, z1: tz + acd });
+  } else {
+    var th = 34;
+    scene.add(box(5, th, 5, wallM2, tx, th / 2, tz));
+    scene.add(box(9, 4, 9, wallM, tx, th + 2, tz));
+    scene.add(box(8.4, 3, 8.4, glassM, tx, th + 4, tz));
+    scene.add(box(9.6, 0.5, 9.6, roofM, tx, th + 6, tz));
+    colliders.push({ x0: tx - 2.6, x1: tx + 2.6, z0: tz - 2.6, z1: tz + 2.6 });
+  }
+  // hangars — north of the runways (opposite the terminals), big doors facing
+  // south (+z, toward the runway). User-supplied model (fallback: box hangar).
   function hangar(cx, cz) {
+    var hM = makeAirportHangar(cx, cz);
+    if (hM) { colliders.push({ x0: cx - hM.w / 2, x1: cx + hM.w / 2, z0: cz - hM.d / 2, z1: cz + hM.d / 2, topY: hM.h }); return; }
     var w = 38, d = 26, h = 15;
     scene.add(box(w, h, d, hangM, cx, h / 2, cz));
     scene.add(box(w + 1, 3, d + 1, roofM, cx, h + 1.2, cz));
