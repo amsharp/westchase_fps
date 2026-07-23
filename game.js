@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.92.3';
+var GAME_VERSION = 'v1.93.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -3554,12 +3554,47 @@ function buildPendingSpecialRoads() {
 // off each terminal and join at a north taxiway; access road runs N-S through the
 // garage + main building.
 var AIRPORT_ORIGIN = { x: 150, z: 1250 };
+// ---- airport layout (matches the user's Blender blockout): main terminal
+// front-and-centre with its drop-off canopy facing south (the landside), two
+// concourse terminals splayed out behind it with gates facing outward, ATC
+// tower + a row of hangars across the back, and monorails CURVING from the
+// main hall into the back (landside) of each terminal. ONE common scale
+// (AIR.S) keeps every uploaded model at the relative size it was authored, so
+// the Blender blockout doubles as the size reference. All model true dims:
+// main 15.88x5.34x13.79, terminal 18.66x6.22x49.02, hangar 6.18x3.38x9.05.
+var AIR = (function () {
+  var AX = AIRPORT_ORIGIN.x, AZ = AIRPORT_ORIGIN.z;
+  // per-model uniform scales (aspect preserved; sizes matched to the blockout —
+  // the main hall is the prominent anchor, terminals are long concourses)
+  var MAIN_S = 4.3, TERM_S = 1.85, HANG_S = 2.3;
+  function bez(p0, p1, p2, n) { var o = []; for (var i = 0; i <= n; i++) { var t = i / n, u = 1 - t; o.push([u * u * p0[0] + 2 * u * t * p1[0] + t * t * p2[0], u * u * p0[1] + 2 * u * t * p1[1] + t * t * p2[1]]); } return o; }
+  var mainWx = 13.79 * MAIN_S, mainWz = 15.88 * MAIN_S;   // main after -90deg yaw: X<-modelZ, Z<-modelX
+  var termWx = 18.66 * TERM_S, termLen = 49.02 * TERM_S;   // terminal: X=width(gate<->back), Z=length
+  // side terminals splayed behind the main, converging toward the back row so
+  // their gate faces open outward toward the main (matches the blockout ∧). Back
+  // (landside) faces the main; monorails curve into it.
+  var TX = 100, TZ = 96, ANG = 0.5;
+  var wrot = Math.PI - ANG, erot = ANG;          // gates outward (W: NW, E: NE), backs toward main
+  var wc = [AX - TX, AZ - TZ], ec = [AX + TX, AZ - TZ];
+  function backN(rot) { return [-Math.cos(rot), Math.sin(rot)]; }   // local -X face normal -> world
+  function backPt(c, rot) { var n = backN(rot); return [c[0] + n[0] * termWx / 2, c[1] + n[1] * termWx / 2]; }
+  var wback = backPt(wc, wrot), eback = backPt(ec, erot);
+  // monorails: from the main hall's west/east flank, curve into each back
+  var wExit = [AX - mainWx / 2 + 2, AZ - 4], eExit = [AX + mainWx / 2 - 2, AZ - 4];
+  var wCtrl = [(wExit[0] + wback[0]) / 2, AZ - TZ * 0.5];
+  var eCtrl = [(eExit[0] + eback[0]) / 2, AZ - TZ * 0.5];
+  var monoW = bez(wExit, wCtrl, wback, 7), monoE = bez(eExit, eCtrl, eback, 7);
+  return { AX: AX, AZ: AZ, MAIN_S: MAIN_S, TERM_S: TERM_S, HANG_S: HANG_S,
+    mainWx: mainWx, mainWz: mainWz, mainRot: -Math.PI / 2,
+    termWx: termWx, termLen: termLen, wc: wc, ec: ec, wrot: wrot, erot: erot,
+    wback: wback, eback: eback, monoW: monoW, monoE: monoE };
+})();
 (function airportRoads() {
   if (typeof REMAP_ROADS === 'undefined') return;
   var AX = AIRPORT_ORIGIN.x, AZ = AIRPORT_ORIGIN.z, wx = AX - 165, ex = AX + 165;
   REMAP_ROADS.push(
-    { id: 'ap_mono_w', cls: 10, hw: 5, kind: 'monorail', elev: 6, pts: [[AX - 22, AZ], [wx + 15, AZ]] },   // main -> west terminal (ends inside each)
-    { id: 'ap_mono_e', cls: 10, hw: 5, kind: 'monorail', elev: 6, pts: [[AX + 22, AZ], [ex - 15, AZ]] },   // main -> east terminal
+    { id: 'ap_mono_w', cls: 10, hw: 5, kind: 'monorail', elev: 6, pts: AIR.monoW },   // main -> west terminal back (curved)
+    { id: 'ap_mono_e', cls: 10, hw: 5, kind: 'monorail', elev: 6, pts: AIR.monoE },   // main -> east terminal back (curved)
     { id: 'ap_rwy_w', cls: 11, hw: 22, kind: 'runway', pts: [[wx, AZ - 30], [wx, AZ - 270]] },              // west runway (N-S)
     { id: 'ap_rwy_e', cls: 11, hw: 22, kind: 'runway', pts: [[ex, AZ - 30], [ex, AZ - 270]] },              // east runway
     { id: 'ap_taxi_n', cls: 12, hw: 8, kind: 'taxiway', pts: [[wx, AZ - 270], [ex, AZ - 270]] },            // north connector taxiway
@@ -6136,10 +6171,11 @@ placeGarages();
 // garage on the landside. Central area is paved; the runways run out over grass.
 
 // user-supplied airport models (airport_main.js / airport_atc.js /
-// airport_hangar.js: AIRPORT_*_DATA {q,dims,p,u,i,tex}). Decoded like the
-// monorail/gun packs, cached per model. Each is uniform-scaled so a chosen
-// dimension matches its footprint target; the placed footprint drives the
-// collider in buildAirport. Falls back to procedural boxes if a data file is
+// airport_hangar.js / airport_terminal.js: AIRPORT_*_DATA {q,dims,p,u,i,tex}).
+// Decoded like the monorail/gun packs, cached per model. Placed by ONE common
+// scale (AIR.S) so their authored relative sizes are preserved (the Blender
+// blockout doubles as the size reference). tex may be null (untextured model)
+// -> plain wall material. Falls back to procedural boxes if a data file is
 // absent. Models authored base-at-y=0.
 function decodeAirModel(e, cache) {
   if (cache.geo) return cache;
@@ -6152,101 +6188,78 @@ function decodeAirModel(e, cache) {
   geo.setAttribute('uv', new THREE.BufferAttribute(fu, 2));
   geo.setIndex(new THREE.BufferAttribute(new Uint16Array(b64Bytes(e.i).buffer), 1));
   geo.computeVertexNormals();
-  var im = new Image(), tx = new THREE.Texture(im);
-  tx.magFilter = THREE.LinearFilter; tx.minFilter = THREE.LinearMipmapLinearFilter;
-  im.onload = function () { tx.needsUpdate = true; }; im.src = e.tex;
-  cache.geo = geo; cache.mat = lamb({ map: tx, side: THREE.DoubleSide }); cache.dims = e.dims;
+  if (e.tex) {
+    var im = new Image(), tx = new THREE.Texture(im);
+    tx.magFilter = THREE.LinearFilter; tx.minFilter = THREE.LinearMipmapLinearFilter;
+    im.onload = function () { tx.needsUpdate = true; }; im.src = e.tex;
+    cache.mat = lamb({ map: tx, side: THREE.DoubleSide });
+  } else {
+    cache.mat = lamb({ color: 0xc9c6bd, side: THREE.DoubleSide });   // untextured model
+  }
+  cache.geo = geo; cache.dims = e.dims;
   return cache;
 }
-// place a decoded model at (cx,cz), uniform-scaled so dims[axis] == target
-// (axis 0=width). Returns {group,w,d,h} (footprint accounts for 90° rotations).
-function makeAirModel(data, cache, target, axis, cx, cz, rotY) {
+// place a decoded model at (cx,cz), uniform-scaled by `scale`. Returns
+// {group, W, H, D} (raw model dims * scale). rotY applied about Y.
+function placeAirModel(data, cache, scale, cx, cz, rotY) {
   if (typeof data === 'undefined') return null;
   decodeAirModel(data, cache);
-  var s = target / cache.dims[axis || 0];
   var g = new THREE.Group();
   var m = new THREE.Mesh(cache.geo, cache.mat);
-  m.scale.set(s, s, s); g.add(m);
+  m.scale.set(scale, scale, scale); g.add(m);
   g.position.set(cx, 0, cz); g.rotation.y = rotY || 0; scene.add(g);
-  var W = cache.dims[0] * s, H = cache.dims[1] * s, D = cache.dims[2] * s;
-  var swap = Math.abs(Math.sin(rotY || 0)) > 0.5;   // 90/270 swaps footprint w/d
-  return { group: g, w: swap ? D : W, d: swap ? W : D, h: H };
+  return { group: g, W: cache.dims[0] * scale, H: cache.dims[1] * scale, D: cache.dims[2] * scale };
 }
-var _airMainC = {}, _airAtcC = {}, _airHangC = {};
-var MAIN_TERM_W = 78, ATC_TOWER_H = 42, HANGAR_W = 34;
-function makeAirportMain(cx, cz, rotY) {
-  return makeAirModel(typeof AIRPORT_MAIN_DATA !== 'undefined' ? AIRPORT_MAIN_DATA : undefined, _airMainC, MAIN_TERM_W, 0, cx, cz, rotY);
+// axis-aligned collider bounding a W×D box centred at (cx,cz) yawed by rotY
+function pushYawCollider(cx, cz, W, D, rotY, topY) {
+  var c = Math.abs(Math.cos(rotY || 0)), s = Math.abs(Math.sin(rotY || 0));
+  var hx = W / 2 * c + D / 2 * s, hz = W / 2 * s + D / 2 * c;
+  colliders.push({ x0: cx - hx, x1: cx + hx, z0: cz - hz, z1: cz + hz, topY: topY });
 }
-function makeAirportAtc(cx, cz) {   // scaled to height (axis 1)
-  return makeAirModel(typeof AIRPORT_ATC_DATA !== 'undefined' ? AIRPORT_ATC_DATA : undefined, _airAtcC, ATC_TOWER_H, 1, cx, cz, 0);
-}
-function makeAirportHangar(cx, cz) {   // rotated so the big door faces +Z (toward the runway)
-  return makeAirModel(typeof AIRPORT_HANGAR_DATA !== 'undefined' ? AIRPORT_HANGAR_DATA : undefined, _airHangC, HANGAR_W, 0, cx, cz, -Math.PI / 2);
-}
+var _airMainC = {}, _airAtcC = {}, _airHangC = {}, _airTermC = {};
+var ATC_TOWER_H = 32;
 
 function buildAirport(AX, AZ) {
-  var wx = AX - 165, ex = AX + 165;
   var glassM = phong({ color: 0x27343d, shininess: 120, specular: 0x99bbcc, transparent: true, opacity: 0.6 });
   var wallM = lamb({ color: 0xd6d2c6 }), wallM2 = lamb({ color: 0xaeb4bb });
   var roofM = lamb({ color: 0x565c64 }), darkM = lamb({ color: 0x14161a }), hangM = lamb({ color: 0x8a9099 });
   var paveT = tex(128, function (g, s) { g.fillStyle = '#9a9a92'; g.fillRect(0, 0, s, s); noise(g, s, 500, 0.06, 0.04); g.strokeStyle = 'rgba(120,120,112,0.3)'; for (var k = 1; k < 4; k++) { g.beginPath(); g.moveTo(0, s * k / 4); g.lineTo(s, s * k / 4); g.stroke(); } });
   var paveM = lamb({ map: paveT });
   function pad(x0, x1, z0, z1) { scene.add(box(x1 - x0, 0.08, z1 - z0, paveM, (x0 + x1) / 2, 0.02, (z0 + z1) / 2)); padRects.push({ x0: x0, x1: x1, z0: z0, z1: z1, y: 0.05 }); }
-  pad(AX - 220, AX + 220, AZ - 45, AZ + 132);          // landside apron (main + garage + terminals + drop-off)
-  pad(wx - 34, ex + 34, AZ - 308, AZ - 244);           // north apron (taxiway ends + hangars + ATC)
-  // ---- box building: solid body, roof cap, glass window ribbon, wall collider;
-  // `portal` (±1) cuts a dark tunnel mouth on that x-wall at monorail height ----
-  function bld(cx, cz, w, d, h, body, portal) {
-    var g = new THREE.Group();
-    g.add(box(w, h, d, body, 0, h / 2, 0));
-    g.add(box(w + 0.7, 0.5, d + 0.7, roofM, 0, h + 0.25, 0));
-    g.add(box(w + 0.12, h * 0.34, d + 0.12, glassM, 0, h * 0.58, 0));
-    g.position.set(cx, 0, cz); scene.add(g);
-    colliders.push({ x0: cx - w / 2, x1: cx + w / 2, z0: cz - d / 2, z1: cz + d / 2, topY: h });
-    if (portal) scene.add(box(0.5, 5, 10, darkM, cx + portal * (w / 2 - 0.2), 6.2, cz));   // monorail tunnel mouth
+  pad(AX - 230, AX + 230, AZ - 200, AZ + 132);         // one big apron under main + terminals + back row + drop-off
+  pad(AX - 210, AX + 210, AZ - 300, AZ - 244);         // north apron (taxiway ends)
+  // small dark monorail tunnel portal (yawed dark slab where a track enters a wall)
+  function portal(x, z, rotY) { var g = new THREE.Group(); g.add(box(1.2, 5, 10, darkM, 0, 6.2, 0)); g.position.set(x, 0, z); g.rotation.y = rotY; scene.add(g); }
+
+  // ---- main terminal: canopy/drop-off faces south (+Z, landside) ----
+  var mainM = placeAirModel(typeof AIRPORT_MAIN_DATA !== 'undefined' ? AIRPORT_MAIN_DATA : undefined, _airMainC, AIR.MAIN_S, AX, AZ, AIR.mainRot);
+  if (mainM) pushYawCollider(AX, AZ, mainM.W, mainM.D, AIR.mainRot, mainM.H);
+  else { var g = new THREE.Group(); g.add(box(48, 20, 36, wallM, 0, 10, 0)); g.position.set(AX, 0, AZ); scene.add(g); colliders.push({ x0: AX - 24, x1: AX + 24, z0: AZ - 18, z1: AZ + 18, topY: 20 }); }
+  // monorail exits on the main's flanks
+  portal(AIR.monoW[0][0], AIR.monoW[0][1], -Math.PI / 2);
+  portal(AIR.monoE[0][0], AIR.monoE[0][1], -Math.PI / 2);
+
+  // ---- two concourse terminals, splayed behind the main, gates outward ----
+  function terminal(c, rot) {
+    var tM = placeAirModel(typeof AIRPORT_TERMINAL_DATA !== 'undefined' ? AIRPORT_TERMINAL_DATA : undefined, _airTermC, AIR.TERM_S, c[0], c[1], rot);
+    if (tM) pushYawCollider(c[0], c[1], tM.W, tM.D, rot, tM.H);
+    else { pushYawCollider(c[0], c[1], 40, 100, rot, 14); scene.add(box(40, 14, 100, wallM, c[0], 7, c[1])); }
   }
-  // main terminal — user-supplied model (fallback: procedural box)
-  var mainM = makeAirportMain(AX, AZ, 0);
-  if (mainM) {
-    var mw = mainM.w, md = mainM.d;
-    colliders.push({ x0: AX - mw / 2, x1: AX + mw / 2, z0: AZ - md / 2, z1: AZ + md / 2, topY: mainM.h });
-  } else {
-    bld(AX, AZ, 64, 40, 16, wallM);                     // fallback box terminal
-    scene.add(box(30, 4, 20, wallM2, AX, 18, AZ));      // main roof clerestory
-    mw = 64;
+  terminal(AIR.wc, AIR.wrot); terminal(AIR.ec, AIR.erot);
+  portal(AIR.wback[0], AIR.wback[1], AIR.wrot);   // monorail enters each terminal's back (landside)
+  portal(AIR.eback[0], AIR.eback[1], AIR.erot);
+
+  // ---- back row: ATC tower centre + four hangars, all facing the field (+Z) ----
+  var backZ = AZ - 168, atcZ = AZ - 176;
+  var atcM = placeAirModel(typeof AIRPORT_ATC_DATA !== 'undefined' ? AIRPORT_ATC_DATA : undefined, _airAtcC, ATC_TOWER_H / (typeof AIRPORT_ATC_DATA !== 'undefined' ? AIRPORT_ATC_DATA.dims[1] : 1), AX, atcZ, 0);
+  if (atcM) { var acw = atcM.W * 0.28, acd = atcM.D * 0.28; colliders.push({ x0: AX - acw, x1: AX + acw, z0: atcZ - acd, z1: atcZ + acd }); }
+  else { var th = 30; scene.add(box(5, th, 5, wallM2, AX, th / 2, atcZ)); scene.add(box(9, 4, 9, wallM, AX, th + 2, atcZ)); colliders.push({ x0: AX - 2.6, x1: AX + 2.6, z0: atcZ - 2.6, z1: atcZ + 2.6 }); }
+  function hangar(cx, cz) {   // door faces +Z (south, toward field): rotate -90deg
+    var hM = placeAirModel(typeof AIRPORT_HANGAR_DATA !== 'undefined' ? AIRPORT_HANGAR_DATA : undefined, _airHangC, AIR.HANG_S, cx, cz, -Math.PI / 2);
+    if (hM) { pushYawCollider(cx, cz, hM.W, hM.D, -Math.PI / 2, hM.H); return; }
+    var w = 34, d = 22, h = 13; scene.add(box(w, h, d, hangM, cx, h / 2, cz)); scene.add(box(w - 8, h - 3, 0.5, darkM, cx, (h - 3) / 2, cz + d / 2 - 0.1)); colliders.push({ x0: cx - w / 2, x1: cx + w / 2, z0: cz - d / 2, z1: cz + d / 2, topY: h });
   }
-  scene.add(box(0.5, 5, 10, darkM, AX - mw / 2 + 0.2, 6.2, AZ));   // main tunnel mouths (both monorails)
-  scene.add(box(0.5, 5, 10, darkM, AX + mw / 2 - 0.2, 6.2, AZ));
-  bld(wx, AZ, 46, 30, 13, wallM, +1);                   // west terminal (monorail enters east wall)
-  bld(ex, AZ, 46, 30, 13, wallM, -1);                   // east terminal (enters west wall)
-  // ATC tower (north, central) — user-supplied model (fallback: box tower).
-  // Collider hugs the tapered shaft (~55% of the flared-cab footprint).
-  var tx = AX, tz = AZ - 278;
-  var atcM = makeAirportAtc(tx, tz);
-  if (atcM) {
-    var acw = atcM.w * 0.28, acd = atcM.d * 0.28;
-    colliders.push({ x0: tx - acw, x1: tx + acw, z0: tz - acd, z1: tz + acd });
-  } else {
-    var th = 34;
-    scene.add(box(5, th, 5, wallM2, tx, th / 2, tz));
-    scene.add(box(9, 4, 9, wallM, tx, th + 2, tz));
-    scene.add(box(8.4, 3, 8.4, glassM, tx, th + 4, tz));
-    scene.add(box(9.6, 0.5, 9.6, roofM, tx, th + 6, tz));
-    colliders.push({ x0: tx - 2.6, x1: tx + 2.6, z0: tz - 2.6, z1: tz + 2.6 });
-  }
-  // hangars — north of the runways (opposite the terminals), big doors facing
-  // south (+z, toward the runway). User-supplied model (fallback: box hangar).
-  function hangar(cx, cz) {
-    var hM = makeAirportHangar(cx, cz);
-    if (hM) { colliders.push({ x0: cx - hM.w / 2, x1: cx + hM.w / 2, z0: cz - hM.d / 2, z1: cz + hM.d / 2, topY: hM.h }); return; }
-    var w = 38, d = 26, h = 15;
-    scene.add(box(w, h, d, hangM, cx, h / 2, cz));
-    scene.add(box(w + 1, 3, d + 1, roofM, cx, h + 1.2, cz));
-    scene.add(box(w - 3, 2, d - 5, roofM, cx, h + 2.7, cz));
-    scene.add(box(w - 8, h - 3, 0.5, darkM, cx, (h - 3) / 2, cz + d / 2 - 0.1));   // hangar door (toward runway)
-    colliders.push({ x0: cx - w / 2, x1: cx + w / 2, z0: cz - d / 2, z1: cz + d / 2, topY: h });
-  }
-  hangar(wx, AZ - 292); hangar(ex, AZ - 292); hangar(AX - 72, AZ - 294); hangar(AX + 72, AZ - 294);
+  hangar(AX - 140, backZ); hangar(AX - 72, backZ); hangar(AX + 72, backZ); hangar(AX + 140, backZ);
   // parking garage on the landside, just east of the access road
   buildParkingGarage(AX + 72, AZ + 84, { hw: 26, hd: 18 });
 }

@@ -713,18 +713,18 @@ around x 60, z 550).
 A full **airport** is laid out in the open expansion land to the south-east
 (around x 150, z 1250). It's built from the reusable pieces above:
 
-- A central **main terminal** — a detailed multi-storey "Tampa International
-  Airport" building (a custom 3D model), flanked by a **west** and **east
-  terminal**.
-- An **elevated monorail** runs from the main terminal out to each side terminal,
-  its track disappearing into a dark portal on every building so it reads as
-  people being shuttled *inside* from the main hall to the gates.
-- Each side terminal fronts its own **runway** running north; the two runways are
-  joined at the far end by a **taxiway**.
-- A custom-modelled **air-traffic-control tower** (tapered shaft, glassed cab,
-  antennae) stands on the north apron between the runways, with a **row of
-  gable-roofed hangars** (custom models, big south-facing doors) lined up
-  opposite the terminals.
+- A prominent multi-storey **main terminal** — a custom "Tampa International
+  Airport" model — sits front-and-centre with its **drop-off canopy facing the
+  landside** (the access road + parking).
+- Two custom **concourse terminals** splay out behind the main hall, angled so
+  their gates face outward, with **monorails that curve** from the main hall
+  into the back (landside) of each concourse — you read it as people being
+  shuttled from the main terminal out to the gates.
+- A custom **air-traffic-control tower** (tapered shaft, glassed cab, antennae)
+  anchors the back row, flanked by a **row of gable-roofed hangars** (custom
+  models, doors facing the field). All custom models are placed at one common
+  set of relative sizes so they match the intended blockout.
+- Two **runways** run north with a connector **taxiway**.
 - The terminals, garage, tower and hangars all sit on **paved aprons**; a
   **parking garage** and an **access road** serve the landside. Where the runways
   run out past the pavement they cross open **grass**.
