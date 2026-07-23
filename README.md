@@ -713,8 +713,9 @@ around x 60, z 550).
 A full **airport** is laid out in the open expansion land to the south-east
 (around x 150, z 1250). It's built from the reusable pieces above:
 
-- A central **main terminal** building with a raised clerestory roof, flanked by
-  a **west** and **east terminal**.
+- A central **main terminal** — a detailed multi-storey "Tampa International
+  Airport" building (a custom 3D model), flanked by a **west** and **east
+  terminal**.
 - An **elevated monorail** runs from the main terminal out to each side terminal,
   its track disappearing into a dark portal on every building so it reads as
   people being shuttled *inside* from the main hall to the gates.

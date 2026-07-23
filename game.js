@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.92.1';
+var GAME_VERSION = 'v1.92.2';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -6134,6 +6134,49 @@ placeGarages();
 // each terminal fronting a runway, the two runways joined by a north taxiway, an
 // ATC tower + a row of hangars up north (opposite the terminals), and a parking
 // garage on the landside. Central area is paved; the runways run out over grass.
+
+// user-supplied main terminal model (airport_main.js: AIRPORT_MAIN_DATA
+// {q,dims,p,u,i,tex}). Decoded like the monorail/gun packs. Scaled so its
+// WIDTH == MAIN_TERM_W; footprint drives the collider in buildAirport. Falls
+// back to a plain box terminal if airport_main.js is absent. Model base at y=0.
+var MAIN_TERM_W = 78;
+var _airMainGeo = null, _airMainMat = null, _airMainScale = 1;
+function buildAirportMainGeo() {
+  if (_airMainGeo || typeof AIRPORT_MAIN_DATA === 'undefined') return;
+  var e = AIRPORT_MAIN_DATA;
+  var qp = new Int16Array(b64Bytes(e.p).buffer), qu = new Uint16Array(b64Bytes(e.u).buffer);
+  var fp = new Float32Array(qp.length), fu = new Float32Array(qu.length);
+  for (var i = 0; i < qp.length; i++) fp[i] = qp[i] / e.q;
+  for (i = 0; i < qu.length; i += 2) { fu[i] = qu[i] / 8192; fu[i + 1] = 1 - qu[i + 1] / 8192; }
+  _airMainGeo = new THREE.BufferGeometry();
+  _airMainGeo.setAttribute('position', new THREE.BufferAttribute(fp, 3));
+  _airMainGeo.setAttribute('uv', new THREE.BufferAttribute(fu, 2));
+  _airMainGeo.setIndex(new THREE.BufferAttribute(new Uint16Array(b64Bytes(e.i).buffer), 1));
+  _airMainGeo.computeVertexNormals();
+  var im = new Image(), tx = new THREE.Texture(im);
+  tx.magFilter = THREE.LinearFilter; tx.minFilter = THREE.LinearMipmapLinearFilter;
+  im.onload = function () { tx.needsUpdate = true; }; im.src = e.tex;
+  _airMainMat = lamb({ map: tx, side: THREE.DoubleSide });
+  _airMainScale = MAIN_TERM_W / e.dims[0];   // scale so building width == MAIN_TERM_W
+}
+// returns {group, w, d, h} for the placed model, or null if no model available
+function makeAirportMain(cx, cz, rotY) {
+  buildAirportMainGeo();
+  if (!_airMainGeo) return null;
+  var e = AIRPORT_MAIN_DATA, s = _airMainScale;
+  var g = new THREE.Group();
+  var m = new THREE.Mesh(_airMainGeo, _airMainMat);
+  m.scale.set(s, s, s);
+  g.add(m);
+  g.position.set(cx, 0, cz);
+  g.rotation.y = rotY || 0;
+  scene.add(g);
+  var W = e.dims[0] * s, H = e.dims[1] * s, D = e.dims[2] * s;
+  // rotation by 90/270 swaps footprint width/depth for the collider
+  var swap = Math.abs(Math.sin(rotY || 0)) > 0.5;
+  return { group: g, w: swap ? D : W, d: swap ? W : D, h: H };
+}
+
 function buildAirport(AX, AZ) {
   var wx = AX - 165, ex = AX + 165;
   var glassM = phong({ color: 0x27343d, shininess: 120, specular: 0x99bbcc, transparent: true, opacity: 0.6 });
@@ -6155,10 +6198,18 @@ function buildAirport(AX, AZ) {
     colliders.push({ x0: cx - w / 2, x1: cx + w / 2, z0: cz - d / 2, z1: cz + d / 2, topY: h });
     if (portal) scene.add(box(0.5, 5, 10, darkM, cx + portal * (w / 2 - 0.2), 6.2, cz));   // monorail tunnel mouth
   }
-  bld(AX, AZ, 64, 40, 16, wallM);                       // main terminal
-  scene.add(box(30, 4, 20, wallM2, AX, 18, AZ));        // main roof clerestory
-  scene.add(box(0.5, 5, 10, darkM, AX - 32 + 0.2, 6.2, AZ));   // main tunnel mouths (both monorails)
-  scene.add(box(0.5, 5, 10, darkM, AX + 32 - 0.2, 6.2, AZ));
+  // main terminal — user-supplied model (fallback: procedural box)
+  var mainM = makeAirportMain(AX, AZ, 0);
+  if (mainM) {
+    var mw = mainM.w, md = mainM.d;
+    colliders.push({ x0: AX - mw / 2, x1: AX + mw / 2, z0: AZ - md / 2, z1: AZ + md / 2, topY: mainM.h });
+  } else {
+    bld(AX, AZ, 64, 40, 16, wallM);                     // fallback box terminal
+    scene.add(box(30, 4, 20, wallM2, AX, 18, AZ));      // main roof clerestory
+    mw = 64;
+  }
+  scene.add(box(0.5, 5, 10, darkM, AX - mw / 2 + 0.2, 6.2, AZ));   // main tunnel mouths (both monorails)
+  scene.add(box(0.5, 5, 10, darkM, AX + mw / 2 - 0.2, 6.2, AZ));
   bld(wx, AZ, 46, 30, 13, wallM, +1);                   // west terminal (monorail enters east wall)
   bld(ex, AZ, 46, 30, 13, wallM, -1);                   // east terminal (enters west wall)
   // ATC tower (north, central)
