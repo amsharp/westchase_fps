@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.92.0';
+var GAME_VERSION = 'v1.92.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -15234,11 +15234,13 @@ function updatePlaneWorld(dt) {
       var pitchDown = -Math.asin(Math.max(-1, Math.min(1, noseV.y)));  // >0 = nose down
       var hardCrash = impactV > PLANE_CRASH_VSPEED || bankC > 0.7 || pitchDown > 0.6 || plane.gearT > 0.4;
       if (hardCrash) { g.position.y = gy + plane.clr; crashPlane(); return; }
-      // safe touchdown -> resume ground roll
+      // safe touchdown -> resume ground roll. Keep the HORIZONTAL momentum so the
+      // jet rolls out down the runway (the old along-nose projection threw a nose-up
+      // flare's speed vertical, which the ground then discarded -> it halted).
       g.position.y = gy + plane.clr;
       plane.onGround = true;
       plane.groundPitch = 0;
-      plane.vel.copy(noseV).multiplyScalar(Math.max(0, vel.dot(noseV)));
+      plane.vel.set(vel.x, 0, vel.z);
       if (impactV > 3) sfx('crash');
     } else if ((planeHitBuilding(g.position.x, g.position.y, g.position.z) || planeHitHighway(g.position.x, g.position.y, g.position.z)) && vel.length() > PLANE_CRASH_SPEED) {
       crashPlane(); return;
