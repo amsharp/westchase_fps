@@ -626,6 +626,18 @@ height now hurts — a big drop is lethal — so a safe exit means slow and low.
 The plane is a **local, single-player toy** for now; it isn't shared in
 multiplayer.
 
+### Flying into a skyscraper
+
+There's a row of five real Tampa towers out in the open land **northeast of
+town** (drive/walk east on the main road, then look north): Bank of America,
+PNC, Regions, Sykes, and Wells Fargo. Fly the **Learjet into one** and it goes
+up in a fireball, then **burns and smokes for about a minute** before it
+**collapses** — the whole tower sinks straight down through the ground behind a
+wall of dust while a **rubble pile rises up** where it stood, so it looks like
+it's crumbling into a heap. It stays a pile of rubble for **about 10 minutes**,
+then **rebuilds itself** — rising back out of the ground good as new. Like the
+plane, this is a **local, single-player** effect (not net-synced).
+
 ## Streetcars on rails
 
 The city's got a **streetcar** — a yellow-and-maroon trolley that trundles

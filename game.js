@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.94.6';
+var GAME_VERSION = 'v1.95.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -6307,6 +6307,12 @@ function placeRemapModels() {
   }
 }
 placeRemapModels();
+// Destructible skyscrapers: fly the Learjet into one and it explodes, burns +
+// smokes for ~1 min, then collapses (sinks through the floor behind dust while a
+// rubble pile rises), and rebuilds itself ~10 min later. LOCAL/singleplayer-only,
+// like the plane + interiors — never net-synced. Registered here as each tower is
+// placed (capture the collider + minimap footprint pushed by pushYawCollider).
+var towers = [];
 // SHOWCASE: one of each skyscraper in a row in the open land just NE of town
 // (drive/walk east along the main road). Scales pick a nice per-tower height;
 // easy to reposition or remove later via the map editor.
@@ -6319,7 +6325,17 @@ placeRemapModels();
     { id: 'sykes', x: 1060, scale: 2.2 },
     { id: 'wellsfargo', x: 1220, scale: 4.0 }
   ];
-  for (var i = 0; i < row.length; i++) placeCatalogModel(row[i].id, row[i].x, -240, 0, null, row[i].scale);
+  for (var i = 0; i < row.length; i++) {
+    var placed = placeCatalogModel(row[i].id, row[i].x, -240, 0, null, row[i].scale);
+    if (!placed) continue;
+    towers.push({
+      id: row[i].id, group: placed.group, x: row[i].x, z: -240,
+      W: placed.W, H: placed.H, D: placed.D,
+      col: colliders[colliders.length - 1],      // the yaw collider pushYawCollider just added
+      mb: mapBuildings[mapBuildings.length - 1],  // its minimap/plane-crash footprint
+      fullH: placed.H, state: 'up', t: 0, emitT: 0, rubble: null
+    });
+  }
 })();
 
 // Top walkable/drivable surface height at (x,z): people + cars ride ON the
@@ -15541,6 +15557,9 @@ function crashPlane() {
   var wasPiloting = plane.piloting;
   plane.alive = false;
   boomAt(x, z);
+  // did we fly into a standing skyscraper? kick off its destruction sequence
+  var struck = (typeof towerAt === 'function') ? towerAt(x, z, y) : null;
+  if (struck) igniteTower(struck, y);
   // extra fireball
   for (var i = 0; i < 14; i++) puff(new THREE.Vector3(x + (Math.random() - 0.5) * 6, 0.8 + Math.random() * 4, z + (Math.random() - 0.5) * 6), i % 2 ? 0x333333 : 0xff7a1e);
   sfx('boom', { x: x, z: z, range: 300 });
@@ -15601,6 +15620,133 @@ function updatePlaneScorch(dt) {
     var s = planeScorch[i]; s.life -= dt;
     if (s.life < 5) s.mesh.material.opacity = Math.max(0, s.life / 5 * 0.9);
     if (s.life <= 0) { scene.remove(s.mesh); planeScorch.splice(i, 1); }
+  }
+}
+
+// ==================== SKYSCRAPER DESTRUCTION ====================
+// State machine per tower: up -> burning (~60s of fire+smoke) -> collapsing
+// (~9s: the tower sinks straight down through the floor behind a wall of dust
+// while a rubble pile rises out of the ground under it) -> rubble -> (after
+// ~10 min) rebuild (rises back up) -> up. Fully local/per-player.
+var TOWER_BURN = 60;        // seconds on fire + smoking before it comes down
+var TOWER_COLLAPSE = 9;     // seconds to sink through the floor
+var TOWER_RUBBLE = 600;     // seconds as a rubble pile before it rebuilds (~10 min)
+var TOWER_REBUILD = 5;      // seconds to rise back up
+var _towerV = new THREE.Vector3();
+// which standing tower (if any) contains world point (x,z) below its roof
+function towerAt(x, z, y) {
+  for (var i = 0; i < towers.length; i++) {
+    var t = towers[i];
+    if (t.state !== 'up') continue;
+    if (Math.abs(x - t.x) < t.W / 2 + 2 && Math.abs(z - t.z) < t.D / 2 + 2 && (y === undefined || y < t.fullH + 2)) return t;
+  }
+  return null;
+}
+// a jumbled pile of rubble sized to the tower footprint: bigger concrete slabs
+// heaped toward the centre + scattered chunks, tinted concrete-grey with flecks
+// of the building's own colour. Returned group is centred at origin, base at y=0.
+function buildRubblePile(t) {
+  var g = new THREE.Group();
+  var hw = t.W / 2, hd = t.D / 2, pileH = Math.max(3, Math.min(14, t.fullH * 0.14));
+  t.pileH = pileH;
+  var greys = [0x6f6f70, 0x828079, 0x5b5b5c, 0x918d84, 0x4c4c4d, 0x7c766c];
+  var n = 26 + (Math.random() * 14 | 0);
+  for (var i = 0; i < n; i++) {
+    var rx = (Math.random() * 2 - 1), rz = (Math.random() * 2 - 1);
+    var edge = Math.max(Math.abs(rx), Math.abs(rz));           // 0 centre .. 1 edge
+    var sw = 1.6 + Math.random() * (hw * 0.6), sd = 1.6 + Math.random() * (hd * 0.6);
+    var sh = pileH * (0.9 - edge * 0.6) * (0.5 + Math.random() * 0.7);   // taller chunks toward the middle
+    sh = Math.max(0.8, sh);
+    var m = new THREE.Mesh(new THREE.BoxGeometry(sw, sh, sd), lamb({ color: greys[i % greys.length] }));
+    m.position.set(rx * hw * 0.92, sh / 2 * (0.5 + Math.random() * 0.5), rz * hd * 0.92);
+    m.rotation.set((Math.random() - 0.5) * 0.5, Math.random() * 6.28, (Math.random() - 0.5) * 0.5);
+    g.add(m);
+  }
+  // a few twisted-metal / building-colour flecks on top so it reads as THIS tower
+  var tint = t.mb && typeof t.mb.c === 'number' ? t.mb.c : 0x8a8f94;
+  for (i = 0; i < 6; i++) {
+    var fm = new THREE.Mesh(new THREE.BoxGeometry(0.8 + Math.random() * 2, 0.5 + Math.random() * 1.5, 0.6 + Math.random() * 2), lamb({ color: tint }));
+    fm.position.set((Math.random() * 2 - 1) * hw * 0.8, pileH * (0.3 + Math.random() * 0.5), (Math.random() * 2 - 1) * hd * 0.8);
+    fm.rotation.set(Math.random() * 6.28, Math.random() * 6.28, Math.random() * 6.28);
+    g.add(fm);
+  }
+  return g;
+}
+// plane (or a test) flew into this standing tower: kick off the sequence
+function igniteTower(t, impactY) {
+  if (!t || t.state !== 'up') return;
+  t.state = 'burning'; t.t = 0; t.emitT = 0;
+  var iy = Math.max(6, Math.min(t.fullH - 4, impactY || t.fullH * 0.6));
+  t.impactY = iy;
+  boomAt(t.x, t.z);                                    // ground shock + smoke ring
+  for (var i = 0; i < 26; i++) puff(_towerV.set(t.x + (Math.random() - 0.5) * t.W, iy + (Math.random() - 0.5) * t.fullH * 0.4, t.z + (Math.random() - 0.5) * t.D), i % 2 ? 0x333333 : 0xff7a1e);
+  if (typeof scorch === 'function') scorch(t.x, t.z);
+  sfx('boom', { x: t.x, z: t.z, range: 460 });
+  popup('TOWER STRUCK!');
+}
+function startTowerCollapse(t) {
+  t.state = 'collapsing'; t.t = 0;
+  t.rubble = buildRubblePile(t);
+  t.rubble.position.set(t.x, -t.pileH, t.z);          // starts fully underground, rises as the tower drops
+  scene.add(t.rubble);
+  // the tower is no longer a tall obstacle: drop its plane-crash + walk collider
+  // to the (soon-to-exist) rubble height so it stops acting like a skyscraper
+  if (t.mb) t.mb.h = t.pileH;
+  if (t.col) t.col.topY = t.pileH;
+  sfx('boom', { x: t.x, z: t.z, range: 500 });
+  sfx('crash', { x: t.x, z: t.z, range: 260 });
+  popup('COLLAPSE!');
+}
+function resetTower(t) {
+  // rebuild: raise the tower back up out of the ground, sink + remove the rubble
+  t.state = 'rebuild'; t.t = 0;
+  if (t.mb) t.mb.h = t.fullH;                          // it's a skyscraper again
+  if (t.col) t.col.topY = t.fullH;
+}
+function finishReset(t) {
+  t.state = 'up'; t.t = 0;
+  t.group.position.y = 0;
+  if (t.rubble) { scene.remove(t.rubble); t.rubble = null; }
+}
+function updateTowers(dt) {
+  for (var i = 0; i < towers.length; i++) {
+    var t = towers[i];
+    if (t.state === 'up') continue;
+    t.t += dt;
+    if (t.state === 'burning') {
+      t.emitT -= dt;
+      if (t.emitT <= 0) {
+        t.emitT = 0.09;
+        // fire licking up the struck face + black smoke boiling off the top
+        for (var f = 0; f < 3; f++) {
+          var fy = t.impactY + (Math.random() - 0.4) * t.fullH * 0.5;
+          fy = Math.max(3, Math.min(t.fullH, fy));
+          puff(_towerV.set(t.x + (Math.random() - 0.5) * t.W * 1.05, fy, t.z + (Math.random() - 0.5) * t.D * 1.05), 0xff7a1e);
+        }
+        for (f = 0; f < 2; f++) puff(_towerV.set(t.x + (Math.random() - 0.5) * t.W, t.fullH + Math.random() * 8, t.z + (Math.random() - 0.5) * t.D), 0x2a2a2a);
+      }
+      if (t.t >= TOWER_BURN) startTowerCollapse(t);
+    } else if (t.state === 'collapsing') {
+      var p = Math.min(1, t.t / TOWER_COLLAPSE), e = p * p;   // ease-in: slow start, accelerates down
+      t.group.position.y = -e * (t.fullH + 3);               // sink the whole tower through the floor
+      if (t.rubble) t.rubble.position.y = -t.pileH * (1 - p); // rubble rises to ground level as it drops
+      // wall of dust + smoke boiling out around the base hides the seam
+      if ((t.t * 60 | 0) % 2 === 0) {
+        for (var d = 0; d < 4; d++) puff(_towerV.set(t.x + (Math.random() - 0.5) * t.W * 1.4, 0.5 + Math.random() * 6, t.z + (Math.random() - 0.5) * t.D * 1.4), Math.random() < 0.5 ? 0x9a938a : 0x6b6b6b);
+      }
+      if (p >= 1) { t.state = 'rubble'; t.t = 0; t.group.position.y = -(t.fullH + 3); if (t.rubble) t.rubble.position.y = 0; }
+    } else if (t.state === 'rubble') {
+      // the odd wisp of smoke curling off the ruins
+      t.emitT -= dt;
+      if (t.emitT <= 0) { t.emitT = 0.8 + Math.random(); puff(_towerV.set(t.x + (Math.random() - 0.5) * t.W, t.pileH + Math.random() * 3, t.z + (Math.random() - 0.5) * t.D), 0x555555); }
+      if (t.t >= TOWER_RUBBLE) resetTower(t);
+    } else if (t.state === 'rebuild') {
+      var rp = Math.min(1, t.t / TOWER_REBUILD), re = 1 - (1 - rp) * (1 - rp);   // ease-out rise
+      t.group.position.y = -(t.fullH + 3) * (1 - re);
+      if (t.rubble) t.rubble.position.y = -t.pileH * re;
+      if ((t.t * 60 | 0) % 3 === 0) puff(_towerV.set(t.x + (Math.random() - 0.5) * t.W, 0.5 + Math.random() * 5, t.z + (Math.random() - 0.5) * t.D), 0x9a938a);
+      if (rp >= 1) finishReset(t);
+    }
   }
 }
 
@@ -24388,7 +24534,7 @@ function loop(now) {
   if (photoMode) { updatePhotoCam(dt); renderer.render(scene, camera); return; }
   T += dt;
   var sdt = dt;
-  updatePlayer(dt); updatePlaneWorld(dt); updateAirportPlane(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
+  updatePlayer(dt); updatePlaneWorld(dt); updateAirportPlane(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
   if (state.dead) updateDeathCam(dt);   // top-down zoom-out cinematic drives the camera while dead
   renderer.render(scene, camera);
 }
@@ -24484,6 +24630,8 @@ function showColliders(on) {
 
 window.__wc = {
   gibs: function () { return gibs; }, decals: function () { return decals; }, halves: function () { return halves; },   // gore debug accessors
+  towers: function () { return towers; }, igniteTower: function (i, y) { igniteTower(towers[i], y === undefined ? towers[i].fullH * 0.6 : y); },   // skyscraper destruction
+  towerAt: function (x, z, y) { return towerAt(x, z, y); },
   placeCatalogModel: (typeof placeCatalogModel === 'function' ? placeCatalogModel : null),
   modelCatalog: function () { return MODEL_CATALOGS; },
   allBuildings: function () { return mapBuildings; },   // full footprint registry (venues+houses+airport) for the editor reference layer
@@ -24804,7 +24952,7 @@ window.__wc = {
   // lightweight physics step (no render, no NPC/cop/car sim) — fast headless
   // stepping for plane/fall tests. Renders only when you call renderer yourself.
   stepLite: function (dt) { T += dt; updatePlayer(dt); updatePlaneWorld(dt); },
-  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updatePlaneWorld(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
+  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updatePlaneWorld(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
 };
 
 // ---------------- boot screen handoff + menu cover art ----------------
