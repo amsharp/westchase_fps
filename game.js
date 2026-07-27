@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.95.0';
+var GAME_VERSION = 'v1.95.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -15633,6 +15633,32 @@ var TOWER_COLLAPSE = 9;     // seconds to sink through the floor
 var TOWER_RUBBLE = 600;     // seconds as a rubble pile before it rebuilds (~10 min)
 var TOWER_REBUILD = 5;      // seconds to rise back up
 var _towerV = new THREE.Vector3();
+// BIG billboarded fire/smoke/dust particle for skyscraper-scale FX (the normal
+// puff() tops out at car scale ~2-4u; a burning 80u tower needs 15-40u clouds).
+// Pushes straight into the shared `puffs` array so updatePuffs animates it.
+// kind: 'fire' | 'smoke' | 'dust'. scale = start size; grow = per-sec expansion;
+// vy = upward drift. Falls back to a plain colored particle if the VFX sheets
+// haven't loaded.
+function bigPuff(x, y, z, kind, scale, life, grow, vy, vx, vz) {
+  var m;
+  if (kind === 'fire' && typeof fireFrames !== 'undefined' && fireFrames) {
+    m = new THREE.Mesh(puffGeo, new THREE.MeshBasicMaterial({ map: fireFrames[(Math.random() * VFX_NF) | 0], transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false }));
+    m.position.set(x, y, z); m.scale.setScalar(scale); scene.add(m);
+    puffs.push({ mesh: m, life: life, max: life, fire: true, start: (Math.random() * VFX_NF) | 0, frames: fireFrames, grow: grow || 0.9, omax: 1, vy: vy || 0, vx: vx || 0, vz: vz || 0 });
+    return;
+  }
+  if (kind !== 'fire' && typeof smokeFrames !== 'undefined' && smokeFrames) {
+    m = new THREE.Mesh(puffGeo, new THREE.MeshBasicMaterial({ map: smokeFrames[0], transparent: true, depthWrite: false, opacity: 0.9 }));
+    var col = kind === 'dust' ? 0x9c948a : 0x252525;
+    var cr = Math.max(60, (col >> 16) & 255), cg = Math.max(60, (col >> 8) & 255), cb = Math.max(60, col & 255);
+    m.material.color.setRGB(cr / 255, cg / 255, cb / 255);
+    m.position.set(x, y, z); m.scale.setScalar(scale); scene.add(m);
+    puffs.push({ mesh: m, life: life, max: life, fire: false, frames: smokeFrames, grow: grow || 1.4, omax: 0.9, vy: vy || 0, vx: vx || 0, vz: vz || 0 });
+    return;
+  }
+  m = new THREE.Mesh(puffGeo, puffM.clone()); m.material.color.setHex(kind === 'fire' ? 0xff6a1e : (kind === 'dust' ? 0x9c948a : 0x333333));
+  m.position.set(x, y, z); m.scale.setScalar(scale); scene.add(m); puffs.push({ mesh: m, life: life, max: life, vy: vy || 0, vx: vx || 0, vz: vz || 0 });
+}
 // which standing tower (if any) contains world point (x,z) below its roof
 function towerAt(x, z, y) {
   for (var i = 0; i < towers.length; i++) {
@@ -15678,8 +15704,12 @@ function igniteTower(t, impactY) {
   t.state = 'burning'; t.t = 0; t.emitT = 0;
   var iy = Math.max(6, Math.min(t.fullH - 4, impactY || t.fullH * 0.6));
   t.impactY = iy;
+  var fw = Math.max(t.W, t.D);                         // footprint scale -> particle size
   boomAt(t.x, t.z);                                    // ground shock + smoke ring
-  for (var i = 0; i < 26; i++) puff(_towerV.set(t.x + (Math.random() - 0.5) * t.W, iy + (Math.random() - 0.5) * t.fullH * 0.4, t.z + (Math.random() - 0.5) * t.D), i % 2 ? 0x333333 : 0xff7a1e);
+  // huge initial fireball engulfing the impact zone
+  for (var i = 0; i < 18; i++) bigPuff(t.x + (Math.random() - 0.5) * t.W * 1.3, iy + (Math.random() - 0.5) * t.fullH * 0.35, t.z + (Math.random() - 0.5) * t.D * 1.3, 'fire', fw * (1.1 + Math.random() * 0.9), 0.9, 1.1, 3 + Math.random() * 3);
+  // black smoke plume boiling up off the strike
+  for (i = 0; i < 12; i++) bigPuff(t.x + (Math.random() - 0.5) * t.W, iy + t.fullH * 0.15 + Math.random() * t.fullH * 0.35, t.z + (Math.random() - 0.5) * t.D, 'smoke', fw * (1.5 + Math.random()), 1.9, 1.3, 9 + Math.random() * 6);
   if (typeof scorch === 'function') scorch(t.x, t.z);
   sfx('boom', { x: t.x, z: t.z, range: 460 });
   popup('TOWER STRUCK!');
@@ -15713,38 +15743,47 @@ function updateTowers(dt) {
     var t = towers[i];
     if (t.state === 'up') continue;
     t.t += dt;
+    var fw = Math.max(t.W, t.D);
     if (t.state === 'burning') {
       t.emitT -= dt;
       if (t.emitT <= 0) {
-        t.emitT = 0.09;
-        // fire licking up the struck face + black smoke boiling off the top
+        t.emitT = 0.12;
+        // big flames licking up the struck face
         for (var f = 0; f < 3; f++) {
-          var fy = t.impactY + (Math.random() - 0.4) * t.fullH * 0.5;
+          var fy = t.impactY + (Math.random() - 0.35) * t.fullH * 0.55;
           fy = Math.max(3, Math.min(t.fullH, fy));
-          puff(_towerV.set(t.x + (Math.random() - 0.5) * t.W * 1.05, fy, t.z + (Math.random() - 0.5) * t.D * 1.05), 0xff7a1e);
+          bigPuff(t.x + (Math.random() - 0.5) * t.W * 1.15, fy, t.z + (Math.random() - 0.5) * t.D * 1.15, 'fire', fw * (0.9 + Math.random() * 0.7), 0.75, 1.0, 5 + Math.random() * 4);
         }
-        for (f = 0; f < 2; f++) puff(_towerV.set(t.x + (Math.random() - 0.5) * t.W, t.fullH + Math.random() * 8, t.z + (Math.random() - 0.5) * t.D), 0x2a2a2a);
+        // thick black smoke column boiling off the top and rising high
+        for (f = 0; f < 3; f++) bigPuff(t.x + (Math.random() - 0.5) * t.W, t.fullH + Math.random() * 14, t.z + (Math.random() - 0.5) * t.D, 'smoke', fw * (1.4 + Math.random()), 2.4, 1.1, 11 + Math.random() * 7);
       }
       if (t.t >= TOWER_BURN) startTowerCollapse(t);
     } else if (t.state === 'collapsing') {
       var p = Math.min(1, t.t / TOWER_COLLAPSE), e = p * p;   // ease-in: slow start, accelerates down
       t.group.position.y = -e * (t.fullH + 3);               // sink the whole tower through the floor
       if (t.rubble) t.rubble.position.y = -t.pileH * (1 - p); // rubble rises to ground level as it drops
-      // wall of dust + smoke boiling out around the base hides the seam
+      // a MASSIVE wall of dust + smoke boiling out and up around the base hides the seam
       if ((t.t * 60 | 0) % 2 === 0) {
-        for (var d = 0; d < 4; d++) puff(_towerV.set(t.x + (Math.random() - 0.5) * t.W * 1.4, 0.5 + Math.random() * 6, t.z + (Math.random() - 0.5) * t.D * 1.4), Math.random() < 0.5 ? 0x9a938a : 0x6b6b6b);
+        for (var d = 0; d < 5; d++) {
+          var da = Math.random() * 6.283, dr = Math.random() * fw * 1.2;
+          bigPuff(t.x + Math.cos(da) * dr, 0.5 + Math.random() * 10, t.z + Math.sin(da) * dr, 'dust', fw * (1.6 + Math.random() * 1.3), 2.6, 1.7, 4 + Math.random() * 4, Math.cos(da) * (5 + Math.random() * 8), Math.sin(da) * (5 + Math.random() * 8));
+        }
+        for (d = 0; d < 2; d++) bigPuff(t.x + (Math.random() - 0.5) * t.W, 5 + Math.random() * 14, t.z + (Math.random() - 0.5) * t.D, 'smoke', fw * (1.7 + Math.random()), 2.8, 1.3, 7 + Math.random() * 5);
       }
       if (p >= 1) { t.state = 'rubble'; t.t = 0; t.group.position.y = -(t.fullH + 3); if (t.rubble) t.rubble.position.y = 0; }
     } else if (t.state === 'rubble') {
-      // the odd wisp of smoke curling off the ruins
+      // dust settling for the first few seconds, then the odd smoke wisp curling off the ruins
       t.emitT -= dt;
-      if (t.emitT <= 0) { t.emitT = 0.8 + Math.random(); puff(_towerV.set(t.x + (Math.random() - 0.5) * t.W, t.pileH + Math.random() * 3, t.z + (Math.random() - 0.5) * t.D), 0x555555); }
+      if (t.emitT <= 0) {
+        if (t.t < 6) { t.emitT = 0.15; for (var r = 0; r < 2; r++) bigPuff(t.x + (Math.random() - 0.5) * t.W * 1.3, t.pileH * 0.5 + Math.random() * 6, t.z + (Math.random() - 0.5) * t.D * 1.3, 'dust', fw * (1.0 + Math.random()), 2.2, 1.2, 2 + Math.random() * 3); }
+        else { t.emitT = 0.7 + Math.random(); bigPuff(t.x + (Math.random() - 0.5) * t.W, t.pileH + Math.random() * 4, t.z + (Math.random() - 0.5) * t.D, 'smoke', fw * 0.7, 2.0, 0.9, 4 + Math.random() * 3); }
+      }
       if (t.t >= TOWER_RUBBLE) resetTower(t);
     } else if (t.state === 'rebuild') {
       var rp = Math.min(1, t.t / TOWER_REBUILD), re = 1 - (1 - rp) * (1 - rp);   // ease-out rise
       t.group.position.y = -(t.fullH + 3) * (1 - re);
       if (t.rubble) t.rubble.position.y = -t.pileH * re;
-      if ((t.t * 60 | 0) % 3 === 0) puff(_towerV.set(t.x + (Math.random() - 0.5) * t.W, 0.5 + Math.random() * 5, t.z + (Math.random() - 0.5) * t.D), 0x9a938a);
+      if ((t.t * 60 | 0) % 2 === 0) for (var rb = 0; rb < 2; rb++) bigPuff(t.x + (Math.random() - 0.5) * t.W * 1.2, 0.5 + Math.random() * 8, t.z + (Math.random() - 0.5) * t.D * 1.2, 'dust', fw * (1.2 + Math.random()), 2.2, 1.4, 3 + Math.random() * 3);
       if (rp >= 1) finishReset(t);
     }
   }
@@ -15892,8 +15931,9 @@ function updatePuffs(dt) {
       p.mesh.material.opacity = Math.max(0, 0.92 * (p.life / p.max));
     } else if (p.frames) {
       var fr;
-      if (p.fire) { fr = (p.start + Math.floor(t * 10)) % VFX_NF; p.mesh.scale.multiplyScalar(1 + dt * 1.6); p.mesh.material.opacity = Math.max(0, 1 - t); }
+      if (p.fire) { fr = (p.start + Math.floor(t * 10)) % VFX_NF; p.mesh.scale.multiplyScalar(1 + dt * (p.grow || 1.6)); p.mesh.material.opacity = Math.max(0, (p.omax || 1) * (1 - t)); }
       else { fr = Math.min(11, Math.floor(t * 12)); p.mesh.scale.multiplyScalar(1 + dt * (p.grow || 3.2)); p.mesh.material.opacity = Math.max(0, (p.omax || 0.9) * (1 - t * t)); }
+      if (p.vy) { p.mesh.position.y += p.vy * dt; p.mesh.position.x += (p.vx || 0) * dt; p.mesh.position.z += (p.vz || 0) * dt; }   // billowing rise/drift (big tower plumes)
       if (p.mesh.material.map !== p.frames[fr]) p.mesh.material.map = p.frames[fr];
     } else if (p.muzzle) {
       p.mesh.material.opacity = Math.max(0, p.life / p.max);   // hold size, snap out fast
@@ -24631,6 +24671,7 @@ function showColliders(on) {
 window.__wc = {
   gibs: function () { return gibs; }, decals: function () { return decals; }, halves: function () { return halves; },   // gore debug accessors
   towers: function () { return towers; }, igniteTower: function (i, y) { igniteTower(towers[i], y === undefined ? towers[i].fullH * 0.6 : y); },   // skyscraper destruction
+  puffs: function () { return puffs; },
   towerAt: function (x, z, y) { return towerAt(x, z, y); },
   placeCatalogModel: (typeof placeCatalogModel === 'function' ? placeCatalogModel : null),
   modelCatalog: function () { return MODEL_CATALOGS; },
