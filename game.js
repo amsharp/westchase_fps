@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.94.3';
+var GAME_VERSION = 'v1.94.4';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -13554,8 +13554,9 @@ function damageCop(c, dmg, kx, kz, silent) {
   c.x += (kx || 0) * 0.4; c.z += (kz || 0) * 0.4;
   lastCrimeT = T;
   if (c.hp <= 0) {
-    c.state = 'down'; c.downT = 10;
+    c.state = 'down'; c.downT = BODY_TTL;
     if (c.mesh.userData.shadow) c.mesh.userData.shadow.visible = false;
+    bloodPool(c.x, c.z, c.baseY || 0);   // spreading pool under the dead cop
     stopNpcVoice(c.vname);
     spawnCash(c.x, c.z, 10 + ((Math.random() * 30) | 0), c.baseY || 0);
     sfx('ko', { x: c.x, z: c.z, y: (c.baseY || 0) + 1.2, range: 50 });
@@ -15989,6 +15990,21 @@ function bloodDecal(x, z) {
   m.position.set(x, 0.165 + Math.random() * 0.004, z); m.rotation.y = Math.random() * Math.PI * 2;
   pushDecal(m, 30);
 }
+// the ONE blood pool under a dead body: starts small and slowly SPREADS to a
+// full puddle over ~16 s, then lingers (BODY_TTL) before fading with the corpse.
+var BODY_TTL = 60;   // bodies + gore chunks persist ~1 minute before despawning
+function bloodPool(x, z, y) {
+  var m;
+  if (typeof BLOOD_DECALS !== 'undefined') {
+    if (!bloodMats) bloodMats = decalMats(BLOOD_DECALS.puddles);
+    m = new THREE.Mesh(bloodPlaneGeo, bloodMats[(Math.random() * bloodMats.length) | 0].clone());
+  } else {
+    m = new THREE.Mesh(decalGeo, new THREE.MeshBasicMaterial({ color: 0x7a1410, transparent: true, opacity: 0.78, depthWrite: false }));
+  }
+  var s1 = 1.7 + Math.random() * 0.8;
+  m.scale.setScalar(0.5); m.position.set(x, (y || 0) + 0.166 + Math.random() * 0.004, z); m.rotation.y = Math.random() * Math.PI * 2;
+  scene.add(m); decals.push({ mesh: m, life: BODY_TTL + 5, grow: { t: 0, dur: 16, s0: 0.5, s1: s1 } });
+}
 function dripDecal(x, z) {
   var m;
   if (typeof BLOOD_DECALS !== 'undefined') {
@@ -16055,6 +16071,10 @@ function updateDecals(dt) {
   }
   for (var i = decals.length - 1; i >= 0; i--) {
     var d = decals[i]; d.life -= dt;
+    if (d.grow && d.grow.t < d.grow.dur) {   // blood pool slowly spreads out
+      d.grow.t += dt; var gf = Math.min(1, d.grow.t / d.grow.dur), ge = 1 - (1 - gf) * (1 - gf);
+      d.mesh.scale.setScalar(d.grow.s0 + (d.grow.s1 - d.grow.s0) * ge);
+    }
     if (d.life < 5) d.mesh.material.opacity = Math.max(0, d.life / 5 * 0.75);
     if (d.life <= 0) { scene.remove(d.mesh); decals.splice(i, 1); }
   }
@@ -16077,7 +16097,6 @@ function killNpcRagdoll(n, dx, dz, power) {
   sfx('grunt', { x: n.x, z: n.z, range: 60, fem: n.fem });
   for (var i = 0; i < 5; i++) puff(new THREE.Vector3(n.x + (Math.random() - 0.5), 0.8 + Math.random() * 1.2, n.z + (Math.random() - 0.5)), 0xa01212, 'blood');
   spawnGoreBurst(n.x, 0.9, n.z, dx, dz, 6 + (Math.random() * 4 | 0));   // chunks fly off on the impact
-  bloodDecal(n.x, n.z);
   spawnCash(n.x, n.z, 5 + ((Math.random() * 18) | 0));
   maybeNpcItemDrop(n.x, n.z);
 }
@@ -17069,7 +17088,8 @@ function damageNPC(n, dmg, kx, kz, silent) {
   n.hp -= dmg; n.hurtFlash = 0.12; n.x += (kx || 0) * 0.5; n.z += (kz || 0) * 0.5;
   lastCrimeT = T;
   if (n.hp <= 0) {
-    n.state = 'down'; n.downT = 8; if (n.mesh.userData.shadow) n.mesh.userData.shadow.visible = false;
+    n.state = 'down'; n.downT = BODY_TTL; if (n.mesh.userData.shadow) n.mesh.userData.shadow.visible = false;
+    bloodPool(n.x, n.z);   // one spreading pool under the corpse
     if (n.grp) leaveGroup(n);   // #67: detach from its social group so no follower paths to a corpse
     stopNpcVoice(n.vname);
     spawnCash(n.x, n.z, 5 + ((Math.random() * 18) | 0)); sfx('ko', { x: n.x, z: n.z, range: 50 }); sfx('grunt', { x: n.x, z: n.z, range: 50, fem: n.fem });
@@ -17243,9 +17263,9 @@ function updateNPCs(dt) {
       m.rotation.x += n.spinX * dt;
       m.rotation.z += n.spinZ * dt;
       if (n.airY <= 0) {
-        n.airY = 0; n.state = 'down'; n.downT = 8;
+        n.airY = 0; n.state = 'down'; n.downT = BODY_TTL;
         m.rotation.x = -1.5; m.rotation.z = 0;
-        bloodDecal(n.x, n.z);
+        bloodPool(n.x, n.z);   // spreading pool where the corpse settles
       }
       m.position.set(n.x, n.airY, n.z);
       continue;
@@ -19337,15 +19357,21 @@ function spawnHeadGib(head, dx, dz) {
   if (!gm) { head.getWorldQuaternion(_gibQ); head.getWorldScale(_gibS); gm = new THREE.Mesh(head.geometry, head.material); gm.quaternion.copy(_gibQ); gm.scale.copy(_gibS); }
   gm.position.copy(_gibV);
   scene.add(gm);
-  gibs.push({ mesh: gm, vx: dx * 2.5 + (Math.random() - 0.5) * 3, vy: 4.5 + Math.random() * 2.5, vz: dz * 2.5 + (Math.random() - 0.5) * 3, spin: (Math.random() - 0.5) * 16, life: 6 });
+  gibs.push({ mesh: gm, vx: dx * 2.5 + (Math.random() - 0.5) * 3, vy: 4.5 + Math.random() * 2.5, vz: dz * 2.5 + (Math.random() - 0.5) * 3, spin: (Math.random() - 0.5) * 16, life: 60 });
 }
 function updateGibs(dt) {
   for (var i = gibs.length - 1; i >= 0; i--) {
     var g = gibs[i]; g.life -= dt;
-    g.vy -= 17 * dt;
-    g.mesh.position.x += g.vx * dt; g.mesh.position.y += g.vy * dt; g.mesh.position.z += g.vz * dt;
-    if (g.mesh.position.y < 0.12) { g.mesh.position.y = 0.12; g.vy *= -0.32; g.vx *= 0.55; g.vz *= 0.55; if (Math.random() < 0.5) bloodDecal(g.mesh.position.x, g.mesh.position.z); }
-    g.mesh.rotation.x += g.spin * dt; g.mesh.rotation.z += g.spin * 0.6 * dt;
+    if (!g.rest) {   // still airborne / bouncing
+      g.vy -= 17 * dt;
+      g.mesh.position.x += g.vx * dt; g.mesh.position.y += g.vy * dt; g.mesh.position.z += g.vz * dt;
+      if (g.mesh.position.y < 0.12) {
+        g.mesh.position.y = 0.12; g.vy *= -0.32; g.vx *= 0.55; g.vz *= 0.55;
+        // once it lands slow enough, freeze it in place (no more sliding / spinning on the ground)
+        if (Math.abs(g.vy) < 0.9 && (g.vx * g.vx + g.vz * g.vz) < 0.5) { g.rest = true; g.vx = g.vy = g.vz = g.spin = 0; }
+      }
+      g.mesh.rotation.x += g.spin * dt; g.mesh.rotation.z += g.spin * 0.6 * dt;
+    }
     if (g.life <= 0) { scene.remove(g.mesh); gibs.splice(i, 1); }
   }
 }
@@ -19394,8 +19420,16 @@ function spawnGoreBurst(x, y, z, dx, dz, n) {
     m.position.set(x + (Math.random() - 0.5) * 0.4, y + (Math.random() - 0.5) * 0.3, z + (Math.random() - 0.5) * 0.4);
     scene.add(m);
     var ang = Math.random() * 6.283, sp = 2.5 + Math.random() * 6;      // explode outward in all directions
-    gibs.push({ mesh: m, vx: Math.cos(ang) * sp + (dx || 0) * 2, vy: 3.5 + Math.random() * 5.5, vz: Math.sin(ang) * sp + (dz || 0) * 2, spin: (Math.random() - 0.5) * 28, life: 2.6 + Math.random() * 1.8 });
+    gibs.push({ mesh: m, vx: Math.cos(ang) * sp + (dx || 0) * 2, vy: 3.5 + Math.random() * 5.5, vz: Math.sin(ang) * sp + (dz || 0) * 2, spin: (Math.random() - 0.5) * 28, life: 60 });
   }
+}
+// shooting a body already on the ground pops a few extra tiny gore chunks out of
+// the wound (no damage — it's already dead), plus a little blood splat.
+function gorePoke(x, y, z, dx, dz) {
+  spawnGoreBurst(x, (y || 0.4) + 0.15, z, dx, dz, 3 + (Math.random() * 3 | 0));
+  bloodPunch(x + (Math.random() - 0.5) * 0.3, (y || 0.4) + 0.1, z + (Math.random() - 0.5) * 0.3);
+  puff(new THREE.Vector3(x, (y || 0.4) + 0.2, z), 0x8f1512, 'blood');
+  sfx('gore', { x: x, z: z, range: 34 });
 }
 var _gibHeadGeo = null, _gibHeadMat = null;
 function spawnBloodGib(x, y, z, dx, dz) {
@@ -19421,7 +19455,6 @@ function decapitateNPC(n, dx, dz) {
   // blood explosion at the stump
   for (var i = 0; i < 3; i++) bloodPunch(hx + (Math.random() - 0.5) * 0.3, hy - 0.05, hz + (Math.random() - 0.5) * 0.3);
   puff(new THREE.Vector3(hx, hy, hz), 0x8f1512, 'blood');
-  bloodDecal(n.x, n.z); bloodDecal(n.x + (Math.random() - 0.5) * 1.6, n.z + (Math.random() - 0.5) * 1.6);
   sfx('crash', { x: n.x, z: n.z, range: 42 });
   sfx('gore', { x: n.x, z: n.z, range: 46 });   // owner-supplied head-pop splat
   goreScreenFlash();                             // quick red tint pulse
@@ -19489,14 +19522,14 @@ function bisectNPC(n, fx, fz) {
       fallT: 0.55 + Math.random() * 0.2,                        // seconds to topple
       // small separation slide toward the side each half topples + a swing nudge
       vx: -rgtX * dir * 0.9 + fx * 0.5, vz: -rgtZ * dir * 0.9 + fz * 0.5,
-      settle: 7 + Math.random() * 1.5, t: 0
+      settle: BODY_TTL, t: 0
     });
   }
   // gore — spray of tiny chunks out of the cut
   spawnGoreBurst(n.x, 1.0, n.z, fx, fz, 12 + (Math.random() * 5 | 0));
   for (var i = 0; i < 7; i++) bloodPunch(n.x + (Math.random() - 0.5) * 0.5, 0.4 + Math.random() * 1.3, n.z + (Math.random() - 0.5) * 0.5);
   puff(new THREE.Vector3(n.x, 1.0, n.z), 0x8f1512, 'blood');
-  for (i = 0; i < 6; i++) bloodDecal(n.x + (Math.random() - 0.5) * 1.9, n.z + (Math.random() - 0.5) * 1.9);
+  bloodPool(n.x, n.z);   // single spreading pool under the corpse
   sfx('cut', { x: n.x, z: n.z, range: 46 });
   goreScreenFlash();   // quick red tint pulse on the bisection
   n._bisected = (made > 0);
@@ -19519,7 +19552,6 @@ function updateHalves(dt) {
     if (f < 1) {
       h.og.position.x += h.vx * dt; h.og.position.z += h.vz * dt;
       h.vx *= 0.9; h.vz *= 0.9;
-      if (f > 0.6 && !h._decaled) { h._decaled = true; bloodDecal(h.og.position.x, h.og.position.z); }
     }
     if (h.settle <= 0) {   // sink and vanish like a despawning corpse
       h.og.position.y -= dt * 0.8;
@@ -19533,8 +19565,8 @@ function fireShotgun(w) {
   var base = new THREE.Vector3(); camera.getWorldDirection(base);
   var origin = camera.position;
   npcRootsAlive.length = 0;
-  for (var k = 0; k < npcs.length; k++) if (npcs[k].state !== 'down' && npcs[k].state !== 'hidden') npcRootsAlive.push(npcs[k].mesh);
-  for (k = 0; k < cops.length; k++) if (cops[k].state !== 'down') npcRootsAlive.push(cops[k].mesh);
+  for (var k = 0; k < npcs.length; k++) if (npcs[k].state !== 'hidden' && npcs[k].mesh.visible) npcRootsAlive.push(npcs[k].mesh);   // corpses included → gore poke
+  for (k = 0; k < cops.length; k++) npcRootsAlive.push(cops[k].mesh);
   if (isClient()) for (k = 0; k < copsM.length; k++) npcRootsAlive.push(copsM[k].mesh);
   for (k = 0; k < cars.length; k++) if (!cars[k].exploded) npcRootsAlive.push(cars[k].car.group);
   for (var rid in net.remotes) { var rr = net.remotes[rid]; if (rr.dead) continue; npcRootsAlive.push(rr.drv && rr.car ? rr.car.group : rr.mesh); }
@@ -19548,7 +19580,9 @@ function fireShotgun(w) {
     var h = hits[0], o = h.object, npcHit = null, copHit = null, carHit = null, remoteHit = null, copMHit = -1, atmHit = null;
     while (o) { var u = o.userData; if (u) { if (u.npc) { npcHit = u.npc; break; } if (u.cop) { copHit = u.cop; break; } if (u.copM !== undefined) { copMHit = u.copM; break; } if (u.remoteId) { remoteHit = u.remoteId; break; } if (u.trafficCar) { carHit = u.trafficCar; break; } if (u.atm) { atmHit = u.atm; break; } } o = o.parent; }
     var dmg = Math.round(w.dmg * Math.max(0.25, 1 - h.distance / w.falloff));
-    if (npcHit) {
+    if (npcHit && npcHit.state === 'down') { hitAny = true; gorePoke(npcHit.x, h.point.y, npcHit.z, d.x, d.z); }   // corpse: extra gibs, no damage
+    else if (copHit && copHit.state === 'down') { hitAny = true; gorePoke(copHit.x, h.point.y, copHit.z, d.x, d.z); }
+    else if (npcHit) {
       hitAny = true;
       var uu = npcHit.mesh && npcHit.mesh.userData ? npcHit.mesh.userData : null;
       var canBehead = uu && !npcHit._headless && ((uu.head && uu.head.visible) || uu.headBone);
@@ -19821,8 +19855,10 @@ function tryAttack() {
   dir.x += (Math.random() - 0.5) * sp * 2; dir.y += (Math.random() - 0.5) * sp * 2; dir.z += (Math.random() - 0.5) * sp * 2; dir.normalize();
   raycaster.set(camera.position.clone(), dir); raycaster.far = 300;
   npcRootsAlive.length = 0;
-  for (var k = 0; k < npcs.length; k++) if (npcs[k].state !== 'down' && npcs[k].state !== 'hidden') npcRootsAlive.push(npcs[k].mesh);
-  for (k = 0; k < cops.length; k++) if (cops[k].state !== 'down') npcRootsAlive.push(cops[k].mesh);
+  // down bodies are included so you can shoot a corpse for more gore (handled
+  // below as a no-damage gore poke); hidden NPCs are inside buildings, skipped.
+  for (var k = 0; k < npcs.length; k++) if (npcs[k].state !== 'hidden' && npcs[k].mesh.visible) npcRootsAlive.push(npcs[k].mesh);
+  for (k = 0; k < cops.length; k++) npcRootsAlive.push(cops[k].mesh);
   if (isClient()) for (k = 0; k < copsM.length; k++) npcRootsAlive.push(copsM[k].mesh);
   for (k = 0; k < cars.length; k++) if (!cars[k].exploded) npcRootsAlive.push(cars[k].car.group);
   for (var rid in net.remotes) { var rr = net.remotes[rid]; if (rr.dead) continue; npcRootsAlive.push(rr.drv && rr.car ? rr.car.group : rr.mesh); }
@@ -19871,6 +19907,7 @@ function tryAttack() {
       if (isClient()) netToHost({ t: 'dmgAlien', dmg: w.dmg, kx: dir.x, kz: dir.z });
       else damageAlien(w.dmg, dir.x, dir.z);
     }
+    else if (npcHit && npcHit.state === 'down') { gorePoke(npcHit.x, h.point.y, npcHit.z, dir.x, dir.z); }   // shooting a corpse: extra gibs, no damage
     else if (npcHit) {
       puff(h.point, 0xd93a2a, 'blood');
       meleeHit = state.equipped === 'fists';
@@ -19894,6 +19931,7 @@ function tryAttack() {
         lastCrimeT = T;
       }
     }
+    else if (copHit && copHit.state === 'down') { gorePoke(copHit.x, h.point.y, copHit.z, dir.x, dir.z); }   // shooting a dead cop: extra gibs, no damage
     else if (copHit) { damageCop(copHit, w.dmg, dir.x, dir.z); puff(h.point, 0xd93a2a, 'blood'); }
     else if (carHit) {
       puff(h.point, 0xbbbbbb, 'impact');   // bullet strike on a car body: subtle dust, NOT a flame (the old warm 0xd8c860 puff routed to the fire sheet)
@@ -22310,8 +22348,8 @@ function becomeHost(oldHostId) {
     var n = npcs[i];
     n.hiddenM = false;
     if (n.state === 'hidden') { if (!(n.dwellT > 0)) n.dwellT = 4 + Math.random() * 10; if (npcDoors.length && !(npcDoors[n.doorI])) n.doorI = (Math.random() * npcDoors.length) | 0; }
-    else if (n.state === 'ragdoll') { n.state = 'down'; n.downT = 3; n.mesh.rotation.x = -1.5; n.mesh.rotation.z = 0; n.airY = 0; }
-    else if (n.state === 'down') { if (!(n.downT > 0)) n.downT = 3; }
+    else if (n.state === 'ragdoll') { n.state = 'down'; n.downT = BODY_TTL; n.mesh.rotation.x = -1.5; n.mesh.rotation.z = 0; n.airY = 0; }
+    else if (n.state === 'down') { if (!(n.downT > 0)) n.downT = BODY_TTL; }
     else { n.state = 'walk'; n.wayX = undefined; n.wayZ = undefined; n.doorSeek = undefined; n.pause = 0; setNpcTarget(n); }
   }
   // kid mirrors are bare {mesh,look,x,z,phase,persona} husks — rebuild the sim
@@ -24431,6 +24469,7 @@ function showColliders(on) {
 }
 
 window.__wc = {
+  gibs: function () { return gibs; }, decals: function () { return decals; }, halves: function () { return halves; },   // gore debug accessors
   placeCatalogModel: (typeof placeCatalogModel === 'function' ? placeCatalogModel : null),
   modelCatalog: function () { return MODEL_CATALOGS; },
   allBuildings: function () { return mapBuildings; },   // full footprint registry (venues+houses+airport) for the editor reference layer
