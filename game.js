@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.94.4';
+var GAME_VERSION = 'v1.94.5';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -19426,7 +19426,7 @@ function spawnGoreBurst(x, y, z, dx, dz, n) {
 // shooting a body already on the ground pops a few extra tiny gore chunks out of
 // the wound (no damage — it's already dead), plus a little blood splat.
 function gorePoke(x, y, z, dx, dz) {
-  spawnGoreBurst(x, (y || 0.4) + 0.15, z, dx, dz, 3 + (Math.random() * 3 | 0));
+  spawnGoreBurst(x, (y || 0.4) + 0.15, z, dx, dz, 1 + (Math.random() * 2 | 0));
   bloodPunch(x + (Math.random() - 0.5) * 0.3, (y || 0.4) + 0.1, z + (Math.random() - 0.5) * 0.3);
   puff(new THREE.Vector3(x, (y || 0.4) + 0.2, z), 0x8f1512, 'blood');
   sfx('gore', { x: x, z: z, range: 34 });
