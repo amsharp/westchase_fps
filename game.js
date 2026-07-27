@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.96.3';
+var GAME_VERSION = 'v1.96.4';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -18773,6 +18773,22 @@ var sleeveM = lamb({ map: clothTex('#3d6fb8') });
 var metalM = phong({ map: gunmetalT, shininess: 30, specular: 0x666666 });
 var darkMetalM = phong({ color: 0x1e2024, shininess: 40, specular: 0x555555 });
 var woodM = lamb2(woodT), gripM = lamb2(gripT);
+// ---- KICK viewmodel: a first-person leg that swings up into view on a kick
+// (middle mouse). Separate group parented to the camera so it works with any
+// weapon equipped and isn't touched by the gun-sway logic. ----
+var kickVM = new THREE.Group(); camera.add(kickVM); kickVM.visible = false;
+(function buildKickLeg() {
+  var pantsM = lamb({ color: 0x33405e });   // jeans
+  var shoeM = lamb({ color: 0x18181c });
+  var thigh = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.42, 0.2), pantsM); thigh.position.set(0, 0.02, 0);
+  var shin = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.5, 0.17), pantsM); shin.position.set(0, -0.42, -0.02);
+  var shoe = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.15, 0.4), shoeM); shoe.position.set(0, -0.66, 0.12);
+  kickVM.add(thigh); kickVM.add(shin); kickVM.add(shoe);
+  kickVM.position.set(0.14, -0.62, -0.5);    // hip pivot: bottom, slightly right of center
+  kickVM.rotation.x = 1.3;                    // resting: leg hangs down out of view
+})();
+var kickActive = false, kickAnimT = 0, kickT = -99;
+var KICK_DUR = 0.42, KICK_RATE = 0.55, KICK_RANGE = 3.4, KICK_DMG = 12, KICK_SHOVE = 2.6;
 // ---- Meshy AI gun models (optional meshyguns.js): muzzle authored along -x,
 // +y up, centered at origin, real-meter scale, dims[0] = length ----
 var gunMeshCache = {};
@@ -20408,6 +20424,54 @@ function tryAttack() {
     if (npcHit || copHit || remoteHit || copMHit >= 0 || carHit || alienHit || ufoHit) hitMark(false);
   }
   recoilPitch += 0.012 + Math.random() * 0.008;
+}
+
+// ---- KICK (middle mouse): a front kick that shoves people back + does a bit of
+// damage. Totally independent of the LMB attack — you can kick while holding any
+// weapon and still punch/shoot with it — and it has its own short cooldown so it
+// can't be spammed. Local swing anim + net-safe damage like the melee path. ----
+function doKick() {
+  if (!state.running || state.menu || state.dead || driving) return;
+  if (plane && plane.piloting) return;
+  if (T - kickT < KICK_RATE) return;                     // cooldown: no spamming
+  kickT = T; kickActive = true; kickAnimT = 0; kickVM.visible = true;
+  recoilPitch += 0.03;                                   // tiny view nudge
+  sfx('whoosh');
+  var fx = -Math.sin(yaw), fz = -Math.cos(yaw), best = null, bestD = 99, bestCop = null, bestCopM = -1, bestRemote = null;
+  for (var i = 0; i < npcs.length; i++) { var n = npcs[i]; if (n.state === 'down' || n.state === 'hidden') continue; var dx = n.x - player.x, dz = n.z - player.z, d = Math.sqrt(dx * dx + dz * dz); if (d < KICK_RANGE && (dx * fx + dz * fz) / (d || 1) > 0.5 && d < bestD) { best = n; bestCop = null; bestD = d; } }
+  for (i = 0; i < cops.length; i++) { var cp = cops[i]; if (cp.state === 'down') continue; var cdx = cp.x - player.x, cdz = cp.z - player.z, cd = Math.sqrt(cdx * cdx + cdz * cdz); if (cd < KICK_RANGE && (cdx * fx + cdz * fz) / (cd || 1) > 0.5 && cd < bestD) { bestCop = cp; best = null; bestD = cd; } }
+  if (isClient()) for (i = 0; i < copsM.length; i++) { var cpm = copsM[i]; var mdx = cpm.x - player.x, mdz = cpm.z - player.z, md = Math.sqrt(mdx * mdx + mdz * mdz); if (md < KICK_RANGE && (mdx * fx + mdz * fz) / (md || 1) > 0.5 && md < bestD) { bestCopM = i; best = null; bestCop = null; bestD = md; } }
+  for (var rid in net.remotes) { var rm = net.remotes[rid]; if (rm.dead) continue; var rdx = rm.x - player.x, rdz = rm.z - player.z, rd = Math.sqrt(rdx * rdx + rdz * rdz); if (rd < KICK_RANGE && (rdx * fx + rdz * fz) / (rd || 1) > 0.5 && rd < bestD) { bestRemote = rm; best = null; bestCop = null; bestCopM = -1; bestD = rd; } }
+  var hitAt = null;
+  if (best) {
+    best.x += fx * KICK_SHOVE; best.z += fz * KICK_SHOVE;                 // punt them backward
+    if (isClient()) { netToHost({ t: 'dmgNpc', i: npcs.indexOf(best), dmg: KICK_DMG, kx: fx * 2, kz: fz * 2 }); best.hp = Math.max(0, (best.hp || 100) - KICK_DMG); }
+    else damageNPC(best, KICK_DMG, fx * 2, fz * 2);
+    hitAt = best;
+  } else if (bestCop) {
+    bestCop.x += fx * KICK_SHOVE; bestCop.z += fz * KICK_SHOVE;
+    damageCop(bestCop, KICK_DMG, fx * 2, fz * 2); hitAt = bestCop;
+  } else if (bestCopM >= 0) {
+    netToHost({ t: 'dmgCop', id: copsM[bestCopM].nid, dmg: KICK_DMG, kx: fx * 2, kz: fz * 2 });
+    copsM[bestCopM].hpM = Math.max(0, (copsM[bestCopM].hpM !== undefined ? copsM[bestCopM].hpM : 100) - KICK_DMG);
+    if (!copsM[bestCopM].down) { if (state.wanted < 1) setWanted(1); lastCrimeT = T; }
+    hitAt = copsM[bestCopM];
+  } else if (bestRemote) { netSendHit(bestRemote.id, KICK_DMG, true); hitAt = bestRemote; }
+  if (hitAt) { bloodPunch(hitAt.x - fx * 0.4, 1.1, hitAt.z - fz * 0.4); sfx('punchhit', { x: hitAt.x, z: hitAt.z, range: 45 }); hitMark(false); }
+}
+function updateKick(dt) {
+  if (!kickActive) return;
+  if (state.menu || state.dead || driving || (plane && plane.piloting)) { kickActive = false; kickVM.visible = false; return; }
+  kickAnimT += dt;
+  var p = kickAnimT / KICK_DUR;
+  if (p >= 1) { kickActive = false; kickVM.visible = false; kickVM.rotation.x = 1.3; kickVM.position.set(0.14, -0.62, -0.5); return; }
+  kickVM.visible = true;
+  var swing;
+  if (p < 0.35) { var e = p / 0.35; swing = e * e * (3 - 2 * e); }              // fast snap up 0->1
+  else { var e2 = (p - 0.35) / 0.65; swing = 1 - e2 * e2 * (3 - 2 * e2); }      // retract 1->0
+  kickVM.rotation.x = 1.3 + (-0.45 - 1.3) * swing;    // rest 1.3 (down) -> kicked -0.45 (extended forward)
+  kickVM.position.z = -0.5 - swing * 0.28;            // thrust into the screen
+  kickVM.position.y = -0.62 + swing * 0.30;           // foot lifts up into view
 }
 
 var dmgDirs = [];   // recent damage sources: {a: world angle to source, t}
@@ -23459,6 +23523,7 @@ document.addEventListener('mousemove', function (e) {
 document.addEventListener('mousedown', function (e) {
   if (document.pointerLockElement !== canvas || state.menu) return;
   if (e.button === 0) { mouseDown = true; if (state.equipped === 'axe' && axeAiming) throwAxe(); else tryAttack(); }
+  else if (e.button === 1) { e.preventDefault(); doKick(); }   // middle mouse = kick (independent of the LMB attack)
   else if (e.button === 2 && !state.dead && !driving) {
     if (state.equipped === 'rifle') setZoom(true);
     else if (state.equipped === 'axe' && state.owned.axe) axeAiming = true;   // enter throw-aim mode
@@ -24828,7 +24893,7 @@ function loop(now) {
   if (photoMode) { updatePhotoCam(dt); renderer.render(scene, camera); return; }
   T += dt;
   var sdt = dt;
-  updatePlayer(dt); updatePlaneWorld(dt); updateAirportPlane(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
+  updatePlayer(dt); updateKick(dt); updatePlaneWorld(dt); updateAirportPlane(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
   if (state.dead) updateDeathCam(dt);   // top-down zoom-out cinematic drives the camera while dead
   renderer.render(scene, camera);
 }
@@ -24944,7 +25009,7 @@ window.__wc = {
   setYaw: function (y) { yaw = y; camera.position.set(player.x, player.y, player.z); camera.rotation.y = yaw; camera.rotation.x = pitch; },
   setPitch: function (p2) { pitch = p2; camera.rotation.x = pitch; },
   teleport: function (x, z) { player.x = x; player.z = z; },
-  tryAttack: tryAttack, setEquipped: setEquipped, cycleEquip: cycleEquip,
+  tryAttack: tryAttack, setEquipped: setEquipped, cycleEquip: cycleEquip, doKick: doKick, kickActive: function () { return kickActive; },
   startKame: function () { startKamehameha(); }, isKame: function () { return kameActive; },
   hotbarAdd: hotbarAdd, seedHotbar: seedHotbar, refreshHotbarHud: refreshHotbarHud, refreshInv: refreshInv, updateHUD: updateHUD, hotbar: function () { return state.hotbar; },
   updateDeathCam: updateDeathCam, doRespawn: doRespawn, vm: vm,
@@ -25248,7 +25313,7 @@ window.__wc = {
   // lightweight physics step (no render, no NPC/cop/car sim) — fast headless
   // stepping for plane/fall tests. Renders only when you call renderer yourself.
   stepLite: function (dt) { T += dt; updatePlayer(dt); updatePlaneWorld(dt); },
-  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updatePlaneWorld(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
+  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updateKick(dt); updatePlaneWorld(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
 };
 
 // ---------------- boot screen handoff + menu cover art ----------------

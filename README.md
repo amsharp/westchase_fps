@@ -882,6 +882,11 @@ the same quiet noise bed as before, and the SFX volume slider controls it.
 
 - **WASD** — move, **Shift** — run, **Space** — jump, **Mouse** — look
 - **Left click** — punch / shoot
+- **Middle click** — **kick**: your leg swings up into view, shoving whoever's in
+  front of you back a few feet and dealing a bit of damage. It fires on its own
+  timer with a short cooldown (no spamming), and works independently of your
+  left-click attack — so you can kick while holding a gun, or mix it into a
+  punch combo.
 - **R** — **reload** the equipped gun from your reserve (while driving, R cycles the car radio)
 - **Scroll wheel** — quick-swap to your next / previous weapon
 - **1 – 0** — jump straight to a weapon by number (its slot in your owned list —
