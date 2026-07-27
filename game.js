@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.93.1';
+var GAME_VERSION = 'v1.94.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -6264,6 +6264,44 @@ function buildAirport(AX, AZ) {
   buildParkingGarage(AX + 72, AZ + 84, { hw: 26, hd: 18 });
 }
 buildAirport(AIRPORT_ORIGIN.x, AIRPORT_ORIGIN.z);
+
+// ================= CATALOG MODELS (skyscrapers + future building models) =====
+// A generic placement layer over the same quantized-GLB scheme the airport
+// uses. The catalog (SKYSCRAPERS in skyscrapers.js — extensible; more model
+// packs can register into MODEL_CATALOGS) holds {id,name,dims,q,p,u,i,tex}.
+// The editor authors placements into REMAP_MODELS ({model,x,z,rot,w} — rot in
+// degrees, w = desired footprint width; the model uniform-scales to fit so it
+// never stretches). Each renders via placeAirModel + a yaw collider, and is
+// registered in mapBuildings so it shows on the minimap.
+var MODEL_CATALOGS = [];
+if (typeof SKYSCRAPERS !== 'undefined') MODEL_CATALOGS.push(SKYSCRAPERS);
+var _catModelCache = {};
+function findCatalogModel(id) {
+  for (var c = 0; c < MODEL_CATALOGS.length; c++) { var L = MODEL_CATALOGS[c]; for (var i = 0; i < L.length; i++) if (L[i].id === id) return L[i]; }
+  return null;
+}
+// place one catalog model; footW (optional) sets footprint width -> uniform
+// scale, else `scale` is used directly. Returns the placed {group,W,H,D} or null.
+function placeCatalogModel(id, x, z, rotDeg, footW, scale) {
+  var e = findCatalogModel(id); if (!e || typeof placeAirModel !== 'function') return null;
+  var cache = _catModelCache[id] || (_catModelCache[id] = {});
+  var s = (footW && e.dims[0]) ? footW / e.dims[0] : (scale || 1);
+  var rotY = (rotDeg || 0) * Math.PI / 180;
+  var placed = placeAirModel(e, cache, s, x, z, rotY);
+  if (placed) {
+    pushYawCollider(x, z, placed.W, placed.D, rotY, placed.H);
+    if (typeof mapBuildings !== 'undefined') mapBuildings.push({ x: x, z: z, w: placed.W, d: placed.D, h: placed.H, c: 0x8b95a3, model: id });
+  }
+  return placed;
+}
+function placeRemapModels() {
+  if (typeof REMAP_MODELS === 'undefined') return;
+  for (var i = 0; i < REMAP_MODELS.length; i++) {
+    var m = REMAP_MODELS[i];
+    placeCatalogModel(m.model, m.x, m.z, m.rot || 0, m.w, m.scale);
+  }
+}
+placeRemapModels();
 
 // Top walkable/drivable surface height at (x,z): people + cars ride ON the
 // highest layer (grass 0 / road .05 / lot .10 / sidewalk .12 / pad .13 /
@@ -24336,6 +24374,8 @@ function showColliders(on) {
 }
 
 window.__wc = {
+  placeCatalogModel: (typeof placeCatalogModel === 'function' ? placeCatalogModel : null),
+  modelCatalog: function () { return MODEL_CATALOGS; },
   skidCount: function () { var n = 0; for (var i = 0; i < skidMarks.length; i++) if (skidMarks[i].visible) n++; return n; },
   skidMarks: function () { return skidMarks; },
   showColliders: showColliders, colliderView: function () { return colViewOn; },
