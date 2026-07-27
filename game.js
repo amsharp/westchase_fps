@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.96.1';
+var GAME_VERSION = 'v1.96.2';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -15810,16 +15810,26 @@ function planeHoleTex() {
   if (_planeHoleTex) return _planeHoleTex;
   var c = document.createElement('canvas'); c.width = c.height = 128; var g = c.getContext('2d');
   // scorch halo (soft dark smudge) behind the hole
-  var rg = g.createRadialGradient(64, 66, 10, 64, 66, 62);
+  var rg = g.createRadialGradient(64, 64, 12, 64, 64, 62);
   rg.addColorStop(0, 'rgba(10,8,6,0.85)'); rg.addColorStop(0.6, 'rgba(20,16,12,0.5)'); rg.addColorStop(1, 'rgba(24,18,12,0)');
   g.fillStyle = rg; g.fillRect(0, 0, 128, 128);
   g.fillStyle = '#000';
-  // fuselage (vertical body) + nose
-  g.beginPath(); g.moveTo(58, 22); g.quadraticCurveTo(64, 14, 70, 22); g.lineTo(70, 104); g.lineTo(58, 104); g.closePath(); g.fill();
-  // main wings — long swept bar
-  g.beginPath(); g.moveTo(64, 60); g.lineTo(8, 82); g.lineTo(20, 86); g.lineTo(64, 74); g.lineTo(108, 86); g.lineTo(120, 82); g.closePath(); g.fill();
-  // tail horizontal stabilizers
-  g.beginPath(); g.moveTo(64, 30); g.lineTo(40, 42); g.lineTo(48, 45); g.lineTo(64, 40); g.lineTo(80, 45); g.lineTo(88, 42); g.closePath(); g.fill();
+  // FRONT-ON airplane silhouette (as if the plane flew straight at you):
+  // a long horizontal wing sweeping out both sides, with a little dihedral (tips up)
+  g.beginPath();
+  g.moveTo(64, 60); g.lineTo(8, 50); g.lineTo(5, 58); g.lineTo(64, 68);
+  g.lineTo(123, 58); g.lineTo(120, 50); g.closePath(); g.fill();
+  // horizontal tail stabilizers (smaller bar higher up)
+  g.beginPath();
+  g.moveTo(64, 40); g.lineTo(40, 34); g.lineTo(38, 39); g.lineTo(64, 45);
+  g.lineTo(90, 39); g.lineTo(88, 34); g.closePath(); g.fill();
+  // vertical stabilizer (tail fin) pointing up from the body
+  g.beginPath(); g.moveTo(60, 52); g.lineTo(64, 22); g.lineTo(68, 52); g.closePath(); g.fill();
+  // round fuselage head-on (nose circle) in the centre
+  g.beginPath(); g.arc(64, 64, 13, 0, Math.PI * 2); g.fill();
+  // two engine nacelles slung under the wings
+  g.beginPath(); g.arc(38, 61, 5.5, 0, Math.PI * 2); g.fill();
+  g.beginPath(); g.arc(90, 61, 5.5, 0, Math.PI * 2); g.fill();
   _planeHoleTex = new THREE.CanvasTexture(c); _planeHoleTex.magFilter = THREE.LinearFilter;
   return _planeHoleTex;
 }
@@ -15842,6 +15852,44 @@ function placeTowerImpact(t, hx, hz, iy) {
   m.rotation.y = Math.atan2(nx, nz);                   // face outward off the struck wall
   t.group.add(m);
   t.impactDecal = m;
+}
+// falling embers (glowing sparks) + fluttering office papers pouring out of a
+// burning tower. Papers tumble + drift down slowly; embers fall faster and glow.
+var towerBits = [];
+var _paperGeo = null, _emberGeo = null, _emberMat = null;
+function spawnTowerBit(x, y, z, paper) {
+  if (towerBits.length > 380) return;   // soft cap
+  var m;
+  if (paper) {
+    if (!_paperGeo) _paperGeo = new THREE.PlaneGeometry(0.5, 0.66);
+    var cols = [0xefe9dc, 0xe6dcc4, 0xf3f0e8, 0xd8cdb4];
+    m = new THREE.Mesh(_paperGeo, lamb({ color: cols[(Math.random() * cols.length) | 0], side: THREE.DoubleSide }));
+    m.rotation.set(Math.random() * 6.28, Math.random() * 6.28, Math.random() * 6.28);
+  } else {
+    if (!_emberGeo) _emberGeo = new THREE.PlaneGeometry(0.3, 0.3);
+    m = new THREE.Mesh(_emberGeo, new THREE.MeshBasicMaterial({ color: Math.random() < 0.5 ? 0xff7a1e : 0xffb440, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false }));
+  }
+  m.position.set(x, y, z);
+  scene.add(m);
+  towerBits.push({ mesh: m, vx: (Math.random() - 0.5) * 3, vy: paper ? -0.6 : -1 - Math.random() * 2, vz: (Math.random() - 0.5) * 3, spin: (Math.random() - 0.5) * 9, sway: Math.random() * 6.28, paper: paper, life: paper ? (7 + Math.random() * 5) : (1.5 + Math.random() * 1.3) });
+}
+function updateTowerBits(dt) {
+  for (var i = towerBits.length - 1; i >= 0; i--) {
+    var b = towerBits[i]; b.life -= dt; b.sway += dt;
+    if (b.paper) {                                       // slow fluttering fall + tumble + drift
+      b.mesh.position.x += (b.vx * 0.35 + Math.sin(b.sway * 3.2) * 1.5) * dt;
+      b.mesh.position.z += (b.vz * 0.35 + Math.cos(b.sway * 2.7) * 1.5) * dt;
+      b.vy += (-2.4 - b.vy) * Math.min(1, dt * 1.5);     // terminal ~2.4 u/s
+      b.mesh.position.y += b.vy * dt;
+      b.mesh.rotation.x += b.spin * dt; b.mesh.rotation.z += Math.sin(b.sway * 4) * 2.2 * dt;
+    } else {                                             // ember: falls faster, glows, flickers, billboards
+      b.vy -= 5 * dt;
+      b.mesh.position.x += b.vx * dt; b.mesh.position.y += b.vy * dt; b.mesh.position.z += b.vz * dt;
+      b.mesh.lookAt(camera.position);
+      b.mesh.material.opacity = Math.max(0, Math.min(1, b.life)) * (0.7 + Math.random() * 0.3);
+    }
+    if (b.mesh.position.y <= 0.2 || b.life <= 0) { scene.remove(b.mesh); if (b.mesh.material.dispose) b.mesh.material.dispose(); towerBits.splice(i, 1); }
+  }
 }
 // plane (or a test) flew into this standing tower: kick off the sequence
 function igniteTower(t, impactY, hx, hz) {
@@ -15886,6 +15934,7 @@ function finishReset(t) {
   if (t.impactDecal) { t.group.remove(t.impactDecal); t.impactDecal = null; }   // fresh face on the rebuilt tower
 }
 function updateTowers(dt) {
+  if (towerBits.length) updateTowerBits(dt);   // falling embers/papers keep animating regardless of tower state
   for (var i = 0; i < towers.length; i++) {
     var t = towers[i];
     if (t.state === 'up') continue;
@@ -15901,9 +15950,13 @@ function updateTowers(dt) {
           fy = Math.max(3, Math.min(t.fullH, fy));
           bigPuff(t.x + (Math.random() - 0.5) * t.W * 1.15, fy, t.z + (Math.random() - 0.5) * t.D * 1.15, 'fire', fw * (0.9 + Math.random() * 0.7), 0.75, 1.0, 5 + Math.random() * 4);
         }
-        // enormous near-black smoke column boiling off the top and towering
-        // WAY up into the sky (long life + big rise => it climbs ~100u+ overhead)
-        for (f = 0; f < 5; f++) bigPuff(t.x + (Math.random() - 0.5) * t.W * 1.3, t.fullH + Math.random() * 20, t.z + (Math.random() - 0.5) * t.D * 1.3, 'smoke', fw * (2.6 + Math.random() * 1.8), 4.5, 1.15, 22 + Math.random() * 14, (Math.random() - 0.5) * 5, (Math.random() - 0.5) * 5);
+        // near-black smoke: spawns SMALL + dense at the fire, then billows much
+        // bigger and fades out as it rises (grow + opacity falloff over its life),
+        // towering WAY up into the sky (fast rise => it climbs ~120u+ overhead)
+        for (f = 0; f < 5; f++) bigPuff(t.x + (Math.random() - 0.5) * t.W * 0.7, t.fullH - 4 + Math.random() * 8, t.z + (Math.random() - 0.5) * t.D * 0.7, 'smoke', fw * (0.5 + Math.random() * 0.5), 5.2, 0.72, 20 + Math.random() * 15, (Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4);
+        // embers + office papers spewing out of the struck floors and drifting down
+        for (f = 0; f < 3; f++) spawnTowerBit(t.x + (Math.random() - 0.5) * t.W, t.impactY + (Math.random() - 0.5) * t.fullH * 0.6, t.z + (Math.random() - 0.5) * t.D, false);
+        if (Math.random() < 0.8) spawnTowerBit(t.x + (Math.random() - 0.5) * t.W, t.impactY + (Math.random() - 0.4) * t.fullH * 0.55, t.z + (Math.random() - 0.5) * t.D, true);
       }
       if (t.t >= TOWER_BURN) startTowerCollapse(t);
     } else if (t.state === 'collapsing') {
@@ -24824,6 +24877,7 @@ function showColliders(on) {
 window.__wc = {
   gibs: function () { return gibs; }, decals: function () { return decals; }, halves: function () { return halves; },   // gore debug accessors
   towers: function () { return towers; }, igniteTower: function (i, y, hx, hz) { var t = towers[i]; igniteTower(t, y === undefined ? t.fullH * 0.6 : y, hx, hz); },   // skyscraper destruction
+  towerBits: function () { return towerBits; },
   deployParachute: function (vx, vz) { deployParachute(vx || 0, vz || 0); }, para: function () { return para; },
   towerAt: function (x, z, y) { return towerAt(x, z, y); },
   placeCatalogModel: (typeof placeCatalogModel === 'function' ? placeCatalogModel : null),
