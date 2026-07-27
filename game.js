@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.96.2';
+var GAME_VERSION = 'v1.96.3';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -15891,6 +15891,52 @@ function updateTowerBits(dt) {
     if (b.mesh.position.y <= 0.2 || b.life <= 0) { scene.remove(b.mesh); if (b.mesh.material.dispose) b.mesh.material.dispose(); towerBits.splice(i, 1); }
   }
 }
+// people occasionally falling/leaping out of the burning tower — they tumble +
+// spin the whole way down and SPLAT (gore burst + blood pool) on the ground.
+var towerFallers = [];
+function spawnTowerFaller(t) {
+  if (towerFallers.length > 8) return;
+  var m;
+  try { m = buildCharacter(randomCharConfig()); } catch (e) { m = null; }
+  if (!m) return;
+  var ang = Math.random() * Math.PI * 2, hw = t.W / 2, hd = t.D / 2;
+  var sx = t.x + Math.cos(ang) * hw, sz = t.z + Math.sin(ang) * hd;
+  var sy = Math.max(10, Math.min(t.fullH - 3, t.impactY + (Math.random() - 0.25) * t.fullH * 0.6));
+  m.position.set(sx, sy, sz);
+  if (m.userData && m.userData.shadow) m.userData.shadow.visible = false;   // no ground shadow mid-air
+  scene.add(m);
+  var out = 3 + Math.random() * 6;
+  towerFallers.push({
+    mesh: m, x: sx, y: sy, z: sz,
+    vx: Math.cos(ang) * out, vy: 1.5 + Math.random() * 2.5, vz: Math.sin(ang) * out,     // pushed outward + a little up, then gravity
+    spinx: (Math.random() - 0.5) * 14, spiny: (Math.random() - 0.5) * 11, spinz: (Math.random() - 0.5) * 14, life: 12
+  });
+  if (typeof playVoiceAny === 'function') playVoiceAny(['pedm_hit_1', 'pedm_hit_2', 'pedo_hit', 'pedf_hit', 'pedf_hit_2'], 0.7, 'fallScream', 0.2, { x: sx, z: sz, yell: true, range: 90 });
+  else sfx('grunt', { x: sx, z: sz, range: 70 });
+}
+function updateTowerFallers(dt) {
+  for (var i = towerFallers.length - 1; i >= 0; i--) {
+    var f = towerFallers[i]; f.life -= dt;
+    f.vy -= 18 * dt;                                        // gravity
+    f.x += f.vx * dt; f.y += f.vy * dt; f.z += f.vz * dt;
+    f.vx *= (1 - 0.12 * dt); f.vz *= (1 - 0.12 * dt);       // slight air drag
+    f.mesh.position.set(f.x, f.y, f.z);
+    f.mesh.rotation.x += f.spinx * dt; f.mesh.rotation.y += f.spiny * dt; f.mesh.rotation.z += f.spinz * dt;   // tumbling
+    var floor = surfaceHeightAt(f.x, f.z, false, f.y);
+    if (f.y <= floor || f.life <= 0) {
+      // SPLAT
+      if (f.y <= floor + 3) {
+        spawnGoreBurst(f.x, floor + 0.4, f.z, f.vx * 0.12, f.vz * 0.12, 10 + (Math.random() * 6 | 0));
+        if (typeof bloodPool === 'function') bloodPool(f.x, f.z);
+        for (var b = 0; b < 5; b++) bloodPunch(f.x + (Math.random() - 0.5) * 1.3, floor + 0.4 + Math.random() * 0.8, f.z + (Math.random() - 0.5) * 1.3);
+        puff(new THREE.Vector3(f.x, floor + 0.5, f.z), 0x8f1512, 'blood');
+        sfx('gore', { x: f.x, z: f.z, range: 50 });
+        sfx('crash', { x: f.x, z: f.z, range: 42 });
+      }
+      scene.remove(f.mesh); towerFallers.splice(i, 1);
+    }
+  }
+}
 // plane (or a test) flew into this standing tower: kick off the sequence
 function igniteTower(t, impactY, hx, hz) {
   if (!t || t.state !== 'up') return;
@@ -15935,6 +15981,7 @@ function finishReset(t) {
 }
 function updateTowers(dt) {
   if (towerBits.length) updateTowerBits(dt);   // falling embers/papers keep animating regardless of tower state
+  if (towerFallers.length) updateTowerFallers(dt);   // tumbling bodies + splats
   for (var i = 0; i < towers.length; i++) {
     var t = towers[i];
     if (t.state === 'up') continue;
@@ -15957,6 +16004,7 @@ function updateTowers(dt) {
         // embers + office papers spewing out of the struck floors and drifting down
         for (f = 0; f < 3; f++) spawnTowerBit(t.x + (Math.random() - 0.5) * t.W, t.impactY + (Math.random() - 0.5) * t.fullH * 0.6, t.z + (Math.random() - 0.5) * t.D, false);
         if (Math.random() < 0.8) spawnTowerBit(t.x + (Math.random() - 0.5) * t.W, t.impactY + (Math.random() - 0.4) * t.fullH * 0.55, t.z + (Math.random() - 0.5) * t.D, true);
+        if (Math.random() < 0.03) spawnTowerFaller(t);   // every so often a person tumbles out and splats
       }
       if (t.t >= TOWER_BURN) startTowerCollapse(t);
     } else if (t.state === 'collapsing') {
@@ -24877,7 +24925,7 @@ function showColliders(on) {
 window.__wc = {
   gibs: function () { return gibs; }, decals: function () { return decals; }, halves: function () { return halves; },   // gore debug accessors
   towers: function () { return towers; }, igniteTower: function (i, y, hx, hz) { var t = towers[i]; igniteTower(t, y === undefined ? t.fullH * 0.6 : y, hx, hz); },   // skyscraper destruction
-  towerBits: function () { return towerBits; },
+  towerBits: function () { return towerBits; }, towerFallers: function () { return towerFallers; }, spawnTowerFaller: function (i) { spawnTowerFaller(towers[i]); },
   deployParachute: function (vx, vz) { deployParachute(vx || 0, vz || 0); }, para: function () { return para; },
   towerAt: function (x, z, y) { return towerAt(x, z, y); },
   placeCatalogModel: (typeof placeCatalogModel === 'function' ? placeCatalogModel : null),
