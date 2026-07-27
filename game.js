@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.96.0';
+var GAME_VERSION = 'v1.96.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -15662,7 +15662,7 @@ function crashPlane() {
   boomAt(x, z);
   // did we fly into a standing skyscraper? kick off its destruction sequence
   var struck = (typeof towerAt === 'function') ? towerAt(x, z, y) : null;
-  if (struck) igniteTower(struck, y);
+  if (struck) igniteTower(struck, y, x, z);   // pass the impact point so the plane-hole lands on the struck face
   // extra fireball
   for (var i = 0; i < 14; i++) puff(new THREE.Vector3(x + (Math.random() - 0.5) * 6, 0.8 + Math.random() * 4, z + (Math.random() - 0.5) * 6), i % 2 ? 0x333333 : 0xff7a1e);
   sfx('boom', { x: x, z: z, range: 300 });
@@ -15751,9 +15751,10 @@ function bigPuff(x, y, z, kind, scale, life, grow, vy, vx, vz) {
     return;
   }
   if (kind !== 'fire' && typeof smokeFrames !== 'undefined' && smokeFrames) {
-    m = new THREE.Mesh(puffGeo, new THREE.MeshBasicMaterial({ map: smokeFrames[0], transparent: true, depthWrite: false, opacity: 0.9 }));
-    var col = kind === 'dust' ? 0x9c948a : 0x252525;
-    var cr = Math.max(60, (col >> 16) & 255), cg = Math.max(60, (col >> 8) & 255), cb = Math.max(60, col & 255);
+    m = new THREE.Mesh(puffGeo, new THREE.MeshBasicMaterial({ map: smokeFrames[0], transparent: true, depthWrite: false, opacity: 0.95 }));
+    // dust stays light + a touch bright; smoke is near-black (thick oily plume)
+    var col = kind === 'dust' ? 0x9c948a : 0x0e0e0e, fl = kind === 'dust' ? 60 : 22;
+    var cr = Math.max(fl, (col >> 16) & 255), cg = Math.max(fl, (col >> 8) & 255), cb = Math.max(fl, col & 255);
     m.material.color.setRGB(cr / 255, cg / 255, cb / 255);
     m.position.set(x, y, z); m.scale.setScalar(scale); scene.add(m);
     puffs.push({ mesh: m, life: life, max: life, fire: false, frames: smokeFrames, grow: grow || 1.4, omax: 0.9, vy: vy || 0, vx: vx || 0, vz: vz || 0 });
@@ -15801,12 +15802,54 @@ function buildRubblePile(t) {
   }
   return g;
 }
+// a black airplane silhouette on transparent — the "plane-shaped hole" punched
+// into the struck face (front-view: fuselage + swept wings + tail + fin), with a
+// faint scorch halo around it. Built once + cached.
+var _planeHoleTex = null, _planeHoleGeo = null;
+function planeHoleTex() {
+  if (_planeHoleTex) return _planeHoleTex;
+  var c = document.createElement('canvas'); c.width = c.height = 128; var g = c.getContext('2d');
+  // scorch halo (soft dark smudge) behind the hole
+  var rg = g.createRadialGradient(64, 66, 10, 64, 66, 62);
+  rg.addColorStop(0, 'rgba(10,8,6,0.85)'); rg.addColorStop(0.6, 'rgba(20,16,12,0.5)'); rg.addColorStop(1, 'rgba(24,18,12,0)');
+  g.fillStyle = rg; g.fillRect(0, 0, 128, 128);
+  g.fillStyle = '#000';
+  // fuselage (vertical body) + nose
+  g.beginPath(); g.moveTo(58, 22); g.quadraticCurveTo(64, 14, 70, 22); g.lineTo(70, 104); g.lineTo(58, 104); g.closePath(); g.fill();
+  // main wings — long swept bar
+  g.beginPath(); g.moveTo(64, 60); g.lineTo(8, 82); g.lineTo(20, 86); g.lineTo(64, 74); g.lineTo(108, 86); g.lineTo(120, 82); g.closePath(); g.fill();
+  // tail horizontal stabilizers
+  g.beginPath(); g.moveTo(64, 30); g.lineTo(40, 42); g.lineTo(48, 45); g.lineTo(64, 40); g.lineTo(80, 45); g.lineTo(88, 42); g.closePath(); g.fill();
+  _planeHoleTex = new THREE.CanvasTexture(c); _planeHoleTex.magFilter = THREE.LinearFilter;
+  return _planeHoleTex;
+}
+// stamp the plane-shaped hole onto the struck face at (hx,hz), height iy. Parented
+// to the tower group so it sinks with the tower on collapse; cleared on rebuild.
+function placeTowerImpact(t, hx, hz, iy) {
+  if (t.impactDecal) return;
+  var dx = (hx === undefined ? 0 : hx - t.x), dz = (hz === undefined ? 0 : hz - t.z);
+  var nx = 0, nz = 0, lx, lz;
+  if (Math.abs(dx) / (t.W / 2 || 1) >= Math.abs(dz) / (t.D / 2 || 1)) {   // struck an X (east/west) face
+    nx = dx >= 0 ? 1 : -1; lx = nx * t.W / 2; lz = Math.max(-t.D / 2 * 0.8, Math.min(t.D / 2 * 0.8, dz));
+  } else {                                                                 // struck a Z (north/south) face
+    nz = dz >= 0 ? 1 : -1; lz = nz * t.D / 2; lx = Math.max(-t.W / 2 * 0.8, Math.min(t.W / 2 * 0.8, dx));
+  }
+  var ds = Math.max(11, Math.min(22, Math.min(t.W, t.D) * 1.25));
+  if (!_planeHoleGeo) _planeHoleGeo = new THREE.PlaneGeometry(1, 1);
+  var m = new THREE.Mesh(_planeHoleGeo, new THREE.MeshBasicMaterial({ map: planeHoleTex(), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
+  m.scale.set(ds, ds, 1);
+  m.position.set(lx + nx * 0.4, iy, lz + nz * 0.4);    // just proud of the face
+  m.rotation.y = Math.atan2(nx, nz);                   // face outward off the struck wall
+  t.group.add(m);
+  t.impactDecal = m;
+}
 // plane (or a test) flew into this standing tower: kick off the sequence
-function igniteTower(t, impactY) {
+function igniteTower(t, impactY, hx, hz) {
   if (!t || t.state !== 'up') return;
   t.state = 'burning'; t.t = 0; t.emitT = 0;
   var iy = Math.max(6, Math.min(t.fullH - 4, impactY || t.fullH * 0.6));
   t.impactY = iy;
+  placeTowerImpact(t, hx, hz, iy);                     // stamp the plane-shaped hole on the struck face
   var fw = Math.max(t.W, t.D);                         // footprint scale -> particle size
   boomAt(t.x, t.z);                                    // ground shock + smoke ring
   // huge initial fireball engulfing the impact zone
@@ -15840,6 +15883,7 @@ function finishReset(t) {
   t.state = 'up'; t.t = 0;
   t.group.position.y = 0;
   if (t.rubble) { scene.remove(t.rubble); t.rubble = null; }
+  if (t.impactDecal) { t.group.remove(t.impactDecal); t.impactDecal = null; }   // fresh face on the rebuilt tower
 }
 function updateTowers(dt) {
   for (var i = 0; i < towers.length; i++) {
@@ -15857,8 +15901,9 @@ function updateTowers(dt) {
           fy = Math.max(3, Math.min(t.fullH, fy));
           bigPuff(t.x + (Math.random() - 0.5) * t.W * 1.15, fy, t.z + (Math.random() - 0.5) * t.D * 1.15, 'fire', fw * (0.9 + Math.random() * 0.7), 0.75, 1.0, 5 + Math.random() * 4);
         }
-        // thick black smoke column boiling off the top and rising high
-        for (f = 0; f < 3; f++) bigPuff(t.x + (Math.random() - 0.5) * t.W, t.fullH + Math.random() * 14, t.z + (Math.random() - 0.5) * t.D, 'smoke', fw * (1.4 + Math.random()), 2.4, 1.1, 11 + Math.random() * 7);
+        // enormous near-black smoke column boiling off the top and towering
+        // WAY up into the sky (long life + big rise => it climbs ~100u+ overhead)
+        for (f = 0; f < 5; f++) bigPuff(t.x + (Math.random() - 0.5) * t.W * 1.3, t.fullH + Math.random() * 20, t.z + (Math.random() - 0.5) * t.D * 1.3, 'smoke', fw * (2.6 + Math.random() * 1.8), 4.5, 1.15, 22 + Math.random() * 14, (Math.random() - 0.5) * 5, (Math.random() - 0.5) * 5);
       }
       if (t.t >= TOWER_BURN) startTowerCollapse(t);
     } else if (t.state === 'collapsing') {
@@ -24778,8 +24823,7 @@ function showColliders(on) {
 
 window.__wc = {
   gibs: function () { return gibs; }, decals: function () { return decals; }, halves: function () { return halves; },   // gore debug accessors
-  towers: function () { return towers; }, igniteTower: function (i, y) { igniteTower(towers[i], y === undefined ? towers[i].fullH * 0.6 : y); },   // skyscraper destruction
-  puffs: function () { return puffs; },
+  towers: function () { return towers; }, igniteTower: function (i, y, hx, hz) { var t = towers[i]; igniteTower(t, y === undefined ? t.fullH * 0.6 : y, hx, hz); },   // skyscraper destruction
   deployParachute: function (vx, vz) { deployParachute(vx || 0, vz || 0); }, para: function () { return para; },
   towerAt: function (x, z, y) { return towerAt(x, z, y); },
   placeCatalogModel: (typeof placeCatalogModel === 'function' ? placeCatalogModel : null),
