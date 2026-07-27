@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.94.2';
+var GAME_VERSION = 'v1.94.3';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -16076,6 +16076,7 @@ function killNpcRagdoll(n, dx, dz, power) {
   n.spinZ = (Math.random() - 0.5) * 14;
   sfx('grunt', { x: n.x, z: n.z, range: 60, fem: n.fem });
   for (var i = 0; i < 5; i++) puff(new THREE.Vector3(n.x + (Math.random() - 0.5), 0.8 + Math.random() * 1.2, n.z + (Math.random() - 0.5)), 0xa01212, 'blood');
+  spawnGoreBurst(n.x, 0.9, n.z, dx, dz, 6 + (Math.random() * 4 | 0));   // chunks fly off on the impact
   bloodDecal(n.x, n.z);
   spawnCash(n.x, n.z, 5 + ((Math.random() * 18) | 0));
   maybeNpcItemDrop(n.x, n.z);
@@ -19325,7 +19326,7 @@ function getGibMesh(size) {
   buildGibAsset();
   if (!_gibGeo) return null;
   var m = new THREE.Mesh(_gibGeo, _gibMat);
-  var s = (size || 0.36) / _gibMax; m.scale.set(s, s, s);
+  var s = (size || 0.18) / _gibMax; m.scale.set(s, s, s);   // original gib kept but halved (0.36 -> 0.18)
   m.rotation.set(Math.random() * 6.28, Math.random() * 6.28, Math.random() * 6.28);
   m.frustumCulled = false;
   return m;
@@ -19348,6 +19349,54 @@ function updateGibs(dt) {
     if (g.life <= 0) { scene.remove(g.mesh); gibs.splice(i, 1); }
   }
 }
+// ---- tiny gore chunks (gorebits.js): a BURST of them explodes out and
+// scatters on head-pop / car hit / axe bisect. Reuse the gib physics (gravity,
+// ground bounce, blood decals) via the shared `gibs` array. ----
+var _goreGeos = null, _goreMat = null;
+function buildGoreBits() {
+  if (_goreGeos || typeof GORE_BITS === 'undefined') return;
+  _goreGeos = [];
+  var im = new Image(), tx = new THREE.Texture(im);
+  tx.magFilter = THREE.NearestFilter; tx.minFilter = THREE.LinearMipmapLinearFilter;
+  im.onload = function () { tx.needsUpdate = true; }; im.src = GORE_BITS.tex;
+  _goreMat = lamb({ map: tx, side: THREE.DoubleSide });
+  for (var b = 0; b < GORE_BITS.bits.length; b++) {
+    var e = GORE_BITS.bits[b];
+    var qp = new Int16Array(b64Bytes(e.p).buffer), qu = new Uint16Array(b64Bytes(e.u).buffer);
+    var fp = new Float32Array(qp.length), fu = new Float32Array(qu.length);
+    for (var i = 0; i < qp.length; i++) fp[i] = qp[i] / e.q;
+    for (i = 0; i < qu.length; i += 2) { fu[i] = qu[i] / 8192; fu[i + 1] = 1 - qu[i + 1] / 8192; }
+    var geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(fp, 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(fu, 2));
+    geo.setIndex(new THREE.BufferAttribute(new Uint16Array(b64Bytes(e.i).buffer), 1));
+    geo.computeVertexNormals();
+    _goreGeos.push({ geo: geo, max: Math.max(e.dims[0], e.dims[1], e.dims[2]) || 1 });
+  }
+}
+function getGoreBitMesh(size) {
+  buildGoreBits();
+  if (!_goreGeos || !_goreGeos.length) return null;
+  var g = _goreGeos[(Math.random() * _goreGeos.length) | 0];
+  var m = new THREE.Mesh(g.geo, _goreMat);
+  var s = (size || 0.16) / g.max; m.scale.set(s, s, s);
+  m.rotation.set(Math.random() * 6.28, Math.random() * 6.28, Math.random() * 6.28);
+  m.frustumCulled = false;
+  return m;
+}
+function spawnGoreBurst(x, y, z, dx, dz, n) {
+  buildGoreBits();
+  if (!_goreGeos || !_goreGeos.length) return;
+  n = n || 10;
+  for (var i = 0; i < n; i++) {
+    var m = getGoreBitMesh(0.1 + Math.random() * 0.15);
+    if (!m) return;
+    m.position.set(x + (Math.random() - 0.5) * 0.4, y + (Math.random() - 0.5) * 0.3, z + (Math.random() - 0.5) * 0.4);
+    scene.add(m);
+    var ang = Math.random() * 6.283, sp = 2.5 + Math.random() * 6;      // explode outward in all directions
+    gibs.push({ mesh: m, vx: Math.cos(ang) * sp + (dx || 0) * 2, vy: 3.5 + Math.random() * 5.5, vz: Math.sin(ang) * sp + (dz || 0) * 2, spin: (Math.random() - 0.5) * 28, life: 2.6 + Math.random() * 1.8 });
+  }
+}
 var _gibHeadGeo = null, _gibHeadMat = null;
 function spawnBloodGib(x, y, z, dx, dz) {
   var gm = getGibMesh();   // user-made gore chunk; falls back to a plain lump if the asset is missing
@@ -19367,6 +19416,8 @@ function decapitateNPC(n, dx, dz) {
   var hx = n.x, hy = 1.55, hz = n.z;
   if (u && u.head && u.head.visible) { u.head.getWorldPosition(_gibV); hx = _gibV.x; hy = _gibV.y; hz = _gibV.z; u.head.visible = false; spawnHeadGib(u.head, dx, dz); }
   else if (u && u.headBone) { u.headBone.getWorldPosition(_gibV); hx = _gibV.x; hy = _gibV.y; hz = _gibV.z; u.headBone.scale.set(0.01, 0.01, 0.01); spawnBloodGib(hx, hy, hz, dx, dz); }
+  // burst of tiny gore chunks exploding out of the stump
+  spawnGoreBurst(hx, hy, hz, dx, dz, 10 + (Math.random() * 5 | 0));
   // blood explosion at the stump
   for (var i = 0; i < 3; i++) bloodPunch(hx + (Math.random() - 0.5) * 0.3, hy - 0.05, hz + (Math.random() - 0.5) * 0.3);
   puff(new THREE.Vector3(hx, hy, hz), 0x8f1512, 'blood');
@@ -19441,7 +19492,8 @@ function bisectNPC(n, fx, fz) {
       settle: 7 + Math.random() * 1.5, t: 0
     });
   }
-  // gore
+  // gore — spray of tiny chunks out of the cut
+  spawnGoreBurst(n.x, 1.0, n.z, fx, fz, 12 + (Math.random() * 5 | 0));
   for (var i = 0; i < 7; i++) bloodPunch(n.x + (Math.random() - 0.5) * 0.5, 0.4 + Math.random() * 1.3, n.z + (Math.random() - 0.5) * 0.5);
   puff(new THREE.Vector3(n.x, 1.0, n.z), 0x8f1512, 'blood');
   for (i = 0; i < 6; i++) bloodDecal(n.x + (Math.random() - 0.5) * 1.9, n.z + (Math.random() - 0.5) * 1.9);
@@ -24469,7 +24521,7 @@ window.__wc = {
   renderer: renderer, scene: scene, camera: camera,
   listPowerlines: function () { return powerPoles; },
   powerlineStats: function () { return { poles: powerPoles.length, wires: powerWireCount, spans: powerSpanCount, serviceDrops: powerServiceDrops }; },
-  cars: cars, boomAt: boomAt, killNpcRagdoll: killNpcRagdoll,
+  cars: cars, boomAt: boomAt, killNpcRagdoll: killNpcRagdoll, spawnGoreBurst: (typeof spawnGoreBurst === 'function' ? spawnGoreBurst : null),
   streetcars: function () { return streetcars; }, tramRailsRef: function () { return tramRails; }, tramStationsRef: function () { return tramStations; },
   destroyStreetcar: function (i) { if (streetcars[i || 0]) return destroyStreetcar(streetcars[i || 0]); return false; },
   streetcarState: function () { return streetcars.map(function (t) { return { s: Math.round(t.s * 10) / 10, si: t.si, dir: t.dir, dwell: Math.round(t.dwell * 10) / 10, dead: t.dead, respawnT: Math.round(t.respawnT * 10) / 10, stops: t.stops.map(function (v) { return Math.round(v); }), len: Math.round(t.rail.len), x: Math.round(t.group.position.x), z: Math.round(t.group.position.z) }; }); },
