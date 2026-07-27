@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.94.0';
+var GAME_VERSION = 'v1.94.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -6215,6 +6215,9 @@ function pushYawCollider(cx, cz, W, D, rotY, topY) {
   var c = Math.abs(Math.cos(rotY || 0)), s = Math.abs(Math.sin(rotY || 0));
   var hx = W / 2 * c + D / 2 * s, hz = W / 2 * s + D / 2 * c;
   colliders.push({ x0: cx - hx, x1: cx + hx, z0: cz - hz, z1: cz + hz, topY: topY });
+  // register footprint (minimap + editor reference layer): airport buildings +
+  // catalog models were previously invisible on the minimap
+  if (typeof mapBuildings !== 'undefined') mapBuildings.push({ x: cx, z: cz, w: hx * 2, d: hz * 2, h: topY || 12, c: '#8b95a3', pad: false, model: true });
 }
 var _airMainC = {}, _airAtcC = {}, _airHangC = {}, _airTermC = {};
 var ATC_TOWER_H = 32;
@@ -6288,10 +6291,7 @@ function placeCatalogModel(id, x, z, rotDeg, footW, scale) {
   var s = (footW && e.dims[0]) ? footW / e.dims[0] : (scale || 1);
   var rotY = (rotDeg || 0) * Math.PI / 180;
   var placed = placeAirModel(e, cache, s, x, z, rotY);
-  if (placed) {
-    pushYawCollider(x, z, placed.W, placed.D, rotY, placed.H);
-    if (typeof mapBuildings !== 'undefined') mapBuildings.push({ x: x, z: z, w: placed.W, d: placed.D, h: placed.H, c: 0x8b95a3, model: id });
-  }
+  if (placed) pushYawCollider(x, z, placed.W, placed.D, rotY, placed.H);   // registers footprint too
   return placed;
 }
 function placeRemapModels() {
@@ -24376,6 +24376,7 @@ function showColliders(on) {
 window.__wc = {
   placeCatalogModel: (typeof placeCatalogModel === 'function' ? placeCatalogModel : null),
   modelCatalog: function () { return MODEL_CATALOGS; },
+  allBuildings: function () { return mapBuildings; },   // full footprint registry (venues+houses+airport) for the editor reference layer
   skidCount: function () { var n = 0; for (var i = 0; i < skidMarks.length; i++) if (skidMarks[i].visible) n++; return n; },
   skidMarks: function () { return skidMarks; },
   showColliders: showColliders, colliderView: function () { return colViewOn; },

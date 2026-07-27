@@ -181,6 +181,7 @@
 
 <script src="remapdata.js"></script>
 <script src="skyscrapers.js"></script>
+<script src="mapfootprints.js"></script>
 <script>
 "use strict";
 // ============================ catalogs ============================
@@ -416,7 +417,7 @@ var cam = { x:-40, y:-20, zoom:1.4 };
 var tool = 'select';
 var stamp = { road:0, surface:'parking', building:'shop', prop:'oak', area:'forest' };   // active palette selection per tool
 var sel = null;                    // selected object {kind:'road'|'building'|'prop', ref}
-var layersOn = { roads:true, surfaces:true, sidewalks:true, buildings:true, props:true, areas:true, grid:true, labels:true };
+var layersOn = { roads:true, surfaces:true, sidewalks:true, buildings:true, props:true, areas:true, reference:true, grid:true, labels:true };
 var pen = null;                    // road being drawn: {cls,hw,pts:[]}
 var drag = null;                   // active drag operation
 var undoStack = [], redoStack = [];
@@ -616,6 +617,7 @@ function render(){
     S.roads.forEach(drawRoad);
     S.roads.forEach(drawRoadNodes);                                // connectable endpoint nodes
   }
+  if(layersOn.reference) drawReference();                          // read-only footprints of every game building (houses + airport)
   if(layersOn.buildings) S.buildings.forEach(drawBuilding);
   if(layersOn.props) S.props.forEach(drawProp);
   drawZones();
@@ -623,6 +625,19 @@ function render(){
   drawSnapHint();
   drawSelection();
   requestAnimationFrame(render);
+}
+// Read-only footprints of every building the game generates in CODE (survey
+// houses + airport) — so they're all visible in the editor even though they
+// aren't editor-authored. Venues are skipped (they're already editable objects).
+function drawReference(){
+  if(typeof WC_FOOTPRINTS==='undefined') return;
+  for(var i=0;i<WC_FOOTPRINTS.length;i++){ var f=WC_FOOTPRINTS[i]; if(f.k==='venue') continue;
+    var a=w2s(f.x-f.w/2, f.z-f.d/2), b=w2s(f.x+f.w/2, f.z+f.d/2);
+    var isAir=f.k==='model';
+    ctx.fillStyle=isAir?'#5b8fd033':'#8a6a3a2e'; ctx.strokeStyle=isAir?'#8fbfffaa':'#b89a6a88'; ctx.lineWidth=1;
+    ctx.fillRect(a[0],a[1], b[0]-a[0], b[1]-a[1]); ctx.strokeRect(a[0],a[1], b[0]-a[0], b[1]-a[1]);
+    if(isAir && layersOn.labels && cam.zoom>0.5){ var s=w2s(f.x,f.z); ctx.fillStyle='#cfe0ff'; ctx.font='bold 10px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('airport', s[0], s[1]); }
+  }
 }
 function drawWorldBounds(){ var a=w2s(WLO,WLO), b=w2s(WHI,WHI);
   ctx.fillStyle='#0f1319'; ctx.fillRect(0,0,VW,VH);
@@ -984,7 +999,7 @@ function buildPalettes(){
     a.onclick=function(){ stamp.prop=m.type; setTool('prop'); buildPalettes(); }; pp.appendChild(a); });
 }
 function buildLayers(){ var L=document.getElementById('layers'); L.innerHTML='';
-  [['roads','Roads'],['sidewalks','Sidewalks'],['surfaces','Surfaces'],['areas','Areas (forest/water)'],['buildings','Buildings'],['props','Props'],['labels','Labels'],['grid','Grid']].forEach(function(p){
+  [['roads','Roads'],['sidewalks','Sidewalks'],['surfaces','Surfaces'],['areas','Areas (forest/water)'],['buildings','Buildings'],['reference','All game buildings (ref)'],['props','Props'],['labels','Labels'],['grid','Grid']].forEach(function(p){
     var lab=el('label','layer'); var cb=el('input'); cb.type='checkbox'; cb.checked=layersOn[p[0]];
     cb.onchange=function(){ layersOn[p[0]]=cb.checked; }; lab.appendChild(cb); lab.appendChild(el('span',null,p[1])); L.appendChild(lab); });
 }
