@@ -81,6 +81,8 @@ out += 'var REMAP_EXITS = ' + J(exits) + ';\n';
 out += 'var REMAP_CLEAR = ' + J(clears) + ';\n';
 out += 'var REMAP_VENUES = ' + J(venues) + ';\n';
 out += 'var REMAP_MODELS = ' + J(models) + ';\n';
+if (map.houses) out += 'var REMAP_HOUSES = ' + J(map.houses) + ';\n';       // editor-authored survey-house placements
+if (map.airport) out += 'var REMAP_AIRPORT = ' + J(map.airport) + ';\n';    // airport group origin
 out += 'var REMAP_SURFACES = ' + J(surfaces) + ';\n';
 out += 'var REMAP_AREAS = ' + J(areas) + ';\n';
 out += 'var REMAP_STATIONS = ' + J(stations) + ';\n';

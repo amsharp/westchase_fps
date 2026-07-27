@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.94.1';
+var GAME_VERSION = 'v1.94.2';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -25,6 +25,9 @@ if (typeof REMAP_ROADS === 'undefined') WC_REMAP = false;   // data file missing
 // runtime houseOnRoad() drop below is a deterministic safety net. Requires the
 // houses.js data file (guarded where consumed).
 var STAMP_SURVEY_HOUSES = (typeof HOUSE_CLUSTERS !== 'undefined');
+// map-editor override: if the editor re-authored house placements they arrive as
+// REMAP_HOUSES (same [ci,x,z,rot,vi,sc] shape) and replace the baked instances.
+if (typeof REMAP_HOUSES !== 'undefined' && REMAP_HOUSES && REMAP_HOUSES.length && typeof HOUSE_INSTANCES !== 'undefined') HOUSE_INSTANCES = REMAP_HOUSES;
 
 // ---------------- world constants ----------------
 var HALF = 600;                     // original centered-map half — town road/exit spans still use this
@@ -3553,7 +3556,9 @@ function buildPendingSpecialRoads() {
 // everything lines up. West terminal at x=AX-165, east at AX+165; runways run north
 // off each terminal and join at a north taxiway; access road runs N-S through the
 // garage + main building.
-var AIRPORT_ORIGIN = { x: 150, z: 1250 };
+// origin comes from the map editor (REMAP_AIRPORT) if set, so the whole airport
+// (buildings + runways + monorails, all computed from AX/AZ) moves as one group
+var AIRPORT_ORIGIN = (typeof REMAP_AIRPORT !== 'undefined' && REMAP_AIRPORT) ? { x: REMAP_AIRPORT.x, z: REMAP_AIRPORT.z } : { x: 150, z: 1250 };
 // ---- airport layout (matches the user's Blender blockout): main terminal
 // front-and-centre with its drop-off canopy facing south (the landside), two
 // concourse terminals splayed out behind it with gates facing outward, ATC

@@ -182,6 +182,7 @@
 <script src="remapdata.js"></script>
 <script src="skyscrapers.js"></script>
 <script src="mapfootprints.js"></script>
+<script src="house_edit.js"></script>
 <script>
 "use strict";
 // ============================ catalogs ============================
@@ -326,9 +327,15 @@ var SURFACES = [
   { kind:'pavement', name:'Pavement',    w:20, d:16, color:'#8b8578' }
 ];
 function surfByKind(k){ for(var i=0;i<SURFACES.length;i++) if(SURFACES[i].kind===k) return SURFACES[i]; return SURFACES[0]; }
-function bldByType(t){ if(t==='model') return {type:'model',name:'Model',w:20,d:20,color:'#6b7fa8'}; for(var i=0;i<BUILDINGS.length;i++) if(BUILDINGS[i].type===t) return BUILDINGS[i]; return BUILDINGS[BUILDINGS.length-1]; }
-// display meta for a building (model-aware: catalog models carry their own name/colour)
-function bMeta(b){ if(b.type==='model'){ var m=modelById(b.model); return {name:m?m.name:'Model', color:'#6b7fa8'}; } return bldByType(b.type); }
+function bldByType(t){ if(t==='model') return {type:'model',name:'Model',w:20,d:20,color:'#6b7fa8'};
+  if(t==='hinst') return {type:'hinst',name:'House',w:11,d:9,color:'#c9a86e'};
+  if(t==='airport') return {type:'airport',name:'Airport',w:300,d:300,color:'#5b8fd0'};
+  for(var i=0;i<BUILDINGS.length;i++) if(BUILDINGS[i].type===t) return BUILDINGS[i]; return BUILDINGS[BUILDINGS.length-1]; }
+// display meta for a building (model/house/airport-aware: carry their own name)
+function bMeta(b){ if(b.type==='model'){ var m=modelById(b.model); return {name:m?m.name:'Model', color:'#6b7fa8'}; }
+  if(b.type==='hinst'){ return {name:'House', color:'#c9a86e'}; }
+  if(b.type==='airport'){ return {name:'Airport', color:'#5b8fd0'}; }
+  return bldByType(b.type); }
 function propByType(t){ for(var i=0;i<PROPS.length;i++) if(PROPS[i].type===t) return PROPS[i]; return PROPS[0]; }
 // REMAP_CLEAR id -> editor building type
 var IDMAP = { racetrac:'racetrac',publix:'publix',farnell:'farnell',regions:'bank',boa:'bank',
@@ -408,6 +415,24 @@ function importGLB(arrayBuf, fname){
 function loadModelFile(){ var inp=document.createElement('input'); inp.type='file'; inp.accept='.glb';
   inp.onchange=function(){ var f=inp.files&&inp.files[0]; if(!f) return; var fr=new FileReader(); fr.onload=function(){ importGLB(fr.result, f.name); }; fr.readAsArrayBuffer(f); }; inp.click(); }
 
+// ---- survey houses: each HOUSE_INSTANCES entry becomes an editable building of
+// type 'hinst' (move/rotate/delete like any building). Cluster dims come from
+// WC_HOUSE_META. Edits bake to REMAP_HOUSES. ----
+function houseMeta(ci){ if(typeof WC_HOUSE_META==='undefined') return {w:11,d:9,h:6,name:'House'}; return WC_HOUSE_META[ci]||WC_HOUSE_META[0]||{w:11,d:9,h:6,name:'House'}; }
+function makeHouseInst(inst){ var ci=inst[0], sc=inst[5]||1, m=houseMeta(ci);
+  return { _id:nid(), type:'hinst', hc:ci, hv:inst[4]||0, hsc:sc, x:inst[1], z:inst[2], rot:inst[3]||0, w:round(m.w*sc), d:round(m.d*sc) }; }
+
+// ---- airport: one movable GROUP. AIRPORT_ORIGIN default (150,1250); its member
+// building footprints (from WC_FOOTPRINTS, k:'model') are drawn relative to it,
+// so dragging the single object moves the whole airport. Export -> REMAP_AIRPORT. ----
+var AIRPORT_DEF = { x:150, z:1250 };
+var airportMembers = [];   // {dx,dz,w,d} relative to origin
+(function(){ if(typeof WC_FOOTPRINTS==='undefined') return; var hw=0,hd=0;
+  WC_FOOTPRINTS.forEach(function(f){ if(f.k!=='model') return; airportMembers.push({dx:f.x-AIRPORT_DEF.x, dz:f.z-AIRPORT_DEF.z, w:f.w, d:f.d});
+    hw=Math.max(hw, Math.abs(f.x-AIRPORT_DEF.x)+f.w/2); hd=Math.max(hd, Math.abs(f.z-AIRPORT_DEF.z)+f.d/2); });
+  AIRPORT_DEF.w=Math.max(20,hw*2+6); AIRPORT_DEF.d=Math.max(20,hd*2+6); })();
+function makeAirport(x,z){ return { _id:nid(), type:'airport', x:(x!=null?x:AIRPORT_DEF.x), z:(z!=null?z:AIRPORT_DEF.z), rot:0, w:AIRPORT_DEF.w||300, d:AIRPORT_DEF.d||300 }; }
+
 // ============================ state ============================
 var HALF = 600;                          // legacy (original centered half)
 // world bounds: town in the NW corner, expansion opens EAST (+x) and SOUTH (+z)
@@ -449,6 +474,13 @@ function loadFromGame() {
       var w=m.w||dims[0], h=dims[1]*(w/dims[0]);
       S.buildings.push({ _id:nid(), id:m.id||(m.model+'_'+nid()), type:'model', model:m.model, h:round(h), x:m.x, z:m.z, rot:m.rot||0, w:round(w), d:round(dims[2]*(w/dims[0])) }); });
   }
+  // survey houses as individually-editable objects (REMAP_HOUSES overrides the
+  // baked HOUSE_INSTANCES; fall back to the full set on first load)
+  var hins = (typeof REMAP_HOUSES !== 'undefined') ? REMAP_HOUSES : (typeof WC_HOUSE_INSTANCES !== 'undefined' ? WC_HOUSE_INSTANCES : []);
+  hins.forEach(function(inst){ S.buildings.push(makeHouseInst(inst)); });
+  // the airport as one movable group object
+  if (airportMembers.length) { var ap = (typeof REMAP_AIRPORT !== 'undefined') ? REMAP_AIRPORT : null;
+    S.buildings.push(makeAirport(ap?ap.x:null, ap?ap.z:null)); }
   sel = null; pen = null; undoStack = []; redoStack = [];
 }
 
@@ -478,8 +510,12 @@ function exportObj(){
     version:1, note:'Westchase map editor export',
     roads: roads,
     surfaces: S.surfaces.map(function(s){ return { kind:s.kind, x:round(s.x), z:round(s.z), rot:round(s.rot), w:round(s.w), d:round(s.d) }; }),
-    buildings: S.buildings.map(function(b){ var o={ id:b.id||b.type, type:b.type, x:round(b.x), z:round(b.z), rot:round(b.rot), w:round(b.w), d:round(b.d) };
+    buildings: S.buildings.filter(function(b){ return b.type!=='hinst' && b.type!=='airport'; }).map(function(b){ var o={ id:b.id||b.type, type:b.type, x:round(b.x), z:round(b.z), rot:round(b.rot), w:round(b.w), d:round(b.d) };
       if(b.type==='model'){ o.model=b.model; o.h=round(b.h||0); } return o; }),
+    // survey houses -> [clusterIdx, x, z, rotDeg, variant, scale?] (REMAP_HOUSES)
+    houses: S.buildings.filter(function(b){ return b.type==='hinst'; }).map(function(b){ var e=[b.hc, round(b.x), round(b.z), round(b.rot), b.hv||0]; if(b.hsc && b.hsc!==1) e.push(b.hsc); return e; }),
+    // airport group origin -> REMAP_AIRPORT
+    airport: (function(){ var a=null; S.buildings.forEach(function(b){ if(b.type==='airport') a={x:round(b.x), z:round(b.z)}; }); return a; })(),
     props: S.props.map(function(p){ return { type:p.type, x:round(p.x), z:round(p.z), rot:round(p.rot) }; }),
     zones: S.zones.map(function(z){ return { id:z.id, poly:z.poly }; }),
     areas: S.areas.map(function(a){ return { kind:a.kind, x:round(a.x), z:round(a.z), rot:round(a.rot), w:round(a.w), d:round(a.d) }; }),
@@ -502,7 +538,9 @@ function loadObj(o){
   saveImportedModels(); buildPalettes();
   (o.roads||[]).forEach(function(r){ S.roads.push({_id:nid(),id:r.id,cls:r.cls,hw:r.hw,dirt:!!r.dirt,kind:r.kind,elev:r.elev,oneway:r.oneway,lanes:r.lanes,taper:r.taper,goreLen:r.goreLen,clampLine:r.clampLine,clampSide:r.clampSide,clampSign:r.clampSign,endHw:r.endHw,barGap:r.barGap,orient:r.orient,reach:r.reach,pts:r.pts.map(function(p){return[p[0],p[1]];})}); });
   (o.surfaces||[]).forEach(function(s){ S.surfaces.push({_id:nid(),kind:s.kind,x:s.x,z:s.z,rot:s.rot||0,w:s.w,d:s.d}); });
-  (o.buildings||[]).forEach(function(b){ var e={_id:nid(),id:b.id,type:b.type,x:b.x,z:b.z,rot:b.rot||0,w:b.w,d:b.d}; if(b.type==='model'){ e.model=b.model; e.h=b.h!=null?b.h:(modelById(b.model)?modelById(b.model).dims[1]:60); } S.buildings.push(e); });
+  (o.buildings||[]).forEach(function(b){ if(b.type==='hinst'||b.type==='airport') return; var e={_id:nid(),id:b.id,type:b.type,x:b.x,z:b.z,rot:b.rot||0,w:b.w,d:b.d}; if(b.type==='model'){ e.model=b.model; e.h=b.h!=null?b.h:(modelById(b.model)?modelById(b.model).dims[1]:60); } S.buildings.push(e); });
+  (o.houses||[]).forEach(function(inst){ S.buildings.push(makeHouseInst(inst)); });
+  if(o.airport) S.buildings.push(makeAirport(o.airport.x, o.airport.z)); else if(airportMembers.length) S.buildings.push(makeAirport());
   (o.props||[]).forEach(function(p){ S.props.push({_id:nid(),type:p.type,x:p.x,z:p.z,rot:p.rot||0}); });
   (o.zones||[]).forEach(function(z){ S.zones.push({_id:nid(),id:z.id,poly:z.poly}); });
   (o.areas||[]).forEach(function(a){ S.areas.push({_id:nid(),kind:a.kind,x:a.x,z:a.z,rot:a.rot||0,w:a.w,d:a.d}); });
@@ -574,12 +612,12 @@ function rotHandleAt(sx,sz){ // building/prop rotate handle in screen space
   return (sx-h[0])*(sx-h[0])+(sz-h[1])*(sz-h[1]) < 100;
 }
 function rotHandlePos(){ // screen pos of rotate handle above selection front
-  if(!sel||sel.kind==='road') return null; var o=sel.ref; var fd=frontDir(o.rot);
+  if(!sel||sel.kind==='road') return null; var o=sel.ref; if(o.type==='airport') return null; var fd=frontDir(o.rot);
   var reach = (sel.kind==='prop') ? propByType(o.type).r+5 : o.d/2+7;
   var wp=[o.x+fd[0]*reach, o.z+fd[1]*reach]; return w2s(wp[0],wp[1]);
 }
 // resizable objects (buildings + surfaces) expose 4 corner handles
-function isResizable(){ return sel && (sel.kind==='building'||sel.kind==='surface'||sel.kind==='area'); }
+function isResizable(){ return sel && ((sel.kind==='building' && sel.ref.type!=='model' && sel.ref.type!=='hinst' && sel.ref.type!=='airport')||sel.kind==='surface'||sel.kind==='area'); }
 function cornerHandleAt(sx,sz){ if(!isResizable()) return -1; var c=bcorners(sel.ref);
   for(var i=0;i<4;i++){ var s=w2s(c[i][0],c[i][1]); if((sx-s[0])*(sx-s[0])+(sz-s[1])*(sz-s[1])<90) return i; } return -1; }
 
@@ -617,7 +655,6 @@ function render(){
     S.roads.forEach(drawRoad);
     S.roads.forEach(drawRoadNodes);                                // connectable endpoint nodes
   }
-  if(layersOn.reference) drawReference();                          // read-only footprints of every game building (houses + airport)
   if(layersOn.buildings) S.buildings.forEach(drawBuilding);
   if(layersOn.props) S.props.forEach(drawProp);
   drawZones();
@@ -794,7 +831,25 @@ function drawFrontArrow(o, depth){ // filled arrowhead at the front edge, pointi
   ctx.fillStyle='#ffd94a'; ctx.strokeStyle='#7a3b0e'; ctx.lineWidth=1.5;
   ctx.beginPath(); ctx.moveTo(tip[0],tip[1]); ctx.lineTo(l[0],l[1]); ctx.lineTo(r[0],r[1]); ctx.closePath(); ctx.fill(); ctx.stroke();
 }
-function drawBuilding(b){ var meta=bMeta(b); var isModel=b.type==='model'; var c=bcorners(b).map(function(p){return w2s(p[0],p[1]);});
+function drawAirportObj(b){                                          // the airport group: enclosing box + member footprints, following the object
+  var c=bcorners(b).map(function(p){return w2s(p[0],p[1]);});
+  ctx.fillStyle='#5b8fd018'; ctx.strokeStyle='#8fbfffcc'; ctx.lineWidth=2; ctx.setLineDash([6,4]);
+  ctx.beginPath(); c.forEach(function(p,i){ i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]); }); ctx.closePath(); ctx.stroke(); ctx.setLineDash([]);
+  for(var i=0;i<airportMembers.length;i++){ var m=airportMembers[i];
+    var a=w2s(b.x+m.dx-m.w/2, b.z+m.dz-m.d/2), bb=w2s(b.x+m.dx+m.w/2, b.z+m.dz+m.d/2);
+    ctx.fillStyle='#5b8fd055'; ctx.strokeStyle='#8fbfffcc'; ctx.lineWidth=1;
+    ctx.fillRect(a[0],a[1], bb[0]-a[0], bb[1]-a[1]); ctx.strokeRect(a[0],a[1], bb[0]-a[0], bb[1]-a[1]); }
+  if(layersOn.labels){ var s=w2s(b.x,b.z); ctx.fillStyle='#dfeaff'; ctx.font='bold 13px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('✈ AIRPORT (moves as one)', s[0], s[1]); }
+}
+function drawBuilding(b){
+  if(b.type==='airport'){ drawAirportObj(b); return; }
+  var meta=bMeta(b); var isModel=b.type==='model'; var isHouse=b.type==='hinst'; var c=bcorners(b).map(function(p){return w2s(p[0],p[1]);});
+  if(isHouse){ ctx.fillStyle='#c9a86e'; ctx.strokeStyle='#7a5a2e99'; ctx.lineWidth=1;
+    ctx.beginPath(); c.forEach(function(p,i){ i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]); }); ctx.closePath(); ctx.fill(); ctx.stroke();
+    drawFrontArrow(b, b.d);
+    if(layersOn.labels && cam.zoom>1.6){ var fc=w2s(b.x,b.z); ctx.fillStyle='#3a2a10'; ctx.font='9px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('house', fc[0], fc[1]); }
+    return; }
+  meta=bMeta(b); c=bcorners(b).map(function(p){return w2s(p[0],p[1]);});
   ctx.fillStyle=meta.color; ctx.strokeStyle=isModel?'#cfe0ff88':'#00000066'; ctx.lineWidth=isModel?2:1.5;
   ctx.beginPath(); c.forEach(function(p,i){ i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]); }); ctx.closePath(); ctx.fill(); ctx.stroke();
   if(isModel){ ctx.fillStyle='#dfe8fa'; c.forEach(function(p){ ctx.beginPath(); ctx.arc(p[0],p[1],2,0,7); ctx.fill(); }); }  // tower-corner pips
@@ -999,7 +1054,7 @@ function buildPalettes(){
     a.onclick=function(){ stamp.prop=m.type; setTool('prop'); buildPalettes(); }; pp.appendChild(a); });
 }
 function buildLayers(){ var L=document.getElementById('layers'); L.innerHTML='';
-  [['roads','Roads'],['sidewalks','Sidewalks'],['surfaces','Surfaces'],['areas','Areas (forest/water)'],['buildings','Buildings'],['reference','All game buildings (ref)'],['props','Props'],['labels','Labels'],['grid','Grid']].forEach(function(p){
+  [['roads','Roads'],['sidewalks','Sidewalks'],['surfaces','Surfaces'],['areas','Areas (forest/water)'],['buildings','Buildings (+houses/airport)'],['props','Props'],['labels','Labels'],['grid','Grid']].forEach(function(p){
     var lab=el('label','layer'); var cb=el('input'); cb.type='checkbox'; cb.checked=layersOn[p[0]];
     cb.onchange=function(){ layersOn[p[0]]=cb.checked; }; lab.appendChild(cb); lab.appendChild(el('span',null,p[1])); L.appendChild(lab); });
 }
@@ -1028,6 +1083,15 @@ function buildProps(){
     host.appendChild(field('Rotation°',round(o.rot),function(v){o.rot=v;},1));
     var mn=el('div','prop'); mn.style.fontSize='11px'; mn.style.color='#8b97a8'; mn.style.fontStyle='italic';
     mn.textContent='Height scales the whole model uniformly (footprint follows, no stretch). The yellow ▲ shows its front.'; host.appendChild(mn);
+  } else if(sel.kind==='building' && o.type==='hinst'){
+    var hn=el('div','prop'); hn.appendChild(el('label',null,'Survey house  (cluster '+o.hc+')'));
+    var hr=el('div','prow'); hr.appendChild(field('X',round(o.x),function(v){o.x=v;},0.5)); hr.appendChild(field('Z',round(o.z),function(v){o.z=v;},0.5)); host.appendChild(hn); host.appendChild(hr);
+    host.appendChild(field('Rotation°',round(o.rot),function(v){o.rot=v;},1));
+    var hnote=el('div','prop'); hnote.style.fontSize='11px'; hnote.style.color='#8b97a8'; hnote.style.fontStyle='italic'; hnote.textContent='Move / rotate / delete this AI house. [ ] rotate, arrows nudge, Del removes.'; host.appendChild(hnote);
+  } else if(sel.kind==='building' && o.type==='airport'){
+    var an=el('div','prop'); an.appendChild(el('label',null,'Airport (moves as one group)'));
+    var ar0=el('div','prow'); ar0.appendChild(field('X',round(o.x),function(v){o.x=v;},1)); ar0.appendChild(field('Z',round(o.z),function(v){o.z=v;},1)); host.appendChild(an); host.appendChild(ar0);
+    var anote=el('div','prop'); anote.style.fontSize='11px'; anote.style.color='#8b97a8'; anote.style.fontStyle='italic'; anote.textContent='Drag to move the ENTIRE airport (all buildings, runways, monorails) together. Rotation not supported.'; host.appendChild(anote);
   } else if(sel.kind==='building'){
     host.appendChild(selectField('Type', BUILDINGS, o.type, function(v){ o.type=v; var m=bldByType(v); host.querySelectorAll('.selname').forEach(function(){}); autosave(); }));
     var row=el('div','prow'); row.appendChild(field('X',round(o.x),function(v){o.x=v;},0.5)); row.appendChild(field('Z',round(o.z),function(v){o.z=v;},0.5)); host.appendChild(row);
