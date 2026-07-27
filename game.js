@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.95.1';
+var GAME_VERSION = 'v1.96.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -15183,16 +15183,119 @@ function exitPlane() {
     // plane stays where it is, engine off — leave it parked (physics idles it)
     plane.throttle = 0;
   } else {
-    // BAILING at speed/altitude: you fall. Carry the plane's velocity + drop.
+    // BAILING at speed/altitude: a parachute auto-deploys and you float down
+    // safely in third person (steer with WASD). The plane keeps its momentum and
+    // flies on pilotless until it crashes — aim it at a skyscraper on the way out.
     popup2('BAILING OUT!');
     player.x = g.position.x; player.z = g.position.z;
-    player.y = Math.max(EYE, g.position.y);
-    player.vy = Math.min(plane.vel.y, -6) - Math.min(28, spd) * 0.4;  // thrown downward, faster if the plane was fast
+    player.y = Math.max(EYE + 4, g.position.y);
+    player.vy = -1;                                       // a brief drop, then the canopy catches
     player.grounded = false;
-    player._fallV = player.vy;
-    sfx('grunt');
+    // carry a little of the plane's horizontal momentum into the glide
+    deployParachute(plane.vel.x * 0.35, plane.vel.z * 0.35);
     // the doomed plane keeps flying pilotless until it augers in
   }
+}
+// ==================== PARACHUTE ====================
+// Bailing out of the plane airborne now auto-deploys a parachute: the view
+// swings to third person, you float down slowly and steer with WASD, and when
+// your feet touch the ground you drop back into first person (like stepping out
+// of a car). The plane you left keeps its momentum and flies on pilotless until
+// it crashes — which can trigger the skyscraper destruction if you aimed it at
+// one. Fully local/singleplayer, like the plane itself.
+var para = null;                       // live parachute state, or null
+var PARA_DESCENT = 3.6;                // steady sink rate (u/s) — a gentle float
+var PARA_STEER = 8.5;                  // horizontal WASD glide speed (u/s)
+var _paraCanopyGeo = null, _paraCanopyMat = null;
+function paraCanopyMat() {
+  if (_paraCanopyMat) return _paraCanopyMat;
+  var c = document.createElement('canvas'); c.width = 64; c.height = 8; var g = c.getContext('2d');
+  for (var i = 0; i < 8; i++) { g.fillStyle = i % 2 ? '#e8532a' : '#f4efe6'; g.fillRect(i * 8, 0, 8, 8); }   // alternating gores
+  var tx = new THREE.CanvasTexture(c); tx.wrapS = THREE.RepeatWrapping;
+  _paraCanopyMat = lamb({ map: tx, side: THREE.DoubleSide });
+  return _paraCanopyMat;
+}
+// canopy dome + suspension lines + the player's own character hanging in the harness
+function buildParachuteRig() {
+  var grp = new THREE.Group();
+  var R = 4.6, CY = 6.8;               // canopy radius + local height above the harness
+  if (!_paraCanopyGeo) { _paraCanopyGeo = new THREE.SphereGeometry(1, 18, 9, 0, Math.PI * 2, 0, Math.PI * 0.5); }
+  var canopy = new THREE.Mesh(_paraCanopyGeo, paraCanopyMat());
+  canopy.scale.set(R, R * 0.6, R); canopy.position.y = CY; grp.add(canopy);
+  // suspension lines: rim of the canopy down to the harness point (~shoulders)
+  var lp = [], rimY = CY + 0.05, shX = 0, shY = 1.35, shZ = 0;
+  for (var i = 0; i < 12; i++) {
+    var a = i / 12 * Math.PI * 2;
+    lp.push(Math.cos(a) * R * 0.95, rimY, Math.sin(a) * R * 0.95, shX, shY, shZ);
+  }
+  var lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(lp), 3));
+  grp.add(new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: 0x2a2a2a })));
+  // the pilot: the player's own character, feet dangling
+  var body = null;
+  try { body = buildCharacter(playerChar); } catch (e) { body = null; }
+  if (!body) { body = new THREE.Group(); body.add(new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.6, 0.4), lamb({ color: 0x3a5f8a }))); }
+  body.rotation.x = -0.18;             // slight recline in the harness
+  var lm = body.userData && body.userData.limbs;
+  if (lm) { if (lm.armL) lm.armL.rotation.x = -1.9; if (lm.armR) lm.armR.rotation.x = -1.9; }   // arms up on the risers
+  grp.add(body);
+  return { grp: grp, canopy: canopy, body: body };
+}
+function deployParachute(vx, vz) {
+  if (para) return;
+  var rig = buildParachuteRig();
+  scene.add(rig.grp);
+  para = { grp: rig.grp, canopy: rig.canopy, body: rig.body, vx: vx || 0, vz: vz || 0, t: 0, sway: Math.random() * 6.28 };
+  vm.visible = false;                                    // third-person: hide the FP arms
+  document.getElementById('crosshair').style.display = 'none';
+  var wb = document.getElementById('weaponBox');
+  if (wb) wb.innerHTML = 'PARACHUTE<br><small>WASD to steer &middot; float down to land</small>';
+  sfx('whoosh', { x: player.x, z: player.z, range: 40 });
+  popup('PARACHUTE!');
+}
+function stowParachute(landed) {
+  if (!para) return;
+  scene.remove(para.grp);
+  para = null;
+  vm.visible = true;
+  document.getElementById('crosshair').style.display = '';
+  setEquipped(state.equipped);
+  var wb = document.getElementById('weaponBox');
+  if (wb && landed) popup('LANDED');
+  if (landed) { player.vy = 0; player.grounded = true; sfx('thud', { x: player.x, z: player.z, range: 40 }); }
+}
+// slow float-down + WASD glide + third-person chase cam; lands back into FP
+function updateParachute(dt) {
+  para.t += dt; para.sway += dt;
+  // steady sink
+  player.vy += (-PARA_DESCENT - player.vy) * Math.min(1, dt * 2.5);
+  player.y += player.vy * dt;
+  // WASD glide relative to where the camera points
+  var f = 0, s = 0;
+  if (keys['KeyW']) f += 1; if (keys['KeyS']) f -= 1; if (keys['KeyD']) s += 1; if (keys['KeyA']) s -= 1;
+  var fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw);
+  var tvx = 0, tvz = 0;
+  if (f || s) { var inv = PARA_STEER / Math.sqrt(f * f + s * s); tvx = (fx * f + rx * s) * inv; tvz = (fz * f + rz * s) * inv; }
+  para.vx += (tvx - para.vx) * Math.min(1, dt * 1.6);    // momentum: eases in/out like a real canopy
+  para.vz += (tvz - para.vz) * Math.min(1, dt * 1.6);
+  player.x += para.vx * dt; player.z += para.vz * dt;
+  player.x = Math.max(WLO + 1.2, Math.min(WHI - 1.2, player.x));
+  player.z = Math.max(WLO + 1.2, Math.min(WHI - 1.2, player.z));
+  // don't drift through solid stuff on the way down
+  if (!landColliders) landColliders = colliders.filter(function (cc) { return !cc.lake; });
+  var pp = pushOut(player.x, player.z, 0.55, landColliders, player.y - EYE); player.x = pp.x; player.z = pp.z;
+  // ground contact -> land, back to first person
+  var floor = surfaceHeightAt(player.x, player.z, false, player.y - EYE) + EYE;
+  if (player.y <= floor) { player.y = floor; stowParachute(true); return; }
+  // pose the rig: harness at the player, gentle pendulum sway
+  para.grp.position.set(player.x, player.y - 1.35, player.z);
+  para.grp.rotation.z = Math.sin(para.sway * 0.9) * 0.05 + para.vx * 0.006;
+  para.grp.rotation.x = -0.18 + Math.sin(para.sway * 0.7) * 0.04 - para.vz * 0.006;
+  para.grp.rotation.y = yaw;            // face the glide/look direction
+  // third-person chase cam: behind + above, looking at the parachutist
+  camera.position.set(player.x - fx * 8.5, player.y + 3.2, player.z - fz * 8.5);
+  camera.lookAt(player.x, player.y - 0.2, player.z);
+  document.getElementById('prompt').textContent = '';
+  rocketCdEl.classList.add('hidden');
 }
 function removePlane() {
   if (!plane) return;
@@ -23823,6 +23926,11 @@ function updatePlayer(dt) {
     rocketCdEl.classList.add('hidden');
     return;
   }
+  if (para) {                             // floating down under the canopy (third person)
+    updateParachute(dt);
+    if (flashT > 0) { flashT -= dt; if (flashT <= 0) flash.visible = false; }
+    return;
+  }
   updateBreakIn(dt);
   updateReload();   // finish a manual reload once its timer elapses
   var f = 0, s = 0;
@@ -24672,6 +24780,7 @@ window.__wc = {
   gibs: function () { return gibs; }, decals: function () { return decals; }, halves: function () { return halves; },   // gore debug accessors
   towers: function () { return towers; }, igniteTower: function (i, y) { igniteTower(towers[i], y === undefined ? towers[i].fullH * 0.6 : y); },   // skyscraper destruction
   puffs: function () { return puffs; },
+  deployParachute: function (vx, vz) { deployParachute(vx || 0, vz || 0); }, para: function () { return para; },
   towerAt: function (x, z, y) { return towerAt(x, z, y); },
   placeCatalogModel: (typeof placeCatalogModel === 'function' ? placeCatalogModel : null),
   modelCatalog: function () { return MODEL_CATALOGS; },

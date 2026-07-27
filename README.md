@@ -620,11 +620,16 @@ tumbling chunks of wreckage, and a scorched patch burned into the ground
 (the debris and scorch clear after about a minute). Crash while you're in
 the cockpit and you die with it.
 
-Don't try to **bail out** to cheat a doomed plane: stepping out up high or
-at speed throws you clear and the fall does the rest. Falling from any real
-height now hurts — a big drop is lethal — so a safe exit means slow and low.
-The plane is a **local, single-player toy** for now; it isn't shared in
-multiplayer.
+**Bail out** with a parachute: press **E** while airborne and a chute
+auto-deploys — the camera swings to third person, you **float down slowly**
+and steer with **WASD**, and the moment your feet touch the ground you drop
+back into first person (just like stepping out of a car). The **plane you
+left keeps its momentum and flies on pilotless** until it crashes — so line
+it up on a target, bail, and watch it go in. That's the trick to **taking a
+skyscraper down without dying**: aim the jet at a tower, parachute out, and
+the pilotless plane triggers the collapse when it hits. (A safe slow-and-low
+exit on the ground just parks the plane, no chute needed.) The plane is a
+**local, single-player toy** for now; it isn't shared in multiplayer.
 
 ### Flying into a skyscraper
 
