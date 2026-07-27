@@ -50,8 +50,10 @@ for (const r of map.roads) {
 // ---- venue footprints for REMAP_CLEAR (sidewalk gaps) + REMAP_VENUES (placement) ----
 const clears = [];
 const venues = [];
+const models = [];   // catalog-model placements (skyscrapers etc.) -> REMAP_MODELS
 for (const b of map.buildings) {
   clears.push({ x: r2(b.x), z: r2(b.z), rot: b.rot || 0, w: b.w, d: b.d, id: b.id });
+  if (b.type === 'model') { models.push({ id: b.id, model: b.model, x: r2(b.x), z: r2(b.z), rot: b.rot || 0, w: r2(b.w) }); continue; }
   venues.push({ id: b.id, type: b.type, x: r2(b.x), z: r2(b.z), rot: b.rot || 0, w: b.w, d: b.d });
 }
 // passthrough parking-lot polys
@@ -78,12 +80,33 @@ out += 'var REMAP_ROADS = ' + J(roads).replace(/,"dirt":null/g, '') + ';\n';
 out += 'var REMAP_EXITS = ' + J(exits) + ';\n';
 out += 'var REMAP_CLEAR = ' + J(clears) + ';\n';
 out += 'var REMAP_VENUES = ' + J(venues) + ';\n';
+out += 'var REMAP_MODELS = ' + J(models) + ';\n';
 out += 'var REMAP_SURFACES = ' + J(surfaces) + ';\n';
 out += 'var REMAP_AREAS = ' + J(areas) + ';\n';
 out += 'var REMAP_STATIONS = ' + J(stations) + ';\n';
 // strip the undefined dirt keys JSON dropped already; ensure dirt:1 kept
 out = out.replace(/"dirt":null/g, '').replace(/,\}/g, '}');
 fs.writeFileSync('remapdata.js', out);
+
+// ---- merge any editor-imported models into the skyscrapers.js catalog so the
+// game can render REMAP_MODELS that reference them (committed catalog models are
+// referenced by id and left untouched) ----
+if (map.models && map.models.length && fs.existsSync('skyscrapers.js')) {
+  const sky = fs.readFileSync('skyscrapers.js', 'utf8');
+  const m = sky.match(/var SKYSCRAPERS = ([\s\S]*);\s*$/);
+  let arr = m ? JSON.parse(m[1]) : [];
+  const have = new Set(arr.map(x => x.id));
+  let added = 0;
+  for (const mm of map.models) { if (!have.has(mm.id)) { const c = Object.assign({}, mm); delete c._imported; arr.push(c); have.add(mm.id); added++; } }
+  if (added) {
+    fs.writeFileSync('skyscrapers.js',
+      '// AI/user-supplied building models for the map editor + REMAP_MODELS.\n' +
+      '// Append-only catalog (editor-imported models are merged in by tools/mapimport.js).\n' +
+      '// Same {q,dims,p,u,i,tex} quantization as the airport models; tex may be null.\n' +
+      'var SKYSCRAPERS = ' + JSON.stringify(arr) + ';\n');
+    console.log('models: merged', added, 'imported model(s) into skyscrapers.js');
+  }
+}
 const hw = roads.filter(r => r.kind === 'highway').length, rmp = roads.filter(r => r.kind === 'ramp').length, riv = roads.filter(r => r.kind === 'water').length;
 console.log('roads:', roads.length, '(highway ' + hw + ', ramp ' + rmp + ', river ' + riv + ') | exits:', exits.length, exits.map(e => e.edge + ':' + e.id).join(', '));
 const rail = roads.filter(r => r.kind === 'rail').length;

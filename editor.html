@@ -112,6 +112,12 @@
       <div class="assetgrid" id="bldPalette"></div>
     </div>
     <div class="sec">
+      <h3>Add Skyscraper / Model</h3>
+      <div class="assetgrid" id="modelPalette"></div>
+      <button class="tbtn" id="loadModelBtn" style="width:100%;margin-top:6px;justify-content:center;background:#3a4a63;border-color:#5b7aa8;">＋ Load model (.glb)…</button>
+      <div style="font-size:11px;color:#6b7480;margin-top:5px;">Pick a model to place it. Set its <b>Height</b> in Properties. Load .glb to add your own — it's saved to this browser and travels in the export.</div>
+    </div>
+    <div class="sec">
       <h3>Add Prop</h3>
       <div class="assetgrid" id="propPalette"></div>
     </div>
@@ -174,6 +180,7 @@
 </div>
 
 <script src="remapdata.js"></script>
+<script src="skyscrapers.js"></script>
 <script>
 "use strict";
 // ============================ catalogs ============================
@@ -318,13 +325,87 @@ var SURFACES = [
   { kind:'pavement', name:'Pavement',    w:20, d:16, color:'#8b8578' }
 ];
 function surfByKind(k){ for(var i=0;i<SURFACES.length;i++) if(SURFACES[i].kind===k) return SURFACES[i]; return SURFACES[0]; }
-function bldByType(t){ for(var i=0;i<BUILDINGS.length;i++) if(BUILDINGS[i].type===t) return BUILDINGS[i]; return BUILDINGS[BUILDINGS.length-1]; }
+function bldByType(t){ if(t==='model') return {type:'model',name:'Model',w:20,d:20,color:'#6b7fa8'}; for(var i=0;i<BUILDINGS.length;i++) if(BUILDINGS[i].type===t) return BUILDINGS[i]; return BUILDINGS[BUILDINGS.length-1]; }
+// display meta for a building (model-aware: catalog models carry their own name/colour)
+function bMeta(b){ if(b.type==='model'){ var m=modelById(b.model); return {name:m?m.name:'Model', color:'#6b7fa8'}; } return bldByType(b.type); }
 function propByType(t){ for(var i=0;i<PROPS.length;i++) if(PROPS[i].type===t) return PROPS[i]; return PROPS[0]; }
 // REMAP_CLEAR id -> editor building type
 var IDMAP = { racetrac:'racetrac',publix:'publix',farnell:'farnell',regions:'bank',boa:'bank',
   pharmacy:'pharmacy',sushi:'sushi',dollar_tree:'dollar_tree',storage:'storage',
   strip_a:'strip',strip_b:'strip',strip_c:'strip',dunkin:'dunkin',starbucks:'starbucks',
   offices:'offices',yoga:'yoga',th_a:'townhouse',th_b:'townhouse',th_c:'townhouse',th_d:'townhouse',red_house:'red_house' };
+
+// ==================== catalog models (skyscrapers + imported GLBs) =========
+// Seeded from skyscrapers.js (SKYSCRAPERS) plus user-imported models saved to
+// localStorage. Placed as buildings with type 'model'; the same
+// {id,name,dims,q,p,u,i,tex} quantization the game reads. Height drives a
+// uniform scale (no stretch): the game scales the model so its footprint width
+// == the placed `w`, and w is kept in lockstep with the Height field here.
+var MODELS = [];
+(function(){ if (typeof SKYSCRAPERS !== 'undefined') SKYSCRAPERS.forEach(function(m){ MODELS.push(m); });
+  try { JSON.parse(localStorage.getItem('wc_editor_models')||'[]').forEach(function(m){ if(!modelById(m.id)){ m._imported=true; MODELS.push(m); } }); } catch(e){} })();
+function modelById(id){ for(var i=0;i<MODELS.length;i++) if(MODELS[i].id===id) return MODELS[i]; return null; }
+function importedModels(){ return MODELS.filter(function(m){ return m._imported; }); }
+function saveImportedModels(){ try { localStorage.setItem('wc_editor_models', JSON.stringify(importedModels())); } catch(e){ toast('imported model too big to keep locally'); } }
+function modelDefaultH(m){ return Math.round(Math.min(150, Math.max(38, m.dims[1] * 2.6))); }   // sensible starting height (world units)
+// footprint width for a model at a given target height (uniform scale)
+function modelWForH(m,h){ return round(m.dims[0] * h / m.dims[1]); }
+function modelDForH(m,h){ return round(m.dims[2] * h / m.dims[1]); }
+
+// ---- in-browser GLB -> quantized model entry (mirrors tools/convert) --------
+function importGLB(arrayBuf, fname){
+  try {
+    var dv = new DataView(arrayBuf);
+    var jsonLen = dv.getUint32(12, true);
+    var json = JSON.parse(new TextDecoder().decode(new Uint8Array(arrayBuf, 20, jsonLen)));
+    var binOff = 20 + jsonLen + 8, binLen = dv.getUint32(20 + jsonLen, true);
+    var BIN = new DataView(arrayBuf, binOff, binLen);
+    var COMP={5120:1,5121:1,5122:2,5123:2,5125:4,5126:4}, NUM={SCALAR:1,VEC2:2,VEC3:3,VEC4:4};
+    function readAcc(ai){ var a=json.accessors[ai], v=json.bufferViews[a.bufferView], n=NUM[a.type], base=(v.byteOffset||0)+(a.byteOffset||0), out=[];
+      for(var e=0;e<a.count;e++)for(var c=0;c<n;c++){ var p=base+(e*n+c)*COMP[a.componentType], val;
+        if(a.componentType===5126)val=BIN.getFloat32(p,true); else if(a.componentType===5125)val=BIN.getUint32(p,true); else if(a.componentType===5123)val=BIN.getUint16(p,true); else val=BIN.getUint8(p);
+        out.push(val); } return out; }
+    function matMul(a,b){var o=new Array(16);for(var r=0;r<4;r++)for(var c=0;c<4;c++){var s=0;for(var k=0;k<4;k++)s+=a[k*4+r]*b[c*4+k];o[c*4+r]=s;}return o;}
+    function ident(){return[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1];}
+    function trs(t,q,s){t=t||[0,0,0];q=q||[0,0,0,1];s=s||[1,1,1];var x=q[0],y=q[1],z=q[2],w=q[3],x2=x+x,y2=y+y,z2=z+z,xx=x*x2,xy=x*y2,xz=x*z2,yy=y*y2,yz=y*z2,zz=z*z2,wx=w*x2,wy=w*y2,wz=w*z2,sx=s[0],sy=s[1],sz=s[2];
+      return[(1-(yy+zz))*sx,(xy+wz)*sx,(xz-wy)*sx,0,(xy-wz)*sy,(1-(xx+zz))*sy,(yz+wx)*sy,0,(xz+wy)*sz,(yz-wx)*sz,(1-(xx+yy))*sz,0,t[0],t[1],t[2],1];}
+    function nodeLocal(n){return n.matrix?n.matrix.slice():trs(n.translation,n.rotation,n.scale);}
+    var parent={}; (json.nodes||[]).forEach(function(n,i){ (n.children||[]).forEach(function(c){ parent[c]=i; }); });
+    function worldMat(ni){ var m=nodeLocal(json.nodes[ni]),p=parent[ni]; while(p!==undefined){ m=matMul(nodeLocal(json.nodes[p]),m); p=parent[p]; } return m; }
+    function meshNode(mi){ for(var i=0;i<json.nodes.length;i++) if(json.nodes[i].mesh===mi) return i; return -1; }
+    function ap(m,x,y,z){return[m[0]*x+m[4]*y+m[8]*z+m[12],m[1]*x+m[5]*y+m[9]*z+m[13],m[2]*x+m[6]*y+m[10]*z+m[14]];}
+    var pos=[],uv=[],idx=[],vbase=0;
+    for(var mi=0;mi<json.meshes.length;mi++){ var ni=meshNode(mi), W=ni>=0?worldMat(ni):ident(), prims=json.meshes[mi].primitives;
+      for(var pr=0;pr<prims.length;pr++){ var prim=prims[pr], pp=readAcc(prim.attributes.POSITION), uu=prim.attributes.TEXCOORD_0!==undefined?readAcc(prim.attributes.TEXCOORD_0):null, ii=readAcc(prim.indices), vc=pp.length/3;
+        for(var i=0;i<pp.length;i+=3){ var wv=ap(W,pp[i],pp[i+1],pp[i+2]); pos.push(wv[0],wv[1],wv[2]); }
+        for(i=0;i<vc;i++){ if(uu)uv.push(uu[i*2],uu[i*2+1]); else uv.push(0,0); }
+        for(i=0;i<ii.length;i++) idx.push(ii[i]+vbase); vbase+=vc; } }
+    var lo=[1e9,1e9,1e9],hi=[-1e9,-1e9,-1e9];
+    for(i=0;i<pos.length;i+=3)for(var k=0;k<3;k++){ if(pos[i+k]<lo[k])lo[k]=pos[i+k]; if(pos[i+k]>hi[k])hi[k]=pos[i+k]; }
+    var cx=(lo[0]+hi[0])/2, cz=(lo[2]+hi[2])/2, maxAbs=0;
+    for(i=0;i<pos.length;i+=3){ pos[i]-=cx; pos[i+1]-=lo[1]; pos[i+2]-=cz; maxAbs=Math.max(maxAbs,Math.abs(pos[i]),Math.abs(pos[i+1]),Math.abs(pos[i+2])); }
+    var dims=[hi[0]-lo[0],hi[1]-lo[1],hi[2]-lo[2]], q=32767/(maxAbs||1);
+    var qp=new Int16Array(pos.length); for(i=0;i<pos.length;i++)qp[i]=Math.round(pos[i]*q);
+    var qu=new Uint16Array(uv.length); for(i=0;i<uv.length;i++)qu[i]=Math.max(0,Math.min(65535,Math.round(uv[i]*8192)));
+    var qi=new Uint16Array(idx);
+    function b64(buf){ var b=new Uint8Array(buf), s=''; for(var i2=0;i2<b.length;i2+=0x8000) s+=String.fromCharCode.apply(null, b.subarray(i2,i2+0x8000)); return btoa(s); }
+    var base=(fname||'model').replace(/\.glb$/i,'');
+    var entry = { id: base.replace(/[^a-z0-9]+/gi,'_').toLowerCase()+'_'+Date.now().toString(36),
+      name: base.replace(/[_-]+/g,' ').trim() || 'Model',
+      q:q, dims:dims, tris:idx.length/3, p:b64(qp.buffer), u:b64(qu.buffer), i:b64(qi.buffer), tex:null, _imported:true };
+    if(json.images&&json.images.length){ var im=json.images[0], v=json.bufferViews[im.bufferView];
+      var bytes=new Uint8Array(arrayBuf, binOff+(v.byteOffset||0), v.byteLength);
+      var blob=new Blob([bytes], {type: im.mimeType||'image/png'}), url=URL.createObjectURL(blob), img=new Image();
+      img.onload=function(){ var s=Math.min(1,512/Math.max(img.naturalWidth,img.naturalHeight)), cw=Math.round(img.naturalWidth*s), ch=Math.round(img.naturalHeight*s);
+        var cc=document.createElement('canvas'); cc.width=cw; cc.height=ch; cc.getContext('2d').drawImage(img,0,0,cw,ch); entry.tex=cc.toDataURL('image/jpeg',0.82); URL.revokeObjectURL(url); saveImportedModels(); };
+      img.src=url; }
+    MODELS.push(entry); saveImportedModels(); buildPalettes();
+    toast('Imported "'+entry.name+'" ('+entry.tris+' tris) — pick it under Skyscrapers/Model');
+    return entry;
+  } catch(err){ toast('GLB import failed: '+err.message); return null; }
+}
+function loadModelFile(){ var inp=document.createElement('input'); inp.type='file'; inp.accept='.glb';
+  inp.onchange=function(){ var f=inp.files&&inp.files[0]; if(!f) return; var fr=new FileReader(); fr.onload=function(){ importGLB(fr.result, f.name); }; fr.readAsArrayBuffer(f); }; inp.click(); }
 
 // ============================ state ============================
 var HALF = 600;                          // legacy (original centered half)
@@ -362,6 +443,11 @@ function loadFromGame() {
       S.buildings.push({ _id:nid(), id:c.id, type:type, x:c.x, z:c.z, rot:c.rot||0, w:c.w, d:c.d });
     });
   }
+  if (typeof REMAP_MODELS !== 'undefined') {
+    REMAP_MODELS.forEach(function(m){ var mm=modelById(m.model), dims=mm?mm.dims:[20,60,20];
+      var w=m.w||dims[0], h=dims[1]*(w/dims[0]);
+      S.buildings.push({ _id:nid(), id:m.id||(m.model+'_'+nid()), type:'model', model:m.model, h:round(h), x:m.x, z:m.z, rot:m.rot||0, w:round(w), d:round(dims[2]*(w/dims[0])) }); });
+  }
   sel = null; pen = null; undoStack = []; redoStack = [];
 }
 
@@ -391,10 +477,14 @@ function exportObj(){
     version:1, note:'Westchase map editor export',
     roads: roads,
     surfaces: S.surfaces.map(function(s){ return { kind:s.kind, x:round(s.x), z:round(s.z), rot:round(s.rot), w:round(s.w), d:round(s.d) }; }),
-    buildings: S.buildings.map(function(b){ return { id:b.id||b.type, type:b.type, x:round(b.x), z:round(b.z), rot:round(b.rot), w:round(b.w), d:round(b.d) }; }),
+    buildings: S.buildings.map(function(b){ var o={ id:b.id||b.type, type:b.type, x:round(b.x), z:round(b.z), rot:round(b.rot), w:round(b.w), d:round(b.d) };
+      if(b.type==='model'){ o.model=b.model; o.h=round(b.h||0); } return o; }),
     props: S.props.map(function(p){ return { type:p.type, x:round(p.x), z:round(p.z), rot:round(p.rot) }; }),
     zones: S.zones.map(function(z){ return { id:z.id, poly:z.poly }; }),
-    areas: S.areas.map(function(a){ return { kind:a.kind, x:round(a.x), z:round(a.z), rot:round(a.rot), w:round(a.w), d:round(a.d) }; })
+    areas: S.areas.map(function(a){ return { kind:a.kind, x:round(a.x), z:round(a.z), rot:round(a.rot), w:round(a.w), d:round(a.d) }; }),
+    // full data for any user-imported models so mapimport can bake them into the
+    // catalog (committed skyscrapers.js models are referenced by id, not re-emitted)
+    models: importedModels()
   };
 }
 function round(n){ return Math.round(n*10)/10; }
@@ -407,9 +497,11 @@ function saveMap(){
 }
 function loadObj(o){
   S = { roads:[], surfaces:[], buildings:[], props:[], zones:[], areas:[] };
+  (o.models||[]).forEach(function(m){ if(!modelById(m.id)){ m._imported=true; MODELS.push(m); } });   // merge imported models
+  saveImportedModels(); buildPalettes();
   (o.roads||[]).forEach(function(r){ S.roads.push({_id:nid(),id:r.id,cls:r.cls,hw:r.hw,dirt:!!r.dirt,kind:r.kind,elev:r.elev,oneway:r.oneway,lanes:r.lanes,taper:r.taper,goreLen:r.goreLen,clampLine:r.clampLine,clampSide:r.clampSide,clampSign:r.clampSign,endHw:r.endHw,barGap:r.barGap,orient:r.orient,reach:r.reach,pts:r.pts.map(function(p){return[p[0],p[1]];})}); });
   (o.surfaces||[]).forEach(function(s){ S.surfaces.push({_id:nid(),kind:s.kind,x:s.x,z:s.z,rot:s.rot||0,w:s.w,d:s.d}); });
-  (o.buildings||[]).forEach(function(b){ S.buildings.push({_id:nid(),id:b.id,type:b.type,x:b.x,z:b.z,rot:b.rot||0,w:b.w,d:b.d}); });
+  (o.buildings||[]).forEach(function(b){ var e={_id:nid(),id:b.id,type:b.type,x:b.x,z:b.z,rot:b.rot||0,w:b.w,d:b.d}; if(b.type==='model'){ e.model=b.model; e.h=b.h!=null?b.h:(modelById(b.model)?modelById(b.model).dims[1]:60); } S.buildings.push(e); });
   (o.props||[]).forEach(function(p){ S.props.push({_id:nid(),type:p.type,x:p.x,z:p.z,rot:p.rot||0}); });
   (o.zones||[]).forEach(function(z){ S.zones.push({_id:nid(),id:z.id,poly:z.poly}); });
   (o.areas||[]).forEach(function(a){ S.areas.push({_id:nid(),kind:a.kind,x:a.x,z:a.z,rot:a.rot||0,w:a.w,d:a.d}); });
@@ -687,12 +779,13 @@ function drawFrontArrow(o, depth){ // filled arrowhead at the front edge, pointi
   ctx.fillStyle='#ffd94a'; ctx.strokeStyle='#7a3b0e'; ctx.lineWidth=1.5;
   ctx.beginPath(); ctx.moveTo(tip[0],tip[1]); ctx.lineTo(l[0],l[1]); ctx.lineTo(r[0],r[1]); ctx.closePath(); ctx.fill(); ctx.stroke();
 }
-function drawBuilding(b){ var meta=bldByType(b.type); var c=bcorners(b).map(function(p){return w2s(p[0],p[1]);});
-  ctx.fillStyle=meta.color; ctx.strokeStyle='#00000066'; ctx.lineWidth=1.5;
+function drawBuilding(b){ var meta=bMeta(b); var isModel=b.type==='model'; var c=bcorners(b).map(function(p){return w2s(p[0],p[1]);});
+  ctx.fillStyle=meta.color; ctx.strokeStyle=isModel?'#cfe0ff88':'#00000066'; ctx.lineWidth=isModel?2:1.5;
   ctx.beginPath(); c.forEach(function(p,i){ i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]); }); ctx.closePath(); ctx.fill(); ctx.stroke();
+  if(isModel){ ctx.fillStyle='#dfe8fa'; c.forEach(function(p){ ctx.beginPath(); ctx.arc(p[0],p[1],2,0,7); ctx.fill(); }); }  // tower-corner pips
   drawFrontArrow(b, b.d);
-  if(layersOn.labels && cam.zoom>0.7){ var fc=w2s(b.x,b.z); ctx.fillStyle='#111'; ctx.font='bold 11px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillText(meta.name, fc[0], fc[1]); }
+  if(layersOn.labels && cam.zoom>0.7){ var fc=w2s(b.x,b.z); ctx.fillStyle=isModel?'#fff':'#111'; ctx.font='bold 11px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(meta.name + (isModel?' ▲'+Math.round(b.h||0):''), fc[0], fc[1]); }
 }
 function drawProp(p){ var meta=propByType(p.type); var sc=w2s(p.x,p.z); var r=Math.max(3,meta.r*cam.zoom);
   if(p.type==='station'){                                         // draw the platform footprint (8 x 3.2) oriented by rot
@@ -817,7 +910,14 @@ function finishPen(){
 function addArea(kind,x,z){ pushHistory(); var m=areaByKind(kind);
   var a={_id:nid(),kind:kind,x:x,z:z,rot:0,w:m.w,d:m.d}; S.areas.push(a);
   setTool('select'); selectObj({kind:'area',ref:a}); }
-function addBuilding(type,x,z){ pushHistory(); var m=bldByType(type);
+function addBuilding(type,x,z){ pushHistory();
+  if(type && type.indexOf('model:')===0){                     // catalog model (skyscraper etc.)
+    var mm=modelById(type.slice(6)); if(!mm){ toast('model not found'); return; }
+    var h=modelDefaultH(mm);
+    var b0={_id:nid(),id:mm.id+'_'+nid(),type:'model',model:mm.id,h:h,x:x,z:z,rot:0,w:modelWForH(mm,h),d:modelDForH(mm,h)};
+    S.buildings.push(b0); setTool('select'); selectObj({kind:'building',ref:b0}); return;
+  }
+  var m=bldByType(type);
   var b={_id:nid(),id:type+'_'+nid(),type:type,x:x,z:z,rot:0,w:m.w,d:m.d}; S.buildings.push(b);
   setTool('select'); selectObj({kind:'building',ref:b}); }
 function addProp(type,x,z){ pushHistory(); var p={_id:nid(),type:type,x:x,z:z,rot:0}; S.props.push(p);
@@ -873,6 +973,11 @@ function buildPalettes(){
   BUILDINGS.forEach(function(m){ var a=el('div','asset'+(tool==='building'&&stamp.building===m.type?' on':''));
     var sw=el('div','sw'); sw.style.background=m.color; a.appendChild(sw); a.appendChild(el('span',null,m.name));
     a.onclick=function(){ stamp.building=m.type; setTool('building'); buildPalettes(); }; bp.appendChild(a); });
+  var mp=document.getElementById('modelPalette'); if(mp){ mp.innerHTML='';
+    MODELS.forEach(function(m){ var a=el('div','asset'+(tool==='building'&&stamp.building==='model:'+m.id?' on':''));
+      var sw=el('div','sw'); sw.style.background=m._imported?'#8a6ad0':'#6b7fa8'; a.appendChild(sw); a.appendChild(el('span',null,m.name));
+      a.onclick=function(){ stamp.building='model:'+m.id; setTool('building'); buildPalettes(); }; mp.appendChild(a); });
+    if(!MODELS.length) mp.appendChild(el('div',null,'(load a .glb below)')); }
   var pp=document.getElementById('propPalette'); pp.innerHTML='';
   PROPS.forEach(function(m){ var a=el('div','asset'+(tool==='prop'&&stamp.prop===m.type?' on':''));
     var sw=el('div','sw'); sw.style.background=m.color; a.appendChild(sw); a.appendChild(el('span',null,m.name));
@@ -888,7 +993,7 @@ function setTool(t){ tool=t; document.querySelectorAll('#top .tbtn[data-tool]').
 document.querySelectorAll('#top .tbtn[data-tool]').forEach(function(b){ b.onclick=function(){ setTool(b.dataset.tool); }; });
 
 // ============================ properties panel ============================
-function selectObj(o){ sel=o; buildProps(); document.getElementById('selRead').textContent = o?('selected: '+(o.kind==='building'?bldByType(o.ref.type).name:o.kind)):''; }
+function selectObj(o){ sel=o; buildProps(); document.getElementById('selRead').textContent = o?('selected: '+(o.kind==='building'?bMeta(o.ref).name:o.kind)):''; }
 function buildProps(){
   var host=document.getElementById('props');
   if(!sel){ host.innerHTML='<div id="noSel">Nothing selected.<br>Click an object, or pick an asset at left to add one.</div>'; return; }
@@ -899,7 +1004,16 @@ function buildProps(){
   function selectField(label,opts,val,cb){ var d=el('div','prop'); d.appendChild(el('label',null,label));
     var s=el('select'); opts.forEach(function(op){ var o2=el('option',null,op.name); o2.value=op.type!=null?op.type:op.cls; if((op.type!=null?op.type:op.cls)==val)o2.selected=true; s.appendChild(o2); });
     s.onchange=function(){ cb(s.value); }; d.appendChild(s); return d; }
-  if(sel.kind==='building'){
+  if(sel.kind==='building' && o.type==='model'){
+    // catalog model (skyscraper): pick which model + set a Height (uniform scale)
+    host.appendChild(selectField('Model', MODELS.map(function(m){return {type:m.id,name:m.name};}), o.model, function(v){
+      o.model=v; var m=modelById(v); if(m){ o.w=modelWForH(m,o.h); o.d=modelDForH(m,o.h); } syncProps(); autosave(); }));
+    var mr=el('div','prow'); mr.appendChild(field('X',round(o.x),function(v){o.x=v;},0.5)); mr.appendChild(field('Z',round(o.z),function(v){o.z=v;},0.5)); host.appendChild(mr);
+    host.appendChild(field('Height',round(o.h||0),function(v){ o.h=Math.max(4,v); var m=modelById(o.model); if(m){ o.w=modelWForH(m,o.h); o.d=modelDForH(m,o.h); } autosave(); },1));
+    host.appendChild(field('Rotation°',round(o.rot),function(v){o.rot=v;},1));
+    var mn=el('div','prop'); mn.style.fontSize='11px'; mn.style.color='#8b97a8'; mn.style.fontStyle='italic';
+    mn.textContent='Height scales the whole model uniformly (footprint follows, no stretch). The yellow ▲ shows its front.'; host.appendChild(mn);
+  } else if(sel.kind==='building'){
     host.appendChild(selectField('Type', BUILDINGS, o.type, function(v){ o.type=v; var m=bldByType(v); host.querySelectorAll('.selname').forEach(function(){}); autosave(); }));
     var row=el('div','prow'); row.appendChild(field('X',round(o.x),function(v){o.x=v;},0.5)); row.appendChild(field('Z',round(o.z),function(v){o.z=v;},0.5)); host.appendChild(row);
     host.appendChild(field('Rotation°',round(o.rot),function(v){o.rot=v;},1));
@@ -956,6 +1070,7 @@ function syncProps(){ buildProps(); }
 var toastT;
 function toast(msg){ var t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(function(){t.classList.remove('show');},2600); }
 document.getElementById('saveBtn').onclick=saveMap;
+document.getElementById('loadModelBtn').onclick=loadModelFile;
 document.getElementById('copyBtn').onclick=function(){
   var txt=JSON.stringify(exportObj());
   function ok(){ toast('Map JSON copied — paste it to Claude'); }
