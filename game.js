@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.94.5';
+var GAME_VERSION = 'v1.94.6';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -6307,6 +6307,20 @@ function placeRemapModels() {
   }
 }
 placeRemapModels();
+// SHOWCASE: one of each skyscraper in a row in the open land just NE of town
+// (drive/walk east along the main road). Scales pick a nice per-tower height;
+// easy to reposition or remove later via the map editor.
+(function placeSkyscraperShowcase() {
+  if (typeof SKYSCRAPERS === 'undefined' || typeof placeCatalogModel !== 'function') return;
+  var row = [
+    { id: 'boa', x: 620, scale: 3.5 },
+    { id: 'pnc', x: 760, scale: 7.0 },
+    { id: 'regions', x: 900, scale: 3.5 },
+    { id: 'sykes', x: 1060, scale: 2.2 },
+    { id: 'wellsfargo', x: 1220, scale: 4.0 }
+  ];
+  for (var i = 0; i < row.length; i++) placeCatalogModel(row[i].id, row[i].x, -240, 0, null, row[i].scale);
+})();
 
 // Top walkable/drivable surface height at (x,z): people + cars ride ON the
 // highest layer (grass 0 / road .05 / lot .10 / sidewalk .12 / pad .13 /
