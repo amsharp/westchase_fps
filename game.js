@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.99.1';
+var GAME_VERSION = 'v1.99.2';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -16105,10 +16105,52 @@ function spawnCopCar() {
   var h = Math.atan2(-dirz / dl, dirx / dl);
   car.group.position.set(sx, surfaceHeightAt(sx, sz, false, 1.5), sz);
   car.group.rotation.y = h;
-  var cc = { car: car, x: sx, z: sz, h: h, speed: 9, state: 'seek', hp: COPCAR_HP, parkT: 0, disgorged: false, life: 0 };
-  car.group.traverse(function (o) { o.userData.copCar = cc; });   // shootable (raycast walks up to a tagged parent)
+  // flashing roof light bar (red left / blue right) — toggled while in pursuit
+  var lr = box(0.34, 0.14, 0.3, new THREE.MeshBasicMaterial({ color: 0xff1622 }), 0.05, 1.52, 0.32);
+  var lb = box(0.34, 0.14, 0.3, new THREE.MeshBasicMaterial({ color: 0x1838ff }), 0.05, 1.52, -0.32);
+  car.group.add(lr); car.group.add(lb);
+  // ~half the cars are "blockers" that cut ahead of a driving player to box them in
+  var role = (copCars.length % 2 === 0) ? 'chase' : 'block';
+  var cc = { car: car, x: sx, z: sz, h: h, speed: 9, state: 'seek', hp: COPCAR_HP, parkT: 0, disgorged: false, life: 0, lightR: lr, lightB: lb, role: role, ramT: 0 };
+  car.group.traverse(function (o) { if (o !== lr && o !== lb) o.userData.copCar = cc; });   // shootable (raycast walks up to a tagged parent); lights excluded so they don't eat rays
   copCars.push(cc);
   return cc;
+}
+// ramp-follow so cop cars can climb onto the elevated highways after a driving
+// player (highways/ramps aren't in the lane graph, so this is a dedicated seek).
+var _copRamps = null;
+function getCopRamps() {
+  if (_copRamps) return _copRamps;
+  _copRamps = [];
+  if (typeof REMAP_ROADS !== 'undefined' && typeof rampGroundFirst === 'function') {
+    for (var i = 0; i < REMAP_ROADS.length; i++) {
+      var r = REMAP_ROADS[i]; if (r.kind !== 'ramp' || !r.pts || r.pts.length < 2) continue;
+      var pts = rampGroundFirst(r, r.pts), cum = rmCum(pts);
+      _copRamps.push({ pts: pts, cum: cum, len: cum[cum.length - 1] || 1, g: pts[0], d: pts[pts.length - 1] });
+    }
+  }
+  return _copRamps;
+}
+function rampTargetFor(cc) {
+  var ramps = getCopRamps(); if (!ramps.length) return null;
+  var best = null, bd = 1e9;
+  for (var i = 0; i < ramps.length; i++) { var rp = ramps[i]; var dd = Math.hypot(rp.d[0] - player.x, rp.d[1] - player.z); if (dd < bd) { bd = dd; best = rp; } }
+  if (!best) return null;
+  var pr = rmProject(best.pts, best.cum, cc.x, cc.z);
+  if (pr.d > 9) return { x: best.g[0], z: best.g[1] };           // not on the ramp yet -> drive to its ground end
+  var q = rmAt(best.pts, best.cum, Math.min(best.len, pr.s + 14));   // on it -> aim further up the incline
+  return { x: q.x, z: q.z };
+}
+function copSiren(x, z) {
+  if (typeof beep !== 'function' || typeof ac === 'undefined' || !ac) return;
+  var out = (typeof voiceOut === 'function') ? voiceOut(0.9, { x: x, z: z, range: 95 }) : null;
+  beep(720, 0.5, 0.15, 'sawtooth', 1180, out);   // rising two-tone-ish wail
+}
+function updateCopLights(cc, on) {
+  if (!cc.lightR) return;
+  if (!on) { cc.lightR.visible = false; cc.lightB.visible = false; return; }
+  var ph = (T * 6) % 2;                            // ~3 Hz alternation
+  cc.lightR.visible = ph < 1; cc.lightB.visible = ph >= 1;
 }
 // a foot cop poured out of a parked cop car — no door-snap; joins the normal cops[]
 function spawnCopAt(x, z) {
@@ -16136,6 +16178,7 @@ function explodeCopCar(cc) { if (typeof boomAt === 'function') boomAt(cc.x, cc.z
 function damageCopCar(cc, dmg, pt) { cc.hp -= dmg; if (pt && typeof puff === 'function') puff(pt, 0xffe08a); }
 function driveCopCar(cc, dt, pd) {
   var car = cc.car, g = car.group, h = g.rotation.y;
+  updateCopLights(cc, cc.state !== 'parked');   // flash the bar whenever in pursuit
   if (cc.state === 'parked') {
     cc.speed += (0 - cc.speed) * Math.min(1, dt * 5); cc.parkT += dt;
     updateCarFeel(cc, dt, cc.speed, 0, 0);
@@ -16144,8 +16187,16 @@ function driveCopCar(cc, dt, pd) {
   var isDrv = (typeof driving !== 'undefined' && driving);
   if (!isDrv && pd < 12 && cc.state === 'seek') { parkAndDisgorge(cc); return; }
   cc.state = isDrv ? 'chase' : 'seek';
+  // --- pick the target point ---
   var tx = player.x, tz = player.z;
-  if (isDrv) { tx += (driving.mvx || 0) * 0.35; tz += (driving.mvz || 0) * 0.35; }
+  if (isDrv) {
+    var pv = driving.pspeed || 0;
+    var lt = (cc.role === 'block') ? 2.4 : 0.4;    // blockers aim way ahead to cut the player off
+    tx = player.x + (driving.mvx || 0) * pv * lt;
+    tz = player.z + (driving.mvz || 0) * pv * lt;
+  }
+  // player up on an elevated highway? route via the nearest ramp instead of driving into the embankment
+  if ((player.y - g.position.y) > 4) { var rt = rampTargetFor(cc); if (rt) { tx = rt.x; tz = rt.z; } }
   var dx = tx - cc.x, dz = tz - cc.z, dd = Math.hypot(dx, dz) || 1;
   var desDir = Math.atan2(-(dz / dd), dx / dd);
   // whisker avoidance: take the clearest bearing near the one that points at the target
@@ -16163,21 +16214,43 @@ function driveCopCar(cc, dt, pd) {
   if (Math.abs(dh) > 0.7) cruise = 9;
   if (!clear) cruise = 6;
   if (pd < 16 && !isDrv) cruise = Math.min(cruise, 8);
+  if (isDrv) cruise = 22;                          // run the player down at speed
   cc.speed += (cruise - cc.speed) * Math.min(1, dt * 1.6);
   var nh = g.rotation.y, nfx = Math.cos(nh), nfz = -Math.sin(nh);
   var nx = cc.x + nfx * cc.speed * dt, nz = cc.z + nfz * cc.speed * dt;
   var po = pushOut(nx, nz, 1.5, landColliders || colliders);
   cc.x = po.x; cc.z = po.z;
+  // --- ram / resist against the player's car (cop cars are heavy: they barely give) ---
+  if (isDrv && driving.car && driving.car.group) {
+    var pg = driving.car.group, rdx = cc.x - pg.position.x, rdz = cc.z - pg.position.z, rdd = Math.hypot(rdx, rdz);
+    if (rdd < 3.5 && rdd > 0.01) {
+      var ov = 3.5 - rdd, ux = rdx / rdd, uz = rdz / rdd;
+      pg.position.x -= ux * ov * 0.82; pg.position.z -= uz * ov * 0.82;   // player's car takes most of the push
+      cc.x += ux * ov * 0.18; cc.z += uz * ov * 0.18;                      // cop barely budges (metal bumpers)
+      if (T - cc.ramT > 0.7 && cc.speed > 7) {
+        cc.ramT = T;
+        var cross = (driving.mvx || 0) * rdz - (driving.mvz || 0) * rdx;   // spin the player away from the impact
+        driving.spinDir = cross >= 0 ? 1 : -1;
+        driving.slid = Math.min(3.5, (driving.slid || 0) + 1.3);           // knock them into a skid/spin-out
+        driving.pspeed = (driving.pspeed || 0) * 0.72;
+        driving.carHP = (driving.carHP === undefined ? 100 : driving.carHP) - 7;
+        if (driving.carHP <= 0 && typeof igniteCar === 'function') igniteCar(driving);
+        if (typeof sfx === 'function') sfx('crash', { x: cc.x, z: cc.z, range: 110 });
+      }
+    }
+  }
   g.position.set(cc.x, surfaceHeightAt(cc.x, cc.z, false, g.position.y + 1.5), cc.z);
   var spin = (cc.speed * dt) / 0.34;
   for (var wi = 0; wi < 4; wi++) { var ww = car.wheels[wi]; ww.rotation.y -= spin * (ww.userData.sd || 1); }
   updateCarFeel(cc, dt, cc.speed, 0, steer);
 }
+var copSirenT = 0;
 function updateCopCars(dt) {
   if (!state.running) return;
   var want = (state.dead || state.menu || (typeof inside !== 'undefined' && inside)) ? 0 : desiredCopCars();
   copCarSpawnT -= dt;
   if (copCars.length < want && copCarSpawnT <= 0) { spawnCopCar(); copCarSpawnT = 4.5; }
+  var nearest = null, nd = 1e9;
   for (var i = copCars.length - 1; i >= 0; i--) {
     var cc = copCars[i];
     if (cc.hp <= 0) { explodeCopCar(cc); copCars.splice(i, 1); continue; }
@@ -16185,7 +16258,11 @@ function updateCopCars(dt) {
     var pd = Math.hypot(player.x - cc.x, player.z - cc.z);
     if ((want === 0 && cc.state !== 'parked') || pd > 280 || (cc.state === 'parked' && cc.parkT > 30) || cc.life > 300) { removeCopCar(cc); copCars.splice(i, 1); continue; }
     driveCopCar(cc, dt, pd);
+    if (cc.state !== 'parked' && pd < nd) { nd = pd; nearest = cc; }
   }
+  // one shared siren wail from the closest pursuing cruiser (no overlapping sirens)
+  copSirenT -= dt;
+  if (nearest && nd < 95 && copSirenT <= 0) { copSirenT = 0.85; copSiren(nearest.x, nearest.z); }
 }
 // ==================== POLICE HELICOPTERS ====================
 // Local/per-player (like the plane + cop cars — never net-synced). At 3+ wanted
@@ -17082,6 +17159,9 @@ function detonateRocket(r, i) {
   rockets.splice(i, 1);
   boomAt(r.x, r.z);
   if (typeof rocketHitStreetcars === 'function') rocketHitStreetcars(r.x, r.z);   // rockets are the ONLY thing that wrecks a tram
+  // a rocket blast wrecks any cop car or police chopper caught in it
+  if (typeof copCars !== 'undefined') for (var rc = 0; rc < copCars.length; rc++) { var rcc = copCars[rc]; if (Math.hypot(rcc.x - r.x, rcc.z - r.z) < 7) damageCopCar(rcc, 400, null); }
+  if (typeof helis !== 'undefined') for (var rh = 0; rh < helis.length; rh++) { var rhe = helis[rh]; if (rhe.state === 'fly' && Math.sqrt((rhe.x - r.x) * (rhe.x - r.x) + (rhe.y - r.y) * (rhe.y - r.y) + (rhe.z - r.z) * (rhe.z - r.z)) < 9) damageHeli(rhe, 400); }
 }
 function updateRockets(dt) {
   for (var i = rockets.length - 1; i >= 0; i--) {
@@ -17100,8 +17180,11 @@ function updateRockets(dt) {
       for (var n = 0; n < npcs.length && !hit; n++) { var nn = npcs[n]; if (nn.state === 'down' || nn.state === 'ragdoll' || nn.state === 'hidden') continue; var dx = nn.x - r.x, dz = nn.z - r.z; if (dx * dx + dz * dz < 1.7) hit = true; }
       for (var cpi = 0; cpi < cops.length && !hit; cpi++) { var cp = cops[cpi]; if (cp.state === 'down') continue; var cdx = cp.x - r.x, cdz = cp.z - r.z; if (cdx * cdx + cdz * cdz < 1.7) hit = true; }
       for (var ci2 = 0; ci2 < cars.length && !hit; ci2++) { var cc = cars[ci2]; if (cc.exploded) continue; var om = cc.car.group.position; if (Math.abs(om.x - r.x) < 2.8 && Math.abs(om.z - r.z) < 2.2) hit = true; }
+      for (var ci3 = 0; ci3 < copCars.length && !hit; ci3++) { var cpc = copCars[ci3]; if (Math.abs(cpc.x - r.x) < 2.8 && Math.abs(cpc.z - r.z) < 2.2) hit = true; }   // rocket hits a cop car
       for (var tri = 0; tri < streetcars.length && !hit; tri++) { var tc = streetcars[tri]; if (tc.dead) continue; if (tramInBox(tc, r.x, r.z, 1.0)) hit = true; }
     }
+    // helicopters hang up high — detonate on a 3D proximity hit at any altitude
+    if (!hit) for (var hri = 0; hri < helis.length && !hit; hri++) { var hh2 = helis[hri]; if (hh2.state !== 'fly') continue; if ((hh2.x - r.x) * (hh2.x - r.x) + (hh2.y - r.y) * (hh2.y - r.y) + (hh2.z - r.z) * (hh2.z - r.z) < 20) hit = true; }
     if (hit) detonateRocket(r, i);
   }
 }
