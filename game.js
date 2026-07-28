@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.104.0';
+var GAME_VERSION = 'v1.104.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -5729,6 +5729,7 @@ function carHazardCap(c, m, hx, hz) {
 // lateral swerve: repel from cop cars, a reckless player car, the jet, and any
 // static obstacle straight ahead (whisker probe). Returns a per-frame world push.
 function carAvoidPush(c, px, pz, hx, hz, dt) {
+  if (!c._near) return { x: 0, z: 0 };                  // far from the player: skip the pricey avoidance (perf)
   var nx = -hz, nz = hx, pushX = 0, pushZ = 0;          // left normal
   function repel(rx, rz, range, strength) {
     var dx = rx - px, dz = rz - pz, d = Math.sqrt(dx * dx + dz * dz);
@@ -5745,14 +5746,16 @@ function carAvoidPush(c, px, pz, hx, hz, dt) {
     if (pspd > 15 || oncoming) { var pm = driving.car.group.position; repel(pm.x, pm.z, 13, 2.8); }
   }
   if (planeMenace) repel(planeMenace.x, planeMenace.z, 20, 4.5);
-  if (c.speed > 2) {                                    // obstacle straight ahead -> steer to the free side
+  // obstacle whisker (the pricey pointFree probe) — throttled to every 3rd frame
+  c._wfr = (c._wfr || 0) + 1;
+  if (c.speed > 2 && c._wfr % 3 === 0) {                // obstacle straight ahead -> steer to the free side
     var look = 3 + c.speed * 0.35, wx = px + hx * look, wz = pz + hz * look;
     if (!pointFree(wx, wz, 1.4)) {
       var lf = pointFree(wx + nx * 2.4, wz + nz * 2.4, 1.2), rf = pointFree(wx - nx * 2.4, wz - nz * 2.4, 1.2);
-      var s = (lf && !rf) ? 1 : ((rf && !lf) ? -1 : ((c.seedPh || 0) % 2 ? 1 : -1));
-      pushX += nx * s * 2.6; pushZ += nz * s * 2.6;
-    }
+      c._wpush = (lf && !rf) ? 1 : ((rf && !lf) ? -1 : ((c.seedPh || 0) % 2 ? 1 : -1));
+    } else c._wpush = 0;
   }
+  if (c._wpush) { pushX += nx * c._wpush * 2.6; pushZ += nz * c._wpush * 2.6; }
   var pl = Math.sqrt(pushX * pushX + pushZ * pushZ);
   if (pl > 3.2) { pushX = pushX / pl * 3.2; pushZ = pushZ / pl * 3.2; }
   return { x: pushX * dt, z: pushZ * dt };
@@ -5763,6 +5766,10 @@ function carDesiredSpeed(c, idx, dt) {
   var fleeing = c.fleeT > 0;                                       // shot at: floor it and get away
   var des = (fleeing ? 17 : (c.cruise !== undefined ? c.cruise : c.speed)) * (c.spdMul || 1);
   var m = c.car.group.position;
+  // only the cars near the player run the pricey pedestrian-scan / corner / hazard
+  // / whisker logic; distant traffic just follows lanes + gap-keeps + obeys lights
+  // (its finer behavior is invisible from across the map). Big perf win.
+  c._near = ((m.x - player.x) * (m.x - player.x) + (m.z - player.z) * (m.z - player.z)) < 21000;
   var hx = c.rTx, hz = c.rTz;
   if (hx === undefined) { var hr = c.car.group.rotation.y; hx = Math.cos(hr); hz = -Math.sin(hr); }
   // (a) car-following: nearest car ahead in the same-lane cone
@@ -5819,22 +5826,23 @@ function carDesiredSpeed(c, idx, dt) {
       }
     }
   }
-  // (d) don't run over pedestrians walking in our path: brake to a stop short of
-  // the nearest one ahead (a live driver only — a driverless runaway can't).
-  var pedGap = Infinity;
-  for (var pi = 0; pi < npcs.length; pi++) {
-    var pn = npcs[pi]; if (pn.state === 'down' || pn.state === 'ragdoll' || pn.state === 'hidden') continue;
-    var pdx = pn.x - m.x, pdz = pn.z - m.z;
-    var pf = pdx * hx + pdz * hz; if (pf <= 0.2 || pf > 12) continue;
-    var plat = -pdx * hz + pdz * hx; if (plat < 0) plat = -plat;
-    if (plat > 2.0) continue;                                      // clear of our lane
-    if (pf < pedGap) pedGap = pf;
-  }
-  if (pedGap < Infinity) { var pls = Math.max(0, pedGap - 3.2) / 0.5; if (pls < des) des = pls; }
-  // (e) slow for corners/junction turns (relaxed a touch while fleeing), and brake
-  // for reckless/wrong-way player cars, cop cars, and the jet
+  // corner/junction slowdown runs everywhere (cheap, and keeps far turns sane)
   var cc = carCornerCap(c); if (fleeing) cc *= 1.3; if (cc < des) des = cc;
-  var hz2 = carHazardCap(c, m, hx, hz); if (hz2 < des) des = hz2;
+  // (d)+(e) pedestrian braking + hazard braking — only for cars near the player
+  // (the pedestrian scan loops every NPC, so it's gated hard for perf).
+  if (c._near) {
+    var pedGap = Infinity;
+    for (var pi = 0; pi < npcs.length; pi++) {
+      var pn = npcs[pi]; if (pn.state === 'down' || pn.state === 'ragdoll' || pn.state === 'hidden') continue;
+      var pdx = pn.x - m.x, pdz = pn.z - m.z;
+      var pf = pdx * hx + pdz * hz; if (pf <= 0.2 || pf > 12) continue;
+      var plat = -pdx * hz + pdz * hx; if (plat < 0) plat = -plat;
+      if (plat > 2.0) continue;                                    // clear of our lane
+      if (pf < pedGap) pedGap = pf;
+    }
+    if (pedGap < Infinity) { var pls = Math.max(0, pedGap - 3.2) / 0.5; if (pls < des) des = pls; }
+    var hz2 = carHazardCap(c, m, hx, hz); if (hz2 < des) des = hz2;
+  }
   return des;
 }
 // ease actual speed toward the governor's target (firmer decel than accel)
