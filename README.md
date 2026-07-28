@@ -528,6 +528,13 @@ loses control the same way. An exploded car leaves its **burned-out husk**
 sitting at the spot — solid enough to lean on — until the replacement car
 shows up (a few seconds for traffic, about a minute for lot cars).
 
+Civilian traffic actually **drives defensively** now. Cars **slow down for
+corners and turns** instead of flooring it around bends, they **brake and
+swerve around obstacles** in the road, they **pull over and slow for cop cars**
+tearing past on a pursuit, and they **give a reckless or wrong-way player a wide
+berth** — drive at them head-on or come flying in too fast and they'll brake
+hard and steer out of your way.
+
 The fleet mixes the AI-generated bodies with a handful of classic PSX
 shapes: a station wagon, a big 90s sedan, a **yellow cab**, and a step
 van that every so often rolls by in **mail-truck livery**.
@@ -653,6 +660,14 @@ too steep, or slam a building and the jet **crashes** — a fireball, ten
 tumbling chunks of wreckage, and a scorched patch burned into the ground
 (the debris and scorch clear after about a minute). Crash while you're in
 the cockpit and you die with it.
+
+**The jet is a wrecking ball when it's down low.** Buzz the streets and it
+**mows people down** — a low, slow pass ragdolls them; a fast one **blows them
+apart into gibs and blood**, cops included. It **snaps trees and lightpoles**
+like a speeding car, and if it **clips a car** at speed the **car and the plane
+both explode**. It can even **collide with police helicopters** in the air —
+both come down in a fireball. People and traffic try to get clear: pedestrians
+scatter and scream, and cars brake and swerve out of its path.
 
 **Bail out** with a parachute: press **E** while airborne and a chute
 auto-deploys — the camera swings to third person, you **float down slowly**

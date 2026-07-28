@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.100.2';
+var GAME_VERSION = 'v1.101.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -4390,6 +4390,9 @@ function remapDriveCar(c, dt) {
   } else { c.rTx = base.tx; c.rTz = base.tz; }
   var k = Math.min(1, dt * 2.4);
   px += (base.x - px) * k; pz += (base.z - pz) * k;
+  // swerve away from cop cars / a reckless player car / the jet / obstacles ahead
+  var pu = carAvoidPush(c, px, pz, c.rTx, c.rTz, dt);
+  px += pu.x; pz += pu.z;
   g.position.set(px, 0, pz);
   // heading eases toward the travel direction
   var want = Math.atan2(-c.rTz, c.rTx);
@@ -5668,6 +5671,92 @@ function playerHorn() {
 }
 // desired speed for a remap traffic car: the min of free-flow cruise, the gap
 // to the leader ahead, the distance to a red light, and any stop-sign hold.
+// the jet, when it's low + moving, becomes a hazard traffic swerves/brakes for
+// (set each frame by planeCollide; null when the plane is high or gone)
+var planeMenace = null;
+// corner/junction speed cap: cars used to hold full cruise through bends and
+// blow through turns way too fast. Slow for the curvature of the current edge
+// AND ease down on the approach to any multi-leg junction (where a turn looms).
+function carCornerCap(c) {
+  if (!RM) return 99;
+  var e = RM.edges[c.rEdge]; if (!e) return 99;
+  var lo = e.m0, hi = e.len - e.m1;
+  var s0 = Math.max(lo, Math.min(hi, c.rS));
+  var s1 = c.rDir > 0 ? Math.min(hi, s0 + 6) : Math.max(lo, s0 - 6);
+  var a = rmAt(e.pts, e.cum, s0), b = rmAt(e.pts, e.cum, s1);
+  var dot = a.ux * b.ux + a.uz * b.uz;                 // 1 = straight, lower = bending
+  var cap = 99;
+  if (dot < 0.995) cap = 3.2 + Math.max(0, dot - 0.55) / 0.445 * 8.5;   // sharp bend ~3.2, gentle ~11.6
+  var distEnd = c.rDir > 0 ? (hi - c.rS) : (c.rS - lo);
+  var nd = e.node[c.rDir > 0 ? 1 : 0];
+  if (nd && nd.legs && nd.legs.length > 2 && distEnd < 11) {            // junction with turn options ahead
+    var jc = 4.2 + Math.max(0, distEnd - 2.5) * 0.85;                   // ~4.2 at the node, easing up further out
+    if (jc < cap) cap = jc;
+  }
+  return cap;
+}
+// brake for hazards a traffic car should yield to: a reckless / wrong-way player
+// car, a cop car in pursuit, or the jet bearing down. Returns a speed cap.
+function carHazardCap(c, m, hx, hz) {
+  var cap = 99;
+  if (typeof driving !== 'undefined' && driving && driving !== c && driving.car) {
+    var pm = driving.car.group.position;
+    var dx = pm.x - m.x, dz = pm.z - m.z, d2 = dx * dx + dz * dz;
+    if (d2 < 400) {                                     // within 20u
+      var d = Math.sqrt(d2) || 1, fwd = dx * hx + dz * hz;
+      var ph = driving.car.group.rotation.y, phx = Math.cos(ph), phz = -Math.sin(ph);
+      var oncoming = (hx * phx + hz * phz) < -0.25;     // player driving head-on at us
+      var pspd = Math.abs(driving.pspeed || 0);
+      if ((pspd > 15 || oncoming) && fwd > -4) {        // reckless AND ahead/beside
+        cap = Math.min(cap, (oncoming ? 0.2 : 3) + Math.max(0, d - 4) * 0.55);
+      }
+    }
+  }
+  for (var ci = 0; ci < copCars.length; ci++) {         // pull over + slow for cop cars
+    var cc = copCars[ci], cd = cc.car.group.position;
+    var ex = cd.x - m.x, ez = cd.z - m.z, e2 = ex * ex + ez * ez;
+    if (e2 < 196) {                                     // within 14u
+      var ef = ex * hx + ez * hz;
+      if (ef > -7) cap = Math.min(cap, 2.5 + Math.sqrt(e2) * 0.42);
+    }
+  }
+  if (planeMenace) {                                    // the jet is on the road -> slam the brakes
+    var mx = planeMenace.x - m.x, mz = planeMenace.z - m.z, m2 = mx * mx + mz * mz;
+    if (m2 < 576) cap = Math.min(cap, Math.max(0, Math.sqrt(m2) - 6) * 0.6);
+  }
+  return cap;
+}
+// lateral swerve: repel from cop cars, a reckless player car, the jet, and any
+// static obstacle straight ahead (whisker probe). Returns a per-frame world push.
+function carAvoidPush(c, px, pz, hx, hz, dt) {
+  var nx = -hz, nz = hx, pushX = 0, pushZ = 0;          // left normal
+  function repel(rx, rz, range, strength) {
+    var dx = rx - px, dz = rz - pz, d = Math.sqrt(dx * dx + dz * dz);
+    if (d > range || d < 0.01) return;
+    if (dx * hx + dz * hz < -4) return;                 // behind us
+    var lat = dx * nx + dz * nz, side = lat >= 0 ? -1 : 1;
+    var mag = (1 - d / range) * strength;
+    pushX += nx * side * mag; pushZ += nz * side * mag;
+  }
+  for (var i = 0; i < copCars.length; i++) { var cm = copCars[i].car.group.position; repel(cm.x, cm.z, 12, 2.4); }
+  if (typeof driving !== 'undefined' && driving && driving !== c && driving.car) {
+    var ph = driving.car.group.rotation.y, phx = Math.cos(ph), phz = -Math.sin(ph);
+    var oncoming = (hx * phx + hz * phz) < -0.25, pspd = Math.abs(driving.pspeed || 0);
+    if (pspd > 15 || oncoming) { var pm = driving.car.group.position; repel(pm.x, pm.z, 13, 2.8); }
+  }
+  if (planeMenace) repel(planeMenace.x, planeMenace.z, 20, 4.5);
+  if (c.speed > 2) {                                    // obstacle straight ahead -> steer to the free side
+    var look = 3 + c.speed * 0.35, wx = px + hx * look, wz = pz + hz * look;
+    if (!pointFree(wx, wz, 1.4)) {
+      var lf = pointFree(wx + nx * 2.4, wz + nz * 2.4, 1.2), rf = pointFree(wx - nx * 2.4, wz - nz * 2.4, 1.2);
+      var s = (lf && !rf) ? 1 : ((rf && !lf) ? -1 : ((c.seedPh || 0) % 2 ? 1 : -1));
+      pushX += nx * s * 2.6; pushZ += nz * s * 2.6;
+    }
+  }
+  var pl = Math.sqrt(pushX * pushX + pushZ * pushZ);
+  if (pl > 3.2) { pushX = pushX / pl * 3.2; pushZ = pushZ / pl * 3.2; }
+  return { x: pushX * dt, z: pushZ * dt };
+}
 function carDesiredSpeed(c, idx, dt) {
   carPersona(c);
   c._holdKind = '';
@@ -5728,6 +5817,10 @@ function carDesiredSpeed(c, idx, dt) {
       }
     }
   }
+  // (d) slow for corners/junction turns, and brake for reckless/wrong-way player
+  // cars, cop cars, and the jet
+  var cc = carCornerCap(c); if (cc < des) des = cc;
+  var hz2 = carHazardCap(c, m, hx, hz); if (hz2 < des) des = hz2;
   return des;
 }
 // ease actual speed toward the governor's target (firmer decel than accel)
@@ -15330,6 +15423,96 @@ function updateAirportPlane(dt) {
 // per-frame plane simulation (physics + controls + gear + camera + crash).
 // Runs on REAL dt (arcade; not scaled by bullet-time). Called from the main loop
 // and from __wc.tick so headless tests drive it.
+// ---- plane collision (local/singleplayer, like the rest of the jet) ----
+// The Learjet now mows down people, wrecks cars, and snaps trees/poles when it
+// flies/taxis low. Reuses the car-hit ragdoll, the gore burst, breakables, and
+// the crash/explosion plumbing. Sets `planeMenace` so traffic swerves + brakes.
+var _planePanicT = -9;
+function planeGibNPC(n, dx, dz, power) {   // "explode into gibs + blood": ragdoll then pulp the body away
+  if (n.state === 'down' || n.state === 'ragdoll' || n.state === 'hidden') return;
+  killNpcRagdoll(n, dx, dz, power);
+  if (n.mesh) n.mesh.visible = false;
+  spawnGoreBurst(n.x, 1.0, n.z, dx, dz, 16 + (Math.random() * 6 | 0));
+  bloodPool(n.x, n.z);
+  if (typeof goreScreenFlash === 'function') goreScreenFlash();
+}
+function planeGibCop(cp, dx, dz) {
+  if (cp.state === 'down') return;
+  spawnGoreBurst(cp.x, 1.0, cp.z, dx, dz, 16 + (Math.random() * 6 | 0));
+  bloodPool(cp.x, cp.z, cp.baseY || 0);
+  if (cp.mesh) cp.mesh.visible = false;
+  damageCop(cp, 999, dx, dz);
+  if (typeof goreScreenFlash === 'function') goreScreenFlash();
+}
+function planeCollide(dt) {
+  if (!plane || !plane.alive) { planeMenace = null; return; }
+  var g = plane.group, vel = plane.vel;
+  var spd = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
+  if (plane._px === undefined) { plane._px = g.position.x; plane._pz = g.position.z; }
+  var dvx = g.position.x - plane._px, dvz = g.position.z - plane._pz;
+  plane._px = g.position.x; plane._pz = g.position.z;
+  var py = g.position.y;
+  // hazard flag for traffic + scatter nearby pedestrians when the jet is low & moving
+  if (spd > 6 && py < 14) {
+    planeMenace = { x: g.position.x, z: g.position.z, spd: spd };
+    if (T - _planePanicT > 0.45) { _planePanicT = T; panicNear(g.position.x, g.position.z, 900); }
+  } else planeMenace = null;
+  if (spd < 3) return;
+  var fx, fz;                                  // nose/travel direction
+  if (spd > 0.5) { fx = vel.x / spd; fz = vel.z / spd; } else { var ry = g.rotation.y; fx = Math.cos(ry); fz = -Math.sin(ry); }
+  var nx = -fz, nz = fx;
+  var HL = 9, HW = 7;                           // airframe half-extents (len ~17, span ~14)
+  var gib = spd > 22;                           // fast enough -> gibs; slower taxi -> ragdoll
+  var px = g.position.x, pz = g.position.z;
+  // ---- midair collision with police helicopters: destroy BOTH ----
+  for (var hi = 0; hi < helis.length; hi++) {
+    var h = helis[hi]; if (!h || h.state !== 'fly' || h.dead) continue;
+    var hdx = h.x - px, hdy = (h.y || 0) - py, hdz = h.z - pz;
+    if (hdx * hdx + hdy * hdy + hdz * hdz < 100) {   // within ~10u (both airframes are large)
+      crashHeli(h); crashPlane(); return;
+    }
+  }
+  function inFoot(ox, oz, ew) {
+    var dx = ox - px, dz = oz - pz;
+    return Math.abs(dx * fx + dz * fz) < HL && Math.abs(dx * nx + dz * nz) < (HW + (ew || 0));
+  }
+  if (py < 5) {
+    for (var i = 0; i < npcs.length; i++) {
+      var n = npcs[i];
+      if (n.state === 'down' || n.state === 'ragdoll' || n.state === 'hidden') continue;
+      if (!inFoot(n.x, n.z)) continue;
+      sfx('crash', { x: n.x, z: n.z, range: 90 });
+      if (gib) planeGibNPC(n, fx, fz, 12 + spd * 0.4); else killNpcRagdoll(n, fx, fz, 12 + spd * 0.4);
+    }
+    for (var ck = 0; ck < cops.length; ck++) {
+      var cp = cops[ck];
+      if (cp.state === 'down' || cp.interior) continue;
+      if (!inFoot(cp.x, cp.z)) continue;
+      if (gib) planeGibCop(cp, fx, fz); else damageCop(cp, 999, fx, fz);
+    }
+    if (spd > 10) {                              // hit a car hard enough -> both explode
+      for (var j = 0; j < cars.length; j++) {
+        var car = cars[j]; if (car.exploded) continue;
+        var cmp = car.car.group.position;
+        if (!inFoot(cmp.x, cmp.z, 1)) continue;
+        if (spd > 16) { explodeCar(car); crashPlane(); return; } else goBerserk(car);
+      }
+      for (var q = 0; q < copCars.length; q++) {
+        var qc = copCars[q], qm = qc.car.group.position;
+        if (!inFoot(qm.x, qm.z, 1)) continue;
+        if (spd > 16) { explodeCopCar(qc); crashPlane(); return; }
+      }
+    }
+  }
+  if (py < 9) {                                  // snap trees / lightpoles / poles (like a speeding car)
+    var v2 = (dvx * dvx + dvz * dvz) / Math.max(dt * dt, 1e-6);
+    if (v2 > 9) for (var b = 0; b < breakables.length; b++) {
+      var bk = breakables[b]; if (bk.broken) continue;
+      var bx = bk.x - px, bz = bk.z - pz;
+      if (Math.abs(bx * fx + bz * fz) < HL + bk.r && Math.abs(bx * nx + bz * nz) < HW + bk.r) breakProp(bk, dvx, dvz);
+    }
+  }
+}
 function updatePlaneWorld(dt) {
   updatePlaneDebris(dt);
   updatePlaneScorch(dt);
@@ -15509,6 +15692,10 @@ function updatePlaneWorld(dt) {
       crashPlane(); return;
     }
   }
+  // ---- collide with people / cars / props (may crashPlane + return) ----
+  if (!plane) return;
+  planeCollide(dt);
+  if (!plane) return;   // planeCollide can destroy the jet (fast car hit)
   // ---- landing gear automation ----
   var altNow = g.position.y - gy - plane.clr;
   var gearTarget = plane.onGround ? 0 : (altNow > PLANE_GEAR_UP_ALT ? 1 : (altNow < PLANE_GEAR_DN_ALT ? 0 : plane.gearT));
