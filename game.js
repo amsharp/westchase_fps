@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.96.4';
+var GAME_VERSION = 'v1.97.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -15775,7 +15775,23 @@ function towerAt(x, z, y) {
 // a jumbled pile of rubble sized to the tower footprint: bigger concrete slabs
 // heaped toward the centre + scattered chunks, tinted concrete-grey with flecks
 // of the building's own colour. Returned group is centred at origin, base at y=0.
+var _rubbleC = {};   // decoded RUBBLE_DATA cache (shared across all towers)
 function buildRubblePile(t) {
+  // user-supplied rubble model (rubble.js RUBBLE_DATA): a photo-textured collapsed
+  // building, scaled to spill a bit wider than the tower footprint. Falls back to
+  // the procedural grey-box pile below if the data file is absent.
+  if (typeof RUBBLE_DATA !== 'undefined' && typeof decodeAirModel === 'function') {
+    decodeAirModel(RUBBLE_DATA, _rubbleC);
+    var spread = Math.max(t.W, t.D) * 1.25;
+    var rscale = spread / RUBBLE_DATA.dims[0];
+    var rg = new THREE.Group();
+    var rm = new THREE.Mesh(_rubbleC.geo, _rubbleC.mat);
+    rm.scale.set(rscale, rscale, rscale);
+    rm.rotation.y = Math.random() * Math.PI * 2;   // vary the debris orientation per collapse
+    rg.add(rm);
+    t.pileH = RUBBLE_DATA.dims[1] * rscale;         // actual model peak -> rise anim + collider height
+    return rg;
+  }
   var g = new THREE.Group();
   var hw = t.W / 2, hd = t.D / 2, pileH = Math.max(3, Math.min(14, t.fullH * 0.14));
   t.pileH = pileH;
@@ -15964,6 +15980,7 @@ function startTowerCollapse(t) {
   if (t.mb) t.mb.h = t.pileH;
   if (t.col) t.col.topY = t.pileH;
   sfx('boom', { x: t.x, z: t.z, range: 500 });
+  sfx('towercollapse', { x: t.x, z: t.z, range: 520 });   // the big collapse rumble (falls silent if the pack is absent)
   sfx('crash', { x: t.x, z: t.z, range: 260 });
   popup('COLLAPSE!');
 }
@@ -21638,6 +21655,10 @@ var SFX_MAP = {
   // keys). Each falls back to a synth placeholder in sfx() until then.
   warn_terrain: { k: 'warn_terrain', g: 0.8 }, warn_sink: { k: 'warn_sink', g: 0.8 },
   warn_pullup: { k: 'warn_pullup', g: 0.9 }, warn_bank: { k: 'warn_bank', g: 0.8 },
+  // owner-supplied skyscraper collapse rumble (collapsesfx.js SFX_PACK.towercollapse):
+  // plays in startTowerCollapse when a struck tower begins to come down. Synth has
+  // no fallback — silent if the pack is absent.
+  towercollapse: { k: 'towercollapse', g: 1.3, j: 0.03 },
   warn_stall: { k: 'warn_stall', g: 0.85 }
 };
 function sfxLogPush(kind, pack) {
