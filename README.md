@@ -326,6 +326,19 @@ It's a hike from town, so bring a car. Throw it and the same rule holds — the
 thrown axe becomes the one you have to retrieve, so no free cabin refill until
 it's truly gone.
 
+### Spray paint
+
+Behind the **RaceTrac** gas station, a can of **spray paint** spins on the
+ground — walk into it to pick it up (like the cabin axe, it's yours until you
+lose it on death). Equip it and **hold left-click** to tag whatever surface
+you're aiming at within about **five feet** — walls, sidewalks, the road, cars,
+anything. Each pull of the trigger stamps a small, imperfect circle of paint
+oriented flat against the surface, so by sweeping the can as you spray you can
+**draw** — letters, tags, whatever you want. **Right-click** pops up a little
+palette; click a color and it closes, and the can's cap changes to match.
+Fresh paint lasts **ten minutes** before it fades away. (Local to you — your
+tags aren't shared in multiplayer.)
+
 Bullets land where they hit: people bleed a quick dark-red spray, walls
 and props kick out a small burst of dust and keep a **bullet hole** at the
 impact point for a minute — pock a facade up all you like, the newest 60

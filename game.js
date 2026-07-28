@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.99.3';
+var GAME_VERSION = 'v1.100.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -54,6 +54,7 @@ var NE_EXIT_Z = -200, SE_EXIT_X = 278;
 var WEAPONS = {
   fists:  { name: 'FISTS',  melee: true, dmg: 34, rate: 0.42, range: 2.4 },
   axe:    { name: 'AXE',    price: 400, worldOnly: true, melee: true, dmg: 200, rate: 0.62, range: 2.8, bisect: true, desc: 'Heavy chopping axe — a solid hit cleaves a body clean in half.' },
+  spray:  { name: 'SPRAY PAINT', worldOnly: true, spray: true, rate: 0.035, range: 1.6, desc: 'Tag any surface. Hold left-click to spray, right-click to change color.' },
   pistol: { name: 'PISTOL', price: 150, dmg: 40, rate: 0.2, auto: false, spread: 0.014, ammo: 'pistol', mag: 15, reload: 1.5, desc: '9mm sidearm. Reliable.', flashAt: [0.26, -0.265, -0.9] },
   smg:    { name: 'SMG',    price: 400, dmg: 15, rate: 0.065, auto: true, spread: 0.008, spreadMax: 0.05, bloomPerShot: 0.006, ammo: 'pistol', mag: 30, reload: 2, desc: 'First shots on target. Then it sprays.', flashAt: [0.26, -0.262, -1.2] },
   rifle:  { name: 'RIFLE',  price: 600, dmg: 95, rate: 0.8,  auto: false, spread: 0.004, ammo: 'rifle', mag: 10, reload: 3, desc: 'One shot, one nap. Right-click to scope.', flashAt: [0.24, -0.235, -1.38] },
@@ -67,13 +68,13 @@ var WEAPONS = {
   snack:  { name: 'SNACK', snack: true, rate: 0.8 },
   soda:   { name: 'SODA', snack: true, rate: 0.6 }   // vending machines (streetprops)
 };
-var GUN_LIST = ['pistol', 'smg', 'shotgun', 'rifle', 'auto', 'axe', 'rocket', 'raygun', 'neon_blaster', 'silenced'];
+var GUN_LIST = ['pistol', 'smg', 'shotgun', 'rifle', 'auto', 'axe', 'spray', 'rocket', 'raygun', 'neon_blaster', 'silenced'];
 
 // ---------------- state ----------------
 var state = {
   running: false, menu: null,
   money: 400, hp: 100, dead: false,
-  owned: { pistol: false, smg: false, shotgun: false, axe: false, rifle: false, auto: false, rocket: false, raygun: false, neon_blaster: false, silenced: false },
+  owned: { pistol: false, smg: false, shotgun: false, axe: false, spray: false, rifle: false, auto: false, rocket: false, raygun: false, neon_blaster: false, silenced: false },
   equipped: 'fists',
   lastHurt: -99, lastCarHit: -99, lastRob: -99,
   wanted: 0, civKills: 0, copKills: 0, snacks: 0,
@@ -17045,6 +17046,127 @@ function updateDecals(dt) {
     if (d.life < 5) d.mesh.material.opacity = Math.max(0, d.life / 5 * 0.75);
     if (d.life <= 0) { scene.remove(d.mesh); decals.splice(i, 1); }
   }
+  updateSprayDecals(dt);
+}
+
+// ==================== SPRAY PAINT (task: tag any surface) ====================
+// A worldOnly item (spawns behind the RaceTrac; grab it once). Hold LMB to spray
+// paint onto whatever you're aiming at within ~5 ft; RMB opens a color palette.
+// Each spray stamps ONE small imperfect circle oriented to the surface normal, so
+// overlapping sprays let you draw. Decals live 10 minutes, then despawn.
+// Local / per-player — never on the MP wire.
+var SPRAY_SPAWN = { x: 99, z: 12 };     // behind the RaceTrac (front faces the intersection)
+var sprayColor = '#e0202a';             // current can color (starts red)
+var SPRAY_TTL = 600;                    // 10 minutes
+var SPRAY_MAX = 500;                    // pool cap; oldest recycled (so you can draw a lot)
+var sprayDecals = [];
+var lastSprayT = -99, _sprayHissT = -99;
+var _sprayGeo = new THREE.PlaneGeometry(1, 1);
+var _sprayTex = null, _sprayNM = new THREE.Matrix3();
+var SPRAY_COLORS = ['#e0202a', '#ff7a1a', '#ffd21a', '#37c837', '#1aa0ff', '#9a3bd6', '#ff5fd0', '#111111', '#f5f5f5', '#7a4a1a'];
+// one white blobby aerosol-circle texture (imperfect edge + speckle); tint per decal
+function spraySprayTex() {
+  if (_sprayTex) return _sprayTex;
+  var cv = document.createElement('canvas'); cv.width = cv.height = 64;
+  var g = cv.getContext('2d');
+  g.clearRect(0, 0, 64, 64);
+  // soft filled core with a ragged edge
+  g.fillStyle = 'rgba(255,255,255,0.95)';
+  g.beginPath();
+  for (var a = 0; a <= 6.2832; a += 0.18) {
+    var rr = 20 + Math.sin(a * 3.1) * 2.4 + (Math.random() - 0.5) * 4.5;
+    var x = 32 + Math.cos(a) * rr, y = 32 + Math.sin(a) * rr;
+    if (a === 0) g.moveTo(x, y); else g.lineTo(x, y);
+  }
+  g.closePath(); g.fill();
+  // fade the rim so it doesn't read as a hard disc
+  var rg = g.createRadialGradient(32, 32, 12, 32, 32, 30);
+  rg.addColorStop(0, 'rgba(255,255,255,0)'); rg.addColorStop(0.75, 'rgba(255,255,255,0)'); rg.addColorStop(1, 'rgba(255,255,255,0.9)');
+  g.globalCompositeOperation = 'destination-out'; g.fillStyle = rg; g.fillRect(0, 0, 64, 64);
+  g.globalCompositeOperation = 'source-over';
+  // overspray speckle around the edge
+  g.fillStyle = 'rgba(255,255,255,0.8)';
+  for (var s = 0; s < 40; s++) { var sa = Math.random() * 6.2832, sr = 20 + Math.random() * 11; g.beginPath(); g.arc(32 + Math.cos(sa) * sr, 32 + Math.sin(sa) * sr, 0.6 + Math.random() * 1.2, 0, 6.2832); g.fill(); }
+  _sprayTex = new THREE.CanvasTexture(cv);
+  return _sprayTex;
+}
+function sprayDecal(point, normal, colorHex) {
+  var n = normal.clone().normalize();
+  var mat = new THREE.MeshBasicMaterial({ map: spraySprayTex(), color: new THREE.Color(colorHex), transparent: true, opacity: 0.94, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
+  var m = new THREE.Mesh(_sprayGeo, mat);
+  m.position.copy(point).addScaledVector(n, 0.02);
+  m.lookAt(point.x + n.x, point.y + n.y, point.z + n.z);
+  m.rotateZ(Math.random() * 6.2832);                       // random roll so repeats don't tile
+  var sc = 0.17 + Math.random() * 0.07; m.scale.set(sc, sc, 1);
+  m.frustumCulled = false;
+  scene.add(m);
+  sprayDecals.push({ mesh: m, life: SPRAY_TTL });
+  if (sprayDecals.length > SPRAY_MAX) { var o = sprayDecals.shift(); scene.remove(o.mesh); if (o.mesh.material) o.mesh.material.dispose(); }
+}
+var _sprDir = new THREE.Vector3(), _sprOrg = new THREE.Vector3();
+function sprayPaint() {
+  if (!state.running || state.menu || state.dead || driving || state.equipped !== 'spray') return;
+  if (T - lastSprayT < WEAPONS.spray.rate) return;
+  lastSprayT = T;
+  camera.getWorldDirection(_sprDir);
+  _sprOrg.copy(camera.position);
+  var range = WEAPONS.spray.range;
+  raycaster.set(_sprOrg, _sprDir); raycaster.far = range;
+  var hits = raycaster.intersectObjects(solidMeshes, true);
+  var best = null, bestNormal = null, bestDist = range + 1;
+  if (hits.length && hits[0].distance <= range) {
+    var h = hits[0]; best = h.point.clone(); bestDist = h.distance;
+    bestNormal = h.face ? h.face.normal.clone().applyMatrix3(_sprayNM.getNormalMatrix(h.object.matrixWorld)).normalize() : _sprDir.clone().negate();
+  }
+  // spray the ground/floor too (not in solidMeshes) — analytic plane hit
+  if (_sprDir.y < -0.03) {
+    var gY = (typeof inside !== 'undefined' && inside) ? INT.y + 0.06 : 0.19;
+    var gT = (gY - _sprOrg.y) / _sprDir.y;
+    if (gT > 0.1 && gT <= range && gT < bestDist) { best = _sprOrg.clone().addScaledVector(_sprDir, gT); bestNormal = new THREE.Vector3(0, 1, 0); }
+  }
+  if (best) {
+    sprayDecal(best, bestNormal || new THREE.Vector3(0, 1, 0), sprayColor);
+    if (T - _sprayHissT > 0.16) { _sprayHissT = T; sfx('spray'); }
+  }
+}
+function updateSprayDecals(dt) {
+  for (var i = sprayDecals.length - 1; i >= 0; i--) {
+    var d = sprayDecals[i]; d.life -= dt;
+    if (d.life < 6) d.mesh.material.opacity = Math.max(0, d.life / 6 * 0.94);   // fade out the last 6 s
+    if (d.life <= 0) { scene.remove(d.mesh); if (d.mesh.material) d.mesh.material.dispose(); sprayDecals.splice(i, 1); }
+  }
+}
+// keep a spinning spray-can pickup behind the RaceTrac whenever the player has none
+var spraySpawnDrop = null;
+function ensureSpraySpawn() {
+  if (state.owned.spray) return;                                   // already carrying it
+  for (var di = 0; di < drops.length; di++) if (drops[di].kind === 'spray') return;   // a can already lies in the world
+  var g = dropMesh('spray');
+  g.position.set(SPRAY_SPAWN.x, 0.7, SPRAY_SPAWN.z);
+  scene.add(g);
+  spraySpawnDrop = { mesh: g, kind: 'spray', life: 1e9, sprayspawn: true };
+  drops.push(spraySpawnDrop);
+}
+// a procedural aerosol can (drop pickup + first-person viewmodel); cap/label take
+// the current paint color so you can see what you're about to spray.
+function spraycanMesh(colorHex) {
+  var g = new THREE.Group();
+  var col = new THREE.Color(colorHex || sprayColor);
+  var bodyM = (typeof metalM !== 'undefined') ? metalM : lamb({ color: 0xcfd2d6 });
+  var darkM = (typeof darkMetalM !== 'undefined') ? darkMetalM : lamb({ color: 0x33373c });
+  g.add(cyl(0.075, 0.075, 0.42, 12, bodyM, 0, 0, 0));                          // aluminum body
+  var band = cyl(0.079, 0.079, 0.2, 12, lamb({ color: col.clone() }), 0, -0.02, 0);  // colored label
+  g.add(band); g.userData.band = band;
+  g.add(cyl(0.062, 0.077, 0.03, 12, darkM, 0, 0.225, 0));                       // crimped top rim
+  var cap = cyl(0.052, 0.052, 0.1, 12, lamb({ color: col.clone() }), 0, 0.29, 0);    // colored cap
+  g.add(cap); g.userData.cap = cap;
+  g.add(box(0.03, 0.02, 0.03, darkM, 0, 0.35, 0.02));                           // nozzle button
+  return g;
+}
+function tintSprayCan(g, colorHex) {
+  if (!g) return; var c = new THREE.Color(colorHex);
+  if (g.userData.band) g.userData.band.material.color.copy(c);
+  if (g.userData.cap) g.userData.cap.material.color.copy(c);
 }
 
 // ---------------- ragdoll kills + explosions ----------------
@@ -17337,6 +17459,7 @@ function dropMesh(kind) {
     var sup = cyl(0.05, 0.05, 0.34, 10, darkMetalM, 0, 0, -0.36); sup.rotation.x = Math.PI / 2; g.add(sup);
   }
   else if (kind === 'axe') { var ax = (typeof getAxeMesh === 'function') ? getAxeMesh(1.25) : null; if (ax) { g.add(ax); return g; } g.add(box(0.08, 0.9, 0.14, woodM, 0, 0, 0)); g.add(box(0.34, 0.22, 0.06, metalM, 0, 0.42, 0)); }
+  else if (kind === 'spray') { g.add(spraycanMesh(sprayColor)); return g; }
   else { var tb = cyl(0.09, 0.09, 1.0, 10, rocketBodyM, 0, 0, 0); tb.rotation.x = Math.PI / 2; g.add(tb); }
   return g;
 }
@@ -20097,7 +20220,19 @@ var vmAxe = new THREE.Group();
     vmAxe.add(mg);
   }
 })();
-var vmMap = { fists: vmFists, pistol: vmPistol, shotgun: vmShotgun, axe: vmAxe, smg: vmSmg, rifle: vmRifle, auto: vmAuto, rocket: vmRocket, raygun: vmRaygun, snack: vmSnack };
+// spray-can viewmodel: held in the lower-right, tipped forward like you're
+// shaking/spraying it (nozzle points up-forward toward the crosshair).
+var vmSpray = new THREE.Group(), vmSprayCan = null;
+(function () {
+  vmSprayCan = spraycanMesh(sprayColor);
+  vmSprayCan.rotation.order = 'YXZ';
+  vmSprayCan.rotation.x = -0.5;    // tip the nozzle up toward where you aim
+  vmSprayCan.rotation.z = 0.18;
+  vmSprayCan.position.set(0.34, -0.5, -0.62);
+  vmSprayCan.scale.setScalar(1.15);
+  vmSpray.add(vmSprayCan);
+})();
+var vmMap = { fists: vmFists, pistol: vmPistol, shotgun: vmShotgun, axe: vmAxe, spray: vmSpray, smg: vmSmg, rifle: vmRifle, auto: vmAuto, rocket: vmRocket, raygun: vmRaygun, snack: vmSnack };
 
 // ==================== FOREST CABIN (axe spawn) ====================
 // A pallet-wood shed with a corrugated barrel-metal roof (Meshy image-to-3d,
@@ -20298,7 +20433,7 @@ function setEquipped(w) {
   }
   vm.visible = !zoomed && !driving && !state.dead;   // stay hidden during the death cinematic
   Object.keys(vmMap).forEach(function (k) { vmMap[k].visible = (k === w); });
-  var sub = w === 'fists' ? 'punch for cash' : (w === 'rifle' ? 'right-click: scope · R: reload' : (w === 'axe' ? 'hold right-click: aim &amp; throw' : (w === 'snack' ? 'left-click: eat (+50 hp) — x' + state.snacks : (w === 'soda' ? 'left-click: drink (+25 hp) — x' + state.sodas : (WEAPONS[w].ammo ? 'R: reload' : 'ammo: &#8734;')))));
+  var sub = w === 'fists' ? 'punch for cash' : (w === 'rifle' ? 'right-click: scope · R: reload' : (w === 'axe' ? 'hold right-click: aim &amp; throw' : (w === 'spray' ? 'hold left-click: spray · right-click: color' : (w === 'snack' ? 'left-click: eat (+50 hp) — x' + state.snacks : (w === 'soda' ? 'left-click: drink (+25 hp) — x' + state.sodas : (WEAPONS[w].ammo ? 'R: reload' : 'ammo: &#8734;'))))));
   document.getElementById('weaponBox').innerHTML = WEAPONS[w].name + '<br><small>' + sub + '</small>';
   if (typeof refreshHotbarHud === 'function') refreshHotbarHud();
 }
@@ -22359,6 +22494,7 @@ function sfx(kind, at) {
     case 'killtick': bp(1650, 0.035, 0.14, 'square', -260); setTimeout(function () { bp(1050, 0.05, 0.12, 'square', -180); }, 45); break;   // two-note kill confirm
     case 'cardoor': bp(110, 0.09, 0.22, 'square', 55); nb(0.05, 900, 0.16); break;              // synth fallback (pack normally covers these)
     case 'ricochet': bp(1900, 0.28, 0.1, 'sawtooth', 480); nb(0.05, 2600, 0.08); break;
+    case 'spray': nb(0.1, 4600, 0.05); break;   // aerosol hiss
   }
 }
 // ---- surface footsteps (#47): cheap per-surface noise blips synced to the
@@ -22554,8 +22690,28 @@ function keypadPress(k) {
   }
   if (keypadEntry.length < 4) { keypadEntry += k; sfx('buy'); refreshKeypadDisp(); if (keypadEntry.length === 4) keypadPress('ENT'); }
 }
-function openMenu(which) { setZoom(false); state.menu = which; document.exitPointerLock && document.exitPointerLock(); if (which === 'keypad') { buildKeypad(); keypadEntry = ''; refreshKeypadDisp(); document.getElementById('keypadSay').textContent = 'Enter the 4-digit code'; document.getElementById('keypadPanel').classList.remove('hidden'); } if (which === 'shop') { shopBought = false; if (!dealerMet) { dealerMet = true; playVoice('dealer_hello_first', 0.5, 1, { ref: dealer }); } else playVoiceAny(['dealer_hello_1', 'dealer_hello_2'], 0.5, 'dealerHi', 18, { ref: dealer }); refreshShop(); document.getElementById('shopPanel').classList.remove('hidden'); } if (which === 'inv') { refreshInv(); document.getElementById('invPanel').classList.remove('hidden'); } if (which === 'clerk') { refreshClerk(); document.getElementById('clerkPanel').classList.remove('hidden'); } }
-function closeMenus(relock) { if (state.menu === 'shop' && !shopBought) playVoice('dealer_bye', 0.45, 40, { ref: dealer }); state.menu = null; document.getElementById('shopPanel').classList.add('hidden'); document.getElementById('invPanel').classList.add('hidden'); document.getElementById('clerkPanel').classList.add('hidden'); var kp = document.getElementById('keypadPanel'); if (kp) kp.classList.add('hidden'); if (relock !== false && state.running) lockPointer(); }
+function openMenu(which) { setZoom(false); state.menu = which; document.exitPointerLock && document.exitPointerLock(); if (which === 'keypad') { buildKeypad(); keypadEntry = ''; refreshKeypadDisp(); document.getElementById('keypadSay').textContent = 'Enter the 4-digit code'; document.getElementById('keypadPanel').classList.remove('hidden'); } if (which === 'shop') { shopBought = false; if (!dealerMet) { dealerMet = true; playVoice('dealer_hello_first', 0.5, 1, { ref: dealer }); } else playVoiceAny(['dealer_hello_1', 'dealer_hello_2'], 0.5, 'dealerHi', 18, { ref: dealer }); refreshShop(); document.getElementById('shopPanel').classList.remove('hidden'); } if (which === 'inv') { refreshInv(); document.getElementById('invPanel').classList.remove('hidden'); } if (which === 'clerk') { refreshClerk(); document.getElementById('clerkPanel').classList.remove('hidden'); } if (which === 'spray') { buildSprayPalette(); var sp = document.getElementById('sprayPanel'); if (sp) sp.classList.remove('hidden'); } }
+function closeMenus(relock) { if (state.menu === 'shop' && !shopBought) playVoice('dealer_bye', 0.45, 40, { ref: dealer }); state.menu = null; document.getElementById('shopPanel').classList.add('hidden'); document.getElementById('invPanel').classList.add('hidden'); document.getElementById('clerkPanel').classList.add('hidden'); var kp = document.getElementById('keypadPanel'); if (kp) kp.classList.add('hidden'); var sp = document.getElementById('sprayPanel'); if (sp) sp.classList.add('hidden'); if (relock !== false && state.running) lockPointer(); }
+// spray-paint color palette: a swatch grid; clicking one picks the color + closes
+function buildSprayPalette() {
+  var grid = document.getElementById('sprayGrid'); if (!grid) return;
+  grid.innerHTML = '';
+  for (var i = 0; i < SPRAY_COLORS.length; i++) {
+    (function (col) {
+      var sw = document.createElement('div');
+      sw.style.cssText = 'width:52px;height:52px;border-radius:6px;cursor:pointer;background:' + col + ';outline:3px solid #000;box-shadow:0 0 0 3px ' + (col === sprayColor ? '#ffe94a' : 'transparent') + ';';
+      sw.onclick = function () { pickSprayColor(col); };
+      grid.appendChild(sw);
+    })(SPRAY_COLORS[i]);
+  }
+}
+function pickSprayColor(col) {
+  sprayColor = col;
+  tintSprayCan(vmSprayCan, col);                                   // held can updates immediately
+  if (spraySpawnDrop && spraySpawnDrop.mesh) tintSprayCan(spraySpawnDrop.mesh.children[0], col);
+  sfx('tick');
+  closeMenus();
+}
 
 // ---------------- minimap ----------------
 var mm = document.getElementById('mm');
@@ -24080,11 +24236,12 @@ document.addEventListener('mousemove', function (e) {
 });
 document.addEventListener('mousedown', function (e) {
   if (document.pointerLockElement !== canvas || state.menu) return;
-  if (e.button === 0) { mouseDown = true; if (state.equipped === 'axe' && axeAiming) throwAxe(); else tryAttack(); }
+  if (e.button === 0) { mouseDown = true; if (state.equipped === 'axe' && axeAiming) throwAxe(); else if (state.equipped === 'spray') sprayPaint(); else tryAttack(); }
   else if (e.button === 1) { e.preventDefault(); doKick(); }   // middle mouse = kick (independent of the LMB attack)
   else if (e.button === 2 && !state.dead && !driving) {
     if (state.equipped === 'rifle') setZoom(true);
     else if (state.equipped === 'axe' && state.owned.axe) axeAiming = true;   // enter throw-aim mode
+    else if (state.equipped === 'spray') openMenu('spray');   // color palette
   }
 });
 document.addEventListener('mouseup', function (e) {
@@ -24098,7 +24255,7 @@ document.addEventListener('mouseup', function (e) {
 // in-game, and it renders bottom-center (#hotbarHud). Future food/drink items
 // slot in as more owned items automatically.
 var HOTBAR_SLOTS = 7, INV_COLS = 7, INV_ROWS = 3;
-var ITEM_SHORT = { fists: 'FISTS', pistol: 'PISTOL', smg: 'SMG', rifle: 'RIFLE', auto: 'AK-47', rocket: 'RPG', raygun: 'RAY GUN', neon_blaster: 'NEON', silenced: 'SILENCED', snack: 'SNACK', soda: 'SODA' };
+var ITEM_SHORT = { fists: 'FISTS', pistol: 'PISTOL', smg: 'SMG', rifle: 'RIFLE', auto: 'AK-47', rocket: 'RPG', raygun: 'RAY GUN', neon_blaster: 'NEON', silenced: 'SILENCED', axe: 'AXE', spray: 'SPRAY', snack: 'SNACK', soda: 'SODA' };
 if (!state.hotbar) state.hotbar = [null, null, null, null, null, null, null];
 function itemShort(id) { return ITEM_SHORT[id] || (WEAPONS[id] ? WEAPONS[id].name : id); }
 function itemCount(id) { return id === 'snack' ? state.snacks : (id === 'soda' ? state.sodas : 0); }
@@ -24798,6 +24955,7 @@ function updatePlayer(dt) {
     }
   }
   if (mouseDown && !WEAPONS[state.equipped].melee && WEAPONS[state.equipped].auto) tryAttack();
+  if (mouseDown && state.equipped === 'spray' && !state.menu) sprayPaint();   // hold LMB to keep spraying
   if (state.hp < 100 && T - state.lastHurt > 5) state.hp = Math.min(100, state.hp + 5 * dt);
   recoilPitch += -recoilPitch * Math.min(1, dt * 5);   // recoil recovers back to the aim over ~0.4s (was: pitch climbed and stuck)
   camera.position.set(player.x, player.y, player.z); camera.rotation.y = yaw; camera.rotation.x = Math.max(-1.45, Math.min(1.45, pitch + recoilPitch + divePitch));
@@ -25451,7 +25609,7 @@ function loop(now) {
   if (photoMode) { updatePhotoCam(dt); renderer.render(scene, camera); return; }
   T += dt;
   var sdt = dt;
-  updatePlayer(dt); updateKick(dt); updatePlaneWorld(dt); updateAirportPlane(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateCopCars(dt); updateHelis(dt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
+  updatePlayer(dt); updateKick(dt); updatePlaneWorld(dt); updateAirportPlane(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateCopCars(dt); updateHelis(dt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); ensureSpraySpawn(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
   if (state.dead) updateDeathCam(dt);   // top-down zoom-out cinematic drives the camera while dead
   renderer.render(scene, camera);
 }
@@ -25571,6 +25729,7 @@ window.__wc = {
   setPitch: function (p2) { pitch = p2; camera.rotation.x = pitch; },
   teleport: function (x, z) { player.x = x; player.z = z; },
   tryAttack: tryAttack, setEquipped: setEquipped, cycleEquip: cycleEquip, doKick: doKick, kickActive: function () { return kickActive; },
+  sprayPaint: sprayPaint, sprayDecals: function () { return sprayDecals; }, setSprayColor: function (c) { pickSprayColor(c); }, ensureSpraySpawn: ensureSpraySpawn, SPRAY_SPAWN: SPRAY_SPAWN,
   startKame: function () { startKamehameha(); }, isKame: function () { return kameActive; },
   hotbarAdd: hotbarAdd, seedHotbar: seedHotbar, refreshHotbarHud: refreshHotbarHud, refreshInv: refreshInv, updateHUD: updateHUD, hotbar: function () { return state.hotbar; },
   updateDeathCam: updateDeathCam, doRespawn: doRespawn, vm: vm,
@@ -25874,7 +26033,7 @@ window.__wc = {
   // lightweight physics step (no render, no NPC/cop/car sim) — fast headless
   // stepping for plane/fall tests. Renders only when you call renderer yourself.
   stepLite: function (dt) { T += dt; updatePlayer(dt); updatePlaneWorld(dt); },
-  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updateKick(dt); updatePlaneWorld(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateCopCars(dt); updateHelis(dt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
+  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updateKick(dt); updatePlaneWorld(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateCopCars(dt); updateHelis(dt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); ensureSpraySpawn(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
 };
 
 // ---------------- boot screen handoff + menu cover art ----------------
