@@ -640,10 +640,16 @@ up in a fireball, then **burns and smokes for about a minute** before it
 **collapses** — with a deep **collapse rumble**, the whole tower sinks straight
 down through the ground behind a wall of dust while a **heap of rubble rises up**
 where it stood (a real photo-textured debris pile of broken concrete and twisted
-rebar), so it looks like it's crumbling into wreckage. It stays a pile of rubble
-for **about 10 minutes**,
-then **rebuilds itself** — rising back out of the ground good as new. Like the
-plane, this is a **local, single-player** effect (not net-synced).
+rebar), so it looks like it's crumbling into wreckage.
+
+While it burns, **pedestrians nearby panic and sprint away** from it — and
+anyone caught **at the base when it comes down is crushed** (you included, so
+don't be standing under it). People still occasionally tumble out of the burning
+floors and hit the pavement, now leaving a **gory splat body** and a heavy impact
+thud where they land. The settled rubble is a **solid pile you can walk up like a
+hill** — clamber to the top of the wreckage once the dust clears. It stays a pile
+for **about 10 minutes**, then **resets instantly** back to a standing tower. Like
+the plane, this is a **local, single-player** effect (not net-synced).
 
 ## Streetcars on rails
 

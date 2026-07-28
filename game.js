@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.97.1';
+var GAME_VERSION = 'v1.98.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -6369,6 +6369,8 @@ function surfaceHeightAt(x, z, skipRects, feetY) {
     h = surfRect(x, z, mapDrives, 0.14, h);
     h = surfRect(x, z, mapPave, 0.13, h);
   }
+  // collapsed-skyscraper rubble is a walkable hill (player + NPCs + cars ride up it)
+  if (typeof rubblePiles !== 'undefined' && rubblePiles.length) { var rh = rubbleHeightAt(x, z); if (rh > h) h = rh; }
   // 2.5D: stand on top of a collider box whose top your feet have reached
   // (jump onto a dumpster/barrier/etc). Only the player passes feetY.
   if (feetY !== undefined) {
@@ -15910,6 +15912,75 @@ function updateTowerBits(dt) {
 // people occasionally falling/leaping out of the burning tower — they tumble +
 // spin the whole way down and SPLAT (gore burst + blood pool) on the ground.
 var towerFallers = [];
+// --- gory splat bodies left by tower jumpers who hit the ground (splatbody.js) ---
+var _splatC = {}, towerSplats = [];
+function spawnSplatBody(x, y, z) {
+  if (typeof SPLATBODY_DATA === 'undefined' || typeof decodeAirModel !== 'function') return;
+  decodeAirModel(SPLATBODY_DATA, _splatC);
+  var m = new THREE.Mesh(_splatC.geo, _splatC.mat.clone());   // clone mat so we can fade this one
+  m.material.transparent = true;
+  var s = 3.6 / SPLATBODY_DATA.dims[0];                        // scale the ~10u model down to ~body-sized
+  m.scale.set(s, s, s); m.position.set(x, y + 0.05, z); m.rotation.y = Math.random() * Math.PI * 2;
+  scene.add(m);
+  towerSplats.push({ mesh: m, life: BODY_TTL, max: BODY_TTL });
+}
+function updateTowerSplats(dt) {
+  for (var i = towerSplats.length - 1; i >= 0; i--) {
+    var s = towerSplats[i]; s.life -= dt;
+    if (s.life < 4) s.mesh.material.opacity = Math.max(0, s.life / 4);   // fade out the last 4s
+    if (s.life <= 0) { scene.remove(s.mesh); if (s.mesh.material) s.mesh.material.dispose(); towerSplats.splice(i, 1); }
+  }
+}
+// --- walkable rubble domes: after a tower collapses its rubble heap is a hill you
+// can walk up. Registered on the collapse->rubble transition, read by
+// surfaceHeightAt (so player + NPCs + cars all ride over it), cleared on reset. ---
+var rubblePiles = [];
+function rubbleHeightAt(x, z) {
+  if (!rubblePiles.length) return 0;
+  var best = 0;
+  for (var i = 0; i < rubblePiles.length; i++) {
+    var p = rubblePiles[i], dx = x - p.x, dz = z - p.z, r2 = dx * dx + dz * dz;
+    if (r2 >= p.R2) continue;
+    var t = 1 - r2 / p.R2;                 // 1 at centre -> 0 at edge
+    var h = p.peak * t * (0.55 + 0.45 * t);   // rounded pile: a bit flatter on top than a pure paraboloid
+    if (h > best) best = h;
+  }
+  return best;
+}
+// crush anyone standing at the base of a tower that's coming down
+function crushAtTower(t) {
+  var R = Math.max(t.W, t.D) * 0.5 + 3, R2 = R * R;
+  var pdx = player.x - t.x, pdz = player.z - t.z;
+  if (pdx * pdx + pdz * pdz < R2 && !state.dead && !noclip && typeof hurtPlayer === 'function') {
+    popup('CRUSHED!'); hurtPlayer(1000, t.x, t.z);
+  }
+  if (typeof isClient === 'function' && isClient()) return;   // NPCs/cops are host-owned in MP
+  for (var i = 0; i < npcs.length; i++) {
+    var n = npcs[i]; if (n.state === 'down' || n.state === 'hidden') continue;
+    var dx = n.x - t.x, dz = n.z - t.z; if (dx * dx + dz * dz > R2) continue;
+    spawnGoreBurst(n.x, 0.5, n.z, 0, 0, 4 + (Math.random() * 4 | 0)); damageNPC(n, 1000, 0, 0, true);
+  }
+  for (i = 0; i < cops.length; i++) {
+    var c = cops[i]; if (c.state === 'down') continue;
+    var cx = c.x - t.x, cz = c.z - t.z; if (cx * cx + cz * cz > R2) continue;
+    damageCop(c, 1000, 0, 0, true);
+  }
+}
+// scare NPCs near a burning/collapsing tower into fleeing directly away from it
+function scareFromTower(t) {
+  if (typeof isClient === 'function' && isClient()) return;   // host/singleplayer only (NPCs are host-owned)
+  var R = Math.max(t.W, t.D) * 0.5 + 65, R2 = R * R;
+  for (var i = 0; i < npcs.length; i++) {
+    var n = npcs[i];
+    if (n.state !== 'walk' && n.state !== 'stand' && n.state !== 'chat' && n.state !== 'flee') continue;
+    var dx = n.x - t.x, dz = n.z - t.z, d2 = dx * dx + dz * dz;
+    if (d2 > R2) continue;
+    var d = Math.sqrt(d2) || 1;
+    if (n.state !== 'flee') { if (typeof breakNpcChat === 'function') breakNpcChat(n); if (Math.random() < 0.5) fleeScream(n, false); }
+    n.state = 'flee'; n.dodge = false; n.fleeT = Math.max(n.fleeT || 0, 1.2); n.fleeDX = dx / d; n.fleeDZ = dz / d;
+  }
+  if (typeof fleeKidsNear === 'function') fleeKidsNear(t.x, t.z, R2);
+}
 function spawnTowerFaller(t) {
   if (towerFallers.length > 8) return;
   var m;
@@ -15946,8 +16017,10 @@ function updateTowerFallers(dt) {
         if (typeof bloodPool === 'function') bloodPool(f.x, f.z);
         for (var b = 0; b < 5; b++) bloodPunch(f.x + (Math.random() - 0.5) * 1.3, floor + 0.4 + Math.random() * 0.8, f.z + (Math.random() - 0.5) * 1.3);
         puff(new THREE.Vector3(f.x, floor + 0.5, f.z), 0x8f1512, 'blood');
+        spawnSplatBody(f.x, floor, f.z);                        // leave the gory splat-body model where they landed
         sfx('gore', { x: f.x, z: f.z, range: 50 });
         sfx('crash', { x: f.x, z: f.z, range: 42 });
+        sfx('jumperimpact', { x: f.x, z: f.z, range: 55 });     // added body-impact thud (on top of gore/crash)
       }
       scene.remove(f.mesh); towerFallers.splice(i, 1);
     }
@@ -15975,35 +16048,42 @@ function startTowerCollapse(t) {
   t.rubble = buildRubblePile(t);
   t.rubble.position.set(t.x, -t.pileH, t.z);          // starts fully underground, rises as the tower drops
   scene.add(t.rubble);
-  // the tower is no longer a tall obstacle: drop its plane-crash + walk collider
-  // to the (soon-to-exist) rubble height so it stops acting like a skyscraper
+  crushAtTower(t);                                     // anyone at the base when it comes down is crushed
+  // the tower is no longer a tall obstacle: its tall box collider stops walling
+  // you off (the rubble becomes a walkable hill via rubbleHeightAt instead)
   if (t.mb) t.mb.h = t.pileH;
-  if (t.col) t.col.topY = t.pileH;
+  if (t.col) t.col.active = false;
   sfx('boom', { x: t.x, z: t.z, range: 500 });
   sfx('towercollapse', { x: t.x, z: t.z, range: 520 });   // the big collapse rumble (falls silent if the pack is absent)
   sfx('crash', { x: t.x, z: t.z, range: 260 });
   popup('COLLAPSE!');
 }
 function resetTower(t) {
-  // rebuild: raise the tower back up out of the ground, sink + remove the rubble
-  t.state = 'rebuild'; t.t = 0;
-  if (t.mb) t.mb.h = t.fullH;                          // it's a skyscraper again
-  if (t.col) t.col.topY = t.fullH;
-}
-function finishReset(t) {
+  // INSTANT reset: no rise-out-of-the-ground animation, no dust. The tower is
+  // simply standing again the moment the rubble timer is up.
   t.state = 'up'; t.t = 0;
   t.group.position.y = 0;
   if (t.rubble) { scene.remove(t.rubble); t.rubble = null; }
-  if (t.impactDecal) { t.group.remove(t.impactDecal); t.impactDecal = null; }   // fresh face on the rebuilt tower
+  if (t.impactDecal) { t.group.remove(t.impactDecal); t.impactDecal = null; }   // fresh face on the reset tower
+  if (t.mb) t.mb.h = t.fullH;                          // it's a full skyscraper footprint again
+  if (t.col) t.col.active = true;                      // wall collider back on
+  for (var i = rubblePiles.length - 1; i >= 0; i--) if (rubblePiles[i].tid === t.id) rubblePiles.splice(i, 1);   // clear the walkable dome
 }
 function updateTowers(dt) {
   if (towerBits.length) updateTowerBits(dt);   // falling embers/papers keep animating regardless of tower state
   if (towerFallers.length) updateTowerFallers(dt);   // tumbling bodies + splats
+  if (towerSplats.length) updateTowerSplats(dt);     // gory splat bodies fade out over BODY_TTL
   for (var i = 0; i < towers.length; i++) {
     var t = towers[i];
     if (t.state === 'up') continue;
     t.t += dt;
     var fw = Math.max(t.W, t.D);
+    // while it burns or comes down, pedestrians near it panic and run away
+    if (t.state === 'burning' || t.state === 'collapsing') {
+      t.scareT = (t.scareT || 0) - dt;
+      if (t.scareT <= 0) { t.scareT = 0.4; scareFromTower(t); }
+    }
+    if (t.state === 'collapsing') crushAtTower(t);   // keep crushing anyone who wanders into the base as it drops
     if (t.state === 'burning') {
       t.emitT -= dt;
       if (t.emitT <= 0) {
@@ -16036,7 +16116,12 @@ function updateTowers(dt) {
         }
         for (d = 0; d < 2; d++) bigPuff(t.x + (Math.random() - 0.5) * t.W, 5 + Math.random() * 14, t.z + (Math.random() - 0.5) * t.D, 'smoke', fw * (1.7 + Math.random()), 2.8, 1.3, 7 + Math.random() * 5);
       }
-      if (p >= 1) { t.state = 'rubble'; t.t = 0; t.group.position.y = -(t.fullH + 3); if (t.rubble) t.rubble.position.y = 0; }
+      if (p >= 1) {
+        t.state = 'rubble'; t.t = 0; t.group.position.y = -(t.fullH + 3); if (t.rubble) t.rubble.position.y = 0;
+        // the settled heap is now a walkable hill (player + NPCs + cars ride over it)
+        var rR = Math.max(t.W, t.D) * 1.25;
+        rubblePiles.push({ tid: t.id, x: t.x, z: t.z, R2: rR * rR, peak: t.pileH });
+      }
     } else if (t.state === 'rubble') {
       // dust settling for the first few seconds, then the odd smoke wisp curling off the ruins
       t.emitT -= dt;
@@ -16044,13 +16129,7 @@ function updateTowers(dt) {
         if (t.t < 6) { t.emitT = 0.15; for (var r = 0; r < 2; r++) bigPuff(t.x + (Math.random() - 0.5) * t.W * 1.3, t.pileH * 0.5 + Math.random() * 6, t.z + (Math.random() - 0.5) * t.D * 1.3, 'dust', fw * (1.0 + Math.random()), 2.2, 1.2, 2 + Math.random() * 3); }
         else { t.emitT = 0.7 + Math.random(); bigPuff(t.x + (Math.random() - 0.5) * t.W, t.pileH + Math.random() * 4, t.z + (Math.random() - 0.5) * t.D, 'smoke', fw * 0.7, 2.0, 0.9, 4 + Math.random() * 3); }
       }
-      if (t.t >= TOWER_RUBBLE) resetTower(t);
-    } else if (t.state === 'rebuild') {
-      var rp = Math.min(1, t.t / TOWER_REBUILD), re = 1 - (1 - rp) * (1 - rp);   // ease-out rise
-      t.group.position.y = -(t.fullH + 3) * (1 - re);
-      if (t.rubble) t.rubble.position.y = -t.pileH * re;
-      if ((t.t * 60 | 0) % 2 === 0) for (var rb = 0; rb < 2; rb++) bigPuff(t.x + (Math.random() - 0.5) * t.W * 1.2, 0.5 + Math.random() * 8, t.z + (Math.random() - 0.5) * t.D * 1.2, 'dust', fw * (1.2 + Math.random()), 2.2, 1.4, 3 + Math.random() * 3);
-      if (rp >= 1) finishReset(t);
+      if (t.t >= TOWER_RUBBLE) resetTower(t);   // instant reset (no rise-up / dust animation)
     }
   }
 }
@@ -21659,6 +21738,9 @@ var SFX_MAP = {
   // plays in startTowerCollapse when a struck tower begins to come down. Synth has
   // no fallback — silent if the pack is absent.
   towercollapse: { k: 'towercollapse', g: 1.3, j: 0.03 },
+  // user-supplied body-impact thud (jumpersfx.js SFX_PACK.jumperimpact): plays
+  // ALONGSIDE the gore/crash splat when a tower jumper hits the ground.
+  jumperimpact: { k: 'jumperimpact', g: 1.0, j: 0.06 },
   warn_stall: { k: 'warn_stall', g: 0.85 }
 };
 function sfxLogPush(kind, pack) {
@@ -25022,6 +25104,7 @@ window.__wc = {
   showColliders: showColliders, colliderView: function () { return colViewOn; },
   buildPorsche: (typeof buildPorsche === 'function' ? buildPorsche : null), spawnPorscheProbe: (typeof spawnPorscheProbe === 'function' ? spawnPorscheProbe : null),
   state: state, player: player, npcs: npcs, cashes: cashes, cops: cops,
+  rubblePiles: function () { return rubblePiles; }, towerSplats: function () { return towerSplats; }, rubbleHeightAt: function (x, z) { return rubbleHeightAt(x, z); },
   kids: kids, adultRace: adultRace, spawnKids: spawnKids, updateKids: updateKids, playKidVoice: playKidVoice, kidVoiceDbg: function () { return kidVoiceDbg; },
   getKidPlaysets: getKidPlaysets, nearestPlayset: nearestPlayset, startKidPlay: startKidPlay,
   kidGames: function () { return kidGames; }, tryStartKidGame: tryStartKidGame, endKidGame: endKidGame,
