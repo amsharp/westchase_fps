@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.98.2';
+var GAME_VERSION = 'v1.98.3';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -15747,7 +15747,7 @@ var _towerV = new THREE.Vector3();
 function bigPuff(x, y, z, kind, scale, life, grow, vy, vx, vz) {
   var m;
   if (kind === 'fire' && typeof fireFrames !== 'undefined' && fireFrames) {
-    m = new THREE.Mesh(puffGeo, new THREE.MeshBasicMaterial({ map: fireFrames[(Math.random() * VFX_NF) | 0], transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false }));
+    m = new THREE.Mesh(puffGeo, new THREE.MeshBasicMaterial({ map: fireFrames[(Math.random() * VFX_NF) | 0], transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: true }));   // depthTest ON so solid geometry (incl. the FP hands/viewmodel) occludes the flames instead of them drawing over everything
     m.position.set(x, y, z); m.scale.setScalar(scale); scene.add(m);
     puffs.push({ mesh: m, life: life, max: life, fire: true, start: (Math.random() * VFX_NF) | 0, frames: fireFrames, grow: grow || 0.9, omax: 1, vy: vy || 0, vx: vx || 0, vz: vz || 0 });
     return;
@@ -15885,7 +15885,7 @@ function spawnTowerBit(x, y, z, paper) {
     m.rotation.set(Math.random() * 6.28, Math.random() * 6.28, Math.random() * 6.28);
   } else {
     if (!_emberGeo) _emberGeo = new THREE.PlaneGeometry(0.3, 0.3);
-    m = new THREE.Mesh(_emberGeo, new THREE.MeshBasicMaterial({ color: Math.random() < 0.5 ? 0xff7a1e : 0xffb440, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false }));
+    m = new THREE.Mesh(_emberGeo, new THREE.MeshBasicMaterial({ color: Math.random() < 0.5 ? 0xff7a1e : 0xffb440, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: true }));   // depthTest ON so embers don't draw over the FP viewmodel
   }
   m.position.set(x, y, z);
   scene.add(m);
@@ -18883,7 +18883,7 @@ var _kickLegC = {};
     var leg = new THREE.Mesh(_kickLegC.geo, _kickLegC.mat);
     var sc = 0.82 / LEG_DATA.dims[1];                 // ~0.82u tall
     leg.scale.set(sc, sc, sc);
-    leg.position.set(0, 0.12 - LEG_DATA.dims[1] * sc, 0);   // hip near origin, leg hangs down
+    leg.position.set(0, -LEG_DATA.dims[1] * sc, 0);   // hip AT the pivot, leg hangs straight down from it
     kickVM.add(leg);
   } else {
     var pantsM = lamb({ color: 0x33405e });   // jeans
@@ -18894,7 +18894,7 @@ var _kickLegC = {};
     kickVM.add(thigh); kickVM.add(shin); kickVM.add(shoe);
   }
   kickVM.position.set(0.06, -0.62, -0.5);    // hip pivot: bottom, slightly right of center
-  kickVM.rotation.x = 1.3;                    // resting: leg hangs down out of view
+  kickVM.rotation.x = 0.2;                    // resting: leg hangs down out of view
 })();
 var kickActive = false, kickAnimT = 0, kickT = -99;
 var KICK_DUR = 0.42, KICK_RATE = 0.55, KICK_RANGE = 3.4, KICK_DMG = 12, KICK_SHOVE = 2.6;
@@ -20573,14 +20573,14 @@ function updateKick(dt) {
   if (state.menu || state.dead || driving || (plane && plane.piloting)) { kickActive = false; kickVM.visible = false; return; }
   kickAnimT += dt;
   var p = kickAnimT / KICK_DUR;
-  if (p >= 1) { kickActive = false; kickVM.visible = false; kickVM.rotation.x = 1.3; kickVM.position.set(0.06, -0.62, -0.5); return; }
+  if (p >= 1) { kickActive = false; kickVM.visible = false; kickVM.rotation.x = 0.2; kickVM.position.set(0.06, -0.62, -0.5); return; }
   kickVM.visible = true;
   var swing;
   if (p < 0.35) { var e = p / 0.35; swing = e * e * (3 - 2 * e); }              // fast snap up 0->1
   else { var e2 = (p - 0.35) / 0.65; swing = 1 - e2 * e2 * (3 - 2 * e2); }      // retract 1->0
-  kickVM.rotation.x = 1.3 + (-1.0 - 1.3) * swing;    // rest 1.3 (hangs down) -> kicked -1.15 (leg swings up ~horizontal, foot leading)
-  kickVM.position.z = -0.5 - swing * 0.34;            // thrust into the screen
-  kickVM.position.y = -0.62 + swing * 0.44;           // foot lifts up into view
+  kickVM.rotation.x = 0.2 + (1.95 - 0.2) * swing;    // rest 0.2 (leg hangs down) -> kicked 1.95 (FOOT swings up + forward, leading the kick)
+  kickVM.position.z = -0.5 - swing * 0.30;            // thrust into the screen
+  kickVM.position.y = -0.62 + swing * 0.20;           // hip rises a little as the foot swings up
 }
 
 var dmgDirs = [];   // recent damage sources: {a: world angle to source, t}
