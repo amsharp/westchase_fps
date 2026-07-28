@@ -7,10 +7,10 @@
 var WC_PLANE = (function () {
   'use strict';
   // ---- model->game transform (nose +Y -> +Z, up -Z -> +Y), recentred on the CG ----
-  var CX = 0, CY = 1.2, CZ = -0.8, SCALE = 1.85;
+  var CX = 0, CY = 1.2, CZ = -0.8, SCALE = 2.13;   // ~15% bigger (was 1.85)
   function gpt(x, y, z) { return [(x - CX) * SCALE, -(z - CZ) * SCALE, (y - CY) * SCALE]; }
   // dimensions reported to the flight code (game space)
-  var GROUND_CLEARANCE = 1.61, LENGTH = 14.708, SPAN = 12.173;
+  var GROUND_CLEARANCE = 1.85, LENGTH = 16.93, SPAN = 14.01;   // scaled to match SCALE 2.13 (was 1.61 / 14.708 / 12.173)
   // control-surface + gear deflection limits (rad) — same convention as before
   var AIL_MAX = 0.4, ELV_MAX = 0.35, RUD_MAX = 0.4;
   var GN_RET = 1.55, GL_RET = 1.55, GR_RET = -1.55;   // nose gear folds the opposite way (owner)
