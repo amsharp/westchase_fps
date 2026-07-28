@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.100.1';
+var GAME_VERSION = 'v1.100.2';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -54,7 +54,7 @@ var NE_EXIT_Z = -200, SE_EXIT_X = 278;
 var WEAPONS = {
   fists:  { name: 'FISTS',  melee: true, dmg: 34, rate: 0.42, range: 2.4 },
   axe:    { name: 'AXE',    price: 400, worldOnly: true, melee: true, dmg: 200, rate: 0.62, range: 2.8, bisect: true, desc: 'Heavy chopping axe — a solid hit cleaves a body clean in half.' },
-  spray:  { name: 'SPRAY PAINT', worldOnly: true, spray: true, rate: 0.035, range: 1.6, desc: 'Tag any surface. Hold left-click to spray, right-click to change color.' },
+  spray:  { name: 'SPRAY PAINT', worldOnly: true, spray: true, rate: 0.035, range: 3.05, desc: 'Tag any surface. Hold left-click to spray, right-click to change color.' },
   pistol: { name: 'PISTOL', price: 150, dmg: 40, rate: 0.2, auto: false, spread: 0.014, ammo: 'pistol', mag: 15, reload: 1.5, desc: '9mm sidearm. Reliable.', flashAt: [0.26, -0.265, -0.9] },
   smg:    { name: 'SMG',    price: 400, dmg: 15, rate: 0.065, auto: true, spread: 0.008, spreadMax: 0.05, bloomPerShot: 0.006, ammo: 'pistol', mag: 30, reload: 2, desc: 'First shots on target. Then it sprays.', flashAt: [0.26, -0.262, -1.2] },
   rifle:  { name: 'RIFLE',  price: 600, dmg: 95, rate: 0.8,  auto: false, spread: 0.004, ammo: 'rifle', mag: 10, reload: 3, desc: 'One shot, one nap. Right-click to scope.', flashAt: [0.24, -0.235, -1.38] },

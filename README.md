@@ -331,9 +331,11 @@ it's truly gone.
 Behind the **RaceTrac** gas station, a can of **spray paint** spins on the
 ground — walk into it to pick it up (like the cabin axe, it's yours until you
 lose it on death). Equip it and **hold left-click** to tag whatever surface
-you're aiming at within about **five feet** — walls, sidewalks, the road, cars,
-anything. Each pull of the trigger stamps a small, imperfect circle of paint
-oriented flat against the surface, so by sweeping the can as you spray you can
+you're aiming at within about **ten feet** — walls, sidewalks, the road, cars,
+anything. Paint even **sticks to moving cars and people**, riding along with
+them as they drive or walk off. Each pull of the trigger stamps a small,
+imperfect circle of paint oriented flat against the surface, so by sweeping
+the can as you spray you can
 **draw** — letters, tags, whatever you want. **Right-click** pops up a little
 palette; click a color and it closes, and the can's cap changes to match.
 Fresh paint lasts **ten minutes** before it fades away. (Local to you — your
