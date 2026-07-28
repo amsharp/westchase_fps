@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.98.1';
+var GAME_VERSION = 'v1.98.2';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -18873,14 +18873,27 @@ var woodM = lamb2(woodT), gripM = lamb2(gripT);
 // (middle mouse). Separate group parented to the camera so it works with any
 // weapon equipped and isn't touched by the gun-sway logic. ----
 var kickVM = new THREE.Group(); camera.add(kickVM); kickVM.visible = false;
+var _kickLegC = {};
 (function buildKickLeg() {
-  var pantsM = lamb({ color: 0x33405e });   // jeans
-  var shoeM = lamb({ color: 0x18181c });
-  var thigh = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.42, 0.2), pantsM); thigh.position.set(0, 0.02, 0);
-  var shin = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.5, 0.17), pantsM); shin.position.set(0, -0.42, -0.02);
-  var shoe = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.15, 0.4), shoeM); shoe.position.set(0, -0.66, 0.12);
-  kickVM.add(thigh); kickVM.add(shin); kickVM.add(shoe);
-  kickVM.position.set(0.14, -0.62, -0.5);    // hip pivot: bottom, slightly right of center
+  // user-supplied leg model (leg.js LEG_DATA): authored upright, foot at y=0, hip
+  // at y=dims[1]. Scale it to viewmodel size + anchor the hip near the group origin
+  // so the existing rotation.x swing kicks it into view. Falls back to a box leg.
+  if (typeof LEG_DATA !== 'undefined' && typeof decodeAirModel === 'function') {
+    decodeAirModel(LEG_DATA, _kickLegC);
+    var leg = new THREE.Mesh(_kickLegC.geo, _kickLegC.mat);
+    var sc = 0.82 / LEG_DATA.dims[1];                 // ~0.82u tall
+    leg.scale.set(sc, sc, sc);
+    leg.position.set(0, 0.12 - LEG_DATA.dims[1] * sc, 0);   // hip near origin, leg hangs down
+    kickVM.add(leg);
+  } else {
+    var pantsM = lamb({ color: 0x33405e });   // jeans
+    var shoeM = lamb({ color: 0x18181c });
+    var thigh = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.42, 0.2), pantsM); thigh.position.set(0, 0.02, 0);
+    var shin = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.5, 0.17), pantsM); shin.position.set(0, -0.42, -0.02);
+    var shoe = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.15, 0.4), shoeM); shoe.position.set(0, -0.66, 0.12);
+    kickVM.add(thigh); kickVM.add(shin); kickVM.add(shoe);
+  }
+  kickVM.position.set(0.06, -0.62, -0.5);    // hip pivot: bottom, slightly right of center
   kickVM.rotation.x = 1.3;                    // resting: leg hangs down out of view
 })();
 var kickActive = false, kickAnimT = 0, kickT = -99;
@@ -20560,14 +20573,14 @@ function updateKick(dt) {
   if (state.menu || state.dead || driving || (plane && plane.piloting)) { kickActive = false; kickVM.visible = false; return; }
   kickAnimT += dt;
   var p = kickAnimT / KICK_DUR;
-  if (p >= 1) { kickActive = false; kickVM.visible = false; kickVM.rotation.x = 1.3; kickVM.position.set(0.14, -0.62, -0.5); return; }
+  if (p >= 1) { kickActive = false; kickVM.visible = false; kickVM.rotation.x = 1.3; kickVM.position.set(0.06, -0.62, -0.5); return; }
   kickVM.visible = true;
   var swing;
   if (p < 0.35) { var e = p / 0.35; swing = e * e * (3 - 2 * e); }              // fast snap up 0->1
   else { var e2 = (p - 0.35) / 0.65; swing = 1 - e2 * e2 * (3 - 2 * e2); }      // retract 1->0
-  kickVM.rotation.x = 1.3 + (-0.45 - 1.3) * swing;    // rest 1.3 (down) -> kicked -0.45 (extended forward)
-  kickVM.position.z = -0.5 - swing * 0.28;            // thrust into the screen
-  kickVM.position.y = -0.62 + swing * 0.30;           // foot lifts up into view
+  kickVM.rotation.x = 1.3 + (-1.0 - 1.3) * swing;    // rest 1.3 (hangs down) -> kicked -1.15 (leg swings up ~horizontal, foot leading)
+  kickVM.position.z = -0.5 - swing * 0.34;            // thrust into the screen
+  kickVM.position.y = -0.62 + swing * 0.44;           // foot lifts up into view
 }
 
 var dmgDirs = [];   // recent damage sources: {a: world angle to source, t}
