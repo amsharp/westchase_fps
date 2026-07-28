@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.98.0';
+var GAME_VERSION = 'v1.98.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -15919,7 +15919,7 @@ function spawnSplatBody(x, y, z) {
   decodeAirModel(SPLATBODY_DATA, _splatC);
   var m = new THREE.Mesh(_splatC.geo, _splatC.mat.clone());   // clone mat so we can fade this one
   m.material.transparent = true;
-  var s = 3.6 / SPLATBODY_DATA.dims[0];                        // scale the ~10u model down to ~body-sized
+  var s = 2.6 / SPLATBODY_DATA.dims[0];                        // scale the ~10u model down to ~body-sized (a bit smaller)
   m.scale.set(s, s, s); m.position.set(x, y + 0.05, z); m.rotation.y = Math.random() * Math.PI * 2;
   scene.add(m);
   towerSplats.push({ mesh: m, life: BODY_TTL, max: BODY_TTL });
@@ -15942,7 +15942,7 @@ function rubbleHeightAt(x, z) {
     var p = rubblePiles[i], dx = x - p.x, dz = z - p.z, r2 = dx * dx + dz * dz;
     if (r2 >= p.R2) continue;
     var t = 1 - r2 / p.R2;                 // 1 at centre -> 0 at edge
-    var h = p.peak * t * (0.55 + 0.45 * t);   // rounded pile: a bit flatter on top than a pure paraboloid
+    var h = p.peak * 0.5 * t * (0.55 + 0.45 * t);   // rounded pile, ~half the visual height so you don't climb too high
     if (h > best) best = h;
   }
   return best;
