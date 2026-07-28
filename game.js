@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.98.5';
+var GAME_VERSION = 'v1.99.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2087,10 +2087,11 @@ function getVehMat(vi, col) {
 var ggGeoCache = {}, ggWheelCache = {}, ggMatCache = {}, ggEndCache = {};
 var GG_TRAFFIC = [];    // roster indices: normal-weight traffic/parked bodies
 var GG_WRECK_I = -1;    // Car 06 husk (explosion leftovers, never a live car)
+var GG_POLICE_I = -1;   // reserved police body — used by the cop-car pursuit system
 if (typeof GGBOT_VEHS !== 'undefined') for (var ggi = 0; ggi < GGBOT_VEHS.length; ggi++) {
   if (GGBOT_VEHS[ggi].n === 'GG_WRECK') GG_WRECK_I = ggi;
-  // GG_POLICE is reserved for a future cop-car feature — never in rosters
-  else if (GGBOT_VEHS[ggi].n !== 'GG_POLICE') GG_TRAFFIC.push(ggi);
+  else if (GGBOT_VEHS[ggi].n === 'GG_POLICE') GG_POLICE_I = ggi;   // reserved for the cop-car feature — never in traffic rosters
+  else GG_TRAFFIC.push(ggi);
 }
 function getGGGeo(gi) {
   if (ggGeoCache[gi]) return ggGeoCache[gi];
@@ -2212,7 +2213,7 @@ var GG_LIGHT_TUNE = {
   GG_TAXI: { hy: 1.09, hz: 0.76, ty: 1.06, tz: 0.71 },
   GG_STEPVAN: { hy: 1.10, hz: 0.97, ty: 0.91, tz: 1.09 }
 };
-function makeCar() {
+function makeCar(forceGi) {   // forceGi: pin a specific GGBOT body (e.g. GG_POLICE_I) instead of a random traffic pick
   var g = new THREE.Group();
   var body = new THREE.Group();   // separate so suspension can bounce it over the wheels
   var wheels = [], pivots = [];
@@ -2224,14 +2225,14 @@ function makeCar() {
   var nMeshy = (typeof GGBOT_VEHS !== 'undefined' && GG_TRAFFIC.length) ? 0 : (typeof MESHY_VEHS !== 'undefined' && MESHY_VEHS.length ? MESHY_VEHS.length : 0);
   var pickN = (Math.random() * (nMeshy + GG_TRAFFIC.length)) | 0;
   var e = null, s = 1, ends = null, ggw = null, vname = 'PROC', bodyMesh = null;
-  if (pickN >= nMeshy && GG_TRAFFIC.length) {
+  if (forceGi !== undefined || (pickN >= nMeshy && GG_TRAFFIC.length)) {
     // GGBot body: shipped variant texture, own wheel mesh at TRUE pivots
-    var gi = GG_TRAFFIC[pickN - nMeshy];
+    var gi = (forceGi !== undefined) ? forceGi : GG_TRAFFIC[pickN - nMeshy];
     e = GGBOT_VEHS[gi];
     s = vehTargetLen(e.n) / e.dims[0];
     // `mail` (always the LAST texs slot) is a rare livery: ~5% of van rolls
-    var ti = e.mail !== undefined && Math.random() < 0.05 ? e.mail :
-      (Math.random() * (e.mail !== undefined ? e.texs.length - 1 : e.texs.length)) | 0;
+    var ti = (forceGi !== undefined) ? 0 : (e.mail !== undefined && Math.random() < 0.05 ? e.mail :
+      (Math.random() * (e.mail !== undefined ? e.texs.length - 1 : e.texs.length)) | 0);
     var gmat = getGGMat(gi, ti);
     var vm3 = new THREE.Mesh(getGGGeo(gi), gmat);
     vm3.scale.set(s, s, s);
@@ -16069,6 +16070,123 @@ function resetTower(t) {
   if (t.col) t.col.active = true;                      // wall collider back on
   for (var i = rubblePiles.length - 1; i >= 0; i--) if (rubblePiles[i].tid === t.id) rubblePiles.splice(i, 1);   // clear the walkable dome
 }
+
+// ==================== POLICE PURSUIT CARS ====================
+// Local/per-player (like the plane + towers — never net-synced). Spawn on the
+// road network at 2+ wanted stars and pure-pursue the player with whisker
+// obstacle-avoidance so they thread the streets without grinding on buildings —
+// and can leave the road to follow across open ground. Catch you ON FOOT and the
+// car parks + pours out 1-2 foot cops (pushed into the normal cops[] so the
+// existing cop AI runs them); if you're driving, they chase your ride. Shootable.
+// Heading convention (matches remapDriveCar): nose forward = (cos h, -sin h);
+// rotation.y = atan2(-dirZ, dirX).
+var copCars = [], copCarSpawnT = 0;
+var COPCAR_HP = 130;
+function desiredCopCars() { var w = state.wanted; return w >= 2 ? Math.min(w - 1, 4) : 0; }   // 2*=1, 3*=2, 4*=3, 5*=4
+function spawnCopCar() {
+  if (GG_POLICE_I < 0) return null;
+  // spawn on a ring 70-115u from the player (just out of sight), snapped onto the
+  // nearest road if one is close so cop cars arrive down the streets. Ring-first
+  // (not random-edge-first) because RM.edges includes far airport/expansion roads.
+  var a = Math.random() * 6.283, dist = 70 + Math.random() * 45;
+  var sx = player.x + Math.cos(a) * dist, sz = player.z + Math.sin(a) * dist;
+  if (typeof RM !== 'undefined' && RM.edges && RM.edges.length) {
+    var bestD = 26 * 26, bx = null, bz = null;
+    for (var ei = 0; ei < RM.edges.length; ei++) {
+      var e = RM.edges[ei]; if (e.stub) continue;
+      var pr = rmProject(e.pts, e.cum, sx, sz);
+      if (pr.d * pr.d < bestD) { var q = rmAt(e.pts, e.cum, pr.s); bestD = pr.d * pr.d; bx = q.x; bz = q.z; }
+    }
+    if (bx !== null) { sx = bx; sz = bz; }
+  }
+  if (typeof HALF !== 'undefined') { sx = Math.max(-HALF + 12, Math.min(HALF - 12, sx)); sz = Math.max(-HALF + 12, Math.min(HALF - 12, sz)); }
+  var car = makeCar(GG_POLICE_I);
+  var dirx = player.x - sx, dirz = player.z - sz, dl = Math.hypot(dirx, dirz) || 1;
+  var h = Math.atan2(-dirz / dl, dirx / dl);
+  car.group.position.set(sx, surfaceHeightAt(sx, sz, false, 1.5), sz);
+  car.group.rotation.y = h;
+  var cc = { car: car, x: sx, z: sz, h: h, speed: 9, state: 'seek', hp: COPCAR_HP, parkT: 0, disgorged: false, life: 0 };
+  car.group.traverse(function (o) { o.userData.copCar = cc; });   // shootable (raycast walks up to a tagged parent)
+  copCars.push(cc);
+  return cc;
+}
+// a foot cop poured out of a parked cop car — no door-snap; joins the normal cops[]
+function spawnCopAt(x, z) {
+  if (typeof buildCop !== 'function') return null;
+  var mesh = buildCop();
+  var po = pushOut(x, z, 0.6);
+  var c = { mesh: mesh, nid: copNid++, x: po.x, z: po.z, hp: 100, state: 'engage', tx: po.x, tz: po.z, phase: Math.random() * 9, fireT: 0.4 + Math.random(), downT: 0, hurtFlash: 0, vname: mesh.userData.vname || null, fem: (typeof MESHY_FEM !== 'undefined' ? MESHY_FEM.indexOf(mesh.userData.vname || '') >= 0 : false) };
+  mesh.position.set(c.x, 0, c.z);
+  mesh.userData.cop = c;
+  scene.add(mesh); cops.push(c);
+  return c;
+}
+function parkAndDisgorge(cc) {
+  cc.state = 'parked'; cc.parkT = 0; cc.speed = 0;
+  if (cc.disgorged) return;
+  cc.disgorged = true;
+  var h = cc.car.group.rotation.y;
+  var sx = Math.cos(h + Math.PI / 2), sz = -Math.sin(h + Math.PI / 2);   // car's left/right axis
+  var n = 1 + (Math.random() < 0.65 ? 1 : 0);
+  for (var i = 0; i < n; i++) { var sd = i === 0 ? 1 : -1; spawnCopAt(cc.x + sx * sd * 2.4, cc.z + sz * sd * 2.4); }
+  if (typeof sfx === 'function') sfx('cardoor', { x: cc.x, z: cc.z, range: 40 });
+}
+function removeCopCar(cc) { if (cc.car && cc.car.group) scene.remove(cc.car.group); }
+function explodeCopCar(cc) { if (typeof boomAt === 'function') boomAt(cc.x, cc.z); removeCopCar(cc); }
+function damageCopCar(cc, dmg, pt) { cc.hp -= dmg; if (pt && typeof puff === 'function') puff(pt, 0xffe08a); }
+function driveCopCar(cc, dt, pd) {
+  var car = cc.car, g = car.group, h = g.rotation.y;
+  if (cc.state === 'parked') {
+    cc.speed += (0 - cc.speed) * Math.min(1, dt * 5); cc.parkT += dt;
+    updateCarFeel(cc, dt, cc.speed, 0, 0);
+    return;
+  }
+  var isDrv = (typeof driving !== 'undefined' && driving);
+  if (!isDrv && pd < 12 && cc.state === 'seek') { parkAndDisgorge(cc); return; }
+  cc.state = isDrv ? 'chase' : 'seek';
+  var tx = player.x, tz = player.z;
+  if (isDrv) { tx += (driving.mvx || 0) * 0.35; tz += (driving.mvz || 0) * 0.35; }
+  var dx = tx - cc.x, dz = tz - cc.z, dd = Math.hypot(dx, dz) || 1;
+  var desDir = Math.atan2(-(dz / dd), dx / dd);
+  // whisker avoidance: take the clearest bearing near the one that points at the target
+  var probe = 4.5 + cc.speed * 0.4, clear = false, bear = desDir;
+  var offs = [0, 0.45, -0.45, 0.9, -0.9, 1.5, -1.5, 2.2, -2.2];
+  for (var oi = 0; oi < offs.length; oi++) {
+    var b = desDir + offs[oi], bx = Math.cos(b), bz = -Math.sin(b);
+    if (pointFree(cc.x + bx * probe, cc.z + bz * probe, 1.7) && pointFree(cc.x + bx * probe * 0.55, cc.z + bz * probe * 0.55, 1.7)) { bear = b; clear = true; break; }
+  }
+  var dh = bear - h; while (dh > Math.PI) dh -= 6.283; while (dh < -Math.PI) dh += 6.283;
+  var steer = Math.max(-1, Math.min(1, dh * 1.8));
+  var turn = 2.4 * dt;
+  g.rotation.y += Math.max(-turn, Math.min(turn, dh));
+  var cruise = 18;
+  if (Math.abs(dh) > 0.7) cruise = 9;
+  if (!clear) cruise = 6;
+  if (pd < 16 && !isDrv) cruise = Math.min(cruise, 8);
+  cc.speed += (cruise - cc.speed) * Math.min(1, dt * 1.6);
+  var nh = g.rotation.y, nfx = Math.cos(nh), nfz = -Math.sin(nh);
+  var nx = cc.x + nfx * cc.speed * dt, nz = cc.z + nfz * cc.speed * dt;
+  var po = pushOut(nx, nz, 1.5, landColliders || colliders);
+  cc.x = po.x; cc.z = po.z;
+  g.position.set(cc.x, surfaceHeightAt(cc.x, cc.z, false, g.position.y + 1.5), cc.z);
+  var spin = (cc.speed * dt) / 0.34;
+  for (var wi = 0; wi < 4; wi++) { var ww = car.wheels[wi]; ww.rotation.y -= spin * (ww.userData.sd || 1); }
+  updateCarFeel(cc, dt, cc.speed, 0, steer);
+}
+function updateCopCars(dt) {
+  if (!state.running) return;
+  var want = (state.dead || state.menu || (typeof inside !== 'undefined' && inside)) ? 0 : desiredCopCars();
+  copCarSpawnT -= dt;
+  if (copCars.length < want && copCarSpawnT <= 0) { spawnCopCar(); copCarSpawnT = 4.5; }
+  for (var i = copCars.length - 1; i >= 0; i--) {
+    var cc = copCars[i];
+    if (cc.hp <= 0) { explodeCopCar(cc); copCars.splice(i, 1); continue; }
+    cc.life += dt;
+    var pd = Math.hypot(player.x - cc.x, player.z - cc.z);
+    if ((want === 0 && cc.state !== 'parked') || pd > 280 || (cc.state === 'parked' && cc.parkT > 30) || cc.life > 300) { removeCopCar(cc); copCars.splice(i, 1); continue; }
+    driveCopCar(cc, dt, pd);
+  }
+}
 function updateTowers(dt) {
   if (towerBits.length) updateTowerBits(dt);   // falling embers/papers keep animating regardless of tower state
   if (towerFallers.length) updateTowerFallers(dt);   // tumbling bodies + splats
@@ -20144,6 +20262,7 @@ function fireShotgun(w) {
   for (k = 0; k < cops.length; k++) npcRootsAlive.push(cops[k].mesh);
   if (isClient()) for (k = 0; k < copsM.length; k++) npcRootsAlive.push(copsM[k].mesh);
   for (k = 0; k < cars.length; k++) if (!cars[k].exploded) npcRootsAlive.push(cars[k].car.group);
+  for (k = 0; k < copCars.length; k++) npcRootsAlive.push(copCars[k].car.group);
   for (var rid in net.remotes) { var rr = net.remotes[rid]; if (rr.dead) continue; npcRootsAlive.push(rr.drv && rr.car ? rr.car.group : rr.mesh); }
   var targets = npcRootsAlive.concat(solidMeshes), hitAny = false;
   for (var pel = 0; pel < w.pellets; pel++) {
@@ -20152,8 +20271,8 @@ function fireShotgun(w) {
     raycaster.set(origin.clone(), d); raycaster.far = 70;
     var hits = raycaster.intersectObjects(targets, true);
     if (!hits.length) continue;
-    var h = hits[0], o = h.object, npcHit = null, copHit = null, carHit = null, remoteHit = null, copMHit = -1, atmHit = null;
-    while (o) { var u = o.userData; if (u) { if (u.npc) { npcHit = u.npc; break; } if (u.cop) { copHit = u.cop; break; } if (u.copM !== undefined) { copMHit = u.copM; break; } if (u.remoteId) { remoteHit = u.remoteId; break; } if (u.trafficCar) { carHit = u.trafficCar; break; } if (u.atm) { atmHit = u.atm; break; } } o = o.parent; }
+    var h = hits[0], o = h.object, npcHit = null, copHit = null, carHit = null, remoteHit = null, copMHit = -1, atmHit = null, copCarHit = null;
+    while (o) { var u = o.userData; if (u) { if (u.npc) { npcHit = u.npc; break; } if (u.cop) { copHit = u.cop; break; } if (u.copM !== undefined) { copMHit = u.copM; break; } if (u.remoteId) { remoteHit = u.remoteId; break; } if (u.copCar) { copCarHit = u.copCar; break; } if (u.trafficCar) { carHit = u.trafficCar; break; } if (u.atm) { atmHit = u.atm; break; } } o = o.parent; }
     var dmg = Math.round(w.dmg * Math.max(0.25, 1 - h.distance / w.falloff));
     if (npcHit && npcHit.state === 'down') { hitAny = true; gorePoke(npcHit.x, h.point.y, npcHit.z, d.x, d.z); }   // corpse: extra gibs, no damage
     else if (copHit && copHit.state === 'down') { hitAny = true; gorePoke(copHit.x, h.point.y, copHit.z, d.x, d.z); }
@@ -20167,6 +20286,7 @@ function fireShotgun(w) {
     else if (copHit) { hitAny = true; damageCop(copHit, dmg, d.x, d.z); puff(h.point, 0xd93a2a, 'blood'); }
     else if (copMHit >= 0) { hitAny = true; puff(h.point, 0xd93a2a, 'blood'); netToHost({ t: 'dmgCop', id: copsM[copMHit] ? copsM[copMHit].nid : undefined, dmg: dmg, kx: d.x, kz: d.z }); if (copsM[copMHit]) { copsM[copMHit].hpM = Math.max(0, (copsM[copMHit].hpM !== undefined ? copsM[copMHit].hpM : 100) - dmg); if (!copsM[copMHit].down) { if (state.wanted < 1) setWanted(1); lastCrimeT = T; } } }
     else if (remoteHit) { hitAny = true; netSendHit(remoteHit, dmg, true); puff(h.point, 0xd93a2a, 'blood'); }
+    else if (copCarHit) { hitAny = true; damageCopCar(copCarHit, dmg, h.point); }
     else if (carHit) { puff(h.point, 0xbbbbbb, 'impact'); if (!isClient()) { carHit.dmgT = (carHit.dmgT || 0) + w.rate * 0.5; if (carHit.dmgT >= 1.5 && goBerserk(carHit)) { popup('WRECKED!'); creditCivKill('car'); } } else netToHost({ t: 'shootCar', i: cars.indexOf(carHit), rate: w.rate }); }
     else if (atmHit) shootAtm(atmHit, h.point);
     else { puff(h.point, 0xbbbbbb, 'impact'); bulletHole(h); }
@@ -20436,6 +20556,7 @@ function tryAttack() {
   for (k = 0; k < cops.length; k++) npcRootsAlive.push(cops[k].mesh);
   if (isClient()) for (k = 0; k < copsM.length; k++) npcRootsAlive.push(copsM[k].mesh);
   for (k = 0; k < cars.length; k++) if (!cars[k].exploded) npcRootsAlive.push(cars[k].car.group);
+  for (k = 0; k < copCars.length; k++) npcRootsAlive.push(copCars[k].car.group);   // shootable cop cars
   for (var rid in net.remotes) { var rr = net.remotes[rid]; if (rr.dead) continue; npcRootsAlive.push(rr.drv && rr.car ? rr.car.group : rr.mesh); }
   if (ufo && ufo.mode === 'fly') npcRootsAlive.push(ufo.group);
   if (alien && alien.state !== 'dead') npcRootsAlive.push(alien.mesh);
@@ -20461,19 +20582,21 @@ function tryAttack() {
     }
   }
   if (hits.length) {
-    var h = hits[0], o = h.object, npcHit = null, copHit = null, carHit = null, remoteHit = null, copMHit = -1, ufoHit = false, alienHit = false, atmHit = null;
+    var h = hits[0], o = h.object, npcHit = null, copHit = null, carHit = null, remoteHit = null, copMHit = -1, ufoHit = false, alienHit = false, atmHit = null, copCarHit = null;
     while (o) {
       if (o.userData && o.userData.npc) { npcHit = o.userData.npc; break; }
       if (o.userData && o.userData.cop) { copHit = o.userData.cop; break; }
       if (o.userData && o.userData.copM !== undefined) { copMHit = o.userData.copM; break; }
       if (o.userData && o.userData.remoteId) { remoteHit = o.userData.remoteId; break; }
+      if (o.userData && o.userData.copCar) { copCarHit = o.userData.copCar; break; }
       if (o.userData && o.userData.trafficCar) { carHit = o.userData.trafficCar; break; }
       if (o.userData && o.userData.ufo) { ufoHit = true; break; }
       if (o.userData && o.userData.alien) { alienHit = true; break; }
       if (o.userData && o.userData.atm) { atmHit = o.userData.atm; break; }
       o = o.parent;
     }
-    if (ufoHit) {
+    if (copCarHit) { damageCopCar(copCarHit, w.dmg, h.point); }
+    else if (ufoHit) {
       if (isClient()) { puff(h.point, 0xffe08a); netToHost({ t: 'dmgUfo', dmg: w.dmg }); }
       else damageUfo(w.dmg, h.point);
     }
@@ -25010,7 +25133,7 @@ function loop(now) {
   if (photoMode) { updatePhotoCam(dt); renderer.render(scene, camera); return; }
   T += dt;
   var sdt = dt;
-  updatePlayer(dt); updateKick(dt); updatePlaneWorld(dt); updateAirportPlane(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
+  updatePlayer(dt); updateKick(dt); updatePlaneWorld(dt); updateAirportPlane(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateCopCars(dt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
   if (state.dead) updateDeathCam(dt);   // top-down zoom-out cinematic drives the camera while dead
   renderer.render(scene, camera);
 }
@@ -25119,6 +25242,7 @@ window.__wc = {
   buildPorsche: (typeof buildPorsche === 'function' ? buildPorsche : null), spawnPorscheProbe: (typeof spawnPorscheProbe === 'function' ? spawnPorscheProbe : null),
   state: state, player: player, npcs: npcs, cashes: cashes, cops: cops,
   rubblePiles: function () { return rubblePiles; }, towerSplats: function () { return towerSplats; }, rubbleHeightAt: function (x, z) { return rubbleHeightAt(x, z); },
+  copCars: function () { return copCars; }, spawnCopCar: function () { return spawnCopCar(); }, desiredCopCars: function () { return desiredCopCars(); },
   kids: kids, adultRace: adultRace, spawnKids: spawnKids, updateKids: updateKids, playKidVoice: playKidVoice, kidVoiceDbg: function () { return kidVoiceDbg; },
   getKidPlaysets: getKidPlaysets, nearestPlayset: nearestPlayset, startKidPlay: startKidPlay,
   kidGames: function () { return kidGames; }, tryStartKidGame: tryStartKidGame, endKidGame: endKidGame,
@@ -25431,7 +25555,7 @@ window.__wc = {
   // lightweight physics step (no render, no NPC/cop/car sim) — fast headless
   // stepping for plane/fall tests. Renders only when you call renderer yourself.
   stepLite: function (dt) { T += dt; updatePlayer(dt); updatePlaneWorld(dt); },
-  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updateKick(dt); updatePlaneWorld(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
+  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updateKick(dt); updatePlaneWorld(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateCopCars(dt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
 };
 
 // ---------------- boot screen handoff + menu cover art ----------------
