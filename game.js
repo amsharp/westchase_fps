@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.102.0';
+var GAME_VERSION = 'v1.103.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -13549,8 +13549,8 @@ function maxWanted() {
 function desiredCops() { var w = maxWanted(); return w === 0 ? 2 : 2 + w * 2; }
 function copWeapon() {
   return maxWanted() >= 4
-    ? { range: 46, dmg: 4, rate: 0.14, acc: 0.32, sfx: 'copsmg' }   // full-auto SMGs
-    : { range: 21, dmg: 9, rate: 1.05, acc: 0.38, sfx: 'copshot' }; // sidearms, short range
+    ? { range: 46, dmg: 4, rate: 0.14, acc: 0.46, sfx: 'copsmg' }   // full-auto SMGs
+    : { range: 21, dmg: 9, rate: 1.05, acc: 0.55, sfx: 'copshot' }; // sidearms, short range
 }
 var copRay = new THREE.Raycaster();
 function copHasLOS(c, tgt) {
@@ -13672,7 +13672,9 @@ function copShoot(c, wpn, dt, tgt) {
   // muzzle flash at the gun's barrel tip; chest-height fallback if holstered
   var mz3 = copMuzzle(c) || new THREE.Vector3(c.x + dx / d * 0.5, (c.baseY || 0) + 1.45, c.z + dz / d * 0.5);
   puff(mz3, 0xffe08a, 'muzzle');
-  var hitChance = wpn.acc * Math.max(0.1, 1 - d / wpn.range);
+  // accuracy falls off steeply with range: near-certain point-blank, poor far out
+  var tacc = Math.max(0, 1 - d / wpn.range);
+  var hitChance = wpn.acc * (0.15 + 1.05 * tacc * tacc);
   var hitV = null;   // where a round landed on a person (for the client blood puff)
   if (Math.random() < hitChance) {
     if (tgt.id) { hitV = new THREE.Vector3(tgt.x, (tgt.y || 0) + 1.1, tgt.z); netSendHit(tgt.id, wpn.dmg); }   // remote player: their client applies (car redirect included)
@@ -13718,8 +13720,73 @@ function damageCop(c, dmg, kx, kz, silent) {
     sfx('hit', { x: c.x, z: c.z, y: (c.baseY || 0) + 1.2, range: 50 });
   }
 }
+// ---- weapon-aware policing: cover under fire, arrest the unarmed, warn melee ----
+var copMeleeSince = 0, copMeleeEscalate = false, bustedT = 0;
+var _copPpx, _copPpz, _copPvx = 0, _copPvz = 0;
+// player threat as police read it: 0 = harmless (fists/snack/soda/spray) -> arrest;
+// 1 = melee weapon (axe) -> warn, shoot only if they linger or charge; 2 = gun -> shoot.
+function copPlayerThreat() {
+  if (state.dead) return 0;
+  var w = WEAPONS[state.equipped];
+  if (!w) return 0;
+  if (state.equipped === 'fists' || w.snack || w.spray) return 0;
+  if (w.melee) return 1;                                   // axe (bisect) etc.
+  return 2;                                                // firearm / rocket / laser
+}
+var _covRay = new THREE.Raycaster(), _covA = new THREE.Vector3(), _covB = new THREE.Vector3();
+function coverBlocked(x, z, tx, tz) {                      // true if something blocks LOS (x,z)->(tx,tz)
+  var ddx = tx - x, ddz = tz - z, dist = Math.sqrt(ddx * ddx + ddz * ddz) || 1;
+  _covA.set(x, 1.4, z); _covB.set(ddx / dist, 0, ddz / dist);
+  _covRay.set(_covA, _covB); _covRay.far = Math.max(0.1, dist - 0.6);
+  return _covRay.intersectObjects(solidMeshes, true).length > 0;
+}
+// the nearest spot the cop can step to that BREAKS line of sight to the target
+// (ring-sample around the cop) — a reachable corner/wall to duck behind, works
+// with any blocking geometry. null when there's nowhere to hide (open ground).
+function copFindCover(c, tgt) {
+  var best = null, bd = 1e9;
+  for (var a = 0; a < 12; a++) {
+    var ang = a / 12 * 6.2832, cs = Math.cos(ang), sn = Math.sin(ang);
+    for (var r = 4; r <= 11; r += 3.5) {
+      var cx = c.x + cs * r, cz = c.z + sn * r;
+      if (!pointFree(cx, cz, 0.5)) continue;               // can't stand there
+      if (!coverBlocked(cx, cz, tgt.x, tgt.z)) continue;   // still exposed there
+      var dd = (cx - c.x) * (cx - c.x) + (cz - c.z) * (cz - c.z);
+      if (dd < bd) { bd = dd; best = { x: cx, z: cz }; }
+    }
+  }
+  return best;
+}
+function bustPlayer(cop) {
+  if (bustedT > 0 || state.dead || inside) return;
+  var stars = state.wanted || 1, fine = Math.min(state.money, 40 + stars * 60);
+  state.money -= fine;
+  state.stolen = 0; state.civKills = 0; state.copKills = 0;
+  setWanted(0);
+  bustedT = 2.6;
+  popup('BUSTED');
+  toast('Arrested &mdash; $' + fine + ' fine', 3200);
+  sfx('alarm', { x: cop.x, z: cop.z, range: 40 });
+}
 function updateCops(dt) {
   var wpn = copWeapon();
+  // ---- read the player: threat class, speed (for "charging"), and whether we're
+  // under fire right now (player fired a gun in the last ~1.6s) ----
+  var armLevel = copPlayerThreat();
+  if (_copPpx !== undefined && dt > 0.0001) { _copPvx = (player.x - _copPpx) / dt; _copPvz = (player.z - _copPpz) / dt; }
+  _copPpx = player.x; _copPpz = player.z;
+  var pspd = Math.sqrt(_copPvx * _copPvx + _copPvz * _copPvz);
+  var suppressed = (armLevel === 2) && (T - lastShot < 1.6) && (state.wanted || 0) > 0;
+  if (armLevel === 1 && (state.wanted || 0) > 0 && !state.dead && !inside) {
+    if (!copMeleeSince) copMeleeSince = T;
+    if (T - copMeleeSince > 6) copMeleeEscalate = true;    // stood there brandishing it too long
+    if (pspd > 5) for (var mci = 0; mci < cops.length; mci++) {   // charging an officer?
+      var mc = cops[mci]; if (mc.state === 'down' || mc.interior) continue;
+      var mdx = mc.x - player.x, mdz = mc.z - player.z, md = Math.sqrt(mdx * mdx + mdz * mdz);
+      if (md < 8 && (_copPvx * mdx + _copPvz * mdz) / (pspd * (md || 1)) > 0.55) { copMeleeEscalate = true; break; }
+    }
+  } else { copMeleeSince = 0; if (armLevel !== 1) copMeleeEscalate = false; }
+  var copsFire = armLevel === 2 || (armLevel === 1 && copMeleeEscalate);
   // officers keep a professional distance from each other (no conjoined twins)
   for (var s1 = 0; s1 < cops.length; s1++) {
     var ca = cops[s1];
@@ -13775,9 +13842,36 @@ function updateCops(dt) {
     var vx = 0, vz = 0, spd = 0, moving = false, aimTgt = null;
     if (tgt) {
       var dx = tgt.x - c.x, dz = tgt.z - c.z, d = tgt.d;
-      if (d > wpn.range * 0.65 || (c.interior && d > 5)) { vx = dx / d; vz = dz / d; spd = 4.4; moving = true; }
-      m.rotation.y = Math.atan2(dx, dz);
-      if (d < wpn.range) aimTgt = tgt;   // aim + fire below, after animPerson poses the bones
+      m.rotation.y = Math.atan2(dx, dz);                    // always face the target
+      var wantFire = c.interior || copsFire || !!tgt.id;    // interior room + remote players: engage as before
+      if (c.interior) {
+        if (d > 5) { vx = dx / d; vz = dz / d; spd = 4.4; moving = true; }
+        aimTgt = tgt;
+      } else if (suppressed && wantFire) {
+        // UNDER FIRE: break for cover and hold; pop back out when the player stops shooting
+        if (c.coverT === undefined || c.coverT <= 0 || !coverBlocked(c.x, c.z, tgt.x, tgt.z)) {
+          var cv = copFindCover(c, tgt);
+          if (cv) { c.coverX = cv.x; c.coverZ = cv.z; c.coverT = 1.2; } else c.coverX = undefined;
+        }
+        if (c.coverX !== undefined) {
+          var cdx = c.coverX - c.x, cdz = c.coverZ - c.z, cdd = Math.sqrt(cdx * cdx + cdz * cdz);
+          if (cdd > 1.2) { vx = cdx / cdd; vz = cdz / cdd; spd = 5.2; moving = true; }   // hustle to cover
+          c.coverT -= dt;                                   // no aimTgt: holding fire behind cover
+        } else {                                            // nowhere to hide: advance + return fire
+          if (d > wpn.range * 0.65) { vx = dx / d; vz = dz / d; spd = 4.4; moving = true; }
+          if (d < wpn.range) aimTgt = tgt;
+        }
+      } else if (armLevel === 0 && !tgt.id) {
+        // harmless player: run them down and cuff them (no shooting)
+        if (d > 1.4) { vx = dx / d; vz = dz / d; spd = 4.8; moving = true; }
+        else bustPlayer(c);
+        c.coverT = 0;
+      } else {
+        // player stopped shooting / melee-escalated / armed: advance and fire
+        if (d > wpn.range * 0.65) { vx = dx / d; vz = dz / d; spd = 4.4; moving = true; }
+        if (d < wpn.range && wantFire) aimTgt = tgt;
+        c.coverT = 0;
+      }
     } else {
       if (c.interior) { m.position.set(c.x, baseY, c.z); animPerson(m, 0, dt); if (m.userData.heldGun) copLowReady(m); continue; }
       var tdx = c.tx - c.x, tdz = c.tz - c.z, td = Math.sqrt(tdx * tdx + tdz * tdz);
@@ -25112,6 +25206,7 @@ function updatePlayer(dt) {
   updateReload();   // finish a manual reload once its timer elapses
   var f = 0, s = 0;
   if (keys['KeyW']) f += 1; if (keys['KeyS']) f -= 1; if (keys['KeyD']) s += 1; if (keys['KeyA']) s -= 1;
+  if (bustedT > 0) { bustedT -= dt; f = 0; s = 0; }   // cuffed for a beat during an arrest
   if (state.sitting) { if (f || s || keys['Space']) state.sitting = false; else { f = 0; s = 0; } }   // env sit: stand on any move input
   // dumpster dive: rummage locks movement, dips the camera into the bin, spits
   // trash puffs; resolves loot after ~2s. (any move input aborts it early)
