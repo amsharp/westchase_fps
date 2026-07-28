@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.101.0';
+var GAME_VERSION = 'v1.102.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -5760,7 +5760,8 @@ function carAvoidPush(c, px, pz, hx, hz, dt) {
 function carDesiredSpeed(c, idx, dt) {
   carPersona(c);
   c._holdKind = '';
-  var des = (c.cruise !== undefined ? c.cruise : c.speed) * (c.spdMul || 1);
+  var fleeing = c.fleeT > 0;                                       // shot at: floor it and get away
+  var des = (fleeing ? 17 : (c.cruise !== undefined ? c.cruise : c.speed)) * (c.spdMul || 1);
   var m = c.car.group.position;
   var hx = c.rTx, hz = c.rTz;
   if (hx === undefined) { var hr = c.car.group.rotation.y; hx = Math.cos(hr); hz = -Math.sin(hr); }
@@ -5789,7 +5790,8 @@ function carDesiredSpeed(c, idx, dt) {
     if (ls < 1.0) c._holdKind = 'lead';
   }
   // (b) red lights: stop at the bar of the approach we're driving toward
-  for (var s = 0; s < carSignals.length; s++) {
+  // (a panicking fleeing driver runs them)
+  if (!fleeing) for (var s = 0; s < carSignals.length; s++) {
     var lg = carSignals[s];
     var col = lg.grp === 'main' ? sigMain : sigCross;
     if (col !== 'r' && col !== 'y') continue;         // green -> go
@@ -5807,7 +5809,7 @@ function carDesiredSpeed(c, idx, dt) {
   }
   // (c) stop signs: brief hold at uncontrolled 3+ leg nodes (never the central
   // signal Y near the origin). Per-node one-shot with a hard timeout -> no deadlock.
-  if (RM) {
+  if (RM && !fleeing) {
     var e = RM.edges[c.rEdge], end = c.rDir > 0 ? 1 : 0, nd = e.node[end];
     if (nd && nd.legs.length >= 3 && (nd.x * nd.x + nd.z * nd.z) > 1600) {
       var distNode = c.rDir > 0 ? (e.len - c.rS) : c.rS;
@@ -5817,14 +5819,27 @@ function carDesiredSpeed(c, idx, dt) {
       }
     }
   }
-  // (d) slow for corners/junction turns, and brake for reckless/wrong-way player
-  // cars, cop cars, and the jet
-  var cc = carCornerCap(c); if (cc < des) des = cc;
+  // (d) don't run over pedestrians walking in our path: brake to a stop short of
+  // the nearest one ahead (a live driver only — a driverless runaway can't).
+  var pedGap = Infinity;
+  for (var pi = 0; pi < npcs.length; pi++) {
+    var pn = npcs[pi]; if (pn.state === 'down' || pn.state === 'ragdoll' || pn.state === 'hidden') continue;
+    var pdx = pn.x - m.x, pdz = pn.z - m.z;
+    var pf = pdx * hx + pdz * hz; if (pf <= 0.2 || pf > 12) continue;
+    var plat = -pdx * hz + pdz * hx; if (plat < 0) plat = -plat;
+    if (plat > 2.0) continue;                                      // clear of our lane
+    if (pf < pedGap) pedGap = pf;
+  }
+  if (pedGap < Infinity) { var pls = Math.max(0, pedGap - 3.2) / 0.5; if (pls < des) des = pls; }
+  // (e) slow for corners/junction turns (relaxed a touch while fleeing), and brake
+  // for reckless/wrong-way player cars, cop cars, and the jet
+  var cc = carCornerCap(c); if (fleeing) cc *= 1.3; if (cc < des) des = cc;
   var hz2 = carHazardCap(c, m, hx, hz); if (hz2 < des) des = hz2;
   return des;
 }
 // ease actual speed toward the governor's target (firmer decel than accel)
 function applyCarGovernor(c, idx, dt) {
+  if (c.fleeT > 0) c.fleeT -= dt;                 // panic-flee window winds down
   var des = carDesiredSpeed(c, idx, dt);
   var rate = des < c.speed ? 24 : 8;
   var d = des - c.speed, step = rate * dt;
@@ -8356,34 +8371,43 @@ function setNpcTarget(n) {
 }
 // scan traffic for a car bearing down on this NPC; returns the unit
 // perpendicular (away from the car's path) to sprint along, or null
+// a car at (mx,mz) with velocity (vx,vz) bearing down on n -> perpendicular bail dir
+function _npcThreatFrom(n, mx, mz, vx, vz) {
+  var dx = n.x - mx, dz = n.z - mz, d2 = dx * dx + dz * dz;
+  if (d2 > 121) return null;                               // 11u reaction range
+  var sp = Math.sqrt(vx * vx + vz * vz);
+  if (sp < 2.5) return null;                               // parked / crawling
+  var d = Math.sqrt(d2) || 1;
+  if ((vx * dx + vz * dz) / (sp * d) < 0.55) return null;  // car not headed our way
+  var pxn = -vz / sp, pzn = vx / sp;                       // perpendicular to travel
+  var side = dx * pxn + dz * pzn >= 0 ? 1 : -1;            // bail to the nearer clear side
+  return { x: pxn * side, z: pzn * side };
+}
+// street smarts: bail from ANY moving car bearing down — traffic, the player's
+// ride, remote players, AND cop cars.
 function npcCarThreat(n) {
   for (var i = 0; i < cars.length; i++) {
     var c = cars[i];
-    if (c.exploded) continue;
-    var m = c.car.group.position;
-    var dx = n.x - m.x, dz = n.z - m.z;
-    var d2 = dx * dx + dz * dz;
-    if (d2 > 49) continue;
-    var vx, vz;
-    if (c.berserk) { vx = c.bvx; vz = c.bvz; }
+    if (c.exploded || c.dead) continue;
+    var m = c.car.group.position, vx, vz;
+    if (c.coast || c.berserk) { vx = c.bvx; vz = c.bvz; }
     else if (c.shoveT > 0) { vx = c.svx; vz = c.svz; }
     else if (c.stolen || carDrivenByPlayer(c) || c === driving) {
-      // a car driven by a REMOTE player is a synced world car (host mirrors its
-      // pos via drivenBy) — use that remote's mirrored velocity so it registers
-      // as a threat between the 14Hz updates; local/host-driven cars fall back
-      // to the per-frame position-delta sample (c._pvx/_pvz).
+      // remote-driven cars are synced world cars — use the mirrored velocity so
+      // they register between the 14Hz updates; local/host-driven fall back to
+      // the per-frame position-delta sample (c._pvx/_pvz).
       var rd = (c.drivenBy && net.remotes) ? net.remotes[c.drivenBy] : null;
       if (rd) { vx = rd.vx || c._pvx || 0; vz = rd.vz || c._pvz || 0; }
       else { vx = c._pvx || 0; vz = c._pvz || 0; }
     }
-    else { vx = c.axis === 'x' ? c.dir * c.speed : 0; vz = c.axis === 'z' ? c.dir * c.speed : 0; }
-    var sp = Math.sqrt(vx * vx + vz * vz);
-    if (sp < 2.5) continue;                                 // parked / crawling
-    var d = Math.sqrt(d2) || 1;
-    if ((vx * dx + vz * dz) / (sp * d) < 0.6) continue;     // not headed this way
-    var pxn = -vz / sp, pzn = vx / sp;                      // perpendicular to travel
-    var side = dx * pxn + dz * pzn >= 0 ? 1 : -1;           // dodge to the nearer clear side
-    return { x: pxn * side, z: pzn * side };
+    else { var ch = c.car.group.rotation.y; vx = Math.cos(ch) * c.speed; vz = -Math.sin(ch) * c.speed; }   // traffic: heading * speed (remap moves on its heading, not an axis)
+    var t = _npcThreatFrom(n, m.x, m.z, vx, vz);
+    if (t) return t;
+  }
+  for (var k = 0; k < copCars.length; k++) {               // dodge cop cars too
+    var cc = copCars[k], cm = cc.car.group.position, ch2 = cc.car.group.rotation.y;
+    var t2 = _npcThreatFrom(n, cm.x, cm.z, Math.cos(ch2) * (cc.speed || 0), -Math.sin(ch2) * (cc.speed || 0));
+    if (t2) return t2;
   }
   return null;
 }
@@ -14167,6 +14191,7 @@ function recycleAbandonedCar(c) {
   if (c.eng) stopEngine(c);
   c.abandonT = undefined; c.stolen = false; c.jacked = false; c.jackCD = 0; c.playerDriven = false;
   c.drivenBy = null; c.dmgT = 0; c.berserk = false; c.burning = false; c.carHP = undefined; c.shoveT = 0;
+  c.dead = false; c.runaway = false; c.coast = false; c.fleeT = 0;
   if (c.slot) {
     c.parked = true; c.speed = 0;
     c.car.group.position.set(c.slot.x, 0, c.slot.z); c.car.group.rotation.y = c.slot.ry;
@@ -14205,7 +14230,7 @@ function updateCars(dt) {
       if (c.respawnT <= 0) {
         c.exploded = false; c.car.group.visible = true;
         removeHusk(c);   // the wreck is "towed" when the replacement shows up
-        c.dmgT = 0; c.berserk = false;
+        c.dmgT = 0; c.berserk = false; c.dead = false; c.runaway = false; c.coast = false; c.fleeT = 0;
         c.stolen = false; c.jacked = false; c.jackCD = 0; c.playerDriven = false;
         c.drivenBy = null;   // stale ids here made respawned traffic read as player-driven
         c.burning = false; c.carHP = undefined;
@@ -14222,6 +14247,13 @@ function updateCars(dt) {
           c.speed = 8 + Math.random() * 6;
         }
       }
+      continue;
+    }
+    // driver killed and the car crunched to a stop: sit as a dead wreck, then recycle
+    if (c.dead) {
+      if (c.eng) c.eng.g.gain.value = 0;
+      c.respawnT -= dt;
+      if (c.respawnT <= 0) recycleAbandonedCar(c);   // reset + reseed fresh traffic
       continue;
     }
     // driverless runaway: a car you bailed out of at speed coasts on its heading
@@ -14468,6 +14500,7 @@ function startCoast(c, tvx, tvz, asp) {
 }
 function coastParkCar(c) {
   c.coast = false; c.bvx = 0; c.bvz = 0; c.pspeed = 0; c.speed = 0;
+  if (c.runaway) { c.dead = true; c.respawnT = 22; return; }   // driver-dead wreck: sits crashed, then recycles
   if (c.slot) { c.parked = true; }   // lot car settles as parked; street car stays a stopped stolen car
 }
 function updateCoastCar(c, dt, i) {
@@ -15038,8 +15071,7 @@ function updateDriving(dt) {
           if (isClient()) netToHost({ t: 'ramHit', i: i, kx: Math.round(rkx * 10), kz: Math.round(rkz * 10), sp: Math.round(rsp * 10), dmg: imp });
           else {
             shoveCar(oc, rkx, rkz, rsp);
-            oc.dmgT += imp;
-            if (oc.dmgT >= 1.5 && goBerserk(oc)) { popup('WRECKED!'); creditCivKill('car'); }
+            if (hitTrafficCar(oc, imp)) { popup('WRECKED!'); creditCivKill('car'); }
           }
         }
         c.pspeed *= 0.5;
@@ -17449,8 +17481,12 @@ function updateBooms(dt) {
 // returns TRUE only when this call actually starts the wreck (goes berserk or
 // first ignites a parked car) — callers gate kill-credit on it so a car already
 // berserk/burning/exploded can't be re-credited on every follow-up shot/ram
+// The DRIVER is killed: the car loses control and rolls on IN DRIVE, plowing
+// straight ahead into whatever is in its path. updateCoastCar handles it —
+// mows pedestrians, then explodes if it's still going fast (COAST_BOOM) or just
+// crunches to a stop if it isn't. (Was the old cartoon spin-out — removed.)
 function goBerserk(c) {
-  if (c.berserk || c.burning || c.exploded) return false;
+  if (c.coast || c.runaway || c.burning || c.exploded) return false;
   if (c.parked) {
     // no driver to lose control — a shot-up parked car just catches fire and blows
     c.burning = true; c.burnT = 2.2; c.flameT = 0;
@@ -17458,21 +17494,35 @@ function goBerserk(c) {
     sfx('crash', { x: pp.x, z: pp.z, range: 90 });
     return true;
   }
-  c.berserk = true;
-  var m = c.car.group;
-  var dirx = c.axis === 'x' ? c.dir : 0, dirz = c.axis === 'z' ? c.dir : 0;
-  var side = Math.random() < 0.5 ? 1 : -1;                 // veer left or right
-  var ang = side * (0.55 + Math.random() * 0.55);          // 30-63 degrees off the road
-  var ca = Math.cos(ang), sa = Math.sin(ang);
-  var spd = c.speed * 2.2 + 10;
-  c.bvx = (dirx * ca - dirz * sa) * spd;
-  c.bvz = (dirx * sa + dirz * ca) * spd;
-  c.bx = m.position.x; c.bz = m.position.z;
-  c.spin = side * (7 + Math.random() * 7);                 // crazy spin
-  c.curve = side * (0.08 + Math.random() * 0.18);          // gentle arc — stays headed off the road
-  c.boomTimer = 6;
-  sfx('crash', { x: m.position.x, z: m.position.z, range: 120 });
+  var m = c.car.group, hh = m.rotation.y;
+  c.runaway = true; c.berserk = false; c.shoveT = 0; c.coast = true;
+  c.bx = m.position.x; c.bz = m.position.z; c.coastY = m.position.y || 0;
+  var spd = Math.max(c.speed, 7);
+  c.bvx = Math.cos(hh) * spd; c.bvz = -Math.sin(hh) * spd;   // keep rolling on the current heading
+  c.pspeed = 0; c.speed = 0; c.parked = false;
+  sfx('crash', { x: m.position.x, z: m.position.z, range: 110 });
   return true;
+}
+// a wreck that's kept getting shot torches and blows (no player fire-warning popup)
+function carCatchFire(c) {
+  if (c.burning || c.exploded) return;
+  c.burning = true; c.burnT = 2.4; c.flameT = 0;
+  var p = c.car.group.position; sfx('crash', { x: p.x, z: p.z, range: 90 });
+}
+// unified gunfire/ram hit on a live traffic car. First hits SPOOK the driver (flee);
+// enough damage KILLS the driver (car runs away); still more sets it on fire.
+// Returns true exactly on the hit that kills the driver, so the caller scores it.
+function hitTrafficCar(c, amt) {
+  if (!c || c.exploded) return false;
+  if (c.parked) { c.dmgT = (c.dmgT || 0) + amt; return (c.dmgT >= 1.5) ? goBerserk(c) : false; }
+  c.dmgT = (c.dmgT || 0) + amt;
+  if (!c.runaway && !c.coast && !c.burning) {
+    c.fleeT = 4.5;                                          // panic: floor it and get away (refreshed each hit)
+    if (c.dmgT >= 1.5) return goBerserk(c);                 // driver dies -> loses control
+  } else if ((c.coast || c.runaway) && !c.burning && c.dmgT >= 3.5) {
+    carCatchFire(c);                                        // keep shooting the wreck -> it burns and explodes
+  }
+  return false;
 }
 function shoveCar(c, dx, dz, sp) {
   var m2 = c.car.group;
@@ -20938,7 +20988,7 @@ function fireShotgun(w) {
     else if (heliGunHit) { hitAny = true; hitHeliGunner(heliGunHit, dmg, h.point); }
     else if (heliHit) { hitAny = true; damageHeli(heliHit, dmg, h.point); }
     else if (copCarHit) { hitAny = true; damageCopCar(copCarHit, dmg, h.point); }
-    else if (carHit) { puff(h.point, 0xbbbbbb, 'impact'); if (!isClient()) { carHit.dmgT = (carHit.dmgT || 0) + w.rate * 0.5; if (carHit.dmgT >= 1.5 && goBerserk(carHit)) { popup('WRECKED!'); creditCivKill('car'); } } else netToHost({ t: 'shootCar', i: cars.indexOf(carHit), rate: w.rate }); }
+    else if (carHit) { puff(h.point, 0xbbbbbb, 'impact'); if (!isClient()) { if (hitTrafficCar(carHit, w.rate * 0.5)) { popup('WRECKED!'); creditCivKill('car'); } } else netToHost({ t: 'shootCar', i: cars.indexOf(carHit), rate: w.rate }); }
     else if (atmHit) shootAtm(atmHit, h.point);
     else { puff(h.point, 0xbbbbbb, 'impact'); bulletHole(h); }
   }
@@ -21302,8 +21352,7 @@ function tryAttack() {
       } else if (isClient()) {
         netToHost({ t: 'shootCar', i: cars.indexOf(carHit), rate: w.rate });
       } else {
-        carHit.dmgT += w.rate;
-        if (carHit.dmgT >= 1.5 && goBerserk(carHit)) { popup('WRECKED!'); creditCivKill('car'); }   // trashing a ride weighs like a body (credit once, on the wreck)
+        if (hitTrafficCar(carHit, w.rate)) { popup('WRECKED!'); creditCivKill('car'); }   // driver killed -> car runs away (credit once)
       }
     }
     else if (atmHit) shootAtm(atmHit, h.point);   // streetprops: burst the ATM open
@@ -23518,8 +23567,7 @@ function handleNet(m, conn) {
       if (scc && scc.drivenBy && !scc.exploded) {
         netSendHit(scc.drivenBy, clampf(m.dmg, 0, 100));   // occupied car: damage the driver (they apply it to their carHP)
       } else if (scc && !scc.stolen && !scc.exploded) {
-        scc.dmgT += clampf(m.rate, 0, 1);   // covers the rifle's 0.8 rate; still bounds garbage
-        if (scc.dmgT >= 1.5 && goBerserk(scc)) { try { conn.send({ t: 'kill', kind: 'car' }); } catch (e) { } }
+        if (hitTrafficCar(scc, clampf(m.rate, 0, 1))) { try { conn.send({ t: 'kill', kind: 'car' }); } catch (e) { } }
       }
     } else if (m.t === 'ragNpc') {
       var rn = npcs[m.i];
