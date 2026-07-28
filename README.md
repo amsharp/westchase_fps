@@ -680,6 +680,22 @@ the pilotless plane triggers the collapse when it hits. (A safe slow-and-low
 exit on the ground just parks the plane, no chute needed.) The plane is a
 **local, single-player toy** for now; it isn't shared in multiplayer.
 
+### The helicopter
+
+Parked in front of the **hangars at the airport** is a flyable **helicopter**.
+Walk up and press **E** to climb in. It flies on a simple cyclic/collective feel:
+
+- **W / S** — **collective**: rise straight up, or descend to come down and land.
+- **A / D** — **yaw**: swing the nose left or right.
+- **Mouse** — **cyclic tilt**: push the mouse **up** to dip the nose and fly
+  **forward**, pull it **down** to tip the tail down and back up, and move it
+  **left / right** to bank and slide the chopper that way. Let the mouse settle
+  and the heli levels back out and hovers.
+
+Press **E** to hop out. Slam it into the ground or a building at speed and it
+goes up in a fireball (and takes you with it if you're aboard). Local /
+single-player like the plane.
+
 ### Flying into a skyscraper
 
 There's a row of five real Tampa towers out in the open land **northeast of

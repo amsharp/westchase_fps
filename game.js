@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.103.0';
+var GAME_VERSION = 'v1.104.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -15419,6 +15419,104 @@ function exitPlane() {
     // the doomed plane keeps flying pilotless until it augers in
   }
 }
+// ==================== PLAYER-FLYABLE HELICOPTER ====================
+// Reuses the police AS350 mesh (buildHeliMesh). Parks at the airport in front of
+// a hangar; press E nearby to board. Controls: W/S = collective (rise / descend
+// & land), A/D = yaw (turn left / right), MOUSE = cyclic tilt — up tips the nose
+// down and flies forward, down tips the tail down and backs up, left/right bank
+// the heli and slide it left/right. Local / singleplayer, like the plane.
+var heliVeh = null;
+var HELI_SPAWN = { x: (typeof AIRPORT_ORIGIN !== 'undefined' ? AIRPORT_ORIGIN.x : 150) - 72, z: (typeof AIRPORT_ORIGIN !== 'undefined' ? AIRPORT_ORIGIN.z : 1250) - 148 };
+var HELI_SKID = 1.0, HELI_MOUSE_SENS = 0.0019, HELI_CLIMB = 15, HELI_ACC = 27, HELI_MAX = 44, HELI_CEIL = 620, HELI_TILT = 0.6;
+function spawnPlayerHeli() {
+  if (heliVeh || typeof buildHeliMesh !== 'function') return heliVeh;
+  var built = buildHeliMesh();
+  built.group.position.set(HELI_SPAWN.x, HELI_SKID, HELI_SPAWN.z);
+  built.group.rotation.set(0, 0, 0, 'YXZ');              // nose +X, out over the open field
+  scene.add(built.group);
+  heliVeh = { group: built.group, mainRotor: built.mainRotor, tailRotor: built.tailRotor,
+    yaw: 0, pitch: 0, roll: 0, vx: 0, vy: 0, vz: 0, alive: true, piloting: false,
+    camPos: new THREE.Vector3(), camInit: false };
+  return heliVeh;
+}
+function heliGroundY(x, z) {
+  var s = (typeof surfaceHeightAt === 'function') ? surfaceHeightAt(x, z, false, 0) : 0;
+  return s + HELI_SKID;
+}
+function boardHeli() {
+  if (!heliVeh || heliVeh.piloting) return;
+  if (driving) exitCar();
+  heliVeh.piloting = true; heliVeh.pitch = 0; heliVeh.roll = 0; heliVeh.camInit = false;
+  setZoom(false); vm.visible = false;
+  document.getElementById('crosshair').style.display = 'none';
+  var wb = document.getElementById('weaponBox');
+  if (wb) wb.innerHTML = 'HELICOPTER<br><small>[E] exit &middot; W/S up &amp; down &middot; A/D turn &middot; mouse: tilt to fly</small>';
+}
+function exitHeli() {
+  if (!heliVeh) return;
+  heliVeh.piloting = false; heliVeh.vx = heliVeh.vy = heliVeh.vz = 0;
+  vm.visible = true;
+  document.getElementById('crosshair').style.display = '';
+  setEquipped(state.equipped);
+  var g = heliVeh.group;
+  var side = new THREE.Vector3(0, 0, 1).applyQuaternion(g.quaternion);
+  var pp = pushOut(g.position.x + side.x * 2.6, g.position.z + side.z * 2.6, 0.55, landColliders || colliders);
+  player.x = pp.x; player.z = pp.z; player.y = EYE; player.vy = 0; player.grounded = true;
+  popup('PARKED'); sfx('cardoor');
+}
+function crashPlayerHeli() {
+  if (!heliVeh) return;
+  var g = heliVeh.group, x = g.position.x, z = g.position.z, wasP = heliVeh.piloting;
+  boomAt(x, z); sfx('boom', { x: x, z: z, range: 260 });
+  for (var i = 0; i < 12; i++) puff(new THREE.Vector3(x + (Math.random() - 0.5) * 5, 0.8 + Math.random() * 3, z + (Math.random() - 0.5) * 5), i % 2 ? 0x333333 : 0xff7a1e);
+  scene.remove(g); heliVeh = null;
+  if (wasP && !state.dead) hurtPlayer(999, x, z);
+}
+function updateHeliCam(dt) {
+  var g = heliVeh.group;
+  var back = _planeTmpV.set(-1, 0, 0).applyQuaternion(g.quaternion);   // toward the tail
+  var up = _planeTmpV2.set(0, 1, 0).applyQuaternion(g.quaternion);
+  var want = g.position.clone().addScaledVector(back, 11).addScaledVector(up, 4.2);
+  if (want.y < 1.6) want.y = 1.6;
+  if (!heliVeh.camInit) { heliVeh.camPos.copy(want); heliVeh.camInit = true; }
+  else heliVeh.camPos.lerp(want, Math.min(1, dt * 4));
+  camera.position.copy(heliVeh.camPos);
+  camera.lookAt(g.position.x, g.position.y + 1, g.position.z);
+}
+function updatePlayerHeli(dt) {
+  if (!heliVeh) return;
+  var h = heliVeh, g = h.group;
+  if (!h.piloting) { h.mainRotor.rotation.y += 2.5 * dt; return; }   // parked: idle rotor drift
+  var yawIn = (keys['KeyA'] ? 1 : 0) - (keys['KeyD'] ? 1 : 0);       // A left, D right
+  h.yaw += yawIn * 1.7 * dt;
+  var lv = Math.min(1, 1.7 * dt); h.pitch -= h.pitch * lv; h.roll -= h.roll * lv;   // cyclic self-centers
+  if (h.pitch > HELI_TILT) h.pitch = HELI_TILT; else if (h.pitch < -HELI_TILT) h.pitch = -HELI_TILT;
+  if (h.roll > HELI_TILT) h.roll = HELI_TILT; else if (h.roll < -HELI_TILT) h.roll = -HELI_TILT;
+  var vyT = keys['KeyW'] ? HELI_CLIMB : (keys['KeyS'] ? -HELI_CLIMB : 0);           // collective; release = hover
+  h.vy += (vyT - h.vy) * Math.min(1, 3 * dt);
+  var nx = Math.cos(h.yaw), nz = -Math.sin(h.yaw);                  // nose dir (world x,z)
+  var rx = -nz, rz = nx;                                            // pilot's right
+  var fA = h.pitch * HELI_ACC, sA = h.roll * HELI_ACC;             // pitch>0 nose-down=fwd; roll>0=right
+  h.vx += (nx * fA + rx * sA) * dt; h.vz += (nz * fA + rz * sA) * dt;
+  var dg = Math.max(0, 1 - 1.3 * dt); h.vx *= dg; h.vz *= dg;
+  var hsp = Math.sqrt(h.vx * h.vx + h.vz * h.vz);
+  if (hsp > HELI_MAX) { h.vx = h.vx / hsp * HELI_MAX; h.vz = h.vz / hsp * HELI_MAX; }
+  g.position.x += h.vx * dt; g.position.y += h.vy * dt; g.position.z += h.vz * dt;
+  g.position.x = Math.max(WLO + 4, Math.min(WHI - 4, g.position.x));
+  g.position.z = Math.max(WLO + 4, Math.min(WHI - 4, g.position.z));
+  if (g.position.y > HELI_CEIL) { g.position.y = HELI_CEIL; if (h.vy > 0) h.vy = 0; }
+  var gy = heliGroundY(g.position.x, g.position.z);
+  if (g.position.y < gy) {
+    var impact = -h.vy; g.position.y = gy;
+    if (impact > 26 || hsp > 34) { crashPlayerHeli(); return; }    // slammed down -> wreck
+    if (h.vy < 0) h.vy = 0;
+  }
+  if ((planeHitBuilding(g.position.x, g.position.y, g.position.z) || planeHitHighway(g.position.x, g.position.y, g.position.z)) && (hsp > 8 || Math.abs(h.vy) > 8)) { crashPlayerHeli(); return; }
+  g.rotation.set(h.roll, h.yaw, -h.pitch, 'YXZ');                   // bank(X), heading(Y), pitch(Z)
+  h.mainRotor.rotation.y += 30 * dt; h.tailRotor.rotation.z += 44 * dt;
+  player.x = g.position.x; player.z = g.position.z; player.y = g.position.y;
+  updateHeliCam(dt);
+}
 // ==================== PARACHUTE ====================
 // Bailing out of the plane airborne now auto-deploys a parachute: the view
 // swings to third person, you float down slowly and steer with WASD, and when
@@ -23338,6 +23436,7 @@ function startGame() {
   seedHotbar();   // auto-fill the hotbar from owned items (fists + any guns)
   lockPointer();
   spawnAirportPlane();   // park the stealable Learjet at the airport (once; respawns on a fresh start if it's gone)
+  spawnPlayerHeli();     // park a flyable helicopter by the hangars
   toast('Welcome to <b>Westchase</b>. Punch people for cash, rob the gas station (the <b style="color:#e05a3a">G</b> on your minimap), and buy guns from the dealer (the gold <b style="color:#ffd94a">$</b>). <b>TAB</b> = inventory.', 11000);
 }
 
@@ -24577,6 +24676,14 @@ document.addEventListener('mousemove', function (e) {
     plane.mRud = Math.max(-1.4, Math.min(1.4, plane.mRud - e.movementX * PLANE_MOUSE_SENS));
     return;                                   // intercept: don't drive the FPS look
   }
+  if (heliVeh && heliVeh.piloting) {
+    // cyclic: mouse up => nose down => forward; down => back; L/R => bank & slide
+    heliVeh.pitch += -e.movementY * HELI_MOUSE_SENS;
+    heliVeh.roll += e.movementX * HELI_MOUSE_SENS;
+    if (heliVeh.pitch > HELI_TILT) heliVeh.pitch = HELI_TILT; else if (heliVeh.pitch < -HELI_TILT) heliVeh.pitch = -HELI_TILT;
+    if (heliVeh.roll > HELI_TILT) heliVeh.roll = HELI_TILT; else if (heliVeh.roll < -HELI_TILT) heliVeh.roll = -HELI_TILT;
+    return;
+  }
   var sens = 0.0022 * (zoomed ? 0.35 : 1) * lookSens; yaw -= e.movementX * sens; pitch -= (lookInvert ? -1 : 1) * e.movementY * sens; pitch = Math.max(-1.45, Math.min(1.45, pitch));
 });
 document.addEventListener('mousedown', function (e) {
@@ -25097,7 +25204,13 @@ document.addEventListener('keydown', function (e) {
     if (!state.running || state.dead) return;
     if (state.menu === 'shop' || state.menu === 'clerk') { closeMenus(); return; }
     if (state.menu) return;
+    if (heliVeh && heliVeh.piloting) { exitHeli(); return; }
     if (plane && plane.piloting) { exitPlane(); return; }
+    if (heliVeh && !heliVeh.piloting && heliVeh.alive) {
+      // board the parked helicopter (E near it)
+      var hbdx = player.x - heliVeh.group.position.x, hbdz = player.z - heliVeh.group.position.z;
+      if (hbdx * hbdx + hbdz * hbdz < 100) { boardHeli(); return; }
+    }
     if (plane && !plane.piloting && plane.alive) {
       // re-board a parked plane you've stepped out of (E near it)
       var pbdx = player.x - plane.group.position.x, pbdz = player.z - plane.group.position.z;
@@ -25190,6 +25303,11 @@ function updatePlayer(dt) {
     if (flashT > 0) { flashT -= dt; if (flashT <= 0) flash.visible = false; }
     document.getElementById('prompt').textContent = '';   // no driving control prompt on the HUD (controls live in the pause-menu CONTROLS tab)
     rocketCdEl.classList.add('hidden');   // the vm/reload block below is skipped while driving — don't leave the bar stuck
+    return;
+  }
+  if (heliVeh && heliVeh.piloting) {       // the heli sim owns the frame while flying
+    document.getElementById('prompt').textContent = '[E] EXIT HELICOPTER';
+    rocketCdEl.classList.add('hidden');
     return;
   }
   if (plane && plane.piloting) {          // the flight sim (updatePlaneWorld) owns the frame while airborne
@@ -25955,7 +26073,7 @@ function loop(now) {
   if (photoMode) { updatePhotoCam(dt); renderer.render(scene, camera); return; }
   T += dt;
   var sdt = dt;
-  updatePlayer(dt); updateKick(dt); updatePlaneWorld(dt); updateAirportPlane(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateCopCars(dt); updateHelis(dt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); ensureSpraySpawn(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
+  updatePlayer(dt); updateKick(dt); updatePlaneWorld(dt); updateAirportPlane(dt); updatePlayerHeli(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateCopCars(dt); updateHelis(dt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); ensureSpraySpawn(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
   if (state.dead) updateDeathCam(dt);   // top-down zoom-out cinematic drives the camera while dead
   renderer.render(scene, camera);
 }
@@ -26345,6 +26463,8 @@ window.__wc = {
   // --- flyable plane (Learjet) — local/singleplayer test hooks ---
   spawnPlane: function () { return spawnPlane(); },
   spawnAirportPlane: function () { return spawnAirportPlane(); }, updateAirportPlane: updateAirportPlane,
+  spawnPlayerHeli: function () { return spawnPlayerHeli(); }, boardHeli: boardHeli, exitHeli: exitHeli, playerHeli: function () { return heliVeh; }, updatePlayerHeli: updatePlayerHeli, HELI_SPAWN: HELI_SPAWN,
+  heliMouse: function (dx, dy) { if (heliVeh && heliVeh.piloting) { heliVeh.pitch = Math.max(-HELI_TILT, Math.min(HELI_TILT, heliVeh.pitch - dy * HELI_MOUSE_SENS)); heliVeh.roll = Math.max(-HELI_TILT, Math.min(HELI_TILT, heliVeh.roll + dx * HELI_MOUSE_SENS)); } },
   plane: function () { return plane; },
   boardPlane: boardPlane, exitPlane: exitPlane, removePlane: removePlane,
   crashPlane: function () { crashPlane(); },
@@ -26379,7 +26499,7 @@ window.__wc = {
   // lightweight physics step (no render, no NPC/cop/car sim) — fast headless
   // stepping for plane/fall tests. Renders only when you call renderer yourself.
   stepLite: function (dt) { T += dt; updatePlayer(dt); updatePlaneWorld(dt); },
-  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updateKick(dt); updatePlaneWorld(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateCopCars(dt); updateHelis(dt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); ensureSpraySpawn(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
+  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updateKick(dt); updatePlaneWorld(dt); updatePlayerHeli(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateCopCars(dt); updateHelis(dt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); ensureSpraySpawn(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
 };
 
 // ---------------- boot screen handoff + menu cover art ----------------
