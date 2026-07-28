@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.98.3';
+var GAME_VERSION = 'v1.98.4';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -18884,6 +18884,7 @@ var _kickLegC = {};
     var sc = 0.82 / LEG_DATA.dims[1];                 // ~0.82u tall
     leg.scale.set(sc, sc, sc);
     leg.position.set(0, -LEG_DATA.dims[1] * sc, 0);   // hip AT the pivot, leg hangs straight down from it
+    leg.rotation.y = Math.PI;                          // face the toes forward (model is authored heel-forward)
     kickVM.add(leg);
   } else {
     var pantsM = lamb({ color: 0x33405e });   // jeans
@@ -18893,7 +18894,7 @@ var _kickLegC = {};
     var shoe = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.15, 0.4), shoeM); shoe.position.set(0, -0.66, 0.12);
     kickVM.add(thigh); kickVM.add(shin); kickVM.add(shoe);
   }
-  kickVM.position.set(0.06, -0.62, -0.5);    // hip pivot: bottom, slightly right of center
+  kickVM.position.set(0.06, -0.85, -0.5);    // hip pivot: dropped low so the thigh-top stays off-screen
   kickVM.rotation.x = 0.2;                    // resting: leg hangs down out of view
 })();
 var kickActive = false, kickAnimT = 0, kickT = -99;
@@ -20573,14 +20574,14 @@ function updateKick(dt) {
   if (state.menu || state.dead || driving || (plane && plane.piloting)) { kickActive = false; kickVM.visible = false; return; }
   kickAnimT += dt;
   var p = kickAnimT / KICK_DUR;
-  if (p >= 1) { kickActive = false; kickVM.visible = false; kickVM.rotation.x = 0.2; kickVM.position.set(0.06, -0.62, -0.5); return; }
+  if (p >= 1) { kickActive = false; kickVM.visible = false; kickVM.rotation.x = 0.2; kickVM.position.set(0.06, -0.85, -0.5); return; }
   kickVM.visible = true;
   var swing;
   if (p < 0.35) { var e = p / 0.35; swing = e * e * (3 - 2 * e); }              // fast snap up 0->1
   else { var e2 = (p - 0.35) / 0.65; swing = 1 - e2 * e2 * (3 - 2 * e2); }      // retract 1->0
   kickVM.rotation.x = 0.2 + (1.95 - 0.2) * swing;    // rest 0.2 (leg hangs down) -> kicked 1.95 (FOOT swings up + forward, leading the kick)
   kickVM.position.z = -0.5 - swing * 0.30;            // thrust into the screen
-  kickVM.position.y = -0.62 + swing * 0.20;           // hip rises a little as the foot swings up
+  kickVM.position.y = -0.85 + swing * 0.18;           // hip rises a little as the foot swings up (kept low so no thigh-top)
 }
 
 var dmgDirs = [];   // recent damage sources: {a: world angle to source, t}
