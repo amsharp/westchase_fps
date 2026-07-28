@@ -382,6 +382,25 @@ After a robbery (successful or botched), leaving locks the store for
 **3 minutes** — for everyone. In multiplayer one robbery closes the store
 server-wide until the lockout expires.
 
+## Heat: cop cars & the police chopper
+
+Push your **wanted level** up and the response gets serious.
+
+- **Police cars** roll out at **2 stars and up** (one at 2★, another per star)
+  — City-of-Tampa cruisers that patrol in on the streets hunting for you, and
+  can leave the road to follow you across open ground. Catch you **on foot** and
+  the car skids to a stop and **1–2 officers pile out** to chase you down; catch
+  you **in a car** and they run you down in a pursuit. Enough bullets and a
+  cruiser goes up in a fireball.
+- The **Sheriff's helicopter** joins at **3 stars** (a second at 4★, a third at
+  5★) — a green-and-white AS350 that **orbits overhead** with two **side gunners
+  raining fire** down on you. The choppers keep their distance from each other so
+  they never collide. **Shoot a gunner off** the skid to silence that side, or
+  pour rounds into the airframe to **shoot the whole thing down** — it spins out,
+  drops out of the sky, and explodes on impact.
+
+Both are **single-player/local** effects (like the jet), so they hunt *you*.
+
 ## The Publix
 
 Press **E** at the **Publix** storefront (NW corner, across the lot from your

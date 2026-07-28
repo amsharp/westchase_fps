@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.99.0';
+var GAME_VERSION = 'v1.99.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -16187,6 +16187,167 @@ function updateCopCars(dt) {
     driveCopCar(cc, dt, pd);
   }
 }
+// ==================== POLICE HELICOPTERS ====================
+// Local/per-player (like the plane + cop cars — never net-synced). At 3+ wanted
+// stars: 1 chopper at 3*, 2 at 4*, 3 at 5*. Procedural Hillsborough Sheriff
+// AS350 (green/white livery, SHERIFF tail, spinning main + tail rotors, skids,
+// two side-gunner cops). They orbit above you with mutual-separation steering so
+// they never collide; the gunners shoot at you. Shoot a gunner off (kills that
+// side's fire) or pump enough rounds into the airframe -> it spins out, falls,
+// and explodes on the ground.
+var helis = [], heliSpawnT = 0;
+var HELI_HP = 220, HELI_GUNNER_HP = 55;
+function desiredHelis() { var w = state.wanted; return w >= 3 ? Math.min(w - 2, 3) : 0; }   // 3*=1, 4*=2, 5*=3
+var _heliSideTex = null;
+function heliSideTex() {
+  if (_heliSideTex) return _heliSideTex;
+  _heliSideTex = tex(128, function (g, s) {
+    g.fillStyle = '#1f6b4a'; g.fillRect(0, 0, s, s);                 // green lower
+    g.fillStyle = '#efece0'; g.fillRect(0, 0, s, s * 0.4);           // white upper
+    g.fillStyle = '#caa04a'; g.fillRect(0, s * 0.4 - 3, s, 5);       // gold pinstripe
+    g.fillStyle = '#efece0'; g.font = 'bold 20px Arial'; g.textBaseline = 'middle';
+    g.fillText('SHERIFF', 8, s * 0.66);
+  });
+  return _heliSideTex;
+}
+function buildHeliMesh() {
+  var g = new THREE.Group();
+  var green = lamb({ color: 0x1f6b4a }), white = lamb({ color: 0xefece0 }), dark = lamb({ color: 0x14181f });
+  var grey = lamb({ color: 0x565b62 }), blade = lamb({ color: 0x24262b });
+  var sideM = lamb({ map: heliSideTex(), side: THREE.DoubleSide });
+  g.add(box(3.4, 1.15, 1.7, green, 0, 0, 0));                        // lower body
+  g.add(box(2.6, 0.5, 1.55, white, 0.1, 0.64, 0));                  // white roof
+  var nose = sph(0.95, dark, 1.85, 0.32, 0); nose.scale.set(0.95, 0.78, 0.85); g.add(nose);   // glass nose
+  g.add(sph(0.26, dark, 1.7, -0.55, 0));                            // camera ball
+  var plGeo = new THREE.PlaneGeometry(3.2, 1.45);
+  var pL = new THREE.Mesh(plGeo, sideM); pL.position.set(0, 0.1, 0.87); g.add(pL);
+  var pR = new THREE.Mesh(plGeo, sideM); pR.position.set(0, 0.1, -0.87); pR.rotation.y = Math.PI; g.add(pR);
+  // tail boom + fin + horizontal stabiliser + livery
+  g.add(box(3.7, 0.36, 0.36, green, -3.4, 0.5, 0));
+  var bpl = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 0.55), sideM); bpl.position.set(-3.4, 0.55, 0.19); g.add(bpl);
+  var bpr = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 0.55), sideM); bpr.position.set(-3.4, 0.55, -0.19); bpr.rotation.y = Math.PI; g.add(bpr);
+  g.add(box(0.7, 0.95, 0.12, green, -5.0, 0.9, 0));                 // vertical fin
+  g.add(box(1.2, 0.12, 0.5, green, -4.75, 0.62, 0));               // horizontal stab
+  var tailRotor = new THREE.Group(); tailRotor.position.set(-5.05, 0.72, 0.24);
+  tailRotor.add(box(0.06, 1.15, 0.15, blade)); tailRotor.add(box(0.06, 0.15, 1.15, blade));
+  g.add(tailRotor);
+  // skids
+  g.add(box(3.0, 0.1, 0.13, grey, 0, -0.92, 0.72)); g.add(box(3.0, 0.1, 0.13, grey, 0, -0.92, -0.72));
+  var struts = [[0.75, 0.72], [-0.75, 0.72], [0.75, -0.72], [-0.75, -0.72]];
+  for (var si = 0; si < struts.length; si++) g.add(box(0.1, 0.72, 0.1, grey, struts[si][0], -0.56, struts[si][1]));
+  // main rotor mast + spinning rotor (two crossed bars read as 4 blades)
+  g.add(cyl(0.13, 0.13, 0.62, 6, grey, 0.1, 1.18, 0));
+  var mainRotor = new THREE.Group(); mainRotor.position.set(0.1, 1.5, 0);
+  mainRotor.add(sph(0.22, grey, 0, 0, 0));
+  mainRotor.add(box(11.2, 0.06, 0.38, blade)); mainRotor.add(box(0.38, 0.06, 11.2, blade));
+  g.add(mainRotor);
+  return { group: g, mainRotor: mainRotor, tailRotor: tailRotor };
+}
+function makeHeliGunner(hgroup, side) {
+  var mesh = (typeof buildCop === 'function') ? buildCop() : new THREE.Group();
+  mesh.position.set(-0.1, -0.35, side * 0.95);
+  mesh.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2;   // face out the side door
+  if (typeof attachHeldGun === 'function') attachHeldGun(mesh, 'smg');
+  hgroup.add(mesh);
+  return { mesh: mesh, hp: HELI_GUNNER_HP, fireT: 0.6 + Math.random(), alive: true, side: side };
+}
+function spawnHeli() {
+  var m = buildHeliMesh();
+  var a = Math.random() * 6.283;
+  var sx = player.x + Math.cos(a) * 120, sz = player.z + Math.sin(a) * 120;
+  var h = { group: m.group, mainRotor: m.mainRotor, tailRotor: m.tailRotor, x: sx, y: 34, z: sz, vx: 0, vz: 0, vy: 0, orbitA: a + Math.PI, state: 'fly', hp: HELI_HP, spin: 0, tumble: 0, smokeT: 0, gunners: [], dead: false };
+  h.gunners = [makeHeliGunner(m.group, 1), makeHeliGunner(m.group, -1)];
+  m.group.position.set(sx, 34, sz);
+  m.group.rotation.order = 'YXZ';
+  m.group.userData.heli = h; m.group.traverse(function (o) { o.userData.heli = h; });   // whole airframe shootable
+  for (var gi = 0; gi < h.gunners.length; gi++) h.gunners[gi].mesh.traverse((function (gun) { return function (o) { o.userData.heliGunner = gun; }; })(h.gunners[gi]));   // gunners shootable individually (checked before .heli)
+  scene.add(m.group);
+  helis.push(h);
+  if (typeof sfx === 'function') sfx('alarm', { x: sx, z: sz, range: 60 });
+  return h;
+}
+function heliGunnerFire(h, gun, dt) {
+  if (!gun.alive) return;
+  gun.fireT -= dt; if (gun.fireT > 0) return;
+  gun.fireT = 0.45 + Math.random() * 0.4;
+  var wp = new THREE.Vector3(); gun.mesh.getWorldPosition(wp);
+  if (typeof puff === 'function') puff(wp, 0xffe08a, 'muzzle');
+  if (typeof spawnBeam === 'function') spawnBeam(wp.x, wp.y, wp.z, player.x, player.y - 0.4, player.z, 0xffdd66);
+  if (typeof sfx === 'function') sfx('copsmg', { x: h.x, z: h.z, y: h.y, range: 170 });
+  var d = Math.hypot(player.x - h.x, player.z - h.z);
+  var chance = 0.3 * Math.max(0.12, 1 - d / 70);
+  if (Math.random() < chance && !state.dead && !noclip) {
+    if (typeof driving !== 'undefined' && driving) { driving.carHP = (driving.carHP === undefined ? 100 : driving.carHP) - 6; if (driving.carHP <= 0 && typeof igniteCar === 'function') igniteCar(driving); }
+    else hurtPlayer(5, h.x, h.z);
+  }
+}
+function hitHeliGunner(gun, dmg, pt) {
+  if (!gun || !gun.alive) return;
+  gun.hp -= dmg; if (pt && typeof puff === 'function') puff(pt, 0xd93a2a, 'blood');
+  if (gun.hp <= 0) { gun.alive = false; gun.mesh.rotation.x = 1.4; if (typeof popup === 'function') popup('GUNNER DOWN!'); }
+}
+function crashHeli(h) {
+  if (h.state !== 'fly') return;
+  h.state = 'falling'; h.spin = 5 + Math.random() * 3; h.tumble = (Math.random() - 0.5) * 2.4; h.vy = 1.5;
+  var ha = Math.random() * 6.283; h.vx = Math.cos(ha) * 6; h.vz = Math.sin(ha) * 6;
+  for (var i = 0; i < h.gunners.length; i++) h.gunners[i].alive = false;
+  if (typeof popup2 === 'function') popup2('CHOPPER DOWN!');
+  if (typeof sfx === 'function') sfx('boom', { x: h.x, z: h.z, range: 220 });
+}
+function damageHeli(h, dmg, pt) {
+  if (h.state !== 'fly') return;
+  h.hp -= dmg; if (pt && typeof puff === 'function') puff(pt, 0xffe08a);
+  if (h.hp <= 0) crashHeli(h);
+}
+function updateHeli(h, dt, idx) {
+  var g = h.group;
+  h.mainRotor.rotation.y += 26 * dt; h.tailRotor.rotation.z += 40 * dt;   // rotors always spin
+  if (h.state === 'falling') {
+    h.vy -= 11 * dt; h.y += h.vy * dt; h.x += h.vx * dt; h.z += h.vz * dt;
+    g.rotation.y += h.spin * dt; g.rotation.z = Math.min(1.3, g.rotation.z + Math.abs(h.tumble) * dt); g.rotation.x += h.tumble * dt * 0.5;
+    h.smokeT -= dt; if (h.smokeT <= 0) { h.smokeT = 0.05; if (typeof puff === 'function') puff(new THREE.Vector3(h.x, h.y, h.z), 0x141414, 'smoke'); }
+    var fl = surfaceHeightAt(h.x, h.z, false, h.y);
+    if (h.y <= fl + 1.4) {
+      if (typeof boomAt === 'function') boomAt(h.x, h.z);
+      if (typeof panicNear === 'function') panicNear(h.x, h.z, 2400);
+      h.dead = true; return;
+    }
+    g.position.set(h.x, h.y, h.z);
+    return;
+  }
+  // 'fly': orbit the player at altitude with mutual separation
+  h.orbitA += dt * 0.5;
+  var R = 26, ALT = 32;
+  var tx = player.x + Math.cos(h.orbitA) * R, tz = player.z + Math.sin(h.orbitA) * R, ty = ALT + Math.sin(T * 0.8 + idx) * 1.6;
+  for (var j = 0; j < helis.length; j++) {
+    if (helis[j] === h || helis[j].state !== 'fly') continue;
+    var ox = h.x - helis[j].x, oz = h.z - helis[j].z, od = Math.hypot(ox, oz);
+    if (od < 18 && od > 0.01) { tx += ox / od * (18 - od) * 0.6; tz += oz / od * (18 - od) * 0.6; }
+  }
+  h.x += (tx - h.x) * Math.min(1, dt * 0.9); h.z += (tz - h.z) * Math.min(1, dt * 0.9); h.y += (ty - h.y) * Math.min(1, dt * 1.2);
+  var dirx = player.x - h.x, dirz = player.z - h.z, dl = Math.hypot(dirx, dirz) || 1;
+  var wantH = Math.atan2(-dirz / dl, dirx / dl), dy = wantH - g.rotation.y;
+  while (dy > Math.PI) dy -= 6.283; while (dy < -Math.PI) dy += 6.283;
+  g.rotation.y += dy * Math.min(1, dt * 2);
+  g.rotation.z += (0 - g.rotation.z) * Math.min(1, dt * 3);
+  g.rotation.x += (0.06 - g.rotation.x) * Math.min(1, dt * 3);
+  g.position.set(h.x, h.y, h.z);
+  if (Math.hypot(player.x - h.x, player.z - h.z) < 62) for (var gi = 0; gi < h.gunners.length; gi++) heliGunnerFire(h, h.gunners[gi], dt);
+}
+function updateHelis(dt) {
+  if (!state.running) return;
+  var want = (state.dead || state.menu || (typeof inside !== 'undefined' && inside)) ? 0 : desiredHelis();
+  var flying = 0; for (var f = 0; f < helis.length; f++) if (helis[f].state === 'fly') flying++;
+  heliSpawnT -= dt;
+  if (flying < want && heliSpawnT <= 0) { spawnHeli(); heliSpawnT = 6; }
+  for (var i = helis.length - 1; i >= 0; i--) {
+    var h = helis[i];
+    // heat gone: a flying (undamaged) chopper just peels off and despawns — no crash
+    if (want === 0 && h.state === 'fly') { scene.remove(h.group); helis.splice(i, 1); continue; }
+    updateHeli(h, dt, i);
+    if (h.dead || (h.state === 'fly' && Math.hypot(player.x - h.x, player.z - h.z) > 320)) { scene.remove(h.group); helis.splice(i, 1); }
+  }
+}
 function updateTowers(dt) {
   if (towerBits.length) updateTowerBits(dt);   // falling embers/papers keep animating regardless of tower state
   if (towerFallers.length) updateTowerFallers(dt);   // tumbling bodies + splats
@@ -20263,6 +20424,7 @@ function fireShotgun(w) {
   if (isClient()) for (k = 0; k < copsM.length; k++) npcRootsAlive.push(copsM[k].mesh);
   for (k = 0; k < cars.length; k++) if (!cars[k].exploded) npcRootsAlive.push(cars[k].car.group);
   for (k = 0; k < copCars.length; k++) npcRootsAlive.push(copCars[k].car.group);
+  for (k = 0; k < helis.length; k++) if (helis[k].state === 'fly') npcRootsAlive.push(helis[k].group);
   for (var rid in net.remotes) { var rr = net.remotes[rid]; if (rr.dead) continue; npcRootsAlive.push(rr.drv && rr.car ? rr.car.group : rr.mesh); }
   var targets = npcRootsAlive.concat(solidMeshes), hitAny = false;
   for (var pel = 0; pel < w.pellets; pel++) {
@@ -20271,8 +20433,8 @@ function fireShotgun(w) {
     raycaster.set(origin.clone(), d); raycaster.far = 70;
     var hits = raycaster.intersectObjects(targets, true);
     if (!hits.length) continue;
-    var h = hits[0], o = h.object, npcHit = null, copHit = null, carHit = null, remoteHit = null, copMHit = -1, atmHit = null, copCarHit = null;
-    while (o) { var u = o.userData; if (u) { if (u.npc) { npcHit = u.npc; break; } if (u.cop) { copHit = u.cop; break; } if (u.copM !== undefined) { copMHit = u.copM; break; } if (u.remoteId) { remoteHit = u.remoteId; break; } if (u.copCar) { copCarHit = u.copCar; break; } if (u.trafficCar) { carHit = u.trafficCar; break; } if (u.atm) { atmHit = u.atm; break; } } o = o.parent; }
+    var h = hits[0], o = h.object, npcHit = null, copHit = null, carHit = null, remoteHit = null, copMHit = -1, atmHit = null, copCarHit = null, heliHit = null, heliGunHit = null;
+    while (o) { var u = o.userData; if (u) { if (u.npc) { npcHit = u.npc; break; } if (u.heliGunner) { heliGunHit = u.heliGunner; break; } if (u.heli) { heliHit = u.heli; break; } if (u.cop) { copHit = u.cop; break; } if (u.copM !== undefined) { copMHit = u.copM; break; } if (u.remoteId) { remoteHit = u.remoteId; break; } if (u.copCar) { copCarHit = u.copCar; break; } if (u.trafficCar) { carHit = u.trafficCar; break; } if (u.atm) { atmHit = u.atm; break; } } o = o.parent; }
     var dmg = Math.round(w.dmg * Math.max(0.25, 1 - h.distance / w.falloff));
     if (npcHit && npcHit.state === 'down') { hitAny = true; gorePoke(npcHit.x, h.point.y, npcHit.z, d.x, d.z); }   // corpse: extra gibs, no damage
     else if (copHit && copHit.state === 'down') { hitAny = true; gorePoke(copHit.x, h.point.y, copHit.z, d.x, d.z); }
@@ -20286,6 +20448,8 @@ function fireShotgun(w) {
     else if (copHit) { hitAny = true; damageCop(copHit, dmg, d.x, d.z); puff(h.point, 0xd93a2a, 'blood'); }
     else if (copMHit >= 0) { hitAny = true; puff(h.point, 0xd93a2a, 'blood'); netToHost({ t: 'dmgCop', id: copsM[copMHit] ? copsM[copMHit].nid : undefined, dmg: dmg, kx: d.x, kz: d.z }); if (copsM[copMHit]) { copsM[copMHit].hpM = Math.max(0, (copsM[copMHit].hpM !== undefined ? copsM[copMHit].hpM : 100) - dmg); if (!copsM[copMHit].down) { if (state.wanted < 1) setWanted(1); lastCrimeT = T; } } }
     else if (remoteHit) { hitAny = true; netSendHit(remoteHit, dmg, true); puff(h.point, 0xd93a2a, 'blood'); }
+    else if (heliGunHit) { hitAny = true; hitHeliGunner(heliGunHit, dmg, h.point); }
+    else if (heliHit) { hitAny = true; damageHeli(heliHit, dmg, h.point); }
     else if (copCarHit) { hitAny = true; damageCopCar(copCarHit, dmg, h.point); }
     else if (carHit) { puff(h.point, 0xbbbbbb, 'impact'); if (!isClient()) { carHit.dmgT = (carHit.dmgT || 0) + w.rate * 0.5; if (carHit.dmgT >= 1.5 && goBerserk(carHit)) { popup('WRECKED!'); creditCivKill('car'); } } else netToHost({ t: 'shootCar', i: cars.indexOf(carHit), rate: w.rate }); }
     else if (atmHit) shootAtm(atmHit, h.point);
@@ -20557,6 +20721,7 @@ function tryAttack() {
   if (isClient()) for (k = 0; k < copsM.length; k++) npcRootsAlive.push(copsM[k].mesh);
   for (k = 0; k < cars.length; k++) if (!cars[k].exploded) npcRootsAlive.push(cars[k].car.group);
   for (k = 0; k < copCars.length; k++) npcRootsAlive.push(copCars[k].car.group);   // shootable cop cars
+  for (k = 0; k < helis.length; k++) if (helis[k].state === 'fly') npcRootsAlive.push(helis[k].group);   // shootable police choppers (fuselage + gunners)
   for (var rid in net.remotes) { var rr = net.remotes[rid]; if (rr.dead) continue; npcRootsAlive.push(rr.drv && rr.car ? rr.car.group : rr.mesh); }
   if (ufo && ufo.mode === 'fly') npcRootsAlive.push(ufo.group);
   if (alien && alien.state !== 'dead') npcRootsAlive.push(alien.mesh);
@@ -20582,9 +20747,11 @@ function tryAttack() {
     }
   }
   if (hits.length) {
-    var h = hits[0], o = h.object, npcHit = null, copHit = null, carHit = null, remoteHit = null, copMHit = -1, ufoHit = false, alienHit = false, atmHit = null, copCarHit = null;
+    var h = hits[0], o = h.object, npcHit = null, copHit = null, carHit = null, remoteHit = null, copMHit = -1, ufoHit = false, alienHit = false, atmHit = null, copCarHit = null, heliHit = null, heliGunHit = null;
     while (o) {
       if (o.userData && o.userData.npc) { npcHit = o.userData.npc; break; }
+      if (o.userData && o.userData.heliGunner) { heliGunHit = o.userData.heliGunner; break; }   // gunner checked before the airframe
+      if (o.userData && o.userData.heli) { heliHit = o.userData.heli; break; }
       if (o.userData && o.userData.cop) { copHit = o.userData.cop; break; }
       if (o.userData && o.userData.copM !== undefined) { copMHit = o.userData.copM; break; }
       if (o.userData && o.userData.remoteId) { remoteHit = o.userData.remoteId; break; }
@@ -20595,7 +20762,9 @@ function tryAttack() {
       if (o.userData && o.userData.atm) { atmHit = o.userData.atm; break; }
       o = o.parent;
     }
-    if (copCarHit) { damageCopCar(copCarHit, w.dmg, h.point); }
+    if (heliGunHit) { hitHeliGunner(heliGunHit, w.dmg, h.point); }
+    else if (heliHit) { damageHeli(heliHit, w.dmg, h.point); }
+    else if (copCarHit) { damageCopCar(copCarHit, w.dmg, h.point); }
     else if (ufoHit) {
       if (isClient()) { puff(h.point, 0xffe08a); netToHost({ t: 'dmgUfo', dmg: w.dmg }); }
       else damageUfo(w.dmg, h.point);
@@ -25133,7 +25302,7 @@ function loop(now) {
   if (photoMode) { updatePhotoCam(dt); renderer.render(scene, camera); return; }
   T += dt;
   var sdt = dt;
-  updatePlayer(dt); updateKick(dt); updatePlaneWorld(dt); updateAirportPlane(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateCopCars(dt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
+  updatePlayer(dt); updateKick(dt); updatePlaneWorld(dt); updateAirportPlane(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateCopCars(dt); updateHelis(dt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
   if (state.dead) updateDeathCam(dt);   // top-down zoom-out cinematic drives the camera while dead
   renderer.render(scene, camera);
 }
@@ -25243,6 +25412,7 @@ window.__wc = {
   state: state, player: player, npcs: npcs, cashes: cashes, cops: cops,
   rubblePiles: function () { return rubblePiles; }, towerSplats: function () { return towerSplats; }, rubbleHeightAt: function (x, z) { return rubbleHeightAt(x, z); },
   copCars: function () { return copCars; }, spawnCopCar: function () { return spawnCopCar(); }, desiredCopCars: function () { return desiredCopCars(); },
+  helis: function () { return helis; }, spawnHeli: function () { return spawnHeli(); }, desiredHelis: function () { return desiredHelis(); }, damageHeli: function (h, d, p) { return damageHeli(h, d, p); },
   kids: kids, adultRace: adultRace, spawnKids: spawnKids, updateKids: updateKids, playKidVoice: playKidVoice, kidVoiceDbg: function () { return kidVoiceDbg; },
   getKidPlaysets: getKidPlaysets, nearestPlayset: nearestPlayset, startKidPlay: startKidPlay,
   kidGames: function () { return kidGames; }, tryStartKidGame: tryStartKidGame, endKidGame: endKidGame,
@@ -25555,7 +25725,7 @@ window.__wc = {
   // lightweight physics step (no render, no NPC/cop/car sim) — fast headless
   // stepping for plane/fall tests. Renders only when you call renderer yourself.
   stepLite: function (dt) { T += dt; updatePlayer(dt); updatePlaneWorld(dt); },
-  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updateKick(dt); updatePlaneWorld(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateCopCars(dt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
+  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updateKick(dt); updatePlaneWorld(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateCopCars(dt); updateHelis(dt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
 };
 
 // ---------------- boot screen handoff + menu cover art ----------------
