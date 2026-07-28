@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.99.2';
+var GAME_VERSION = 'v1.99.3';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -16332,12 +16332,13 @@ function spawnHeli() {
   var m = buildHeliMesh();
   var a = Math.random() * 6.283;
   var sx = player.x + Math.cos(a) * 120, sz = player.z + Math.sin(a) * 120;
-  var h = { group: m.group, mainRotor: m.mainRotor, tailRotor: m.tailRotor, x: sx, y: 34, z: sz, vx: 0, vz: 0, vy: 0, orbitA: a + Math.PI, state: 'fly', hp: HELI_HP, spin: 0, tumble: 0, smokeT: 0, gunners: [], dead: false };
+  var h = { group: m.group, mainRotor: m.mainRotor, tailRotor: m.tailRotor, x: sx, y: 34, z: sz, vx: 0, vz: 0, vy: 0, orbitA: a + Math.PI, orbitDir: Math.random() < 0.5 ? 0.5 : -0.5, state: 'fly', hp: HELI_HP, spin: 0, tumble: 0, smokeT: 0, gunners: [], dead: false, light: null };
   h.gunners = [makeHeliGunner(m.group, 1), makeHeliGunner(m.group, -1)];
   m.group.position.set(sx, 34, sz);
   m.group.rotation.order = 'YXZ';
   m.group.userData.heli = h; m.group.traverse(function (o) { o.userData.heli = h; });   // whole airframe shootable
   for (var gi = 0; gi < h.gunners.length; gi++) h.gunners[gi].mesh.traverse((function (gun) { return function (o) { o.userData.heliGunner = gun; }; })(h.gunners[gi]));   // gunners shootable individually (checked before .heli)
+  h.light = buildHeliLight(); scene.add(h.light.grp); h.light.grp.visible = false;   // night search light
   scene.add(m.group);
   helis.push(h);
   if (typeof sfx === 'function') sfx('alarm', { x: sx, z: sz, range: 60 });
@@ -16376,10 +16377,48 @@ function damageHeli(h, dmg, pt) {
   h.hp -= dmg; if (pt && typeof puff === 'function') puff(pt, 0xffe08a);
   if (h.hp <= 0) crashHeli(h);
 }
+// tallest building footprint covering (x,z) — used so choppers climb over rooftops
+function heliBuildingHeightAt(x, z) {
+  var best = 0;
+  if (typeof mapBuildings !== 'undefined') for (var i = 0; i < mapBuildings.length; i++) {
+    var mb = mapBuildings[i]; if (!mb.h) continue;
+    var hw = (mb.w || 8) / 2 + 3, hd = (mb.d || 8) / 2 + 3;
+    if (Math.abs(x - mb.x) < hw && Math.abs(z - mb.z) < hd && mb.h > best) best = mb.h;
+  }
+  return best;
+}
+function buildHeliLight() {
+  var grp = new THREE.Group();
+  var coneGeo = new THREE.CylinderGeometry(0.2, 3.4, 1, 16, 1, true); coneGeo.translate(0, -0.5, 0);   // apex at origin, opens down -Y
+  var cone = new THREE.Mesh(coneGeo, new THREE.MeshBasicMaterial({ color: 0xfff2b0, transparent: true, opacity: 0.16, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+  var disc = new THREE.Mesh(new THREE.CircleGeometry(3.4, 20), new THREE.MeshBasicMaterial({ color: 0xfff2b0, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false }));
+  disc.rotation.x = -Math.PI / 2;
+  grp.add(cone); grp.add(disc);
+  return { grp: grp, cone: cone, disc: disc };
+}
+var _hlA = new THREE.Vector3(0, -1, 0), _hlB = new THREE.Vector3();
+function updateHeliLight(h) {
+  if (!h.light) return;
+  var on = h.state === 'fly' && (typeof isNightNow === 'function' ? isNightNow() : false);
+  h.light.grp.visible = on;
+  if (!on) return;
+  var d = Math.hypot(player.x - h.x, player.z - h.z);
+  var aimX = d < 55 ? player.x : h.x, aimZ = d < 55 ? player.z : h.z;   // lock onto you when close, else sweep straight down
+  var gy = surfaceHeightAt(aimX, aimZ, false, 0) + 0.05;
+  var bx = h.x, by = h.y - 0.9, bz = h.z;
+  var dx = aimX - bx, dyy = gy - by, dz = aimZ - bz, len = Math.hypot(dx, dyy, dz) || 1;
+  var cone = h.light.cone;
+  cone.position.set(bx, by, bz);
+  _hlB.set(dx / len, dyy / len, dz / len);
+  cone.quaternion.setFromUnitVectors(_hlA, _hlB);
+  cone.scale.set(1, len, 1);
+  h.light.disc.position.set(aimX, gy, aimZ);
+}
 function updateHeli(h, dt, idx) {
   var g = h.group;
   h.mainRotor.rotation.y += 26 * dt; h.tailRotor.rotation.z += 40 * dt;   // rotors always spin
   if (h.state === 'falling') {
+    if (h.light) h.light.grp.visible = false;
     h.vy -= 11 * dt; h.y += h.vy * dt; h.x += h.vx * dt; h.z += h.vz * dt;
     g.rotation.y += h.spin * dt; g.rotation.z = Math.min(1.3, g.rotation.z + Math.abs(h.tumble) * dt); g.rotation.x += h.tumble * dt * 0.5;
     h.smokeT -= dt; if (h.smokeT <= 0) { h.smokeT = 0.05; if (typeof puff === 'function') puff(new THREE.Vector3(h.x, h.y, h.z), 0x141414, 'smoke'); }
@@ -16392,23 +16431,50 @@ function updateHeli(h, dt, idx) {
     g.position.set(h.x, h.y, h.z);
     return;
   }
-  // 'fly': orbit the player at altitude with mutual separation
-  h.orbitA += dt * 0.5;
-  var R = 26, ALT = 32;
-  var tx = player.x + Math.cos(h.orbitA) * R, tz = player.z + Math.sin(h.orbitA) * R, ty = ALT + Math.sin(T * 0.8 + idx) * 1.6;
+  // 'fly': circle the player, presenting a SIDE (where the gunners sit) toward them
+  var ox0 = h.x, oy0 = h.y, oz0 = h.z;
+  h.orbitA += dt * (h.orbitDir || 0.5);
+  var R = 27, BASE_ALT = 32;
+  var tx = player.x + Math.cos(h.orbitA) * R, tz = player.z + Math.sin(h.orbitA) * R;
+  // weave AROUND skyscrapers (can't climb an 80u tower) — push the orbit target off any tower
+  if (typeof towers !== 'undefined') for (var ti = 0; ti < towers.length; ti++) {
+    var tw = towers[ti]; if (tw.state !== 'up') continue;
+    var tdx = h.x - tw.x, tdz = h.z - tw.z, td = Math.hypot(tdx, tdz), aR = Math.max(tw.W, tw.D) / 2 + 16;
+    if (td < aR && td > 0.01) { tx += tdx / td * (aR - td) * 1.2; tz += tdz / td * (aR - td) * 1.2; }
+  }
+  // separation from other choppers so they never collide
   for (var j = 0; j < helis.length; j++) {
     if (helis[j] === h || helis[j].state !== 'fly') continue;
-    var ox = h.x - helis[j].x, oz = h.z - helis[j].z, od = Math.hypot(ox, oz);
-    if (od < 18 && od > 0.01) { tx += ox / od * (18 - od) * 0.6; tz += oz / od * (18 - od) * 0.6; }
+    var sxo = h.x - helis[j].x, szo = h.z - helis[j].z, sdo = Math.hypot(sxo, szo);
+    if (sdo < 20 && sdo > 0.01) { tx += sxo / sdo * (20 - sdo) * 0.7; tz += szo / sdo * (20 - sdo) * 0.7; }
   }
-  h.x += (tx - h.x) * Math.min(1, dt * 0.9); h.z += (tz - h.z) * Math.min(1, dt * 0.9); h.y += (ty - h.y) * Math.min(1, dt * 1.2);
-  var dirx = player.x - h.x, dirz = player.z - h.z, dl = Math.hypot(dirx, dirz) || 1;
-  var wantH = Math.atan2(-dirz / dl, dirx / dl), dy = wantH - g.rotation.y;
-  while (dy > Math.PI) dy -= 6.283; while (dy < -Math.PI) dy += 6.283;
-  g.rotation.y += dy * Math.min(1, dt * 2);
-  g.rotation.z += (0 - g.rotation.z) * Math.min(1, dt * 3);
-  g.rotation.x += (0.06 - g.rotation.x) * Math.min(1, dt * 3);
+  // altitude: rise to clear rooftops under + just ahead, and stay above an elevated player (highway)
+  var ax = tx - h.x, az = tz - h.z, alh = Math.hypot(ax, az) || 1; ax /= alh; az /= alh;
+  var clearH = Math.max(heliBuildingHeightAt(h.x, h.z), heliBuildingHeightAt(h.x + ax * 15, h.z + az * 15), heliBuildingHeightAt(player.x, player.z));
+  var ty = Math.max(BASE_ALT, clearH + 13, player.y + 20) + Math.sin(T * 0.7 + idx) * 1.1;
+  h.x += (tx - h.x) * Math.min(1, dt * 0.9);
+  h.z += (tz - h.z) * Math.min(1, dt * 0.9);
+  h.y += (ty - h.y) * Math.min(1, dt * 1.4);
+  h.vx = (h.x - ox0) / dt; h.vy = (h.y - oy0) / dt; h.vz = (h.z - oz0) / dt;
+  var spd = Math.hypot(h.vx, h.vz);
+  // heading = travel direction (during the circle that puts a side toward the player); face the
+  // tangent-to-player when nearly hovering so the gunners still bear on you.
+  var hvx, hvz;
+  if (spd > 1.5) { hvx = h.vx / spd; hvz = h.vz / spd; }
+  else { var rx = h.x - player.x, rz = h.z - player.z, rl = Math.hypot(rx, rz) || 1, sgn = (h.orbitDir >= 0 ? 1 : -1); hvx = -rz / rl * sgn; hvz = rx / rl * sgn; }
+  var wantH = Math.atan2(-hvz, hvx), dyH = wantH - g.rotation.y;
+  while (dyH > Math.PI) dyH -= 6.283; while (dyH < -Math.PI) dyH += 6.283;
+  g.rotation.y += dyH * Math.min(1, dt * 2.5);
+  // lean/sway: nose dips forward with forward speed (pitch = rot.z for a nose-+x body), banks into
+  // turns (roll = rot.x), and levels out to flat when it slows to a hover.
+  var nfx = Math.cos(g.rotation.y), nfz = -Math.sin(g.rotation.y);
+  var fwd = h.vx * nfx + h.vz * nfz, lat = h.vx * (-nfz) + h.vz * nfx;
+  var pitchT = Math.max(-0.32, Math.min(0.32, fwd * 0.022));    // move fwd -> nose dips
+  var rollT = Math.max(-0.42, Math.min(0.42, -lat * 0.03));     // bank into the turn
+  g.rotation.z += (pitchT - g.rotation.z) * Math.min(1, dt * 2.2);
+  g.rotation.x += (rollT - g.rotation.x) * Math.min(1, dt * 2.2);
   g.position.set(h.x, h.y, h.z);
+  updateHeliLight(h);
   if (Math.hypot(player.x - h.x, player.z - h.z) < 62) for (var gi = 0; gi < h.gunners.length; gi++) heliGunnerFire(h, h.gunners[gi], dt);
 }
 function updateHelis(dt) {
@@ -16420,9 +16486,9 @@ function updateHelis(dt) {
   for (var i = helis.length - 1; i >= 0; i--) {
     var h = helis[i];
     // heat gone: a flying (undamaged) chopper just peels off and despawns — no crash
-    if (want === 0 && h.state === 'fly') { scene.remove(h.group); helis.splice(i, 1); continue; }
+    if (want === 0 && h.state === 'fly') { scene.remove(h.group); if (h.light) scene.remove(h.light.grp); helis.splice(i, 1); continue; }
     updateHeli(h, dt, i);
-    if (h.dead || (h.state === 'fly' && Math.hypot(player.x - h.x, player.z - h.z) > 320)) { scene.remove(h.group); helis.splice(i, 1); }
+    if (h.dead || (h.state === 'fly' && Math.hypot(player.x - h.x, player.z - h.z) > 320)) { scene.remove(h.group); if (h.light) scene.remove(h.light.grp); helis.splice(i, 1); }
   }
 }
 function updateTowers(dt) {
