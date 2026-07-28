@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.97.0';
+var GAME_VERSION = 'v1.97.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -15782,7 +15782,7 @@ function buildRubblePile(t) {
   // the procedural grey-box pile below if the data file is absent.
   if (typeof RUBBLE_DATA !== 'undefined' && typeof decodeAirModel === 'function') {
     decodeAirModel(RUBBLE_DATA, _rubbleC);
-    var spread = Math.max(t.W, t.D) * 1.25;
+    var spread = Math.max(t.W, t.D) * 2.5;   // ~2x bigger heap, spilling well past the footprint
     var rscale = spread / RUBBLE_DATA.dims[0];
     var rg = new THREE.Group();
     var rm = new THREE.Mesh(_rubbleC.geo, _rubbleC.mat);
@@ -15927,8 +15927,8 @@ function spawnTowerFaller(t) {
     vx: Math.cos(ang) * out, vy: 1.5 + Math.random() * 2.5, vz: Math.sin(ang) * out,     // pushed outward + a little up, then gravity
     spinx: (Math.random() - 0.5) * 14, spiny: (Math.random() - 0.5) * 11, spinz: (Math.random() - 0.5) * 14, life: 12
   });
-  if (typeof playVoiceAny === 'function') playVoiceAny(['pedm_hit_1', 'pedm_hit_2', 'pedo_hit', 'pedf_hit', 'pedf_hit_2'], 0.7, 'fallScream', 0.2, { x: sx, z: sz, yell: true, range: 90 });
-  else sfx('grunt', { x: sx, z: sz, range: 70 });
+  // falling NPCs stay silent on the way down (no scream/grunt) — only the splat
+  // impact is heard when they hit the ground (updateTowerFallers).
 }
 function updateTowerFallers(dt) {
   for (var i = towerFallers.length - 1; i >= 0; i--) {
