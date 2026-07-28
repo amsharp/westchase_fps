@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.100.0';
+var GAME_VERSION = 'v1.100.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -17090,7 +17090,9 @@ function spraySprayTex() {
   _sprayTex = new THREE.CanvasTexture(cv);
   return _sprayTex;
 }
-function sprayDecal(point, normal, colorHex) {
+// attachTo (optional): a moving mesh (car panel, NPC body part) to PARENT the
+// decal to so it rides along — .attach() keeps the world transform we built.
+function sprayDecal(point, normal, colorHex, attachTo) {
   var n = normal.clone().normalize();
   var mat = new THREE.MeshBasicMaterial({ map: spraySprayTex(), color: new THREE.Color(colorHex), transparent: true, opacity: 0.94, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
   var m = new THREE.Mesh(_sprayGeo, mat);
@@ -17100,8 +17102,9 @@ function sprayDecal(point, normal, colorHex) {
   var sc = 0.17 + Math.random() * 0.07; m.scale.set(sc, sc, 1);
   m.frustumCulled = false;
   scene.add(m);
+  if (attachTo) { try { attachTo.attach(m); } catch (e) { } }   // reparent onto the moving surface, preserving world pose
   sprayDecals.push({ mesh: m, life: SPRAY_TTL });
-  if (sprayDecals.length > SPRAY_MAX) { var o = sprayDecals.shift(); scene.remove(o.mesh); if (o.mesh.material) o.mesh.material.dispose(); }
+  if (sprayDecals.length > SPRAY_MAX) { var o = sprayDecals.shift(); if (o.mesh.parent) o.mesh.parent.remove(o.mesh); if (o.mesh.material) o.mesh.material.dispose(); }
 }
 var _sprDir = new THREE.Vector3(), _sprOrg = new THREE.Vector3();
 function sprayPaint() {
@@ -17112,20 +17115,33 @@ function sprayPaint() {
   _sprOrg.copy(camera.position);
   var range = WEAPONS.spray.range;
   raycaster.set(_sprOrg, _sprDir); raycaster.far = range;
-  var hits = raycaster.intersectObjects(solidMeshes, true);
-  var best = null, bestNormal = null, bestDist = range + 1;
+  // MOVING paintable roots (cars, cop cars, NPCs, cops, remote players) — paint
+  // sticks to these by parenting the decal to the hit part. Static world (walls,
+  // props) stays in solidMeshes; the ground is analytic.
+  var moving = [];
+  for (var c = 0; c < cars.length; c++) if (!cars[c].exploded) moving.push(cars[c].car.group);
+  for (c = 0; c < copCars.length; c++) moving.push(copCars[c].car.group);
+  for (var k = 0; k < npcs.length; k++) if (npcs[k].state !== 'hidden' && npcs[k].mesh.visible) moving.push(npcs[k].mesh);
+  for (k = 0; k < cops.length; k++) moving.push(cops[k].mesh);
+  if (isClient()) for (k = 0; k < copsM.length; k++) moving.push(copsM[k].mesh);
+  for (var rid in net.remotes) { var rr = net.remotes[rid]; if (rr.dead) continue; moving.push(rr.drv && rr.car ? rr.car.group : rr.mesh); }
+  var hits = raycaster.intersectObjects(moving.concat(solidMeshes), true);
+  var best = null, bestNormal = null, bestDist = range + 1, bestObj = null;
   if (hits.length && hits[0].distance <= range) {
-    var h = hits[0]; best = h.point.clone(); bestDist = h.distance;
+    var h = hits[0]; best = h.point.clone(); bestDist = h.distance; bestObj = h.object;
     bestNormal = h.face ? h.face.normal.clone().applyMatrix3(_sprayNM.getNormalMatrix(h.object.matrixWorld)).normalize() : _sprDir.clone().negate();
   }
   // spray the ground/floor too (not in solidMeshes) — analytic plane hit
   if (_sprDir.y < -0.03) {
     var gY = (typeof inside !== 'undefined' && inside) ? INT.y + 0.06 : 0.19;
     var gT = (gY - _sprOrg.y) / _sprDir.y;
-    if (gT > 0.1 && gT <= range && gT < bestDist) { best = _sprOrg.clone().addScaledVector(_sprDir, gT); bestNormal = new THREE.Vector3(0, 1, 0); }
+    if (gT > 0.1 && gT <= range && gT < bestDist) { best = _sprOrg.clone().addScaledVector(_sprDir, gT); bestNormal = new THREE.Vector3(0, 1, 0); bestObj = null; }
   }
   if (best) {
-    sprayDecal(best, bestNormal || new THREE.Vector3(0, 1, 0), sprayColor);
+    // does the hit belong to a moving root? if so, parent the decal to it
+    var attachTo = null;
+    if (bestObj) { var o = bestObj; while (o) { if (moving.indexOf(o) >= 0) { attachTo = bestObj; break; } o = o.parent; } }
+    sprayDecal(best, bestNormal || new THREE.Vector3(0, 1, 0), sprayColor, attachTo);
     if (T - _sprayHissT > 0.16) { _sprayHissT = T; sfx('spray'); }
   }
 }
@@ -17133,7 +17149,7 @@ function updateSprayDecals(dt) {
   for (var i = sprayDecals.length - 1; i >= 0; i--) {
     var d = sprayDecals[i]; d.life -= dt;
     if (d.life < 6) d.mesh.material.opacity = Math.max(0, d.life / 6 * 0.94);   // fade out the last 6 s
-    if (d.life <= 0) { scene.remove(d.mesh); if (d.mesh.material) d.mesh.material.dispose(); sprayDecals.splice(i, 1); }
+    if (d.life <= 0) { if (d.mesh.parent) d.mesh.parent.remove(d.mesh); if (d.mesh.material) d.mesh.material.dispose(); sprayDecals.splice(i, 1); }
   }
 }
 // keep a spinning spray-can pickup behind the RaceTrac whenever the player has none
