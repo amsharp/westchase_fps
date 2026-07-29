@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.108.0';
+var GAME_VERSION = 'v1.108.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -13753,6 +13753,15 @@ function posSeesPlayer(x, z, vis2) {
   if (d2 < (vis2 || COP_VISION2) && !coverBlocked(x, z, player.x, player.z)) return true;  // clear line of sight
   return false;
 }
+// is any on-duty officer currently looking at you? (used for "caught in the act" crimes)
+function copWitnessing() {
+  var list = isClient() ? copsM : cops;
+  for (var i = 0; i < list.length; i++) {
+    var c = list[i]; if (c.state === 'down' || c.down || c.interior) continue;
+    if (posSeesPlayer(c.x, c.z)) return true;
+  }
+  return false;
+}
 // recompute dispatch knowledge each frame: are the police currently ON you?
 // If yes, refresh their last-known trail + reset your escape timer. If no, the
 // escape timer ticks down; run it out and ALL your stars drop together.
@@ -16759,7 +16768,7 @@ function updateTowerFallers(dt) {
 // plane (or a test) flew into this standing tower: kick off the sequence
 function igniteTower(t, impactY, hx, hz) {
   if (!t || t.state !== 'up') return;
-  rap.terror = true;               // bringing a skyscraper down = terrorism
+  rap.terror = true; setWanted(5);   // dropping a skyscraper = terrorism -> instant 5 stars
   t.state = 'burning'; t.t = 0; t.emitT = 0;
   var iy = Math.max(6, Math.min(t.fullH - 4, impactY || t.fullH * 0.6));
   t.impactY = iy;
@@ -17899,7 +17908,10 @@ function sprayPaint() {
     // does the hit belong to a moving root? if so, parent the decal to it
     var attachTo = null;
     if (bestObj) { var o = bestObj; while (o) { if (moving.indexOf(o) >= 0) { attachTo = bestObj; break; } o = o.parent; } }
-    if (!attachTo) rap.vandalism = true;   // tagging a wall / prop / the ground = vandalism (not a car or person)
+    if (!attachTo) {                       // tagging a wall / prop / the ground = vandalism (not a car or person)
+      rap.vandalism = true;
+      if (state.wanted < 1 && copWitnessing()) setWanted(1);   // only heats you up if a cop catches you in the act
+    }
     sprayDecal(best, bestNormal || new THREE.Vector3(0, 1, 0), sprayColor, attachTo);
     if (T - _sprayHissT > 0.16) { _sprayHissT = T; sfx('spray'); }
   }

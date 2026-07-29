@@ -509,7 +509,11 @@ counts** — and now it doesn't matter whether it's a civilian or a cop:
   now you've *finished* them: blood spills and it counts as a real kill toward
   the next star.
 - Robbing the register at gunpoint still snaps you straight to **2 stars**;
-  reckless driving crimes to 3; cracking the bank vault to 4.
+  reckless driving crimes to 3; cracking the bank vault to 4; and **flying a
+  plane into a skyscraper is an instant 5 stars** (plus a Terrorism charge).
+- Spray-painting is a **stealth crime**: tag a wall on an empty street and it
+  goes on your rap sheet but doesn't heat you up — but do it **in front of a
+  cop** and you pick up **1 star**.
 
 **The police response is a manhunt now.** Commit a crime and dispatch marks the
 spot — cruisers roll in **from across town (about 30 seconds out)**, so you've

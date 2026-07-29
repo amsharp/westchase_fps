@@ -227,8 +227,11 @@ game.js under `WC_REMAP`. Frame: junction `(0,0)`, **+x east / +z south**.
   `isKO` branch → NPC `state='down'` + `n.ko=true`, **no `bloodPool`**, `KO_TTL=25`s;
   shooting a downed `ko` body (raycast path, `npcHit.state==='down' && npcHit.ko`)
   converts it to a real kill (bloodPool + `creditCivKill`). Direct crimes still
-  snap floors (rob=2★, reckless=3★, vault=4★) — `setWanted` tops `killPts` up to
-  the star's threshold and arms the hide timer.
+  snap floors (rob=2★, reckless=3★, vault=4★, **skyscraper collapse=5★** in
+  `igniteTower`) — `setWanted` tops `killPts` up to the star's threshold and arms
+  the hide timer. **Spray paint** only stars you (1★) when `copWitnessing()` is
+  true (a cop with LOS/proximity via `posSeesPlayer`) — otherwise it's a silent
+  Vandalism charge, no heat.
   **Detection + manhunt** (`heat` object + `recomputeHeat` at top of `updateCops`):
   cops only KNOW your position via `posSeesPlayer` = proximity (`COP_PROX2`=9²) OR
   line-of-sight within `COP_VISION2`=58² (cars 82²). `heat.known` gates
