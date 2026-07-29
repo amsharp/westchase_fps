@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.107.0';
+var GAME_VERSION = 'v1.107.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -15653,7 +15653,9 @@ function exitPlane() {
 // the heli and slide it left/right. Local / singleplayer, like the plane.
 var heliVeh = null;
 var HELI_SPAWN = { x: (typeof AIRPORT_ORIGIN !== 'undefined' ? AIRPORT_ORIGIN.x : 150) - 72, z: (typeof AIRPORT_ORIGIN !== 'undefined' ? AIRPORT_ORIGIN.z : 1250) - 148 };
-var HELI_SKID = 1.0, HELI_MOUSE_SENS = 0.0019, HELI_CLIMB = 15, HELI_ACC = 27, HELI_MAX = 44, HELI_CEIL = 620, HELI_TILT = 0.6;
+var HELI_SKID = 1.0, HELI_MOUSE_SENS = 0.0019, HELI_CLIMB = 15, HELI_ACC = 38, HELI_MAX = 52, HELI_CEIL = 620, HELI_TILT = 0.6;
+var HELI_SINK = 2.5;        // gentle descent when you're not on the throttle (no W)
+var HELI_TILT_SINK = 4.5;   // extra altitude bleed while banked into a move (cyclic dumps lift)
 function spawnPlayerHeli() {
   if (heliVeh || typeof buildHeliMesh !== 'function') return heliVeh;
   var built = buildHeliMesh();
@@ -15715,16 +15717,21 @@ function updatePlayerHeli(dt) {
   if (!h.piloting) { h.mainRotor.rotation.y += 2.5 * dt; return; }   // parked: idle rotor drift
   var yawIn = (keys['KeyA'] ? 1 : 0) - (keys['KeyD'] ? 1 : 0);       // A left, D right
   h.yaw += yawIn * 1.7 * dt;
-  var lv = Math.min(1, 1.7 * dt); h.pitch -= h.pitch * lv; h.roll -= h.roll * lv;   // cyclic self-centers
+  // cyclic HOLDS its tilt (set by the mouse) — no self-centering. You stay tilted
+  // and keep flying that way until you steer the mouse back the other direction.
   if (h.pitch > HELI_TILT) h.pitch = HELI_TILT; else if (h.pitch < -HELI_TILT) h.pitch = -HELI_TILT;
   if (h.roll > HELI_TILT) h.roll = HELI_TILT; else if (h.roll < -HELI_TILT) h.roll = -HELI_TILT;
-  var vyT = keys['KeyW'] ? HELI_CLIMB : (keys['KeyS'] ? -HELI_CLIMB : 0);           // collective; release = hover
+  // collective: W climbs, S descends, hands-off sinks gently — and banking into a
+  // move bleeds a little more altitude (the harder you're tilted, the more you drop)
+  var tiltMag = Math.max(Math.abs(h.pitch), Math.abs(h.roll)) / HELI_TILT;
+  var vyT = keys['KeyW'] ? HELI_CLIMB : (keys['KeyS'] ? -HELI_CLIMB : -HELI_SINK);
+  vyT -= tiltMag * HELI_TILT_SINK;
   h.vy += (vyT - h.vy) * Math.min(1, 3 * dt);
   var nx = Math.cos(h.yaw), nz = -Math.sin(h.yaw);                  // nose dir (world x,z)
   var rx = -nz, rz = nx;                                            // pilot's right
   var fA = h.pitch * HELI_ACC, sA = h.roll * HELI_ACC;             // pitch>0 nose-down=fwd; roll>0=right
   h.vx += (nx * fA + rx * sA) * dt; h.vz += (nz * fA + rz * sA) * dt;
-  var dg = Math.max(0, 1 - 1.3 * dt); h.vx *= dg; h.vz *= dg;
+  var dg = Math.max(0, 1 - 0.85 * dt); h.vx *= dg; h.vz *= dg;     // lighter drag -> keeps its momentum, cruises faster
   var hsp = Math.sqrt(h.vx * h.vx + h.vz * h.vz);
   if (hsp > HELI_MAX) { h.vx = h.vx / hsp * HELI_MAX; h.vz = h.vz / hsp * HELI_MAX; }
   g.position.x += h.vx * dt; g.position.y += h.vy * dt; g.position.z += h.vz * dt;
