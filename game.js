@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.107.1';
+var GAME_VERSION = 'v1.108.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -9506,7 +9506,7 @@ function refreshClerk() {
       state.money += take; robbedVisit = true;
       playVoiceAny(['clerk_rob_1', 'clerk_rob_2'], 0.6, 'clerkRob', 6, { ref: clerk });
       popup('ROBBED  +$' + take);
-      sfx('alarm');
+      sfx('alarm'); rap.robbery = true;
       if (state.wanted < 2) setWanted(2); else lastCrimeT = T;
       closeMenus();
     } else {
@@ -10279,6 +10279,7 @@ function bankTellerHoldup(spec) {
   if (!heist.knowCode) {
     heist.code = '' + (1 + (Math.random() * 9 | 0)) + (Math.random() * 10 | 0) + (Math.random() * 10 | 0) + (Math.random() * 10 | 0);
     heist.knowCode = true;
+    rap.robbery = true;   // holding up the bank teller
     if (state.wanted < 2) setWanted(2); else lastCrimeT = T;
     sfx('alarm');
     playVoiceAny(['clerk_rob_1', 'clerk_rob_2'], 0.6, 'clerkRob', 6);
@@ -10290,6 +10291,7 @@ function openBankVault(spec, blown) {
   if (heist.open) return;
   if (T < bankClosedUntil) { sfx('deny'); toast('The vault is on lockdown after a recent heist.', 2600); return; }
   heist.open = true; heist.doorT = 0;
+  rap.robbery = true;   // cracking the bank vault
   if (state.wanted < 4) setWanted(4); else lastCrimeT = T;
   heist.graceT = 30; heist.waveT = 0; heist.waves = 0;
   spawnVaultStacks(spec);
@@ -10408,10 +10410,18 @@ function buildJail(spec) {
   C(-0.98, -0.54, -1.22, -0.72);  // toilet (NW corner)
   C(-1.25, 0.39, 0.58, 1.28);     // bed (south, along west wall)
 }
-// Strip the player's kit and send them down. `stars` = wanted level at arrest.
+// ---- arrest cinematic (v1.108) --------------------------------------------
+// On arrest the camera pulls up over the STANDING player and zooms out (like the
+// death cam but upright), fading to black. When it's black the ARRESTED charge
+// sheet shows for 5s, then the black fades and you're in the cell.
+var arrested = false, arrestCam = null, arrestBody = null;
+var ARREST_ZOOM_S = 2.6, ARREST_HOLD_S = 5.0;
+// Strip the player's kit and roll the arrest cinematic. `stars` = wanted at arrest.
 function jailPlayer(stars) {
+  if (arrested) return;
   stars = Math.max(1, stars | 0);
   jailStars = stars;
+  var chargeArr = chargeList();   // capture the rap sheet BEFORE the heat is wiped
   // snapshot the whole kit ONLY for light sentences (1-2 stars get it back)
   if (stars <= 2) {
     jailReturn = {
@@ -10426,23 +10436,76 @@ function jailPlayer(stars) {
   state.snacks = 0; state.sodas = 0;
   if (state.bag) state.bag.length = 0;
   state.stolen = 0; state.civKills = 0; state.copKills = 0; state.killPts = 0;
-  setWanted(0);
+  setWanted(0); heat.known = false; heat.loseT = 0; resetRap();
   if (typeof seedHotbar === 'function') seedHotbar();
   if (typeof pruneHotbar === 'function') pruneHotbar();
   setEquipped('fists');
   // clear any ongoing states that assume the overworld
   if (typeof driving !== 'undefined' && driving && typeof exitCar === 'function') exitCar(true);
   if (typeof heliVeh !== 'undefined' && heliVeh && heliVeh.piloting && typeof exitHeli === 'function') exitHeli();
-  // send down
+  jailT = 0;                       // the sentence clock starts once you're booked into the cell
+  startArrestCam(stars, chargeArr);
+  sfx('alarm', { x: player.x, z: player.z, range: 30 });
+}
+function startArrestCam(stars, chargeArr) {
+  var bx = player.x, bz = player.z, by = inside && curInterior ? curInterior.box.y : 0;
+  if (arrestBody) { scene.remove(arrestBody); arrestBody = null; }
+  try {
+    arrestBody = buildCharacter(typeof playerChar !== 'undefined' && playerChar ? playerChar : randomCharConfig());
+    arrestBody.position.set(bx, by, bz);          // STANDING where you were caught (not laid down)
+    arrestBody.rotation.set(0, yaw + Math.PI, 0); // upright, roughly facing the camera
+    scene.add(arrestBody);
+  } catch (e) { arrestBody = null; }
+  vm.visible = false;
+  var ch = document.getElementById('crosshair'); if (ch) ch.style.display = 'none';
+  arrested = true;
+  arrestCam = { el: 0, x: bx, y: by, z: bz, phase: 'zoom', stars: stars, charges: chargeArr };
+  var af = document.getElementById('arrestFade'); if (af) { af.style.transition = 'none'; af.style.opacity = '0'; }
+  var as = document.getElementById('arrestScreen'); if (as) as.classList.add('hidden');
+  if (document.exitPointerLock) document.exitPointerLock();
+}
+function updateArrestCam(dt) {
+  if (!arrestCam) return;
+  arrestCam.el += dt;
+  var af = document.getElementById('arrestFade');
+  if (arrestCam.phase === 'zoom') {
+    var f = Math.min(1, arrestCam.el / ARREST_ZOOM_S);
+    var ease = f * f * (3 - 2 * f);
+    var y = arrestCam.y + 6 + ease * 40;
+    camera.position.set(arrestCam.x, y, arrestCam.z + (y - arrestCam.y) * 0.16);
+    camera.lookAt(arrestCam.x, arrestCam.y + 0.9, arrestCam.z);   // frame the standing body
+    if (af) af.style.opacity = String(Math.max(0, Math.min(1, (f - 0.45) / 0.55)));   // fade to black over the back half
+    if (f >= 1) { arrestCam.phase = 'hold'; arrestCam.el = 0; if (af) af.style.opacity = '1'; showArrestScreen(arrestCam.charges); }
+  } else if (arrestCam.phase === 'hold') {
+    if (arrestCam.el >= ARREST_HOLD_S) { arrestCam.phase = 'done'; finishArrest(); }
+  }
+}
+function showArrestScreen(chargeArr) {
+  var as = document.getElementById('arrestScreen'); if (!as) return;
+  var html = '<h1>ARRESTED</h1><div class="arrLbl">CHARGED WITH</div><ul>';
+  if (chargeArr && chargeArr.length) { for (var i = 0; i < chargeArr.length; i++) html += '<li>' + chargeArr[i] + '</li>'; }
+  else html += '<li>Resisting arrest</li>';
+  as.innerHTML = html + '</ul>';
+  as.classList.remove('hidden');
+}
+function finishArrest() {
+  var as = document.getElementById('arrestScreen'); if (as) as.classList.add('hidden');
+  if (arrestBody) { scene.remove(arrestBody); arrestBody = null; }
+  enterJailCell();                 // book into the cell (teleport + start the sentence)
+  arrested = false; arrestCam = null;
+  var af = document.getElementById('arrestFade');
+  if (af) { af.style.transition = 'opacity .8s'; af.style.opacity = '0'; }   // black fades to reveal the cell
+  var ch = document.getElementById('crosshair'); if (ch) ch.style.display = '';
+  if (state.running && typeof lockPointer === 'function') lockPointer();
+}
+function enterJailCell() {
   inside = true; curInterior = JAIL;
   if (!JAIL.built) { JAIL.build(JAIL); JAIL.built = true; }
   setZoom(false);
   player.x = JAIL.doorIn.x; player.z = JAIL.doorIn.z; player.y = JAIL.box.y + EYE;
   yaw = JAIL.doorIn.yaw; pitch = 0;
-  jailT = 30 * stars;
-  popup('BUSTED');
-  toast('Arrested &mdash; ' + stars + '&#9733; &mdash; ' + (30 * stars) + 's in the county jail', 4200);
-  sfx('alarm', { x: player.x, z: player.z, range: 30 });
+  jailT = 30 * jailStars;
+  toast(jailStars + '&#9733; &mdash; ' + (30 * jailStars) + 's in the county jail', 4200);
 }
 function releaseFromJail() {
   jailT = 0;
@@ -12735,6 +12798,7 @@ function shootAtm(a, point) {
   spawnCashNet(a.x + a.fx * 1.3 + 0.5, a.z + a.fz * 1.3 - 0.5, Math.floor(total / 3));
   sfx('alarm'); sfx('cash');
   popup('ATM CRACKED');
+  rap.robbery = true;   // cracking an ATM
   if (state.wanted < 2) setWanted(2); else lastCrimeT = T;
 }
 // called from breakProp for props with a .kind tag
@@ -13636,22 +13700,40 @@ function addKillPts(pts) {
 }
 var CIV_STAR_KILLS = [5, 15, 35, 75, 155];   // (legacy, no longer drives stars)
 var COP_STAR_KILLS = [3, 9, 21, 45];
-function creditCivKill(kind) {   // LETHAL civilian/vehicle kill: +3 pts
+// ---- rap sheet (v1.108): the charges that show on the arrest screen. Crimes
+// stack up while you're heated and reset the moment you shake the cops (or die
+// / get booked). Murder vs Mass shooting is decided at arrest time from the
+// kill counters (>4 GUN kills = mass shooting; anything else lethal = murder).
+var rap = { assault: false, gta: false, robbery: false, terror: false, vandalism: false, kills: 0, gunKills: 0 };
+function resetRap() { rap.assault = false; rap.gta = false; rap.robbery = false; rap.terror = false; rap.vandalism = false; rap.kills = 0; rap.gunKills = 0; }
+function chargeList() {   // most-serious first
+  var out = [];
+  if (rap.terror) out.push('Terrorism');
+  if (rap.gunKills > 4) out.push('Mass shooting'); else if (rap.kills > 0) out.push('Murder');
+  if (rap.robbery) out.push('Robbery');
+  if (rap.gta) out.push('Grand theft auto');
+  if (rap.assault) out.push('Assault');
+  if (rap.vandalism) out.push('Vandalism');
+  return out;
+}
+function creditCivKill(kind, byGun) {   // LETHAL civilian/vehicle kill: +3 pts
   state.civKills++;
   addKillPts(3);
   hitMark(true);
-  if (kind === 'car') pushKillFeed('Vehicle wrecked', '#ffd24a');
-  else pushKillFeed('Pedestrian down', '#ff6a4a');
+  if (kind === 'car') { rap.vandalism = true; pushKillFeed('Vehicle wrecked', '#ffd24a'); }
+  else { rap.kills++; if (byGun) rap.gunKills++; pushKillFeed('Pedestrian down', '#ff6a4a'); }
 }
 function creditKnockout() {   // fist KNOCKOUT (no blood): +1 pt — three make a star
   addKillPts(1);
+  rap.assault = true;         // beating people up with your fists
   hitMark(true);
   pushKillFeed('Knocked out', '#c9d24a');
 }
-function creditCopKill() {   // downing an officer: lethal, +3 pts
+function creditCopKill(byGun) {   // downing an officer: lethal, +3 pts
   state.copKills++;
   if (state.wanted < 1) setWanted(1);
   addKillPts(3);
+  rap.kills++; if (byGun) rap.gunKills++;
   hitMark(true);
   pushKillFeed('Officer down', '#66b0ff');
 }
@@ -13659,6 +13741,7 @@ function creditCopKill() {   // downing an officer: lethal, +3 pts
 function clearHeat(msg) {
   setWanted(0); state.killPts = 0; state.civKills = 0; state.copKills = 0;
   heat.known = false; heat.loseT = 0;
+  resetRap();   // got away clean — the charges reset (fresh sheet next time)
   if (msg) popup(msg);
   if (state.stolen > 0) { state.money += state.stolen; popup('+$' + state.stolen + ' LAUNDERED'); sfx('cash'); state.stolen = 0; }
 }
@@ -13959,7 +14042,7 @@ function damageCop(c, dmg, kx, kz, silent) {
     stopNpcVoice(c.vname);
     spawnCash(c.x, c.z, 10 + ((Math.random() * 30) | 0), c.baseY || 0);
     sfx('ko', { x: c.x, z: c.z, y: (c.baseY || 0) + 1.2, range: 50 });
-    if (!silent) { popup('COP DOWN!'); creditCopKill(); }
+    if (!silent) { popup('COP DOWN!'); creditCopKill(!meleeHit && dmg < 900); }   // bullet = gun kill; melee/explosion = not
   } else {
     c.state = 'engage';
     if (!silent && state.wanted < 1) setWanted(1);
@@ -14004,7 +14087,7 @@ function copFindCover(c, tgt) {
   return best;
 }
 function bustPlayer(cop) {
-  if (jailT > 0 || state.dead || inside) return;   // already jailed / dead / indoors
+  if (jailT > 0 || arrested || state.dead || inside) return;   // already jailed / mid-arrest / dead / indoors
   jailPlayer(state.wanted || 1);                    // strip kit, teleport to the cell, serve the sentence (no fine)
 }
 function updateCops(dt) {
@@ -14760,6 +14843,7 @@ function enterCar(c) {
   if (c.sunk || c.flooding) return;    // a swamped car is dead — no re-entry
   var victim = carDrivenByPlayer(c);   // hijacking another player, not an NPC
   driving = c;
+  rap.gta = true;                      // grand theft auto — you took a vehicle that isn't yours
   if (victim) {
     c.jackCD = T + JACK_CD;
     if (net.mode === 'host' && c.drivenBy) {
@@ -15600,7 +15684,7 @@ function boardPlane() {
   if (plane.airport && !plane.atc) {
     plane.atc = { warnCD: 0, tookOff: false, wasOnGround: true, hijackAt: 0, busy: 0 };
   }
-  plane.piloting = true;
+  plane.piloting = true; rap.gta = true;   // stealing the jet is grand theft auto
   startJet();                                            // spin up the turbine loop
   setZoom(false);
   vm.visible = false;                                    // hide FP arms/viewmodel like driving
@@ -15674,7 +15758,7 @@ function heliGroundY(x, z) {
 function boardHeli() {
   if (!heliVeh || heliVeh.piloting) return;
   if (driving) exitCar();
-  heliVeh.piloting = true; heliVeh.pitch = 0; heliVeh.roll = 0; heliVeh.camInit = false;
+  heliVeh.piloting = true; heliVeh.pitch = 0; heliVeh.roll = 0; heliVeh.camInit = false; rap.gta = true;   // taking the chopper is grand theft auto
   setZoom(false); vm.visible = false;
   document.getElementById('crosshair').style.display = 'none';
   var wb = document.getElementById('weaponBox');
@@ -16675,6 +16759,7 @@ function updateTowerFallers(dt) {
 // plane (or a test) flew into this standing tower: kick off the sequence
 function igniteTower(t, impactY, hx, hz) {
   if (!t || t.state !== 'up') return;
+  rap.terror = true;               // bringing a skyscraper down = terrorism
   t.state = 'burning'; t.t = 0; t.emitT = 0;
   var iy = Math.max(6, Math.min(t.fullH - 4, impactY || t.fullH * 0.6));
   t.impactY = iy;
@@ -17814,6 +17899,7 @@ function sprayPaint() {
     // does the hit belong to a moving root? if so, parent the decal to it
     var attachTo = null;
     if (bestObj) { var o = bestObj; while (o) { if (moving.indexOf(o) >= 0) { attachTo = bestObj; break; } o = o.parent; } }
+    if (!attachTo) rap.vandalism = true;   // tagging a wall / prop / the ground = vandalism (not a car or person)
     sprayDecal(best, bestNormal || new THREE.Vector3(0, 1, 0), sprayColor, attachTo);
     if (T - _sprayHissT > 0.16) { _sprayHissT = T; sfx('spray'); }
   }
@@ -18034,6 +18120,7 @@ var rockets = [];
 var rocketBodyM = lamb({ color: 0x4a5a3a });
 var rocketTipM = lamb({ color: 0xb03024 });
 function fireRocket() {
+  rap.terror = true;               // firing an explosive device = terrorism
   if (bankRocketCheck()) return;   // rocket into the bank vault door blows it open (no projectile jank underground)
   var dir = new THREE.Vector3();
   camera.getWorldDirection(dir);
@@ -18904,7 +18991,7 @@ function damageNPC(n, dmg, kx, kz, silent) {
     maybeNpcItemDrop(n.x, n.z);
     if (!silent) {
       popup(isKO ? 'KNOCKED OUT' : 'KO!');
-      if (isKO) creditKnockout(); else creditCivKill();
+      if (isKO) creditKnockout(); else creditCivKill(null, !meleeHit);   // bullet kill counts toward mass-shooting
     }
   } else {
     sfx('hit', { x: n.x, z: n.z, range: 50 });
@@ -21479,7 +21566,7 @@ function fireShotgun(w) {
       if (npcHit.ko && !isClient()) {   // FINISHING a knocked-out body: now it's a real kill — blood + heat
         npcHit.ko = false; npcHit.downT = BODY_TTL;
         bloodPool(npcHit.x, npcHit.z);
-        popup('EXECUTED'); creditCivKill();
+        popup('EXECUTED'); creditCivKill(null, true);   // finishing a downed body with a bullet = a gun kill
       }
     }
     else if (copHit && copHit.state === 'down') { hitAny = true; gorePoke(copHit.x, h.point.y, copHit.z, d.x, d.z); }
@@ -21993,7 +22080,7 @@ function doRespawn() {
   if (state.running) lockPointer();
 }
 function hurtPlayer(d, sx, sz) {
-  if (state.dead || noclip) return;   // noclip = invincible
+  if (state.dead || noclip || arrested) return;   // noclip = invincible; arrested = cuffed, no damage during the cinematic
   state.hp -= d; state.lastHurt = T;
   // directional hit indicator (report mregrr51): remember where it came from
   if (sx !== undefined) {
@@ -25589,7 +25676,7 @@ function toggleNoclip() {
   popup2(noclip ? 'NOCLIP ON' : 'NOCLIP OFF');
 }
 function updatePlayer(dt) {
-  if (state.menu || state.dead) return;
+  if (state.menu || state.dead || arrested) return;   // the arrest cam owns the frame while being booked
   if (noclip) {   // free-fly: WASD along look dir, Space/Ctrl up/down, Shift = turbo
     var flySpd = (keys['ShiftLeft'] || keys['ShiftRight'] ? 165 : 62);
     var dir = new THREE.Vector3(); camera.getWorldDirection(dir);
@@ -26334,7 +26421,7 @@ function updateLowHpVig() {
   }
   if (op !== lowHpVigLast) { lowHpVigLast = op; lowHpVigEl.style.opacity = op; }
 }
-function updateHUD() { document.getElementById('money').textContent = '$' + state.money; document.getElementById('hpBar').style.width = Math.max(0, state.hp) + '%'; var hbEl = document.getElementById('hotbarHud'); if (hbEl) hbEl.style.display = (state.running && !driving && !state.dead) ? 'flex' : 'none'; var mmEl = document.getElementById('mm'); if (mmEl) mmEl.style.display = state.dead ? 'none' : ''; updateLowHpVig(); drawHudCanvas(); }
+function updateHUD() { document.getElementById('money').textContent = '$' + state.money; document.getElementById('hpBar').style.width = Math.max(0, state.hp) + '%'; var hbEl = document.getElementById('hotbarHud'); if (hbEl) hbEl.style.display = (state.running && !driving && !state.dead && !arrested) ? 'flex' : 'none'; var mmEl = document.getElementById('mm'); if (mmEl) mmEl.style.display = (state.dead || arrested) ? 'none' : ''; updateLowHpVig(); drawHudCanvas(); }
 
 // ---------------- QoL: photo mode ----------------
 // P toggles a free-fly camera for screenshots: HUD + first-person arms hidden,
@@ -26397,6 +26484,7 @@ function loop(now) {
   var sdt = dt;
   updatePlayer(dt); updateKick(dt); updatePlaneWorld(dt); updateAirportPlane(dt); updatePlayerHeli(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateCopCars(dt); updateHelis(dt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); ensureSpraySpawn(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateJail(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
   if (state.dead) updateDeathCam(dt);   // top-down zoom-out cinematic drives the camera while dead
+  else if (arrested) updateArrestCam(dt);   // arrest cinematic drives the camera while being booked
   renderer.render(scene, camera);
 }
 setEquipped('fists');
@@ -26512,6 +26600,9 @@ window.__wc = {
   setWanted: setWanted, damageCop: damageCop, damageNPC: damageNPC, ragdollNPC: (typeof ragdollNPC === 'function' ? ragdollNPC : null),
   heatInfo: function () { return { known: heat.known, loseT: heat.loseT, lkx: heat.lkx, lkz: heat.lkz, crimeX: heat.crimeX, crimeZ: heat.crimeZ, killPts: state.killPts, wanted: state.wanted, desiredCops: desiredCops(), desiredCopCars: desiredCopCars() }; },
   creditKill: function (k) { if (k === 'ko') creditKnockout(); else if (k === 'cop') creditCopKill(); else creditCivKill(k); },
+  rapInfo: function () { return { charges: chargeList(), assault: rap.assault, gta: rap.gta, robbery: rap.robbery, terror: rap.terror, vandalism: rap.vandalism, kills: rap.kills, gunKills: rap.gunKills }; },
+  arrestState: function () { return { arrested: arrested, phase: arrestCam && arrestCam.phase, jailT: jailT, inside: inside, cur: curInterior && curInterior.id }; },
+  testCharge: function (k, v) { if (k in rap) rap[k] = (v === undefined ? true : v); },
   posSeesPlayer: function (x, z, v) { return posSeesPlayer(x, z, v); },
   setHideTimer: function (v) { heat.loseT = v; },
   start: function () { startScreen.classList.add('hidden'); state.running = true; },
@@ -26826,7 +26917,7 @@ window.__wc = {
   // lightweight physics step (no render, no NPC/cop/car sim) — fast headless
   // stepping for plane/fall tests. Renders only when you call renderer yourself.
   stepLite: function (dt) { T += dt; updatePlayer(dt); updatePlaneWorld(dt); },
-  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updateKick(dt); updatePlaneWorld(dt); updatePlayerHeli(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateCopCars(dt); updateHelis(dt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); ensureSpraySpawn(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateJail(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
+  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updateKick(dt); updatePlaneWorld(dt); updatePlayerHeli(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateCopCars(dt); updateHelis(dt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); ensureSpraySpawn(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateJail(dt); if (arrested) updateArrestCam(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
 };
 
 // ---------------- boot screen handoff + menu cover art ----------------

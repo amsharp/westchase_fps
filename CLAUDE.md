@@ -246,12 +246,25 @@ game.js under `WC_REMAP`. Frame: junction `(0,0)`, **+x east / +z south**.
   (`c.interior`,`c.baseY`) spawn on a failed unarmed robbery, always local. Heat
   logic is host/local; clients mirror stars via `w`. `__wc` test hooks: `heatInfo`,
   `creditKill`, `posSeesPlayer`, `setHideTimer`.
-- **Arrest → jail** (`bustPlayer`→`jailPlayer`/`releaseFromJail`/`updateJail`,
-  per-player): an unarmed catch cuffs you instead of KO'ing — NO fine anymore.
-  `jailPlayer(stars)` confiscates the whole kit (`state.owned/ammoRes/mag/snacks/
-  sodas/bag`, snapshotted into `jailReturn` ONLY if stars≤2), clears wanted/kills/
-  stolen, and drops you into the `JAIL` interior. Sentence = 30s×stars (`jailT`
-  counts down in the main loop; `#jailHud` shows the timer). Release restores the
+- **Arrest → jail** (`bustPlayer`→`jailPlayer`→arrest cam→`enterJailCell`/
+  `releaseFromJail`/`updateJail`, per-player): an unarmed catch cuffs you instead
+  of KO'ing — NO fine anymore. `jailPlayer(stars)` captures the charge list, then
+  confiscates the whole kit (`state.owned/ammoRes/mag/snacks/sodas/bag`,
+  snapshotted into `jailReturn` ONLY if stars≤2), clears wanted/kills/stolen +
+  `resetRap()`, and starts the **arrest cinematic** (`arrested` flag gates
+  `updatePlayer`/`hurtPlayer`; loop + `__wc.tick` call `updateArrestCam`):
+  `startArrestCam` builds a STANDING player body, camera zooms out top-down
+  (`ARREST_ZOOM_S=2.6`) fading `#arrestFade` to black, then `#arrestScreen` shows
+  "ARRESTED" + `chargeList()` for `ARREST_HOLD_S=5`, then `finishArrest`→
+  `enterJailCell` teleports into `JAIL` and starts the sentence. Sentence =
+  30s×stars (`jailT` counts down in the main loop; `#jailHud` shows the timer).
+  **Charges** (`rap` object, `chargeList()`, reset in `clearHeat`/`resetRap` when
+  you get away or on death): Assault (fist knockout), Murder (any lethal kill,
+  1-4) / Mass shooting (`rap.gunKills>4`; gun kills tracked via `byGun` in
+  `damageNPC`/`damageCop`), Grand theft auto (`enterCar`/`boardPlane`/`boardHeli`),
+  Robbery (gas rob/bank teller/vault/ATM), Terrorism (`fireRocket`/`igniteTower`),
+  Vandalism (spray on static surface / car wreck). `__wc`: `rapInfo`,
+  `arrestState`, `testCharge`. Release restores the
   snapshot for ≤2★, forfeits it for 3–5★, then teleports to the town spawn
   (`JAIL.doorOut` = Publix lot). The cell is a Blender GLB (`jail.js` =
   `JAIL_DATA`, single double-sided UV atlas, full-res JPEG — user said don't

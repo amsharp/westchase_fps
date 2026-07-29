@@ -534,10 +534,31 @@ out — or **arrested** (see below) — wipes your wanted level.
 
 If an officer catches you **unarmed** (fists, food, spray paint — nothing
 they'd shoot over) and closes the distance, they don't just knock you out —
-they **cuff you and haul you to the county jail**. There's no fine anymore;
-instead you're **stripped of every weapon and item** and thrown in a cell to
-serve a sentence of **30 seconds per wanted star** (1★ = 30s, all the way up to
-5★ = 2½ minutes). A timer counts down over the bars while you wait it out.
+they **cuff you and haul you to the county jail**.
+
+The bust plays out as a cutscene: the camera pulls up and **zooms out over you**
+as you stand there caught, then **fades to black** and reads **ARRESTED**, with
+your **rap sheet** — every charge you racked up this wanted streak — listed
+underneath. The possible charges:
+
+- **Assault** — beating people down with your fists.
+- **Murder** — killing anyone (up to four).
+- **Mass shooting** — gunning down **more than four** people (a melee spree of
+  five-plus is still just Murder).
+- **Grand theft auto** — stealing any vehicle: a car, the jet, the chopper.
+- **Robbery** — knocking over the gas station, the bank, or an ATM.
+- **Terrorism** — using explosives (the rocket launcher) or dropping a
+  skyscraper with a plane.
+- **Vandalism** — tagging property with spray paint, or wrecking cars.
+
+Charges **stack** — do several different crimes on one spree and they all show
+up. Slip the cops and shake the heat, though, and the slate wipes clean; you'll
+only answer for whatever you're caught doing *next* time.
+
+After five seconds on the charge screen the black fades and you're in the cell.
+There's no fine — instead you're **stripped of every weapon and item** and serve
+a sentence of **30 seconds per wanted star** (1★ = 30s, up to 5★ = 2½ minutes).
+A timer counts down over the bars while you wait it out.
 
 The cell is a real modeled room — bunk, toilet, sink, and a barred wall you can
 look out of into the cell block. What you get back on release depends on how
