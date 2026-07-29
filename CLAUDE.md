@@ -281,6 +281,18 @@ game.js under `WC_REMAP`. Frame: junction `(0,0)`, **+x east / +z south**.
   `updateCops` wantGun forces `'smg'` for SWAT. `__wc`: `spikeStrips`,
   `spawnRoadblock`, `spawnSpikeStrip`, `updateHeatOps`. (`maxWanted()` now guards
   `net.remotes` — it's called at boot-time via the new SWAT hook in `spawnCop`.)
+- **Police helicopters** (`helis`, `spawnHeli`/`updateHeli`/`updateHelis`, 3★=1/
+  4★=2/5★=3, local like the plane) got a v1.109.1 pass: (1) **speed cap** —
+  `HELI_MAX_SPD=48`, below the plane's `PLANE_MAX_SPD=78` and the Porsche's 73, so
+  those outrun it (a normal car / runner still gets caught); `updateHeli` clamps
+  the per-frame horizontal step to `HELI_MAX_SPD*dt`. (2) **Spawn far + go to the
+  crime scene** — `spawnHeli` now spawns 240–330u out from `responseAnchor()`
+  (last-known, not live pos), and `updateHeli` orbits the crime-scene center (`cX/
+  cZ` = `responseAnchor()`) whenever `!heat.known`, only locking onto the live
+  player once a unit SEES you — same lose-them-by-hiding rule as the ground units.
+  (3) **Only fires when armed** — `heliGunnerFire` bails unless `heliPlayerArmed()`
+  (a real gun in `GUN_LIST` equipped, and NOT driving/piloting the plane), so
+  fleeing unarmed / in a vehicle draws no fire. `__wc.helis`/`spawnHeli` for tests.
 - **Arrest → jail** (`bustPlayer`→`jailPlayer`→arrest cam→`enterJailCell`/
   `releaseFromJail`/`updateJail`, per-player): an unarmed catch cuffs you instead
   of KO'ing — NO fine anymore. `jailPlayer(stars)` captures the charge list, then

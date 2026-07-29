@@ -408,11 +408,16 @@ Push your **wanted level** up and the response gets serious.
   you **in a car** and they run you down in a pursuit. Enough bullets and a
   cruiser goes up in a fireball.
 - The **Sheriff's helicopter** joins at **3 stars** (a second at 4★, a third at
-  5★) — a green-and-white AS350 that **orbits overhead** with two **side gunners
-  raining fire** down on you. The choppers keep their distance from each other so
-  they never collide. **Shoot a gunner off** the skid to silence that side, or
-  pour rounds into the airframe to **shoot the whole thing down** — it spins out,
-  drops out of the sky, and explodes on impact.
+  5★) — a green-and-white AS350 that **flies in from far away** toward the crime
+  scene and **circles the area where you were last seen**, just like the ground
+  units, then **orbits overhead** once it spots you, with two **side gunners**.
+  It's **not that fast** — a plane or a Porsche will pull away from it, though it
+  runs down a normal car or a runner easily. The gunners **only open fire when you
+  actually have a gun out** — flee unarmed (or fly/drive) and they hold their fire.
+  The choppers keep their distance from each other so they never collide. **Shoot
+  a gunner off** the skid to silence that side, or pour rounds into the airframe to
+  **shoot the whole thing down** — it spins out, drops out of the sky, and explodes
+  on impact.
 
 At **3 stars and up the police escalate a car chase** with dedicated heat ops:
 

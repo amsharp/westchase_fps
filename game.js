@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.109.0';
+var GAME_VERSION = 'v1.109.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -17197,7 +17197,16 @@ function updateHeatOps(dt) {
 // and explodes on the ground.
 var helis = [], heliSpawnT = 0;
 var HELI_HP = 220, HELI_GUNNER_HP = 55;
+var HELI_MAX_SPD = 48;   // hard top speed — BELOW the plane (78) & Porsche (73) so they can outrun it, still fast enough to run down a normal car / a runner
 function desiredHelis() { var w = state.wanted; return w >= 3 ? Math.min(w - 2, 3) : 0; }   // 3*=1, 4*=2, 5*=3
+// the player only counts as "armed" (a threat the gunners will fire on) when a gun
+// is actually OUT in hand — never while piloting the plane or driving a car (no
+// weapon in hand then), and never with fists/snack/soda/spray equipped.
+function heliPlayerArmed() {
+  if (typeof driving !== 'undefined' && driving) return false;
+  if (typeof plane !== 'undefined' && plane && plane.piloting) return false;
+  return typeof GUN_LIST !== 'undefined' && GUN_LIST.indexOf(state.equipped) >= 0;
+}
 var _heliSideTex = null;
 function heliSideTex() {
   if (_heliSideTex) return _heliSideTex;
@@ -17253,8 +17262,12 @@ function makeHeliGunner(hgroup, side) {
 }
 function spawnHeli() {
   var m = buildHeliMesh();
-  var a = Math.random() * 6.283;
-  var sx = player.x + Math.cos(a) * 120, sz = player.z + Math.sin(a) * 120;
+  // spawn FAR (like responding cops) and fly IN toward the crime scene / last-known
+  // spot — not on top of you. Anchor on responseAnchor() so fleeing works.
+  var anc = (typeof responseAnchor === 'function') ? responseAnchor() : { x: player.x, z: player.z };
+  var a = Math.random() * 6.283, dist = 240 + Math.random() * 90;
+  var sx = anc.x + Math.cos(a) * dist, sz = anc.z + Math.sin(a) * dist;
+  if (typeof WLO !== 'undefined') { sx = Math.max(WLO + 20, Math.min(WHI - 20, sx)); sz = Math.max(WLO + 20, Math.min(WHI - 20, sz)); }
   var h = { group: m.group, mainRotor: m.mainRotor, tailRotor: m.tailRotor, x: sx, y: 34, z: sz, vx: 0, vz: 0, vy: 0, orbitA: a + Math.PI, orbitDir: Math.random() < 0.5 ? 0.5 : -0.5, state: 'fly', hp: HELI_HP, spin: 0, tumble: 0, smokeT: 0, gunners: [], dead: false, light: null };
   h.gunners = [makeHeliGunner(m.group, 1), makeHeliGunner(m.group, -1)];
   m.group.position.set(sx, 34, sz);
@@ -17269,6 +17282,7 @@ function spawnHeli() {
 }
 function heliGunnerFire(h, gun, dt) {
   if (!gun.alive) return;
+  if (!heliPlayerArmed()) return;   // only open fire when you actually have a gun out
   gun.fireT -= dt; if (gun.fireT > 0) return;
   gun.fireT = 0.45 + Math.random() * 0.4;
   var wp = new THREE.Vector3(); gun.mesh.getWorldPosition(wp);
@@ -17354,11 +17368,17 @@ function updateHeli(h, dt, idx) {
     g.position.set(h.x, h.y, h.z);
     return;
   }
-  // 'fly': circle the player, presenting a SIDE (where the gunners sit) toward them
+  // 'fly': circle the crime scene, presenting a SIDE (where the gunners sit) toward it.
+  // Until a unit actually SEES you (heat.known) the chopper orbits the LAST-KNOWN /
+  // crime spot (responseAnchor) — same as the ground units — so you can slip it by
+  // breaking line of sight. Once seen, it locks onto your live position.
   var ox0 = h.x, oy0 = h.y, oz0 = h.z;
   h.orbitA += dt * (h.orbitDir || 0.5);
   var R = 27, BASE_ALT = 32;
-  var tx = player.x + Math.cos(h.orbitA) * R, tz = player.z + Math.sin(h.orbitA) * R;
+  var known = (typeof heat === 'undefined') ? true : (heat.known && !state.dead && !inside);
+  var anc = (!known && typeof responseAnchor === 'function') ? responseAnchor() : null;
+  var cX = anc ? anc.x : player.x, cZ = anc ? anc.z : player.z;
+  var tx = cX + Math.cos(h.orbitA) * R, tz = cZ + Math.sin(h.orbitA) * R;
   // weave AROUND skyscrapers (can't climb an 80u tower) — push the orbit target off any tower
   if (typeof towers !== 'undefined') for (var ti = 0; ti < towers.length; ti++) {
     var tw = towers[ti]; if (tw.state !== 'up') continue;
@@ -17373,18 +17393,22 @@ function updateHeli(h, dt, idx) {
   }
   // altitude: rise to clear rooftops under + just ahead, and stay above an elevated player (highway)
   var ax = tx - h.x, az = tz - h.z, alh = Math.hypot(ax, az) || 1; ax /= alh; az /= alh;
-  var clearH = Math.max(heliBuildingHeightAt(h.x, h.z), heliBuildingHeightAt(h.x + ax * 15, h.z + az * 15), heliBuildingHeightAt(player.x, player.z));
-  var ty = Math.max(BASE_ALT, clearH + 13, player.y + 20) + Math.sin(T * 0.7 + idx) * 1.1;
-  h.x += (tx - h.x) * Math.min(1, dt * 0.9);
-  h.z += (tz - h.z) * Math.min(1, dt * 0.9);
+  var clearH = Math.max(heliBuildingHeightAt(h.x, h.z), heliBuildingHeightAt(h.x + ax * 15, h.z + az * 15), heliBuildingHeightAt(cX, cZ));
+  var ty = Math.max(BASE_ALT, clearH + 13, known ? player.y + 20 : BASE_ALT) + Math.sin(T * 0.7 + idx) * 1.1;
+  // move toward the orbit target, but CAP the horizontal speed so a fast plane / Porsche
+  // can outrun the chopper (a car-speed pursuit still gets run down).
+  var stepx = (tx - h.x) * Math.min(1, dt * 0.9), stepz = (tz - h.z) * Math.min(1, dt * 0.9);
+  var stepL = Math.hypot(stepx, stepz), capL = HELI_MAX_SPD * dt;
+  if (stepL > capL && stepL > 0.0001) { var kcap = capL / stepL; stepx *= kcap; stepz *= kcap; }
+  h.x += stepx; h.z += stepz;
   h.y += (ty - h.y) * Math.min(1, dt * 1.4);
   h.vx = (h.x - ox0) / dt; h.vy = (h.y - oy0) / dt; h.vz = (h.z - oz0) / dt;
   var spd = Math.hypot(h.vx, h.vz);
-  // heading = travel direction (during the circle that puts a side toward the player); face the
-  // tangent-to-player when nearly hovering so the gunners still bear on you.
+  // heading = travel direction (during the circle that puts a side toward the target); face the
+  // tangent-to-center when nearly hovering so the gunners still bear on the orbit center.
   var hvx, hvz;
   if (spd > 1.5) { hvx = h.vx / spd; hvz = h.vz / spd; }
-  else { var rx = h.x - player.x, rz = h.z - player.z, rl = Math.hypot(rx, rz) || 1, sgn = (h.orbitDir >= 0 ? 1 : -1); hvx = -rz / rl * sgn; hvz = rx / rl * sgn; }
+  else { var rx = h.x - cX, rz = h.z - cZ, rl = Math.hypot(rx, rz) || 1, sgn = (h.orbitDir >= 0 ? 1 : -1); hvx = -rz / rl * sgn; hvz = rx / rl * sgn; }
   var wantH = Math.atan2(-hvz, hvx), dyH = wantH - g.rotation.y;
   while (dyH > Math.PI) dyH -= 6.283; while (dyH < -Math.PI) dyH += 6.283;
   g.rotation.y += dyH * Math.min(1, dt * 2.5);
