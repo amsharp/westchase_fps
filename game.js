@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.105.0';
+var GAME_VERSION = 'v1.106.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -10362,6 +10362,134 @@ function bankRocketCheck() {
   return true;
 }
 
+// ==================== JAIL CELL (arrest destination) ========================
+// A single Blender-authored cell + a slice of hallway to peer out of, sunk deep
+// under the map (its own interior spec). Arrested players are stripped of every
+// weapon/item, teleported here, and serve 30s per wanted star. Low stars (1-2)
+// get their kit back on release; 3-5 stars lose it. No money penalty. The cell
+// mesh (JAIL_DATA in jail.js — one double-sided UV-atlas model) is placed once;
+// colliders are hand-authored from the model's measured bounding boxes.
+var JAIL_ORIGIN = { x: 300, y: -140, z: 300 };   // deep under map, clear of the gas interior (y=-60)
+var JAIL_SCALE = 1.45;                            // model is snug (1.92m ceiling) — scale up for headroom
+var jailT = 0;                                    // remaining sentence (s); >0 == locked up
+var jailStars = 0, jailReturn = null;             // snapshot of confiscated kit (restored only for <=2 stars)
+var _jailC = {};                                  // decode cache for JAIL_DATA
+var JAIL = registerInterior({
+  id: 'jail',
+  box: { y: JAIL_ORIGIN.y },                      // floor height (mesh floor is local y=0)
+  pushR: 0.30,                                    // tight cell — smaller player radius than shops (0.55)
+  doorIn: { x: JAIL_ORIGIN.x, z: JAIL_ORIGIN.z, yaw: -Math.PI / 2 },  // center of cell, facing the bars (+x)
+  doorOut: { x: -72, z: -97, yaw: Math.PI },      // Publix lot spawn (town default)
+  label: 'COUNTY JAIL',
+  build: buildJail
+});
+function buildJail(spec) {
+  if (typeof JAIL_DATA === 'undefined') return;   // jail.js not loaded — bail gracefully
+  var OX = JAIL_ORIGIN.x, OY = JAIL_ORIGIN.y, OZ = JAIL_ORIGIN.z;
+  decodeAirModel(JAIL_DATA, _jailC);
+  var S = JAIL_SCALE;
+  var mesh = new THREE.Mesh(_jailC.geo, _jailC.mat);
+  mesh.scale.set(S, S, S);
+  mesh.position.set(OX, OY, OZ);                  // model floor at local y=0 -> world OY (scale keeps floor at 0)
+  scene.add(mesh);
+  // ceiling light so the sunk room isn't pitch black
+  var lamp = new THREE.PointLight(0xfff2d8, 1.1, 22 * S, 1.6);
+  lamp.position.set(OX, OY + 1.7 * S, OZ); scene.add(lamp);
+  scene.add(new THREE.AmbientLight(0x3a3a44, 0.6));   // soft fill (cheap, shared with rest of scene)
+  // ---- colliders (world coords). Cell interior ~ x[-1.25,1.2], z[-1.25,1.25]
+  // in model-local space (scaled by S); walls block the player inside, props fill the corners.
+  function C(x0, x1, z0, z1) { spec.colliders.push({ x0: OX + x0 * S, x1: OX + x1 * S, z0: OZ + z0 * S, z1: OZ + z1 * S }); }
+  C(-1.45, -1.25, -1.45, 1.45);   // west wall
+  C(-1.45, 1.45, -1.45, -1.25);   // north wall
+  C(-1.45, 1.45, 1.25, 1.45);     // south wall
+  C(1.12, 1.35, -1.45, 1.45);     // east = prison bars (solid, look through the gaps)
+  C(-0.10, 0.34, -1.26, -0.86);   // sink (north wall)
+  C(-0.98, -0.54, -1.22, -0.72);  // toilet (NW corner)
+  C(-1.25, 0.39, 0.58, 1.28);     // bed (south, along west wall)
+}
+// Strip the player's kit and send them down. `stars` = wanted level at arrest.
+function jailPlayer(stars) {
+  stars = Math.max(1, stars | 0);
+  jailStars = stars;
+  // snapshot the whole kit ONLY for light sentences (1-2 stars get it back)
+  if (stars <= 2) {
+    jailReturn = {
+      owned: shallowCopy(state.owned), ammoRes: shallowCopy(state.ammoRes),
+      mag: shallowCopy(state.mag), snacks: state.snacks | 0, sodas: state.sodas | 0,
+      bag: (state.bag || []).slice(), money: state.money
+    };
+  } else jailReturn = null;
+  // confiscate everything (reset every owned weapon flag to false; fists is implicit)
+  for (var wk in state.owned) if (state.owned.hasOwnProperty(wk)) state.owned[wk] = false;
+  state.ammoRes = {}; state.mag = {};
+  state.snacks = 0; state.sodas = 0;
+  if (state.bag) state.bag.length = 0;
+  state.stolen = 0; state.civKills = 0; state.copKills = 0;
+  setWanted(0);
+  if (typeof seedHotbar === 'function') seedHotbar();
+  if (typeof pruneHotbar === 'function') pruneHotbar();
+  setEquipped('fists');
+  // clear any ongoing states that assume the overworld
+  if (typeof driving !== 'undefined' && driving && typeof exitCar === 'function') exitCar(true);
+  if (typeof heliVeh !== 'undefined' && heliVeh && heliVeh.piloting && typeof exitHeli === 'function') exitHeli();
+  // send down
+  inside = true; curInterior = JAIL;
+  if (!JAIL.built) { JAIL.build(JAIL); JAIL.built = true; }
+  setZoom(false);
+  player.x = JAIL.doorIn.x; player.z = JAIL.doorIn.z; player.y = JAIL.box.y + EYE;
+  yaw = JAIL.doorIn.yaw; pitch = 0;
+  jailT = 30 * stars;
+  popup('BUSTED');
+  toast('Arrested &mdash; ' + stars + '&#9733; &mdash; ' + (30 * stars) + 's in the county jail', 4200);
+  sfx('alarm', { x: player.x, z: player.z, range: 30 });
+}
+function releaseFromJail() {
+  jailT = 0;
+  // restore kit for light sentences
+  if (jailReturn) {
+    state.owned = jailReturn.owned; state.ammoRes = jailReturn.ammoRes;
+    state.mag = jailReturn.mag; state.snacks = jailReturn.snacks; state.sodas = jailReturn.sodas;
+    if (state.bag) { state.bag.length = 0; for (var i = 0; i < jailReturn.bag.length; i++) state.bag.push(jailReturn.bag[i]); }
+    state.money = jailReturn.money;
+  }
+  jailReturn = null;
+  inside = false; curInterior = null;
+  player.x = JAIL.doorOut.x; player.z = JAIL.doorOut.z; player.y = EYE;
+  yaw = JAIL.doorOut.yaw; pitch = 0;
+  if (typeof seedHotbar === 'function') seedHotbar();
+  if (typeof pruneHotbar === 'function') pruneHotbar();
+  setEquipped('fists');
+  toast(jailStars <= 2 ? 'Released &mdash; belongings returned' : 'Released &mdash; belongings forfeited', 3600);
+}
+function updateJail(dt) {
+  var el = jailHudEl();
+  if (jailT <= 0) { if (el) el.style.display = 'none'; return; }
+  if (state.dead) { jailT = 0; jailReturn = null; if (el) el.style.display = 'none'; return; }  // died in the cell somehow — no restore
+  jailT -= dt;
+  if (el) {
+    el.style.display = 'block';
+    var secs = Math.max(0, Math.ceil(jailT));
+    var mm = (secs / 60) | 0, ss = secs % 60;
+    el.innerHTML = 'IN JAIL &mdash; ' + jailStars + '&#9733;<br><span style="font-size:34px;letter-spacing:3px">' +
+      mm + ':' + (ss < 10 ? '0' : '') + ss + '</span><br><span style="font-size:12px;opacity:.7">' +
+      (jailStars <= 2 ? 'belongings held' : 'belongings forfeited') + '</span>';
+  }
+  if (jailT <= 0) releaseFromJail();
+}
+var _jailHud = null;
+function jailHudEl() {
+  if (_jailHud) return _jailHud;
+  var d = document.createElement('div');
+  d.id = 'jailHud';
+  d.style.cssText = 'position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:60;' +
+    'font-family:monospace;font-weight:bold;color:#e8e2d0;text-align:center;text-shadow:0 2px 6px #000;' +
+    'background:rgba(20,18,16,.55);border:2px solid #6a6258;border-radius:8px;padding:8px 18px;' +
+    'font-size:15px;letter-spacing:2px;display:none;pointer-events:none';
+  (document.body || document.documentElement).appendChild(d);
+  _jailHud = d; return d;
+}
+function shallowCopy(o) { var r = {}; if (o) for (var k in o) if (o.hasOwnProperty(k)) r[k] = o[k]; return r; }
+
 // ==================== SHOP-LIFE SIMULATION (#65) =============================
 // Per-player, LOCAL customers that populate whichever generalized interior the
 // player is standing in. They walk in through the door, BROWSE the fixtures
@@ -13771,15 +13899,8 @@ function copFindCover(c, tgt) {
   return best;
 }
 function bustPlayer(cop) {
-  if (bustedT > 0 || state.dead || inside) return;
-  var stars = state.wanted || 1, fine = Math.min(state.money, 40 + stars * 60);
-  state.money -= fine;
-  state.stolen = 0; state.civKills = 0; state.copKills = 0;
-  setWanted(0);
-  bustedT = 2.6;
-  popup('BUSTED');
-  toast('Arrested &mdash; $' + fine + ' fine', 3200);
-  sfx('alarm', { x: cop.x, z: cop.z, range: 40 });
+  if (jailT > 0 || state.dead || inside) return;   // already jailed / dead / indoors
+  jailPlayer(state.wanted || 1);                    // strip kit, teleport to the cell, serve the sentence (no fine)
 }
 function updateCops(dt) {
   var wpn = copWeapon();
@@ -25428,18 +25549,19 @@ function updatePlayer(dt) {
   // framerate, sprinting) can't tunnel through a collider and strand you on the far
   // side — that tunneling was the one-way "invisible barrier" in the shop interiors.
   var _colList = inside ? (curInterior ? curInterior.colliders : intColliders) : landColliders;
+  var _pR = (inside && curInterior && curInterior.pushR) ? curInterior.pushR : 0.55;   // tight rooms (jail) shrink the player radius
   var _mvx = player.x - _preMvX, _mvz = player.z - _preMvZ, _mdist = Math.sqrt(_mvx * _mvx + _mvz * _mvz);
   if (_mdist > 0.22) {
     // advance from the RESOLVED position each sub-step (true sweep) so hitting a
     // collider stops/slides you at its face instead of sampling past it.
     var _nsub = Math.ceil(_mdist / 0.22), _sx = _mvx / _nsub, _sz = _mvz / _nsub, _cx = _preMvX, _cz = _preMvZ;
     for (var _ss = 0; _ss < _nsub; _ss++) {
-      var _q = pushOut(_cx + _sx, _cz + _sz, 0.55, _colList, player.y - EYE);
+      var _q = pushOut(_cx + _sx, _cz + _sz, _pR, _colList, player.y - EYE);
       _cx = _q.x; _cz = _q.z;
     }
     player.x = _cx; player.z = _cz;
   } else {
-    var p = pushOut(player.x, player.z, 0.55, _colList, player.y - EYE); player.x = p.x; player.z = p.z;
+    var p = pushOut(player.x, player.z, _pR, _colList, player.y - EYE); player.x = p.x; player.z = p.z;
   }
   // pedestrians are solid-ish: you shoulder past them, not through them
   if (!inside && !state.dead) for (var pci = 0; pci < npcs.length; pci++) {
@@ -26128,7 +26250,7 @@ function loop(now) {
   if (photoMode) { updatePhotoCam(dt); renderer.render(scene, camera); return; }
   T += dt;
   var sdt = dt;
-  updatePlayer(dt); updateKick(dt); updatePlaneWorld(dt); updateAirportPlane(dt); updatePlayerHeli(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateCopCars(dt); updateHelis(dt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); ensureSpraySpawn(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
+  updatePlayer(dt); updateKick(dt); updatePlaneWorld(dt); updateAirportPlane(dt); updatePlayerHeli(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateCopCars(dt); updateHelis(dt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); ensureSpraySpawn(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateJail(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
   if (state.dead) updateDeathCam(dt);   // top-down zoom-out cinematic drives the camera while dead
   renderer.render(scene, camera);
 }
@@ -26521,6 +26643,7 @@ window.__wc = {
   spawnPlayerHeli: function () { return spawnPlayerHeli(); }, boardHeli: boardHeli, exitHeli: exitHeli, playerHeli: function () { return heliVeh; }, updatePlayerHeli: updatePlayerHeli, HELI_SPAWN: HELI_SPAWN,
   heliMouse: function (dx, dy) { if (heliVeh && heliVeh.piloting) { heliVeh.pitch = Math.max(-HELI_TILT, Math.min(HELI_TILT, heliVeh.pitch - dy * HELI_MOUSE_SENS)); heliVeh.roll = Math.max(-HELI_TILT, Math.min(HELI_TILT, heliVeh.roll + dx * HELI_MOUSE_SENS)); } },
   plane: function () { return plane; },
+  jailPlayer: function (stars) { jailPlayer(stars); }, releaseFromJail: releaseFromJail, jailInfo: function () { return { t: jailT, stars: jailStars, hasReturn: !!jailReturn, inside: inside, cur: curInterior && curInterior.id }; },
   boardPlane: boardPlane, exitPlane: exitPlane, removePlane: removePlane,
   crashPlane: function () { crashPlane(); },
   planeState: function () {
@@ -26554,7 +26677,7 @@ window.__wc = {
   // lightweight physics step (no render, no NPC/cop/car sim) — fast headless
   // stepping for plane/fall tests. Renders only when you call renderer yourself.
   stepLite: function (dt) { T += dt; updatePlayer(dt); updatePlaneWorld(dt); },
-  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updateKick(dt); updatePlaneWorld(dt); updatePlayerHeli(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateCopCars(dt); updateHelis(dt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); ensureSpraySpawn(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
+  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updateKick(dt); updatePlaneWorld(dt); updatePlayerHeli(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateCopCars(dt); updateHelis(dt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); ensureSpraySpawn(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateJail(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
 };
 
 // ---------------- boot screen handoff + menu cover art ----------------

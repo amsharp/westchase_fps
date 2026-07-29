@@ -515,6 +515,22 @@ scores. Lay low (no crimes, no cops within sight) and the stars tick back
 down; go fully clean and the tally starts over. Getting knocked out clears
 your wanted level.
 
+### Getting arrested
+
+If an officer catches you **unarmed** (fists, food, spray paint — nothing
+they'd shoot over) and closes the distance, they don't just knock you out —
+they **cuff you and haul you to the county jail**. There's no fine anymore;
+instead you're **stripped of every weapon and item** and thrown in a cell to
+serve a sentence of **30 seconds per wanted star** (1★ = 30s, all the way up to
+5★ = 2½ minutes). A timer counts down over the bars while you wait it out.
+
+The cell is a real modeled room — bunk, toilet, sink, and a barred wall you can
+look out of into the cell block. What you get back on release depends on how
+bad you were: at **1–2 stars** your belongings are returned when the door opens;
+at **3 stars and up** they're **forfeited** — you walk out with nothing but your
+fists. Either way you're released back at the usual spot in town, wanted level
+wiped clean.
+
 ## Traffic & driving
 
 Cars rumble with a plain engine note as they pass — and the pitch bends as

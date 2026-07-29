@@ -224,6 +224,20 @@ game.js under `WC_REMAP`. Frame: junction `(0,0)`, **+x east / +z south**.
   patrol at 0★, +2 per star (spawn interval 2.6 s); pistols <4★, full-auto
   SMGs 4–5★; 1★ = only proximity aggro. Interior cops (`c.interior`, `c.baseY`) spawn on a failed
   unarmed robbery and are always local, never synced.
+- **Arrest → jail** (`bustPlayer`→`jailPlayer`/`releaseFromJail`/`updateJail`,
+  per-player): an unarmed catch cuffs you instead of KO'ing — NO fine anymore.
+  `jailPlayer(stars)` confiscates the whole kit (`state.owned/ammoRes/mag/snacks/
+  sodas/bag`, snapshotted into `jailReturn` ONLY if stars≤2), clears wanted/kills/
+  stolen, and drops you into the `JAIL` interior. Sentence = 30s×stars (`jailT`
+  counts down in the main loop; `#jailHud` shows the timer). Release restores the
+  snapshot for ≤2★, forfeits it for 3–5★, then teleports to the town spawn
+  (`JAIL.doorOut` = Publix lot). The cell is a Blender GLB (`jail.js` =
+  `JAIL_DATA`, single double-sided UV atlas, full-res JPEG — user said don't
+  downscale) placed at `JAIL_ORIGIN {300,-140,300}`, `JAIL_SCALE=1.45` for
+  headroom; colliders hand-authored from the model bboxes (walls/bars + sink/
+  toilet/bed), interior spec carries `pushR:0.30` (tight room shrinks the player
+  radius from 0.55). No `exitZone`, so E can't spring you early. Local, never
+  net-synced.
 - **Bank heist** (BofA interior, `heist` state + `updateBankHeist`, per-player):
   the SW corner of the bank is a walled vault chamber behind a functional round
   door (`BANK.vault`: `door` group hinge-swings open, `col.active=false` un-blocks
