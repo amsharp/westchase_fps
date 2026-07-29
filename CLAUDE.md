@@ -19,6 +19,16 @@ something seems off.
   WebSocket relay; still loaded, safe to drop later). Singleplayer is fully
   offline; multiplayer needs internet only to reach the relay server.
 - Plain ES5-flavored JS (`var`, function declarations). Match that style.
+- **Imported-model textures: DO NOT downscale (user policy).** The user-imported
+  building models (`skyscrapers.js` boa/pnc/regions/sykes/wellsfargo,
+  `airport_main/atc/hangar/terminal.js`, `jail.js`, etc. — all `{q,dims,p,u,i,tex}`
+  decoded by `decodeAirModel`) each texture a whole building on ONE UV atlas that
+  is already low-res/pixelated; downscaling it in the converter makes it mush.
+  When (re)generating any building's data file, embed the ORIGINAL texture at
+  full resolution (PNG or high-quality JPEG data-URL, no canvas resize). Guns +
+  items (`meshyguns.js`, `meshyprops.js`, `axedata.js`) are fine as-is — the
+  no-downscale rule is specifically for buildings. `decodeAirModel` sets
+  `texture.anisotropy = MAXANISO` so grazing/tall surfaces stay sharp.
 
 ## Files
 
