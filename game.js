@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.108.1';
+var GAME_VERSION = 'v1.108.2';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -10373,6 +10373,7 @@ function bankRocketCheck() {
 // colliders are hand-authored from the model's measured bounding boxes.
 var JAIL_ORIGIN = { x: 300, y: -140, z: 300 };   // deep under map, clear of the gas interior (y=-60)
 var JAIL_SCALE = 1.7;                             // model is snug (1.92m ceiling) — scale up for headroom
+var JAIL_LAYER = 1;                               // own light layer: the global sun/hemi (layer 0) don't reach it, only the cell lamps do — a genuinely dark cell
 var jailT = 0;                                    // remaining sentence (s); >0 == locked up
 var jailStars = 0, jailReturn = null;             // snapshot of confiscated kit (restored only for <=2 stars)
 var _jailC = {};                                  // decode cache for JAIL_DATA
@@ -10389,16 +10390,25 @@ function buildJail(spec) {
   if (typeof JAIL_DATA === 'undefined') return;   // jail.js not loaded — bail gracefully
   var OX = JAIL_ORIGIN.x, OY = JAIL_ORIGIN.y, OZ = JAIL_ORIGIN.z;
   decodeAirModel(JAIL_DATA, _jailC);
+  if (_jailC.mat && _jailC.mat.color) _jailC.mat.color.setScalar(0.42);   // the atlas is light-coloured; darken it so a dim cell reads dim even where the lamp hits
   var S = JAIL_SCALE;
   var mesh = new THREE.Mesh(_jailC.geo, _jailC.mat);
   mesh.scale.set(S, S, S);
   mesh.position.set(OX, OY, OZ);                  // model floor at local y=0 -> world OY (scale keeps floor at 0)
+  // DARK cell: seal it off from the global daylight. The sun + hemisphere lights
+  // live on layer 0; putting the cell mesh and its lamps on their OWN layer means
+  // ONLY these lamps light it, so the room is genuinely dim. (Same trick a dark
+  // club interior would use — isolate from daylight, then add your own lamps.)
+  mesh.layers.set(JAIL_LAYER);
+  camera.layers.enable(JAIL_LAYER);               // let the FP camera still render the layer-1 cell
   scene.add(mesh);
   spec.ceilY = OY + _jailC.dims[1] * S;           // world Y of the ceiling — clamps the player's jump so their head can't poke through
-  // ceiling light so the sunk room isn't pitch black
-  var lamp = new THREE.PointLight(0xfff2d8, 1.1, 22 * S, 1.6);
-  lamp.position.set(OX, OY + 1.7 * S, OZ); scene.add(lamp);
-  scene.add(new THREE.AmbientLight(0x3a3a44, 0.6));   // soft fill (cheap, shared with rest of scene)
+  // a single warm caged bulb over the cell — a pool of light that falls off into
+  // dark corners — plus a cold, dim glow down the cell block hallway
+  var lamp = new THREE.PointLight(0xffdca0, 0.85, 13 * S, 1.7);
+  lamp.position.set(OX, OY + 1.72 * S, OZ); lamp.layers.set(JAIL_LAYER); scene.add(lamp);
+  var hallLamp = new THREE.PointLight(0xaec4dc, 0.5, 24 * S, 1.8);
+  hallLamp.position.set(OX + 2.6 * S, OY + 1.7 * S, OZ); hallLamp.layers.set(JAIL_LAYER); scene.add(hallLamp);
   // ---- colliders (world coords). Cell interior ~ x[-1.25,1.2], z[-1.25,1.25]
   // in model-local space (scaled by S); walls block the player inside, props fill the corners.
   function C(x0, x1, z0, z1) { spec.colliders.push({ x0: OX + x0 * S, x1: OX + x1 * S, z0: OZ + z0 * S, z1: OZ + z1 * S }); }
@@ -22660,7 +22670,8 @@ function startAmbient() {
   var len = ac.sampleRate * 4, buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0), last = 0;
   for (var i = 0; i < len; i++) { var w = Math.random() * 2 - 1; last = (last + 0.02 * w) / 1.02; d[i] = last * 3.5; }
   var src = ac.createBufferSource(); src.buffer = buf; src.loop = true;
-  var g = ac.createGain(); g.gain.value = 0.016;
+  var g = ac.createGain(); g.gain.value = 0;   // interiors-only now: updateAmbient fades it in when inside
+  ambBrownGain = g;
   src.connect(g); g.connect(ac.destination); src.start();
   // rain loop (white noise through lowpass), silent until it rains
   var rl = ac.sampleRate * 2, rb = ac.createBuffer(1, rl, ac.sampleRate), rd = rb.getChannelData(0);
@@ -22706,6 +22717,7 @@ function startAmbient() {
   ambReady = true;
 }
 // ---- ambient bed state (cross-fade + sparse one-shot scheduling) ----
+var ambBrownGain = null, AMBIENT_BROWN = 0.016;   // plain brown-noise bed level (interiors only for now)
 var ambDayGain = null, ambNightGain = null, ambReady = false;
 var ambBirdT = 4, ambDogT = 30, ambCarT = 22, ambFlutterT = 18, ambLive = 0;
 function ambTrack(src) { ambLive++; try { src.onended = function () { if (ambLive > 0) ambLive--; }; } catch (e) { } }
@@ -22767,26 +22779,15 @@ function ambFlutter() {
 // two gain nudges + a few countdown timers per frame; one-shots are rare.
 function updateAmbient(dt) {
   if (!ac || !ambReady) return;
-  var f = dayFactor();                                  // 0 night .. 1 day
-  var wet = raining ? Math.min(1, rainIntensity) : 0;   // nature hushes in rain
-  var muffle = inside ? 0.32 : (underwater ? 0.18 : 1);
-  var quiet = 1 - 0.6 * wet;
-  var dayLv = 0.014 * Math.max(0, Math.min(1, (f - 0.2) / 0.5)) * quiet * muffle;
-  var nightLv = 0.02 * Math.max(0, Math.min(1, (0.45 - f) / 0.4)) * quiet * muffle;
   var kk = Math.min(1, dt * 1.5);
-  ambDayGain.gain.value += (dayLv - ambDayGain.gain.value) * kk;
-  ambNightGain.gain.value += (nightLv - ambNightGain.gain.value) * kk;
-  // sparse one-shot flavor — long randomized cooldowns so it never gets busy
-  if (!inside && !underwater) {
-    ambBirdT -= dt;
-    if (ambBirdT <= 0) { ambBirdT = 1.6 + Math.random() * 4.5; if (f > 0.4 && wet < 0.4) ambChirp(); }
-    ambFlutterT -= dt;
-    if (ambFlutterT <= 0) { ambFlutterT = 22 + Math.random() * 40; if (f > 0.35 && wet < 0.5 && Math.random() < 0.6) ambFlutter(); }
-    ambDogT -= dt;
-    if (ambDogT <= 0) { ambDogT = 35 + Math.random() * 70; if (wet < 0.7 && Math.random() < 0.7) ambDog(); }
-    ambCarT -= dt;
-    if (ambCarT <= 0) { ambCarT = 26 + Math.random() * 55; if (Math.random() < 0.7) ambCarPass(); }
-  }
+  // For now the ONLY ambience is the plain brown-noise bed, and only indoors —
+  // outdoor life (day/night beds, birds, bugs, dogs, car passes) is muted until
+  // the user drops in their own ambience. Fade the brown bed in when inside.
+  var brownTarget = (inside && !underwater) ? AMBIENT_BROWN : 0;
+  if (ambBrownGain) ambBrownGain.gain.value += (brownTarget - ambBrownGain.gain.value) * kk;
+  // keep the day/night life beds silent (nodes stay alive, just gained to zero)
+  ambDayGain.gain.value += (0 - ambDayGain.gain.value) * kk;
+  ambNightGain.gain.value += (0 - ambNightGain.gain.value) * kk;
 }
 // ---- jet engine (flyable Learjet) ----------------------------------------
 // A continuous turbine loop built ONCE (like the ambient beds): a filtered

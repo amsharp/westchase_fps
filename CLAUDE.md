@@ -277,7 +277,16 @@ game.js under `WC_REMAP`. Frame: junction `(0,0)`, **+x east / +z south**.
   radius from 0.55) and `ceilY` (world ceiling height → the player-update jump
   clamp keeps the eye 0.34u below it so your head can't poke through the low
   ceiling; generalized to any interior that sets `ceilY`). No `exitZone`, so E
-  can't spring you early. Local, never net-synced.
+  can't spring you early. Local, never net-synced. **Dark cell (v1.108.2)**:
+  lighting is a browser-Three.js thing (real per-fragment lights — `hemi`
+  HemisphereLight + `sun` DirectionalLight on layer 0, cross-faded by day/night;
+  materials are lit Lambert/Phong, NOT baked). The cell is isolated from that
+  daylight via a **light layer**: `mesh.layers.set(JAIL_LAYER=1)` + `camera.layers
+  .enable(1)`, and its own PointLights (`lamp` warm cell bulb, `hallLamp` cold
+  hallway glow) are on layer 1, so ONLY they light it — a genuinely dim cell. The
+  atlas is light-coloured so the material is also tinted down (`color.setScalar
+  (0.42)`). This layer trick is the template for a dark club (isolate from
+  daylight, add coloured PointLights/SpotLights that tint whatever they hit).
 - **Bank heist** (BofA interior, `heist` state + `updateBankHeist`, per-player):
   the SW corner of the bank is a walled vault chamber behind a functional round
   door (`BANK.vault`: `door` group hinge-swings open, `col.active=false` un-blocks
@@ -307,8 +316,14 @@ game.js under `WC_REMAP`. Frame: junction `(0,0)`, **+x east / +z south**.
   `park` message so ownership stays with the thief.
 - **Environment**: `DAY_LEN=360` day/night with street lights (`setLamps`),
   random rain (localized particles around player w/ per-building collision
-  heights + splashes + sound), brown-noise ambient bed. All lerped in
-  `updateEnv`.
+  heights + splashes + sound). All lerped in `updateEnv`.
+- **Ambient audio** (`startAmbient`/`updateAmbient`, all Web-Audio synthesis, no
+  files): a brown-noise bed (`ambBrownGain`) + day "suburban hum" + night
+  "cicada" bandpass-noise beds + sparse one-shots (`ambChirp`/`ambDog`/`ambCarPass`/
+  `ambFlutter`). **v1.108.2: gutted to interiors-only** — the ONLY ambience now is
+  the plain brown-noise bed, and it fades in ONLY when `inside`; the day/night
+  beds are gained to 0 and the one-shots don't fire (user is bringing their own
+  outdoor ambience; the code + nodes are all still there to re-enable).
 - **Weapon switching**: scroll wheel cycles owned weapons (`cycleEquip`,
   requires pointer lock) alongside the TAB inventory.
 - **Multiplayer** (WebSocket relay on Railway; ONE shared world): menu is
