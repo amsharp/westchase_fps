@@ -259,6 +259,28 @@ game.js under `WC_REMAP`. Frame: junction `(0,0)`, **+x east / +z south**.
   (`c.interior`,`c.baseY`) spawn on a failed unarmed robbery, always local. Heat
   logic is host/local; clients mirror stars via `w`. `__wc` test hooks: `heatInfo`,
   `creditKill`, `posSeesPlayer`, `setHideTimer`.
+- **Heat ops** (v1.109, `updateHeatOps` in loop + `__wc.tick`, host-only —
+  `isClient()` bails; local like cop cars/helis): while you're **driving at 3+★**
+  the police escalate the chase. `roadAhead(dist)` snaps a point `dist` ahead of
+  your travel (`driving.mvx/mvz`) onto the road via `copRoadPoint` and returns the
+  road tangent + perpendicular (`roadTangentAt` = nearest `RM.edge` tangent). Every
+  ~16–30s (`heatOpsT`) if `|pspeed|>12` it deploys either a **roadblock** (bias
+  0.6 at 4+★ else 0.4) or a **spike strip**. `spawnRoadblock()`: 3 cruisers
+  broadside (`makeCopCarAt(x,z,h,'roadblock')` — extracted from `spawnCopCar`; the
+  `roadblock` state in `driveCopCar` just idles the car with lights flashing, and
+  `updateCopCars` gives them their own despawn: wanted<2 / far>340 / life>85) plus
+  a `spawnCopAt` officer behind each; toast "ROADBLOCK AHEAD" + `sfx('alarm')`.
+  `spawnSpikeStrip()`: a `Group` (black backing box + cone spikes) laid across the
+  lane, pushed to `spikeStrips[]`; `updateSpikeStrips` (in `updateHeatOps`) checks
+  the driven car crossing it (along/perp vs the strip's px/tx axes, `|pspeed|>4`) →
+  `blowTires(driving)` sets `c.tiresBlown` (caps `pspeed` to 12, forces a slide).
+  `updateDriving` reads `tiresBlown` → `topF=min(14)`/`topR=min(6)` + constant
+  `slid` so a spiked car crawls forever; the flag lives on the car entry so a fresh
+  jack is clean, a spiked one stays crippled. **SWAT at 5★**: `spawnCop`/`spawnCopAt`
+  call `makeSwat(c)` when `maxWanted()>=5` → `c.swat=true`, `hp=175`, dark vest box;
+  `updateCops` wantGun forces `'smg'` for SWAT. `__wc`: `spikeStrips`,
+  `spawnRoadblock`, `spawnSpikeStrip`, `updateHeatOps`. (`maxWanted()` now guards
+  `net.remotes` — it's called at boot-time via the new SWAT hook in `spawnCop`.)
 - **Arrest → jail** (`bustPlayer`→`jailPlayer`→arrest cam→`enterJailCell`/
   `releaseFromJail`/`updateJail`, per-player): an unarmed catch cuffs you instead
   of KO'ing — NO fine anymore. `jailPlayer(stars)` captures the charge list, then

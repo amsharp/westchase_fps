@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.108.3';
+var GAME_VERSION = 'v1.109.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -13865,7 +13865,9 @@ function spawnCop(nearPlayer) {
   // calls ran before the var gun materials existed -> all-white pistols.)
   mesh.position.set(x, 0, z); if (doorYaw !== null) mesh.rotation.y = doorYaw;
   mesh.userData.cop = c;
-  scene.add(mesh); cops.push(c); return c;
+  scene.add(mesh); cops.push(c);
+  if (maxWanted() >= 5) makeSwat(c);
+  return c;
 }
 function spawnInteriorCops(n) {
   for (var i = 0; i < n; i++) {
@@ -13881,7 +13883,7 @@ function spawnInteriorCops(n) {
 // otherwise a high-wanted remote paired with a clean host gets under-policed
 function maxWanted() {
   var w = (state.dead || inside) ? 0 : (state.wanted || 0);
-  for (var id in net.remotes) { var r = net.remotes[id]; if (r && !r.dead && (r.w || 0) > w) w = r.w; }
+  if (typeof net !== 'undefined' && net && net.remotes) for (var id in net.remotes) { var r = net.remotes[id]; if (r && !r.dead && (r.w || 0) > w) w = r.w; }
   return w;
 }
 function desiredCops() { var w = maxWanted(); return w === 0 ? 3 : 3 + w * 2; }   // more boots on the ground (0*=3, 1*=5 … 5*=13)
@@ -14180,7 +14182,7 @@ function updateCops(dt) {
     else tgt = copPickTarget(c);
     if (!c.interior) { if (tgt) c.state = 'engage'; else if (c.state === 'engage') c.state = 'patrol'; }
     // holstered until they mean it: gun out only while engaging (interior cops always)
-    var wantGun = (c.state === 'engage' || c.interior) ? tierGun : null;
+    var wantGun = (c.state === 'engage' || c.interior) ? (c.swat ? 'smg' : tierGun) : null;
     if (m.userData.handR && (m.userData.heldKind || null) !== wantGun) attachHeldGun(m, wantGun);
     var vx = 0, vz = 0, spd = 0, moving = false, aimTgt = null;
     if (tgt) {
@@ -15277,6 +15279,10 @@ function updateDriving(dt) {
   var topF = 39 * hd.top, topR = 13.5 * hd.top;   // +50% top speed (was 26 / 9)
   var isPor = !!(c.car && c.car.isPorsche);
   if (isPor) { topF = 73; topR = 13.5; }          // real 964: ~260 km/h forward, normal reverse
+  if (c.tiresBlown) {                              // spike-strip: shredded tyres crawl + never fully grip
+    topF = Math.min(topF, 14); topR = Math.min(topR, 6);
+    if ((c.slid || 0) < 0.5) c.slid = 0.5 + Math.random() * 0.25;   // constant judder/pull
+  }
   c.pspeed = c.pspeed || 0;
   var airborne = !!c.airborne;
   var throttle = (c.flooding || c.sunk || airborne) ? 0 : (keys['KeyW'] ? 1 : (keys['KeyS'] ? -1 : 0));
@@ -16862,9 +16868,14 @@ function spawnCopCar() {
     if (bx !== null) { sx = bx; sz = bz; }
   }
   if (typeof HALF !== 'undefined') { sx = Math.max(-HALF + 12, Math.min(HALF - 12, sx)); sz = Math.max(-HALF + 12, Math.min(HALF - 12, sz)); }
-  var car = makeCar(GG_POLICE_I);
   var dirx = player.x - sx, dirz = player.z - sz, dl = Math.hypot(dirx, dirz) || 1;
-  var h = Math.atan2(-dirz / dl, dirx / dl);
+  return makeCopCarAt(sx, sz, Math.atan2(-dirz / dl, dirx / dl), 'patrol');
+}
+// build one cop car at an explicit position/heading/state (shared by patrol spawns
+// and heat-ops roadblocks). Returns the cc record and registers it in copCars[].
+function makeCopCarAt(sx, sz, h, stateName) {
+  if (GG_POLICE_I < 0) return null;
+  var car = makeCar(GG_POLICE_I);
   car.group.position.set(sx, surfaceHeightAt(sx, sz, false, 1.5), sz);
   car.group.rotation.y = h;
   // flashing roof light bar (red left / blue right) — toggled while in pursuit
@@ -16873,7 +16884,7 @@ function spawnCopCar() {
   car.group.add(lr); car.group.add(lb);
   // ~half the cars are "blockers" that cut ahead of a driving player to box them in
   var role = (copCars.length % 2 === 0) ? 'chase' : 'block';
-  var cc = { car: car, x: sx, z: sz, h: h, speed: 9, state: 'patrol', hp: COPCAR_HP, parkT: 0, disgorged: false, life: 0, lightR: lr, lightB: lb, role: role, ramT: 0 };
+  var cc = { car: car, x: sx, z: sz, h: h, speed: 9, state: stateName || 'patrol', hp: COPCAR_HP, parkT: 0, disgorged: false, life: 0, lightR: lr, lightB: lb, role: role, ramT: 0 };
   car.group.traverse(function (o) { if (o !== lr && o !== lb) o.userData.copCar = cc; });   // shootable (raycast walks up to a tagged parent); lights excluded so they don't eat rays
   copCars.push(cc);
   return cc;
@@ -16923,7 +16934,22 @@ function spawnCopAt(x, z) {
   mesh.position.set(c.x, 0, c.z);
   mesh.userData.cop = c;
   scene.add(mesh); cops.push(c);
+  if (maxWanted() >= 5) makeSwat(c);
   return c;
+}
+// 5-star escalation: turn a fresh cop into a SWAT operator — heavier armour (more
+// HP), always an SMG (see updateCops wantGun), and a dark tactical vest slab so
+// you can tell them apart. Idempotent.
+var _swatVestM = new THREE.MeshLambertMaterial({ color: 0x20242a });
+function makeSwat(c) {
+  if (!c || c.swat) return;
+  c.swat = true; c.hp = 175;
+  if (c.mesh) {
+    var vest = box(0.62, 0.5, 0.34, _swatVestM, 0, 1.28, 0);   // chest rig over the torso
+    vest.userData.swatVest = true;
+    if (typeof JAIL_LAYER !== 'undefined') vest.layers.set(0);
+    c.mesh.add(vest);
+  }
 }
 function parkAndDisgorge(cc) {
   cc.state = 'parked'; cc.parkT = 0; cc.speed = 0;
@@ -16941,6 +16967,12 @@ function damageCopCar(cc, dmg, pt) { cc.hp -= dmg; if (pt && typeof puff === 'fu
 function driveCopCar(cc, dt, pd) {
   var car = cc.car, g = car.group, h = g.rotation.y;
   updateCopLights(cc, cc.state !== 'parked' && cc.state !== 'patrol');   // bar dark while patrolling, flashing in pursuit
+  if (cc.state === 'roadblock') {   // parked broadside across the road as a barricade — lights flashing, no driving
+    updateCopLights(cc, true);
+    cc.speed += (0 - cc.speed) * Math.min(1, dt * 6);
+    updateCarFeel(cc, dt, cc.speed, 0, 0);
+    return;
+  }
   if (cc.state === 'parked') {
     cc.speed += (0 - cc.speed) * Math.min(1, dt * 5); cc.parkT += dt;
     updateCarFeel(cc, dt, cc.speed, 0, 0);
@@ -17034,6 +17066,13 @@ function updateCopCars(dt) {
     if (cc.hp <= 0) { explodeCopCar(cc); copCars.splice(i, 1); continue; }
     cc.life += dt;
     var pd = Math.hypot(player.x - cc.x, player.z - cc.z);
+    // roadblock cruisers have their own lifecycle (they don't chase; they hold the barricade)
+    if (cc.state === 'roadblock') {
+      if ((state.wanted || 0) < 2 || pd > 340 || cc.life > 85) { removeCopCar(cc); copCars.splice(i, 1); continue; }
+      driveCopCar(cc, dt, pd);
+      if (pd < nd) { nd = pd; nearest = cc; }
+      continue;
+    }
     if ((want === 0 && cc.state !== 'parked') || pd > 280 || (cc.state === 'parked' && cc.parkT > 30) || cc.life > 300) { removeCopCar(cc); copCars.splice(i, 1); continue; }
     driveCopCar(cc, dt, pd);
     if (cc.state !== 'parked' && cc.state !== 'patrol' && pd < nd) { nd = pd; nearest = cc; }   // no siren while merely patrolling
@@ -17041,6 +17080,112 @@ function updateCopCars(dt) {
   // one shared siren wail from the closest pursuing cruiser (no overlapping sirens)
   copSirenT -= dt;
   if (nearest && nd < 95 && copSirenT <= 0) { copSirenT = 0.85; copSiren(nearest.x, nearest.z); }
+}
+// ==================== HEAT OPS (roadblocks + spike strips + SWAT) ====================
+// While you're DRIVING at 3+ stars the police escalate beyond a straight chase:
+// they throw roadblocks (broadside cruisers + foot cops) and spike strips ahead of
+// you on the road, and at 5 stars foot cops arrive as SWAT (heavier HP + SMGs).
+// Local/per-player, host-only (isClient bails) — same policy as cop cars/helis.
+var spikeStrips = [], heatOpsT = 10;
+// nearest road-edge tangent to a point, or null if no road within ~22u.
+function roadTangentAt(x, z) {
+  if (typeof RM === 'undefined' || !RM.edges || !RM.edges.length) return null;
+  var bestD = 22 * 22, tx = 0, tz = 0, found = false;
+  for (var ei = 0; ei < RM.edges.length; ei++) {
+    var e = RM.edges[ei]; if (e.stub) continue;
+    var pr = rmProject(e.pts, e.cum, x, z);
+    if (pr.d * pr.d < bestD) {
+      var a = rmAt(e.pts, e.cum, Math.max(0, pr.s - 4)), b = rmAt(e.pts, e.cum, pr.s + 4);
+      var dx = b.x - a.x, dz = b.z - a.z, dl = Math.hypot(dx, dz) || 1;
+      bestD = pr.d * pr.d; tx = dx / dl; tz = dz / dl; found = true;
+    }
+  }
+  return found ? { tx: tx, tz: tz } : null;
+}
+// a point `dist` units ahead of the driving player, snapped to the road, with the
+// road tangent (aligned to travel) and its perpendicular (across the road).
+function roadAhead(dist) {
+  if (typeof driving === 'undefined' || !driving) return null;
+  var mvx = driving.mvx || 0, mvz = driving.mvz || 0;
+  if (Math.hypot(mvx, mvz) < 0.1) return null;
+  var ax = player.x + mvx * dist, az = player.z + mvz * dist;
+  var rp = copRoadPoint(ax, az); if (rp) { ax = rp.x; az = rp.z; }
+  var tan = roadTangentAt(ax, az); if (!tan) return null;
+  var tx = tan.tx, tz = tan.tz;
+  if (tx * mvx + tz * mvz < 0) { tx = -tx; tz = -tz; }   // align tangent to travel
+  var px = -tz, pz = tx;                                  // perpendicular = across the road
+  return { x: ax, z: az, tx: tx, tz: tz, px: px, pz: pz };
+}
+function spawnRoadblock() {
+  var ra = roadAhead(60 + Math.random() * 25); if (!ra) return false;
+  var carH = Math.atan2(-ra.pz, ra.px);   // cruisers face across the road (broadside barricade)
+  var offs = [-4.4, 0, 4.4], made = 0;
+  for (var i = 0; i < offs.length; i++) {
+    var cx = ra.x + ra.px * offs[i], cz = ra.z + ra.pz * offs[i];
+    var cc = makeCopCarAt(cx, cz, carH, 'roadblock'); if (!cc) continue;
+    made++;
+    spawnCopAt(cx - ra.tx * 2.4, cz - ra.tz * 2.4);   // an officer takes cover behind each cruiser
+  }
+  if (!made) return false;
+  if (typeof toast === 'function') toast('ROADBLOCK AHEAD');
+  if (typeof sfx === 'function') sfx('alarm', { x: ra.x, z: ra.z, range: 120 });
+  return true;
+}
+var _spikeStripM = new THREE.MeshLambertMaterial({ color: 0x1a1a1e });
+var _spikeM = new THREE.MeshLambertMaterial({ color: 0xcfcfd6 });
+function spawnSpikeStrip() {
+  var ra = roadAhead(55 + Math.random() * 22); if (!ra) return false;
+  var half = 6.5;
+  var grp = new THREE.Group();
+  var backing = box(0.55, 0.06, half * 2, _spikeStripM, 0, 0.04, 0);   // low black strip laid across the lane
+  grp.add(backing);
+  for (var s = -half + 0.4; s <= half - 0.4; s += 0.75) {   // row of little cones
+    var sp = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.34, 5), _spikeM);
+    sp.position.set(0, 0.2, s); grp.add(sp);
+  }
+  grp.position.set(ra.x, surfaceHeightAt(ra.x, ra.z, false, 0.2), ra.z);
+  grp.rotation.y = Math.atan2(ra.px, ra.pz);   // long axis across the road
+  scene.add(grp);
+  spikeStrips.push({ grp: grp, x: ra.x, z: ra.z, tx: ra.tx, tz: ra.tz, px: ra.px, pz: ra.pz, half: half, life: 0, hit: false });
+  if (typeof toast === 'function') toast('SPIKE STRIP AHEAD');
+  return true;
+}
+function blowTires(c) {
+  if (c.tiresBlown) return;
+  c.tiresBlown = true;
+  c.pspeed = Math.min(c.pspeed || 0, 12);
+  c.slid = Math.max(c.slid || 0, 1.0);
+  if (typeof sfx === 'function') sfx('crash', { x: player.x, z: player.z, range: 90 });
+  if (typeof toast === 'function') toast('TYRES BLOWN');
+}
+function updateSpikeStrips(dt) {
+  var isDrv = (typeof driving !== 'undefined' && driving);
+  for (var i = spikeStrips.length - 1; i >= 0; i--) {
+    var st = spikeStrips[i]; st.life += dt;
+    var far = Math.hypot(player.x - st.x, player.z - st.z);
+    if (st.life > 45 || (state.wanted || 0) < 1 || far > 330) { scene.remove(st.grp); spikeStrips.splice(i, 1); continue; }
+    if (isDrv && !st.hit && driving.car) {
+      var rx = player.x - st.x, rz = player.z - st.z;
+      var along = rx * st.px + rz * st.pz;   // position across the strip
+      var perp = rx * st.tx + rz * st.tz;    // distance along travel through the strip
+      if (Math.abs(along) < st.half + 0.6 && Math.abs(perp) < 2.4 && Math.abs(driving.pspeed || 0) > 4) {
+        st.hit = true; blowTires(driving);
+      }
+    }
+  }
+}
+function updateHeatOps(dt) {
+  if (typeof isClient === 'function' && isClient()) return;   // host-authoritative like the rest of the fuzz
+  updateSpikeStrips(dt);
+  var isDrv = (typeof driving !== 'undefined' && driving);
+  if (!isDrv || (state.wanted || 0) < 3 || state.dead || (typeof inside !== 'undefined' && inside)) { heatOpsT = 9; return; }
+  heatOpsT -= dt;
+  if (heatOpsT > 0) return;
+  heatOpsT = 16 + Math.random() * 14;
+  if (Math.abs(driving.pspeed || 0) < 12) return;   // only deploy while you're actually moving
+  var blockBias = (state.wanted >= 4) ? 0.6 : 0.4;
+  if (Math.random() < blockBias) { if (!spawnRoadblock()) spawnSpikeStrip(); }
+  else { if (!spawnSpikeStrip()) spawnRoadblock(); }
 }
 // ==================== POLICE HELICOPTERS ====================
 // Local/per-player (like the plane + cop cars — never net-synced). At 3+ wanted
@@ -26496,7 +26641,7 @@ function loop(now) {
   if (photoMode) { updatePhotoCam(dt); renderer.render(scene, camera); return; }
   T += dt;
   var sdt = dt;
-  updatePlayer(dt); updateKick(dt); updatePlaneWorld(dt); updateAirportPlane(dt); updatePlayerHeli(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateCopCars(dt); updateHelis(dt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); ensureSpraySpawn(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateJail(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
+  updatePlayer(dt); updateKick(dt); updatePlaneWorld(dt); updateAirportPlane(dt); updatePlayerHeli(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateCopCars(dt); updateHeatOps(dt); updateHelis(dt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); ensureSpraySpawn(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateJail(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
   if (state.dead) updateDeathCam(dt);   // top-down zoom-out cinematic drives the camera while dead
   else if (arrested) updateArrestCam(dt);   // arrest cinematic drives the camera while being booked
   renderer.render(scene, camera);
@@ -26607,6 +26752,7 @@ window.__wc = {
   state: state, player: player, npcs: npcs, cashes: cashes, cops: cops,
   rubblePiles: function () { return rubblePiles; }, towerSplats: function () { return towerSplats; }, rubbleHeightAt: function (x, z) { return rubbleHeightAt(x, z); },
   copCars: function () { return copCars; }, spawnCopCar: function () { return spawnCopCar(); }, desiredCopCars: function () { return desiredCopCars(); },
+  spikeStrips: function () { return spikeStrips; }, spawnRoadblock: function () { return spawnRoadblock(); }, spawnSpikeStrip: function () { return spawnSpikeStrip(); }, updateHeatOps: function (dt) { return updateHeatOps(dt); },
   helis: function () { return helis; }, spawnHeli: function () { return spawnHeli(); }, desiredHelis: function () { return desiredHelis(); }, damageHeli: function (h, d, p) { return damageHeli(h, d, p); },
   kids: kids, adultRace: adultRace, spawnKids: spawnKids, updateKids: updateKids, playKidVoice: playKidVoice, kidVoiceDbg: function () { return kidVoiceDbg; },
   getKidPlaysets: getKidPlaysets, nearestPlayset: nearestPlayset, startKidPlay: startKidPlay,
@@ -26931,7 +27077,7 @@ window.__wc = {
   // lightweight physics step (no render, no NPC/cop/car sim) — fast headless
   // stepping for plane/fall tests. Renders only when you call renderer yourself.
   stepLite: function (dt) { T += dt; updatePlayer(dt); updatePlaneWorld(dt); },
-  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updateKick(dt); updatePlaneWorld(dt); updatePlayerHeli(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateCopCars(dt); updateHelis(dt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); ensureSpraySpawn(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateJail(dt); if (arrested) updateArrestCam(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
+  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updateKick(dt); updatePlaneWorld(dt); updatePlayerHeli(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateCopCars(dt); updateHeatOps(dt); updateHelis(dt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); ensureSpraySpawn(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateJail(dt); if (arrested) updateArrestCam(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
 };
 
 // ---------------- boot screen handoff + menu cover art ----------------

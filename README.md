@@ -414,7 +414,23 @@ Push your **wanted level** up and the response gets serious.
   pour rounds into the airframe to **shoot the whole thing down** — it spins out,
   drops out of the sky, and explodes on impact.
 
-Both are **single-player/local** effects (like the jet), so they hunt *you*.
+At **3 stars and up the police escalate a car chase** with dedicated heat ops:
+
+- **Roadblocks** — while you're speeding away, dispatch throws up a barricade
+  **ahead of you on the road**: three cruisers parked broadside across the lane
+  with **officers taking cover behind them**, lights flashing, an *"ROADBLOCK
+  AHEAD"* warning and an alarm. Smash through, take a side street, or stop and
+  fight. They tear down on their own once you shake the heat.
+- **Spike strips** — a row of spikes gets laid **across the road in front of
+  you** (*"SPIKE STRIP AHEAD"*). Drive over it at speed and your **tyres blow
+  out** — the car drops to a shredded crawl and never grips right again, so you
+  either bail out or get run down. (A fresh car is clean; a spiked one stays
+  crippled.)
+- **SWAT** — at **5 stars** the officers who arrive are **SWAT**: dark tactical
+  vests, tougher armour (they soak far more damage) and **SMGs across the board**.
+
+All of these are **single-player/local** effects (like the jet), so they hunt
+*you*.
 
 ## The Publix
 
