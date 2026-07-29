@@ -219,11 +219,33 @@ game.js under `WC_REMAP`. Frame: junction `(0,0)`, **+x east / +z south**.
   opposite ways and despawn (`halves`/`updateHalves`). Reused for all NPCs/cops.
   Kids are never in any hit list, so they can't be gored. Regenerate the gib
   via `tools/chargen/halfbodygen.js`.
-- **Wanted** (0–5 stars): rob register at gunpoint → 2★; every 5 civ kills →
-  +1★; cop kill → +1★; decays one star per ~35 s clean & no cops near. Cops: 2
-  patrol at 0★, +2 per star (spawn interval 2.6 s); pistols <4★, full-auto
-  SMGs 4–5★; 1★ = only proximity aggro. Interior cops (`c.interior`, `c.baseY`) spawn on a failed
-  unarmed robbery and are always local, never synced.
+- **Wanted** (0–5 stars, v1.107 rework): stars come from ONE **kill-points**
+  tally (`state.killPts`, `KILL_STAR_PTS=[3,9,21,39,69]`): a lethal kill = **+3**
+  (`creditCivKill`/`creditCopKill`→`addKillPts(3)`), a **fist KNOCKOUT = +1**
+  (`creditKnockout`). So 1 kill = 1★, then +2/+4/+6/+10 kills for 2–5★ (23 kills
+  total). Civ vs cop no longer differ. Fist kills route through `damageNPC`'s
+  `isKO` branch → NPC `state='down'` + `n.ko=true`, **no `bloodPool`**, `KO_TTL=25`s;
+  shooting a downed `ko` body (raycast path, `npcHit.state==='down' && npcHit.ko`)
+  converts it to a real kill (bloodPool + `creditCivKill`). Direct crimes still
+  snap floors (rob=2★, reckless=3★, vault=4★) — `setWanted` tops `killPts` up to
+  the star's threshold and arms the hide timer.
+  **Detection + manhunt** (`heat` object + `recomputeHeat` at top of `updateCops`):
+  cops only KNOW your position via `posSeesPlayer` = proximity (`COP_PROX2`=9²) OR
+  line-of-sight within `COP_VISION2`=58² (cars 82²). `heat.known` gates
+  `copPickTarget` (engage) vs SEARCH (`copSearchPoint` → last-known `heat.lkx/lkz`
+  + predictive along `heat.lkvx/lkvz`; cop cars have a `search` state too). New
+  responders spawn from `responseAnchor()` = **last-known** spot (not your live
+  pos) so fleeing works; `spawnCop` ring is 90–150u. **Losing heat**: no more
+  per-star decay — stay unseen `wanted*HIDE_PER_STAR` (60s/star) and ALL stars
+  drop at once (`clearHeat`); being seen resets `heat.loseT`. Counts bumped:
+  `desiredCops` 0★=3 then +2/star (→13); `desiredCopCars` 0★=2 patrol cruisers
+  then +1/star (→7). **Patrol cop cars**: `copCars` spawn `state:'patrol'`
+  (lights off, cruise road waypoints via `copRoadPoint`), flip to `seek/chase`
+  when a crime happens near them or they spot you; `driveCopCar` has patrol/
+  search/pursuit target selection. pistols <4★, SMGs 4–5★. Interior cops
+  (`c.interior`,`c.baseY`) spawn on a failed unarmed robbery, always local. Heat
+  logic is host/local; clients mirror stars via `w`. `__wc` test hooks: `heatInfo`,
+  `creditKill`, `posSeesPlayer`, `setHideTimer`.
 - **Arrest → jail** (`bustPlayer`→`jailPlayer`/`releaseFromJail`/`updateJail`,
   per-player): an unarmed catch cuffs you instead of KO'ing — NO fine anymore.
   `jailPlayer(stars)` confiscates the whole kit (`state.owned/ammoRes/mag/snacks/

@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.106.1';
+var GAME_VERSION = 'v1.107.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -77,7 +77,7 @@ var state = {
   owned: { pistol: false, smg: false, shotgun: false, axe: false, spray: false, rifle: false, auto: false, rocket: false, raygun: false, neon_blaster: false, silenced: false },
   equipped: 'fists',
   lastHurt: -99, lastCarHit: -99, lastRob: -99,
-  wanted: 0, civKills: 0, copKills: 0, snacks: 0,
+  wanted: 0, civKills: 0, copKills: 0, killPts: 0, snacks: 0,
   stolen: 0,   // heist loot held until the heat clears, then paid into money
   // AMMO (v1.80): `ammoRes` = shared reserve pool per ammo TYPE (pistol/rifle/
   // shotgun/rocket bullets — guns of the same type draw from the same pool);
@@ -10425,7 +10425,7 @@ function jailPlayer(stars) {
   state.ammoRes = {}; state.mag = {};
   state.snacks = 0; state.sodas = 0;
   if (state.bag) state.bag.length = 0;
-  state.stolen = 0; state.civKills = 0; state.copKills = 0;
+  state.stolen = 0; state.civKills = 0; state.copKills = 0; state.killPts = 0;
   setWanted(0);
   if (typeof seedHotbar === 'function') seedHotbar();
   if (typeof pruneHotbar === 'function') pruneHotbar();
@@ -13586,33 +13586,124 @@ function updateStarsHUD() {
   for (var i = 0; i < 5; i++) h += '<span class="' + (i < state.wanted ? 'on' : '') + '">&#9733;</span>';
   el.innerHTML = h;
 }
+// ---- HEAT / wanted rework (v1.107) ------------------------------------------
+// Stars come from ONE "kill points" tally: a lethal kill = 3 pts, a fist
+// KNOCKOUT = 1 pt (so 3 knockouts = the 1st star, or one real kill). Thresholds
+// below map points→stars (deltas 3/6/12/18/30 = 1/2/4/6/10 lethal kills, so
+// 23 kills total for 5★). Civilians and cops count the same. Direct crimes
+// (rob=2★, reckless=3★, vault=4★) snap you to a floor and top the tally up so
+// kills keep advancing from there.
+var KILL_STAR_PTS = [3, 9, 21, 39, 69];
+var HIDE_PER_STAR = 60;          // seconds un-detected per star to shake ALL the heat at once
+var COP_VISION2 = 58 * 58;       // how far a cop can spot you with a clear line of sight
+var COP_CAR_VISION2 = 82 * 82;   // cruisers scan farther down the road
+var COP_PROX2 = 9 * 9;           // this close and they clock you even around a corner
+// dispatch memory: where the response is converging + your last-seen trail
+var heat = { crimeX: 0, crimeZ: 0, lkx: 0, lkz: 0, lkvx: 0, lkvz: 0, known: false, seenEver: false, loseT: 0 };
+function ptsToStar(p) { var s = 0; for (var i = 0; i < KILL_STAR_PTS.length; i++) if (p >= KILL_STAR_PTS[i]) s = i + 1; return s; }
 function setWanted(v) {
   v = Math.max(0, Math.min(5, v));
-  if (v > state.wanted) sfx('alarm');
+  if (v > state.wanted) {
+    sfx('alarm');
+    if ((KILL_STAR_PTS[v - 1] || 0) > (state.killPts || 0)) state.killPts = KILL_STAR_PTS[v - 1];
+    // any wanted-raise (a kill OR a direct crime like a robbery) arms the police
+    // response: anchor the crime scene and (re)start the hide timer so
+    // recomputeHeat doesn't instantly clear brand-new heat.
+    heat.crimeX = player.x; heat.crimeZ = player.z;
+    heat.lkx = player.x; heat.lkz = player.z; heat.lkvx = _copPvx || 0; heat.lkvz = _copPvz || 0;
+    heat.loseT = Math.max(heat.loseT, v * HIDE_PER_STAR);
+  }
   state.wanted = v; lastCrimeT = T;
   updateStarsHUD();
 }
 function addStar(n) { setWanted(state.wanted + (n || 1)); }
-// star thresholds double per level: 5 civs for the 1st star, 10 more for the
-// 2nd, 20 more for the 3rd... cops: any damage = 1st star, 3 kills = 2nd,
-// 6 more = 3rd, doubling likewise. Counters reset when the heat fully dies.
-var CIV_STAR_KILLS = [5, 15, 35, 75, 155];
-var COP_STAR_KILLS = [3, 9, 21, 45];   // stars 2-5 (star 1 comes from just hurting one)
-function creditCivKill(kind) {
-  state.civKills++;
+// mark a fresh crime at the player's spot: (re)anchor the police response and
+// restart the hide timer. The "grace" to slip away is emergent — units spawn
+// far, and while nobody actually SEES you they only search the crime scene.
+function onCrime() {
   lastCrimeT = T;
-  if (CIV_STAR_KILLS.indexOf(state.civKills) >= 0) { addStar(1); popup2('WANTED LEVEL UP'); }
+  heat.crimeX = player.x; heat.crimeZ = player.z;
+  heat.lkx = player.x; heat.lkz = player.z;
+  heat.lkvx = _copPvx || 0; heat.lkvz = _copPvz || 0;
+  heat.loseT = Math.max(1, state.wanted || 1) * HIDE_PER_STAR;
+}
+// add kill points, raise the star if a threshold is crossed, refresh the heat
+function addKillPts(pts) {
+  state.killPts = (state.killPts || 0) + pts;
+  var tgt = ptsToStar(state.killPts);
+  if (tgt > state.wanted) { setWanted(tgt); popup2('WANTED LEVEL UP'); }
+  onCrime();
+}
+var CIV_STAR_KILLS = [5, 15, 35, 75, 155];   // (legacy, no longer drives stars)
+var COP_STAR_KILLS = [3, 9, 21, 45];
+function creditCivKill(kind) {   // LETHAL civilian/vehicle kill: +3 pts
+  state.civKills++;
+  addKillPts(3);
   hitMark(true);
   if (kind === 'car') pushKillFeed('Vehicle wrecked', '#ffd24a');
   else pushKillFeed('Pedestrian down', '#ff6a4a');
 }
-function creditCopKill() {
+function creditKnockout() {   // fist KNOCKOUT (no blood): +1 pt — three make a star
+  addKillPts(1);
+  hitMark(true);
+  pushKillFeed('Knocked out', '#c9d24a');
+}
+function creditCopKill() {   // downing an officer: lethal, +3 pts
   state.copKills++;
-  lastCrimeT = T;
-  if (state.wanted < 1) setWanted(1);   // you can't kill one without damaging one
-  if (COP_STAR_KILLS.indexOf(state.copKills) >= 0) { addStar(1); popup2('WANTED LEVEL UP'); }
+  if (state.wanted < 1) setWanted(1);
+  addKillPts(3);
   hitMark(true);
   pushKillFeed('Officer down', '#66b0ff');
+}
+// wipe all heat at once (hid long enough, or died/jailed). Launders held loot.
+function clearHeat(msg) {
+  setWanted(0); state.killPts = 0; state.civKills = 0; state.copKills = 0;
+  heat.known = false; heat.loseT = 0;
+  if (msg) popup(msg);
+  if (state.stolen > 0) { state.money += state.stolen; popup('+$' + state.stolen + ' LAUNDERED'); sfx('cash'); state.stolen = 0; }
+}
+// does this observer (cop or cruiser at x,z) currently have you pinned?
+function posSeesPlayer(x, z, vis2) {
+  if (state.dead || inside) return false;
+  var dx = player.x - x, dz = player.z - z, d2 = dx * dx + dz * dz;
+  if (d2 < COP_PROX2) return true;                                   // right on top of you
+  if (d2 < (vis2 || COP_VISION2) && !coverBlocked(x, z, player.x, player.z)) return true;  // clear line of sight
+  return false;
+}
+// recompute dispatch knowledge each frame: are the police currently ON you?
+// If yes, refresh their last-known trail + reset your escape timer. If no, the
+// escape timer ticks down; run it out and ALL your stars drop together.
+function recomputeHeat(dt) {
+  if ((state.wanted || 0) <= 0) { heat.known = false; heat.loseT = 0; return; }
+  var known = false, list = isClient() ? copsM : cops;
+  if (!state.dead && !inside) {
+    for (var i = 0; i < list.length; i++) {
+      var c = list[i]; if (c.state === 'down' || c.down || c.interior) continue;
+      if (posSeesPlayer(c.x, c.z)) { known = true; break; }
+    }
+    if (!known) for (i = 0; i < copCars.length; i++) { if (posSeesPlayer(copCars[i].x, copCars[i].z, COP_CAR_VISION2)) { known = true; break; } }
+  }
+  heat.known = known;
+  if (known) {
+    heat.seenEver = true;
+    heat.lkx = player.x; heat.lkz = player.z; heat.lkvx = _copPvx || 0; heat.lkvz = _copPvz || 0;
+    heat.loseT = (state.wanted || 1) * HIDE_PER_STAR;   // seen again -> full timer
+  } else {
+    heat.loseT -= dt;
+    if (heat.loseT <= 0) clearHeat('You lost them');
+  }
+}
+// where a searching cop should head: to your last-known trail, then cast around
+// it — biased along the direction you were last moving (predict the getaway).
+function copSearchPoint(c, dt) {
+  c.srchT = (c.srchT || 0) - dt;
+  var arrived = c.srchX !== undefined && Math.hypot(c.srchX - c.x, c.srchZ - c.z) < 2.5;
+  if (c.srchX === undefined || c.srchT <= 0 || arrived) {
+    var toLK = Math.hypot(heat.lkx - c.x, heat.lkz - c.z);
+    if (toLK > 10) { c.srchX = heat.lkx + (heat.lkvx || 0) * 2.0; c.srchZ = heat.lkz + (heat.lkvz || 0) * 2.0; c.srchT = 4; }
+    else { var ang = Math.random() * 6.283, rr = 6 + Math.random() * 18; c.srchX = heat.lkx + Math.cos(ang) * rr + (heat.lkvx || 0) * 3; c.srchZ = heat.lkz + Math.sin(ang) * rr + (heat.lkvz || 0) * 3; c.srchT = 3 + Math.random() * 3; }
+  }
+  return { x: c.srchX, z: c.srchZ };
 }
 
 function buildCop() {
@@ -13641,9 +13732,11 @@ function hottestPlayerPos() {
 }
 function spawnCop(nearPlayer) {
   var mesh = buildCop(), x, z, doorYaw = null;
-  var hp0 = hottestPlayerPos();
+  var hp0 = responseAnchor();   // converge on your last-known spot, not wherever you are now
   if (nearPlayer) {
-    var a = Math.random() * Math.PI * 2, r = 50 + Math.random() * 30;
+    // spawn WELL away (90-150u) and let them travel in to the crime scene — no
+    // more materializing on top of you the instant the heat goes up
+    var a = Math.random() * Math.PI * 2, r = 90 + Math.random() * 60;
     x = Math.max(-HALF + 6, Math.min(HALF - 6, hp0.x + Math.cos(a) * r));
     z = Math.max(-HALF + 6, Math.min(HALF - 6, hp0.z + Math.sin(a) * r));
   } else { var t = randTarget(); x = t[0]; z = t[1]; }
@@ -13688,7 +13781,13 @@ function maxWanted() {
   for (var id in net.remotes) { var r = net.remotes[id]; if (r && !r.dead && (r.w || 0) > w) w = r.w; }
   return w;
 }
-function desiredCops() { var w = maxWanted(); return w === 0 ? 2 : 2 + w * 2; }
+function desiredCops() { var w = maxWanted(); return w === 0 ? 3 : 3 + w * 2; }   // more boots on the ground (0*=3, 1*=5 … 5*=13)
+// where new responders converge: your LAST-KNOWN spot while you're out of sight
+// (so fleeing actually works), otherwise your live position once they're on you.
+function responseAnchor() {
+  if ((state.wanted || 0) > 0 && !heat.known) return { x: heat.lkx, z: heat.lkz };
+  return hottestPlayerPos();
+}
 function copWeapon() {
   return maxWanted() >= 4
     ? { range: 46, dmg: 4, rate: 0.14, acc: 0.46, sfx: 'copsmg' }   // full-auto SMGs
@@ -13705,16 +13804,21 @@ function copHasLOS(c, tgt) {
 // pick the closest wanted player (local or remote) this cop can go after
 function copPickTarget(c) {
   var best = null, bd = 1e9;
-  function cand(x, z, y, w, id) {
-    if (w < 1) return;
-    var dx = x - c.x, dz = z - c.z, d2 = dx * dx + dz * dz;
-    if (!(w >= 2 || d2 < 256 || c.state === 'engage')) return;
-    if (d2 < bd) { bd = d2; best = { x: x, z: z, y: y, id: id, d: Math.sqrt(d2) }; }
+  // LOCAL player: dispatch only hands out your position while the police
+  // actually KNOW where you are (someone sees you / you got close). Otherwise
+  // this returns nothing and updateCops drops the cop into a SEARCH.
+  if (!state.dead && !inside && (state.wanted || 0) >= 1 && heat.known) {
+    var dx = player.x - c.x, dz = player.z - c.z, d2 = dx * dx + dz * dz;
+    best = { x: player.x, z: player.z, y: player.y, id: null, d: Math.sqrt(d2) }; bd = d2;
   }
-  if (!state.dead && !inside) cand(player.x, player.z, player.y, state.wanted, null);
-  // remotes below y -30 are in the gas-station interior (its room sits under
-  // the map) — street cops can't see them and must not shoot the pavement
-  for (var id in net.remotes) { var r = net.remotes[id]; if (!r.dead && !(r.y < -30)) cand(r.x, r.z, r.y || EYE, r.w || 0, id); }
+  // remotes keep the old proximity/aggro rule (their heat is their own); remotes
+  // below y -30 are in the gas-station interior — street cops can't see them
+  for (var id in net.remotes) {
+    var r = net.remotes[id]; if (r.dead || r.y < -30 || (r.w || 0) < 1) continue;
+    var rx = r.x - c.x, rz = r.z - c.z, rd2 = rx * rx + rz * rz;
+    if (!(r.w >= 2 || rd2 < 256 || c.state === 'engage')) continue;
+    if (rd2 < bd) { bd = rd2; best = { x: r.x, z: r.z, y: r.y || EYE, id: id, d: Math.sqrt(rd2) }; }
+  }
   return best;
 }
 // point the gun arm at the target — runs AFTER animPerson each frame (same
@@ -13911,6 +14015,7 @@ function updateCops(dt) {
   if (_copPpx !== undefined && dt > 0.0001) { _copPvx = (player.x - _copPpx) / dt; _copPvz = (player.z - _copPpz) / dt; }
   _copPpx = player.x; _copPpz = player.z;
   var pspd = Math.sqrt(_copPvx * _copPvx + _copPvz * _copPvz);
+  recomputeHeat(dt);   // does dispatch currently KNOW where you are? run the escape timer.
   var suppressed = (armLevel === 2) && (T - lastShot < 1.6) && (state.wanted || 0) > 0;
   if (armLevel === 1 && (state.wanted || 0) > 0 && !state.dead && !inside) {
     if (!copMeleeSince) copMeleeSince = T;
@@ -14007,7 +14112,15 @@ function updateCops(dt) {
         if (d < wpn.range && wantFire) aimTgt = tgt;
         c.coverT = 0;
       }
+    } else if (!c.interior && (state.wanted || 0) > 0 && !isClient()) {
+      // SEARCH: heat is up but nobody has eyes on you — sweep the last-known
+      // trail and cast around it (predicting the getaway). No gun-fire.
+      c.state = 'search';
+      var sp = copSearchPoint(c, dt);
+      var sdx = sp.x - c.x, sdz = sp.z - c.z, sdd = Math.sqrt(sdx * sdx + sdz * sdz);
+      if (sdd > 1.4) { vx = sdx / sdd; vz = sdz / sdd; spd = 3.4; moving = true; m.rotation.y = Math.atan2(vx, vz); }
     } else {
+      if (c.state === 'search') c.state = 'patrol';
       if (c.interior) { m.position.set(c.x, baseY, c.z); animPerson(m, 0, dt); if (m.userData.heldGun) copLowReady(m); continue; }
       var tdx = c.tx - c.x, tdz = c.tz - c.z, td = Math.sqrt(tdx * tdx + tdz * tdz);
       if (td < 1) { var t = randTarget(); c.tx = t[0]; c.tz = t[1]; }
@@ -14040,30 +14153,8 @@ function updateCops(dt) {
     if (aimTgt) { copAimArm(c, m, aimTgt); copShoot(c, wpn, dt, aimTgt); }
     else if (m.userData.heldGun) copLowReady(m);   // drawn but not aiming: low-ready, not brick-on-palm
   }
-  // lose the heat: 35s with no crimes and no cops within 50 units (one star per interval)
-  if (state.wanted > 0 && T - lastCrimeT > 35) {
-    var nearCop = false;
-    for (i = 0; i < cops.length; i++) {
-      var cc = cops[i];
-      if (cc.state === 'down') continue;
-      var qdx = cc.x - player.x, qdz = cc.z - player.z;
-      if (qdx * qdx + qdz * qdz < 2500) { nearCop = true; break; }
-    }
-    // on a client the host's street cops live in copsM (spliced out of `cops`),
-    // so also check the mirror or heat decays while cops are actively hunting
-    if (!nearCop && isClient()) for (i = 0; i < copsM.length; i++) {
-      var cmc = copsM[i]; if (cmc.down) continue;
-      var mdx = cmc.x - player.x, mdz = cmc.z - player.z;
-      if (mdx * mdx + mdz * mdz < 2500) { nearCop = true; break; }
-    }
-    if (!nearCop) {
-      state.wanted--; lastCrimeT = T; updateStarsHUD();
-      if (state.wanted === 0) {
-        popup('You lost the heat'); state.civKills = 0; state.copKills = 0;   // fresh spree, fresh thresholds
-        if (state.stolen > 0) { state.money += state.stolen; popup('+$' + state.stolen + ' LAUNDERED'); sfx('cash'); state.stolen = 0; }   // heist loot clears once you're clean
-      }
-    }
-  }
+  // losing the heat is handled by recomputeHeat() at the top: stay out of the
+  // cops' sight for wanted*60s and ALL your stars drop at once (no slow decay).
 }
 for (var ci = 0; ci < 3; ci++) spawnCop(false);
 
@@ -16629,14 +16720,26 @@ function resetTower(t) {
 // rotation.y = atan2(-dirZ, dirX).
 var copCars = [], copCarSpawnT = 0;
 var COPCAR_HP = 130;
-function desiredCopCars() { var w = state.wanted; return w >= 2 ? Math.min(w - 1, 4) : 0; }   // 2*=1, 3*=2, 4*=3, 5*=4
+function desiredCopCars() { var w = state.wanted; return w === 0 ? 2 : 2 + w; }   // 0*=2 patrol cruisers, then +1 per star (1*=3 … 5*=7)
+// snap an arbitrary point onto the nearest road centreline (for patrol waypoints)
+function copRoadPoint(x, z) {
+  if (typeof RM === 'undefined' || !RM.edges || !RM.edges.length) return null;
+  var bestD = 1e9, bx = null, bz = null;
+  for (var ei = 0; ei < RM.edges.length; ei++) {
+    var e = RM.edges[ei]; if (e.stub) continue;
+    var pr = rmProject(e.pts, e.cum, x, z);
+    if (pr.d < bestD) { var q = rmAt(e.pts, e.cum, pr.s); bestD = pr.d; bx = q.x; bz = q.z; }
+  }
+  return bx === null ? null : { x: bx, z: bz };
+}
 function spawnCopCar() {
   if (GG_POLICE_I < 0) return null;
-  // spawn on a ring 70-115u from the player (just out of sight), snapped onto the
-  // nearest road if one is close so cop cars arrive down the streets. Ring-first
-  // (not random-edge-first) because RM.edges includes far airport/expansion roads.
+  // spawn on a ring 70-115u from your LAST-KNOWN spot (just out of sight),
+  // snapped onto the nearest road so cop cars arrive down the streets. Anchoring
+  // on last-known (not your live position) is what lets you slip a pursuit.
+  var anc = responseAnchor();
   var a = Math.random() * 6.283, dist = 70 + Math.random() * 45;
-  var sx = player.x + Math.cos(a) * dist, sz = player.z + Math.sin(a) * dist;
+  var sx = anc.x + Math.cos(a) * dist, sz = anc.z + Math.sin(a) * dist;
   if (typeof RM !== 'undefined' && RM.edges && RM.edges.length) {
     var bestD = 26 * 26, bx = null, bz = null;
     for (var ei = 0; ei < RM.edges.length; ei++) {
@@ -16658,7 +16761,7 @@ function spawnCopCar() {
   car.group.add(lr); car.group.add(lb);
   // ~half the cars are "blockers" that cut ahead of a driving player to box them in
   var role = (copCars.length % 2 === 0) ? 'chase' : 'block';
-  var cc = { car: car, x: sx, z: sz, h: h, speed: 9, state: 'seek', hp: COPCAR_HP, parkT: 0, disgorged: false, life: 0, lightR: lr, lightB: lb, role: role, ramT: 0 };
+  var cc = { car: car, x: sx, z: sz, h: h, speed: 9, state: 'patrol', hp: COPCAR_HP, parkT: 0, disgorged: false, life: 0, lightR: lr, lightB: lb, role: role, ramT: 0 };
   car.group.traverse(function (o) { if (o !== lr && o !== lb) o.userData.copCar = cc; });   // shootable (raycast walks up to a tagged parent); lights excluded so they don't eat rays
   copCars.push(cc);
   return cc;
@@ -16725,25 +16828,42 @@ function explodeCopCar(cc) { if (typeof boomAt === 'function') boomAt(cc.x, cc.z
 function damageCopCar(cc, dmg, pt) { cc.hp -= dmg; if (pt && typeof puff === 'function') puff(pt, 0xffe08a); }
 function driveCopCar(cc, dt, pd) {
   var car = cc.car, g = car.group, h = g.rotation.y;
-  updateCopLights(cc, cc.state !== 'parked');   // flash the bar whenever in pursuit
+  updateCopLights(cc, cc.state !== 'parked' && cc.state !== 'patrol');   // bar dark while patrolling, flashing in pursuit
   if (cc.state === 'parked') {
     cc.speed += (0 - cc.speed) * Math.min(1, dt * 5); cc.parkT += dt;
     updateCarFeel(cc, dt, cc.speed, 0, 0);
     return;
   }
+  var wantedNow = (state.wanted || 0) > 0 && !state.dead && !inside;
+  var known = wantedNow && heat.known;   // a unit currently sees you (or you got close)
   var isDrv = (typeof driving !== 'undefined' && driving);
-  if (!isDrv && pd < 12 && cc.state === 'seek') { parkAndDisgorge(cc); return; }
-  cc.state = isDrv ? 'chase' : 'seek';
-  // --- pick the target point ---
-  var tx = player.x, tz = player.z;
-  if (isDrv) {
-    var pv = driving.pspeed || 0;
-    var lt = (cc.role === 'block') ? 2.4 : 0.4;    // blockers aim way ahead to cut the player off
-    tx = player.x + (driving.mvx || 0) * pv * lt;
-    tz = player.z + (driving.mvz || 0) * pv * lt;
+  var tx, tz, maxCruise = 18;
+  // ---- PATROL: cruise the streets with the bar dark until there's a reason to roll ----
+  if (cc.state === 'patrol') {
+    if (wantedNow && (known || posSeesPlayer(cc.x, cc.z, COP_CAR_VISION2) || Math.hypot(cc.x - heat.crimeX, cc.z - heat.crimeZ) < 65)) {
+      cc.state = 'seek';   // a crime near this cruiser (or eyes on you) flips it into pursuit
+    } else {
+      if (cc.patX === undefined || Math.hypot(cc.patX - cc.x, cc.patZ - cc.z) < 9 || (cc.patT = (cc.patT || 0) - dt) <= 0) {
+        var pa = Math.random() * 6.283, pr = 55 + Math.random() * 130, ppx = player.x + Math.cos(pa) * pr, ppz = player.z + Math.sin(pa) * pr;
+        var rp = copRoadPoint(ppx, ppz); cc.patX = rp ? rp.x : ppx; cc.patZ = rp ? rp.z : ppz; cc.patT = 8 + Math.random() * 8;
+      }
+      tx = cc.patX; tz = cc.patZ; maxCruise = 13;
+    }
   }
-  // player up on an elevated highway? route via the nearest ramp instead of driving into the embankment
-  if ((player.y - g.position.y) > 4) { var rt = rampTargetFor(cc); if (rt) { tx = rt.x; tz = rt.z; } }
+  // ---- PURSUIT / SEARCH ----
+  if (cc.state !== 'patrol') {
+    if (known) {
+      tx = player.x; tz = player.z;
+      if (isDrv) { var pv = driving.pspeed || 0, lt = (cc.role === 'block') ? 2.4 : 0.4; tx = player.x + (driving.mvx || 0) * pv * lt; tz = player.z + (driving.mvz || 0) * pv * lt; }
+      if (!isDrv && pd < 12) { parkAndDisgorge(cc); return; }   // caught up on foot -> officers pile out
+      cc.state = isDrv ? 'chase' : 'seek'; maxCruise = isDrv ? 22 : 18;
+      if ((player.y - g.position.y) > 4) { var rt = rampTargetFor(cc); if (rt) { tx = rt.x; tz = rt.z; } }   // player on a highway -> take a ramp
+    } else if (wantedNow) {
+      var sp = copSearchPoint(cc, dt); tx = sp.x; tz = sp.z; cc.state = 'search'; maxCruise = 15;   // sweep the last-known trail
+    } else {
+      cc.state = 'patrol'; updateCarFeel(cc, dt, cc.speed, 0, 0); return;   // heat's gone -> back to patrol next frame
+    }
+  }
   var dx = tx - cc.x, dz = tz - cc.z, dd = Math.hypot(dx, dz) || 1;
   var desDir = Math.atan2(-(dz / dd), dx / dd);
   // whisker avoidance: take the clearest bearing near the one that points at the target
@@ -16757,11 +16877,10 @@ function driveCopCar(cc, dt, pd) {
   var steer = Math.max(-1, Math.min(1, dh * 1.8));
   var turn = 2.4 * dt;
   g.rotation.y += Math.max(-turn, Math.min(turn, dh));
-  var cruise = 18;
-  if (Math.abs(dh) > 0.7) cruise = 9;
+  var cruise = maxCruise;
+  if (Math.abs(dh) > 0.7) cruise = Math.min(cruise, 9);
   if (!clear) cruise = 6;
-  if (pd < 16 && !isDrv) cruise = Math.min(cruise, 8);
-  if (isDrv) cruise = 22;                          // run the player down at speed
+  if (cc.state === 'seek' && pd < 16 && !isDrv) cruise = Math.min(cruise, 8);   // ease up as they roll onto you on foot
   cc.speed += (cruise - cc.speed) * Math.min(1, dt * 1.6);
   var nh = g.rotation.y, nfx = Math.cos(nh), nfz = -Math.sin(nh);
   var nx = cc.x + nfx * cc.speed * dt, nz = cc.z + nfz * cc.speed * dt;
@@ -16805,7 +16924,7 @@ function updateCopCars(dt) {
     var pd = Math.hypot(player.x - cc.x, player.z - cc.z);
     if ((want === 0 && cc.state !== 'parked') || pd > 280 || (cc.state === 'parked' && cc.parkT > 30) || cc.life > 300) { removeCopCar(cc); copCars.splice(i, 1); continue; }
     driveCopCar(cc, dt, pd);
-    if (cc.state !== 'parked' && pd < nd) { nd = pd; nearest = cc; }
+    if (cc.state !== 'parked' && cc.state !== 'patrol' && pd < nd) { nd = pd; nearest = cc; }   // no siren while merely patrolling
   }
   // one shared siren wail from the closest pursuing cruiser (no overlapping sirens)
   copSirenT -= dt;
@@ -17507,6 +17626,7 @@ function bloodDecal(x, z) {
 // the ONE blood pool under a dead body: starts small and slowly SPREADS to a
 // full puddle over ~16 s, then lingers (BODY_TTL) before fading with the corpse.
 var BODY_TTL = 60;   // bodies + gore chunks persist ~1 minute before despawning
+var KO_TTL = 25;     // a bloodless knockout lies unconscious ~25s, then quietly despawns
 function bloodPool(x, z, y) {
   var m;
   if (typeof BLOOD_DECALS !== 'undefined') {
@@ -18764,15 +18884,20 @@ function damageNPC(n, dmg, kx, kz, silent) {
   n.hp -= dmg; n.hurtFlash = 0.12; n.x += (kx || 0) * 0.5; n.z += (kz || 0) * 0.5;
   lastCrimeT = T;
   if (n.hp <= 0) {
-    n.state = 'down'; n.downT = BODY_TTL; if (n.mesh.userData.shadow) n.mesh.userData.shadow.visible = false;
-    bloodPool(n.x, n.z);   // one spreading pool under the corpse
+    // FIST kills are just KNOCKOUTS now — the body lies there with NO blood, and
+    // shooting it later (see the corpse-shot path) is what "finishes" them for a
+    // real kill + blood. Everything lethal (guns, axe, cars) bleeds as before.
+    var isKO = meleeHit && state.equipped === 'fists' && !silent;
+    n.state = 'down'; n.downT = isKO ? KO_TTL : BODY_TTL; n.ko = isKO;
+    if (n.mesh.userData.shadow) n.mesh.userData.shadow.visible = false;
+    if (!isKO) bloodPool(n.x, n.z);   // one spreading pool under the corpse (none for a bloodless KO)
     if (n.grp) leaveGroup(n);   // #67: detach from its social group so no follower paths to a corpse
     stopNpcVoice(n.vname);
     spawnCash(n.x, n.z, 5 + ((Math.random() * 18) | 0)); sfx('ko', { x: n.x, z: n.z, range: 50 }); sfx('grunt', { x: n.x, z: n.z, range: 50, fem: n.fem });
     maybeNpcItemDrop(n.x, n.z);
     if (!silent) {
-      popup('KO!');
-      creditCivKill();
+      popup(isKO ? 'KNOCKED OUT' : 'KO!');
+      if (isKO) creditKnockout(); else creditCivKill();
     }
   } else {
     sfx('hit', { x: n.x, z: n.z, range: 50 });
@@ -21342,7 +21467,14 @@ function fireShotgun(w) {
     var h = hits[0], o = h.object, npcHit = null, copHit = null, carHit = null, remoteHit = null, copMHit = -1, atmHit = null, copCarHit = null, heliHit = null, heliGunHit = null;
     while (o) { var u = o.userData; if (u) { if (u.npc) { npcHit = u.npc; break; } if (u.heliGunner) { heliGunHit = u.heliGunner; break; } if (u.heli) { heliHit = u.heli; break; } if (u.cop) { copHit = u.cop; break; } if (u.copM !== undefined) { copMHit = u.copM; break; } if (u.remoteId) { remoteHit = u.remoteId; break; } if (u.copCar) { copCarHit = u.copCar; break; } if (u.trafficCar) { carHit = u.trafficCar; break; } if (u.atm) { atmHit = u.atm; break; } } o = o.parent; }
     var dmg = Math.round(w.dmg * Math.max(0.25, 1 - h.distance / w.falloff));
-    if (npcHit && npcHit.state === 'down') { hitAny = true; gorePoke(npcHit.x, h.point.y, npcHit.z, d.x, d.z); }   // corpse: extra gibs, no damage
+    if (npcHit && npcHit.state === 'down') {
+      hitAny = true; gorePoke(npcHit.x, h.point.y, npcHit.z, d.x, d.z);   // corpse: extra gibs
+      if (npcHit.ko && !isClient()) {   // FINISHING a knocked-out body: now it's a real kill — blood + heat
+        npcHit.ko = false; npcHit.downT = BODY_TTL;
+        bloodPool(npcHit.x, npcHit.z);
+        popup('EXECUTED'); creditCivKill();
+      }
+    }
     else if (copHit && copHit.state === 'down') { hitAny = true; gorePoke(copHit.x, h.point.y, copHit.z, d.x, d.z); }
     else if (npcHit) {
       hitAny = true;
@@ -21898,7 +22030,7 @@ function hurtPlayer(d, sx, sz) {
     document.getElementById('deadInfo').textContent = lost > 0 ? 'You lost $' + lost + (dropCash > 0 ? ' — $' + dropCash + ' spilled on the pavement.' : '.') : 'At least you were already broke.';
     deadAt = performance.now();
     startDeathCam();   // top-down zoom-out cinematic; the menu (respawn / main menu) appears when it finishes
-    state.wanted = 0; state.civKills = 0; state.copKills = 0; updateStarsHUD();
+    state.wanted = 0; state.civKills = 0; state.copKills = 0; state.killPts = 0; heat.known = false; heat.loseT = 0; updateStarsHUD();
     // drop everything you were carrying
     var dropped = 0;
     GUN_LIST.forEach(function (k) {
@@ -26371,6 +26503,10 @@ window.__wc = {
   getKidPlaysets: getKidPlaysets, nearestPlayset: nearestPlayset, startKidPlay: startKidPlay,
   kidGames: function () { return kidGames; }, tryStartKidGame: tryStartKidGame, endKidGame: endKidGame,
   setWanted: setWanted, damageCop: damageCop, damageNPC: damageNPC, ragdollNPC: (typeof ragdollNPC === 'function' ? ragdollNPC : null),
+  heatInfo: function () { return { known: heat.known, loseT: heat.loseT, lkx: heat.lkx, lkz: heat.lkz, crimeX: heat.crimeX, crimeZ: heat.crimeZ, killPts: state.killPts, wanted: state.wanted, desiredCops: desiredCops(), desiredCopCars: desiredCopCars() }; },
+  creditKill: function (k) { if (k === 'ko') creditKnockout(); else if (k === 'cop') creditCopKill(); else creditCivKill(k); },
+  posSeesPlayer: function (x, z, v) { return posSeesPlayer(x, z, v); },
+  setHideTimer: function (v) { heat.loseT = v; },
   start: function () { startScreen.classList.add('hidden'); state.running = true; },
   setYaw: function (y) { yaw = y; camera.position.set(player.x, player.y, player.z); camera.rotation.y = yaw; camera.rotation.x = pitch; },
   setPitch: function (p2) { pitch = p2; camera.rotation.x = pitch; },

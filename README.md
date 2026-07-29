@@ -496,24 +496,39 @@ off-limits.) All of this is personal and local, like the interiors themselves.
 
 ## Wanted system
 
-Crimes earn GTA-style stars (max 5, shown in the top-left corner), and each star costs
-double the mayhem the last one did:
+Crimes earn GTA-style stars (max 5, shown in the top-left corner). **Every kill
+counts** — and now it doesn't matter whether it's a civilian or a cop:
 
-- Robbing the register at gunpoint → instantly 2 stars.
-- Civilian knockouts: 5 kills → 1 star, 10 more → 2 stars, 20 more → 3
-  stars, 40 more → 4 stars, 80 more → the full 5.
-- Wrecking a car (shooting or ramming it until it loses control) counts
-  the same as a knockout.
-- Cops: just **hurting** one earns your first star. Downing 3 → 2 stars,
-  6 more → 3 stars, 12 more → 4 stars, 24 more → 5.
+- **One kill = 1 star.** Your first lethal kill lights the meter.
+- After that the stars come faster the higher you climb: **2 more kills → 2★,
+  4 more → 3★, 6 more → 4★, 10 more → 5★** (23 kills to max it from a clean
+  slate). Downing a car or a cop counts as a kill just the same.
+- **Punching people out is softer.** With your fists you're only knocking
+  them cold, not killing them — no blood, and it takes **3 knockouts** to earn
+  your first star. But if you walk up and **shoot a body lying on the ground**,
+  now you've *finished* them: blood spills and it counts as a real kill toward
+  the next star.
+- Robbing the register at gunpoint still snaps you straight to **2 stars**;
+  reckless driving crimes to 3; cracking the bank vault to 4.
 
-At 1 star, patrolling officers only open fire if you get close. At 2+,
-every cop in town hunts you down, and more spawn per star. Below 4 stars
-they carry short-range pistols; at 4–5 stars they roll full-auto SMGs that
-reach much further — though cops' aim is only as good as their academy
-scores. Lay low (no crimes, no cops within sight) and the stars tick back
-down; go fully clean and the tally starts over. Getting knocked out clears
-your wanted level.
+**The police response is a manhunt now.** Commit a crime and dispatch marks the
+spot — cruisers roll in **from across town (about 30 seconds out)**, so you've
+got a window to get gone. Patrol cars already cruising the streets can peel off
+and chase right away if they're near when it happens. Crucially, **the cops only
+know where you actually are when they can see you or you get close** — break
+line of sight and slip away, and they'll converge on where the crime happened
+and **fan out searching**, working outward along the direction you ran. Get
+spotted again and they lock back on.
+
+You **can't just wait out the heat anymore** — you have to lose them. Stay out
+of the cops' sight long enough — **one minute per star** (so 5★ takes a full
+five minutes of not being found) — and **all your stars drop at once**. Let them
+lay eyes on you and that escape timer resets to full.
+
+More badges, too: more officers patrol and pile onto a chase per star, more
+cruisers roll, and (from 3★) the Sheriff's choppers join. Below 4 stars they
+carry short-range pistols; at 4–5★ they bring full-auto SMGs. Getting knocked
+out — or **arrested** (see below) — wipes your wanted level.
 
 ### Getting arrested
 
