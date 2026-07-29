@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.108.2';
+var GAME_VERSION = 'v1.108.3';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -6318,6 +6318,7 @@ function decodeAirModel(e, cache) {
   if (e.tex) {
     var im = new Image(), tx = new THREE.Texture(im);
     tx.magFilter = THREE.LinearFilter; tx.minFilter = THREE.LinearMipmapLinearFilter;
+    tx.anisotropy = MAXANISO;   // imported-model textures were missing this — big sharpness win on tall/grazing surfaces (skyscrapers)
     im.onload = function () { tx.needsUpdate = true; }; im.src = e.tex;
     cache.mat = lamb({ map: tx, side: THREE.DoubleSide });
   } else {
