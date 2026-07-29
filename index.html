@@ -437,7 +437,7 @@
   <div id="bootLabel">warming up the engine…</div>
 </div>
 <script>
-var wcBootDone = 0, WC_BOOT_TOTAL = 22.65;   // = SUM of the wcTick weights below — re-sum when adding scripts (grep wcTick | add). Voice packs (~33MB) are NOT counted: they defer-load after boot (game.js loadVoicePacks).
+var wcBootDone = 0, WC_BOOT_TOTAL = 22.95;   // = SUM of the wcTick weights below — re-sum when adding scripts (grep wcTick | add). Voice packs (~33MB) are NOT counted: they defer-load after boot (game.js loadVoicePacks).
 function wcTick(w, nextLabel) {
   wcBootDone += w;
   var b = document.getElementById('bootBar');
@@ -482,6 +482,7 @@ function wcTick(w, nextLabel) {
 <script src="splatbody.js"></script>
 <script src="leg.js"></script>
 <script src="jail.js"></script>
+<script src="heli.js" onload="wcTick(0.3,'spinning up the rotors…')"></script>
 <!-- AI storefront sign + VFX sprite sheets; game.js guards typeof PUBLIX_SIGN /
      VFX_SMOKE / VFX_FIRE so it still boots (canvas sign + flat puffs) if absent -->
 <script src="publixsign.js" onload="wcTick(0.1,'loading fx sheets…')"></script>

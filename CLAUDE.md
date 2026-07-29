@@ -281,6 +281,28 @@ game.js under `WC_REMAP`. Frame: junction `(0,0)`, **+x east / +z south**.
   `updateCops` wantGun forces `'smg'` for SWAT. `__wc`: `spikeStrips`,
   `spawnRoadblock`, `spawnSpikeStrip`, `updateHeatOps`. (`maxWanted()` now guards
   `net.remotes` — it's called at boot-time via the new SWAT hook in `spawnCop`.)
+- **Helicopter model** (v1.110, `heli.js` = `HELI_MODEL`, loaded before game.js,
+  game guards `typeof HELI_MODEL`): the user's Blender AS350 GLB, 3 rigid parts
+  (`body`/`mainRotor`/`tailRotor`) quantized like the airport models
+  (`{q,dims,parts:{pivot,axis,p,u,i}}`) at 0.55 scale, nose baked to +X, skids at
+  y=-`skid` so a group at y=`skid` sits on the ground. `buildHeliMesh(variant)`
+  builds `{group,mainRotor,tailRotor}` (same contract the old procedural mesh had —
+  now `buildHeliMeshProc` fallback): `mainRotor` spins about **Y**, `tailRotor`
+  about **Z** (`updateHeli`/`updatePlayerHeli` already drive those). Two baked
+  atlases share the geometry: `texPolice` (Hillsborough Sheriff livery, baked into
+  the GLB) for the pursuit choppers, `texCivilian` (user's repaint zip) for the
+  player-flyable one (`spawnPlayerHeli` → `buildHeliMesh('civilian')`). Textures
+  are full-res 1536×1024 JPEG data-URLs (no downscale). Offline pipeline in
+  scratchpad: `extract_parts.js` (GLB→3 parts, world-baked) → `convgeo.js`
+  (rot +90°Y, scale, quantize) → JPEG re-encode → assemble `heli.js`. `heliSideTex`
+  and the procedural mesh are dead now but kept as the fallback.
+- **Rotor sound** (v1.110, `startHeliSound`/`updateHeliSound`, called at the end of
+  `updateHelis`): a procedural whump — brown-noise rotor wash bandpassed + chopped
+  by a ~13 Hz sawtooth LFO (blade slap), a 46 Hz engine rumble, a 560 Hz turbine
+  whine — through a master gain driven by the NEAREST chopper (police `helis` in
+  fly/falling, or the player's `heliVeh`, loudest when piloting) and stereo-panned
+  by bearing off `camera.getWorldDirection`. Audible out to 240u so you hear the
+  police coming; local like the choppers. Gated on `ac`.
 - **Police helicopters** (`helis`, `spawnHeli`/`updateHeli`/`updateHelis`, 3★=1/
   4★=2/5★=3, local like the plane) got a v1.109.1 pass: (1) **speed cap** —
   `HELI_MAX_SPD=48`, below the plane's `PLANE_MAX_SPD=78` and the Porsche's 73, so

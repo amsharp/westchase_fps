@@ -408,7 +408,10 @@ Push your **wanted level** up and the response gets serious.
   you **in a car** and they run you down in a pursuit. Enough bullets and a
   cruiser goes up in a fireball.
 - The **Sheriff's helicopter** joins at **3 stars** (a second at 4★, a third at
-  5★) — a green-and-white AS350 that **flies in from far away** toward the crime
+  5★) — a detailed **Hillsborough County Sheriff AS350** (a real 3D model, with a
+  spinning main and tail rotor) that you can **hear coming** — a loud rotor
+  *whump* that grows as it nears and pans to tell you which way it is — as it
+  **flies in from far away** toward the crime
   scene and **circles the area where you were last seen**, just like the ground
   units, then **orbits overhead** once it spots you, with two **side gunners**.
   It's **not that fast** — a plane or a Porsche will pull away from it, though it

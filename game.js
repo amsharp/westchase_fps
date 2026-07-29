@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.109.1';
+var GAME_VERSION = 'v1.110.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -15768,7 +15768,7 @@ var HELI_SINK = 2.5;        // gentle descent when you're not on the throttle (n
 var HELI_TILT_SINK = 4.5;   // extra altitude bleed while banked into a move (cyclic dumps lift)
 function spawnPlayerHeli() {
   if (heliVeh || typeof buildHeliMesh !== 'function') return heliVeh;
-  var built = buildHeliMesh();
+  var built = buildHeliMesh('civilian');   // players fly the civilian-liveried chopper
   built.group.position.set(HELI_SPAWN.x, HELI_SKID, HELI_SPAWN.z);
   built.group.rotation.set(0, 0, 0, 'YXZ');              // nose +X, out over the open field
   scene.add(built.group);
@@ -17219,7 +17219,53 @@ function heliSideTex() {
   });
   return _heliSideTex;
 }
-function buildHeliMesh() {
+// ---- AS350 model (user Blender GLB, heli.js: HELI_MODEL) ----
+// 3 rigid parts sharing one baked atlas: police livery (texPolice) for the pursuit
+// choppers, the civilian repaint (texCivilian) for the player-flyable one. mainRotor
+// spins about Y, tailRotor about Z (baked so nose=+X, skids at y=-skid) — same
+// {group,mainRotor,tailRotor} contract the procedural fallback returned.
+var _heliTexCache = {}, _heliGeoCache = {};
+function heliTexture(which) {
+  if (_heliTexCache[which]) return _heliTexCache[which];
+  var im = new Image(), tx = new THREE.Texture(im);
+  tx.magFilter = THREE.LinearFilter; tx.minFilter = THREE.LinearMipmapLinearFilter;
+  if (typeof MAXANISO !== 'undefined') tx.anisotropy = MAXANISO;
+  im.onload = function () { tx.needsUpdate = true; };
+  im.src = (which === 'civilian') ? HELI_MODEL.texCivilian : HELI_MODEL.texPolice;
+  _heliTexCache[which] = tx;
+  return tx;
+}
+function heliPartGeo(name) {
+  if (_heliGeoCache[name]) return _heliGeoCache[name];
+  var e = HELI_MODEL.parts[name], q = HELI_MODEL.q;
+  var qp = new Int16Array(b64Bytes(e.p).buffer), qu = new Uint16Array(b64Bytes(e.u).buffer);
+  var fp = new Float32Array(qp.length), fu = new Float32Array(qu.length);
+  for (var i = 0; i < qp.length; i++) fp[i] = qp[i] / q;
+  for (i = 0; i < qu.length; i += 2) { fu[i] = qu[i] / 8192; fu[i + 1] = 1 - qu[i + 1] / 8192; }
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(fp, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(fu, 2));
+  geo.setIndex(new THREE.BufferAttribute(new Uint16Array(b64Bytes(e.i).buffer), 1));
+  geo.computeVertexNormals();
+  _heliGeoCache[name] = geo;
+  return geo;
+}
+function buildHeliMesh(variant) {
+  if (typeof HELI_MODEL === 'undefined') return buildHeliMeshProc();   // fallback keeps the game booting if heli.js is absent
+  var mat = lamb({ map: heliTexture(variant === 'civilian' ? 'civilian' : 'police'), side: THREE.DoubleSide });
+  var g = new THREE.Group();
+  function part(name) {
+    var pd = HELI_MODEL.parts[name];
+    var grp = new THREE.Group(); grp.position.set(pd.pivot[0], pd.pivot[1], pd.pivot[2]);
+    grp.add(new THREE.Mesh(heliPartGeo(name), mat));
+    g.add(grp); return grp;
+  }
+  part('body');
+  var mainRotor = part('mainRotor');   // spins about Y
+  var tailRotor = part('tailRotor');   // spins about Z
+  return { group: g, mainRotor: mainRotor, tailRotor: tailRotor };
+}
+function buildHeliMeshProc() {
   var g = new THREE.Group();
   var green = lamb({ color: 0x1f6b4a }), white = lamb({ color: 0xefece0 }), dark = lamb({ color: 0x14181f });
   var grey = lamb({ color: 0x565b62 }), blade = lamb({ color: 0x24262b });
@@ -17436,6 +17482,62 @@ function updateHelis(dt) {
     if (want === 0 && h.state === 'fly') { scene.remove(h.group); if (h.light) scene.remove(h.light.grp); helis.splice(i, 1); continue; }
     updateHeli(h, dt, i);
     if (h.dead || (h.state === 'fly' && Math.hypot(player.x - h.x, player.z - h.z) > 320)) { scene.remove(h.group); if (h.light) scene.remove(h.light.grp); helis.splice(i, 1); }
+  }
+  updateHeliSound(dt);
+}
+// ---- rotor sound: a procedural "whump-whump" blade slap + turbine whine, driven
+// by the NEAREST chopper (police helis or the player's own). Decently loud and
+// audible from far so you hear police helicopters coming after you; stereo-panned
+// by bearing so you can tell which way it is. Local, like the choppers themselves.
+var heliSnd = null;
+function startHeliSound() {
+  if (!ac || heliSnd) return;
+  var len = ac.sampleRate * 2, buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
+  var last = 0;                                     // brown-ish noise = the rotor wash
+  for (var i = 0; i < len; i++) { var w = Math.random() * 2 - 1; last = (last + 0.02 * w) / 1.02; d[i] = last * 3.4; }
+  var noise = ac.createBufferSource(); noise.buffer = buf; noise.loop = true;
+  var bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 320; bp.Q.value = 0.7;
+  var chop = ac.createGain(); chop.gain.value = 0.55;
+  var lfo = ac.createOscillator(); lfo.type = 'sawtooth'; lfo.frequency.value = 13;   // ~13 Hz blade-pass thump
+  var lfoG = ac.createGain(); lfoG.gain.value = 0.62;
+  lfo.connect(lfoG); lfoG.connect(chop.gain);
+  noise.connect(bp); bp.connect(chop);
+  var rum = ac.createOscillator(); rum.type = 'sine'; rum.frequency.value = 46;       // engine body rumble
+  var rumG = ac.createGain(); rumG.gain.value = 0.5; rum.connect(rumG);
+  var whine = ac.createOscillator(); whine.type = 'sawtooth'; whine.frequency.value = 560;  // turbine whine
+  var whHp = ac.createBiquadFilter(); whHp.type = 'highpass'; whHp.frequency.value = 420;
+  var whG = ac.createGain(); whG.gain.value = 0.05; whine.connect(whHp); whHp.connect(whG);
+  var master = ac.createGain(); master.gain.value = 0;
+  chop.connect(master); rumG.connect(master); whG.connect(master);
+  var pan = ac.createStereoPanner ? ac.createStereoPanner() : null;
+  if (pan) { master.connect(pan); pan.connect(ac.destination); } else master.connect(ac.destination);
+  noise.start(); lfo.start(); rum.start(); whine.start();
+  heliSnd = { master: master, pan: pan, nodes: [noise, lfo, rum, whine] };
+}
+var _heliSndDir = null;
+function updateHeliSound(dt) {
+  if (!ac) return;
+  var best = 1e9, bx = 0, bz = 0, mine = false;
+  for (var i = 0; i < helis.length; i++) { var h = helis[i]; if (h.state !== 'fly' && h.state !== 'falling') continue; var d = Math.hypot(player.x - h.x, player.z - h.z); if (d < best) { best = d; bx = h.x; bz = h.z; } }
+  if (typeof heliVeh !== 'undefined' && heliVeh) {
+    if (heliVeh.piloting) { best = 0; mine = true; bx = heliVeh.group.position.x; bz = heliVeh.group.position.z; }
+    else { var dh = Math.hypot(player.x - heliVeh.group.position.x, player.z - heliVeh.group.position.z); if (dh < best) { best = dh; bx = heliVeh.group.position.x; bz = heliVeh.group.position.z; } }
+  }
+  if (best > 240) { if (heliSnd) heliSnd.master.gain.value = Math.max(0, heliSnd.master.gain.value - dt * 0.8); return; }
+  if (!heliSnd) startHeliSound();
+  if (!heliSnd) return;
+  var vol = mine ? 0.95 : Math.max(0, 1 - best / 240) * 0.9;   // decently loud; audible out to 240u
+  heliSnd.master.gain.value += (vol - heliSnd.master.gain.value) * Math.min(1, dt * 3);
+  if (heliSnd.pan) {
+    if (mine) heliSnd.pan.pan.value = 0;
+    else if (typeof camera !== 'undefined' && camera) {
+      if (!_heliSndDir) _heliSndDir = new THREE.Vector3();
+      camera.getWorldDirection(_heliSndDir); _heliSndDir.y = 0;
+      var fl = Math.hypot(_heliSndDir.x, _heliSndDir.z) || 1, fx = _heliSndDir.x / fl, fz = _heliSndDir.z / fl;
+      var rx = -fz, rz = fx;                                   // camera-right in the xz plane
+      var relx = bx - player.x, relz = bz - player.z, rl = Math.hypot(relx, relz) || 1;
+      heliSnd.pan.pan.value = Math.max(-1, Math.min(1, (relx * rx + relz * rz) / rl));
+    }
   }
 }
 function updateTowers(dt) {
