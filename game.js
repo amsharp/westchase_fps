@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.106.0';
+var GAME_VERSION = 'v1.106.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -10370,7 +10370,7 @@ function bankRocketCheck() {
 // mesh (JAIL_DATA in jail.js — one double-sided UV-atlas model) is placed once;
 // colliders are hand-authored from the model's measured bounding boxes.
 var JAIL_ORIGIN = { x: 300, y: -140, z: 300 };   // deep under map, clear of the gas interior (y=-60)
-var JAIL_SCALE = 1.45;                            // model is snug (1.92m ceiling) — scale up for headroom
+var JAIL_SCALE = 1.7;                             // model is snug (1.92m ceiling) — scale up for headroom
 var jailT = 0;                                    // remaining sentence (s); >0 == locked up
 var jailStars = 0, jailReturn = null;             // snapshot of confiscated kit (restored only for <=2 stars)
 var _jailC = {};                                  // decode cache for JAIL_DATA
@@ -10392,6 +10392,7 @@ function buildJail(spec) {
   mesh.scale.set(S, S, S);
   mesh.position.set(OX, OY, OZ);                  // model floor at local y=0 -> world OY (scale keeps floor at 0)
   scene.add(mesh);
+  spec.ceilY = OY + _jailC.dims[1] * S;           // world Y of the ceiling — clamps the player's jump so their head can't poke through
   // ceiling light so the sunk room isn't pitch black
   var lamp = new THREE.PointLight(0xfff2d8, 1.1, 22 * S, 1.6);
   lamp.position.set(OX, OY + 1.7 * S, OZ); scene.add(lamp);
@@ -25529,6 +25530,11 @@ function updatePlayer(dt) {
   if (spaceDown && player.grounded) { player.vy = 6.4; player.grounded = false; }   // ~1.28u apex — clears kerbs + lets you hop onto waist-high props (dumpsters, benches)
   var wasAirborne = !player.grounded;
   player.vy -= GRAV * dt; player.y += player.vy * dt;
+  // interior ceiling collision: jumping into a low ceiling (jail cell) stops you
+  // dead instead of letting your head clip through it. Keep ~0.34u of skull above the eye.
+  if (inside && curInterior && curInterior.ceilY && player.y > curInterior.ceilY - 0.34) {
+    player.y = curInterior.ceilY - 0.34; if (player.vy > 0) player.vy = 0;
+  }
   var eyeFloor = (inside ? (curInterior ? curInterior.box.y : INT.y) : surfaceHeightAt(player.x, player.z, false, player.y - EYE)) + EYE;
   if (player.y <= eyeFloor) {
     // fall damage: a hard downward landing hurts, scaled by impact; a big drop
