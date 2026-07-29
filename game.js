@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.104.1';
+var GAME_VERSION = 'v1.105.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -754,6 +754,10 @@ function vEave(cx, cz, w, d, y, mat) {
 
 var colliders = [], solidMeshes = [];
 var landColliders = null;   // colliders minus the lake block — the player may wade in
+// collision broad-phase spatial-hash state (grid built lazily; see collidersNear).
+// Declared up here so scratch buffers exist before any load-time spawn/pushOut call.
+var _cgrid = null, _cgridN = -1, _CGCELL = 24, _cgQ = 0;
+var _pfScratch = [], _poScratch = [], _shScratch = [];
 // returns the pushed collider object so callers (breakable props) can toggle
 // `.active` off/on when the prop topples/respawns — pushOut skips inactive
 // entries in place, so the reference stays valid inside landColliders too.
@@ -6492,8 +6496,9 @@ function surfaceHeightAt(x, z, skipRects, feetY) {
   // 2.5D: stand on top of a collider box whose top your feet have reached
   // (jump onto a dumpster/barrier/etc). Only the player passes feetY.
   if (feetY !== undefined) {
-    for (var ci = 0; ci < colliders.length; ci++) {
-      var b = colliders[ci];
+    var SL = (typeof collidersNear === 'function') ? collidersNear(x, z, 0.1, _shScratch) : colliders;
+    for (var ci = 0; ci < SL.length; ci++) {
+      var b = SL[ci];
       if (b.active === false || b.topY === undefined || b.topY <= h) continue;
       if (x < b.x0 || x > b.x1 || z < b.z0 || z > b.z1) continue;      // outside footprint bounds
       if (b.obb) { var odx = x - b.x, odz = z - b.z, u = odx * b.c - odz * b.s, v = odx * b.s + odz * b.c; if (Math.abs(u) > b.hx || Math.abs(v) > b.hz) continue; }
@@ -19813,8 +19818,43 @@ spawnVendors();
 // ---------------- collision ----------------
 // cheap boolean "is this point clear of colliders" — used by the NPC steer-ahead
 // probe. Same slab math as pushOut but returns on FIRST overlap (no push vector).
+// ---- collision broad-phase: a uniform spatial hash over `colliders` ----
+// The map carries ~4000 static AABB/OBB boxes and pointFree/pushOut/surfaceHeight
+// used to scan ALL of them every call. The grid buckets each box by the cells its
+// footprint covers, so a query only touches the few boxes in the nearby cells.
+// Boxes never move (props topple via .active, they don't relocate), so the grid
+// is rebuilt only when the collider COUNT changes (adds/removes at load or when a
+// building is generated). Query results are de-duped via a per-query stamp.
+// (grid state + scratch buffers are declared up near `var colliders`.)
+function buildColliderGrid() {
+  var map = {}, cs = _CGCELL;
+  for (var i = 0; i < colliders.length; i++) {
+    var b = colliders[i]; if (b.x0 === undefined) continue;
+    b._ci = i;                                  // original array index, for order-exact pushOut
+    var cx0 = Math.floor(b.x0 / cs), cx1 = Math.floor(b.x1 / cs);
+    var cz0 = Math.floor(b.z0 / cs), cz1 = Math.floor(b.z1 / cs);
+    for (var cx = cx0; cx <= cx1; cx++) for (var cz = cz0; cz <= cz1; cz++) {
+      var k = cx * 8192 + cz;
+      (map[k] || (map[k] = [])).push(b);
+    }
+  }
+  _cgrid = map; _cgridN = colliders.length;
+}
+// gather the unique colliders whose cells cover the box (px±r, pz±r) into `out`
+function collidersNear(px, pz, r, out) {
+  if (!_cgrid || _cgridN !== colliders.length) buildColliderGrid();
+  var cs = _CGCELL, q = ++_cgQ;
+  var cx0 = Math.floor((px - r) / cs), cx1 = Math.floor((px + r) / cs);
+  var cz0 = Math.floor((pz - r) / cs), cz1 = Math.floor((pz + r) / cs);
+  out.length = 0;
+  for (var cx = cx0; cx <= cx1; cx++) for (var cz = cz0; cz <= cz1; cz++) {
+    var arr = _cgrid[cx * 8192 + cz]; if (!arr) continue;
+    for (var i = 0; i < arr.length; i++) { var b = arr[i]; if (b._cgq === q) continue; b._cgq = q; out.push(b); }
+  }
+  return out;
+}
 function pointFree(px, pz, r) {
-  var L = colliders;
+  var L = collidersNear(px, pz, r, _pfScratch);
   for (var i = 0; i < L.length; i++) {
     var b = L[i];
     if (px < b.x0 - r || px > b.x1 + r || pz < b.z0 - r || pz > b.z1 + r) continue;
@@ -19828,11 +19868,18 @@ function pointFree(px, pz, r) {
   }
   return true;
 }
+function _ciSort(a, b) { return a._ci - b._ci; }
 function pushOut(px, pz, r, list, feetY) {
-  var L = list || colliders;
+  // grid-accelerated when scanning the full collider set (or landColliders, which
+  // is just colliders minus the lake); a custom small list (interiors) stays linear.
+  var useGrid = (list === undefined || list === colliders || list === landColliders);
+  var skipLake = (list === landColliders);
+  var L = list;
+  if (useGrid) { L = collidersNear(px, pz, r + 3, _poScratch); L.sort(_ciSort); }   // +3: the point drifts as we resolve overlaps; sort back to array order so multi-box corners resolve identically to a linear scan
   for (var i = 0; i < L.length; i++) {
     var b = L[i];
     if (b.active === false) continue;   // toppled prop's trunk collider — sits out until it respawns
+    if (skipLake && b.lake) continue;   // the player wades into the lake (landColliders excludes it)
     // elevated-highway 2.5D: a deck collider is a pure floor (surfaceHeightAt
     // raises you onto it via topY) — it must NEVER block horizontally, so you
     // can drive underneath the overpass freely.
