@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.110.0';
+var GAME_VERSION = 'v1.110.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -9312,6 +9312,8 @@ function drawSpeech(sp, text) {
   sp.userData.tex.needsUpdate = true;
 }
 function speechBubble(n, text) {
+  return;   // NPC text bubbles disabled (user: no floating NPC dialogue). NPCs still
+            // enter chat poses + play voices; they just don't show a text banner.
   if (!n || !n.mesh) return;
   var b = null, i;
   for (i = 0; i < speechBubbles.length; i++) if (speechBubbles[i].ref === n) { b = speechBubbles[i]; break; }

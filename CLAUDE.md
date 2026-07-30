@@ -527,6 +527,14 @@ game.js under `WC_REMAP`. Frame: junction `(0,0)`, **+x east / +z south**.
   GLBs; clips expire on Meshy's CDN so download promptly (saved in
   scratchpad meshy/clips/). Old rigid path (entry.parts +
   buildMeshyChar) kept as fallback.
+- **NPC text bubbles DISABLED (v1.110.1, user request)**: `speechBubble(n,text)`
+  is a hard no-op at the top — NO floating NPC dialogue banners render (the
+  Georgia-serif world-space sprites over NPCs' heads). Every ambient caller
+  (`grpNextBeat` group chat, group-aware barks, shop-customer `barkAtCustomer` /
+  SHOP_ASK lines) still runs — NPCs enter chat poses and play voice audio — they
+  just show no text. The sprite pool/`drawSpeech`/`makeSpeechSprite` are dead but
+  kept. Player-initiated shop chat `staffSay` (press E → top `#toast`) is separate
+  and still shows; remove that too if the user wants ALL NPC text gone.
 - **TTS dialogue (v1.7)**: tools/ttsgen (Fish Audio -> psxify 8-bit
   11kHz crunch -> voicelines.js data-URL WAVs, optional script before
   game.js). playVoice(id,gain,cooldown) via the game AudioContext;
