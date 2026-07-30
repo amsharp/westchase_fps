@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.110.3';
+var GAME_VERSION = 'v1.111.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -8139,6 +8139,37 @@ var npcs = [];
 var NPC_COUNT = 125;  // halved from 250 (owner: too many pedestrians) — also lighter on the host sim. frustum-cull + anim-LOD cut RENDER cost; the HOST bot sims ALL npcs every sub-step.
 // home-zone weights: core intersection / residential neighborhoods / collectors+Lynmar
 var NPC_W_CORE = 0.60, NPC_W_RES = 0.32;   // remainder (~0.08) = collectors
+// map-wide "roamer" fraction: this share of pedestrians home to a RANDOM point
+// anywhere on the whole (expanded WLO..WHI) map instead of the town core, so the
+// crowd spreads out over the map instead of clustering at the Publix intersection.
+var NPC_W_MAP = 0.40;
+// perf cull: freeze + hide a pedestrian you can't see — behind the camera and
+// clear of it, or deep in the fog. Ambient states only; ragdoll/down/hidden still
+// resolve. (fog runs 160..820, so the far cull sits out where they're ~all fog.)
+var NPC_BACK_CULL2 = 55 * 55, NPC_FAR_CULL2 = 560 * 560;
+var _npcCamFx = 0, _npcCamFz = 1, _cullCamV = null;
+function refreshCullCam() {
+  if (typeof camera === 'undefined' || !camera) return;
+  if (!_cullCamV) _cullCamV = new THREE.Vector3();
+  camera.getWorldDirection(_cullCamV);
+  var l = Math.hypot(_cullCamV.x, _cullCamV.z) || 1;
+  _npcCamFx = _cullCamV.x / l; _npcCamFz = _cullCamV.z / l;
+}
+// should NPC/kid n (at n.x,n.z) be culled this frame? true => hide + skip its sim.
+function cullFar(nx, nz) {
+  var rx = nx - camera.position.x, rz = nz - camera.position.z, r2 = rx * rx + rz * rz;
+  if (r2 > NPC_FAR_CULL2) return true;
+  return (rx * _npcCamFx + rz * _npcCamFz) < 0 && r2 > NPC_BACK_CULL2;   // behind the camera & not right on top of it
+}
+// a random collider-free point anywhere on the full map (for map-roamer homes)
+function mapRoamSpot() {
+  for (var t = 0; t < 26; t++) {
+    var x = WLO + 30 + Math.random() * (WHI - WLO - 60);
+    var z = WLO + 30 + Math.random() * (WHI - WLO - 60);
+    if (spotClear(x, z)) return [x, z];
+  }
+  return null;
+}
 var WALK = WC_REMAP ? { x0: -240, x1: 120, z0: -180, z1: 170 }   // recentred on the true venue span
                     : { x0: -270, x1: 150, z0: -160, z1: 150 };
 function randTarget() { return [WALK.x0 + Math.random() * (WALK.x1 - WALK.x0), WALK.z0 + Math.random() * (WALK.z1 - WALK.z0)]; }
@@ -8218,6 +8249,13 @@ function expSegsNear(list, x, z, R) {
 // a collider-clear spawn spot + local roaming turf. Used at spawn AND on
 // respawn, so the population keeps the same distribution over time.
 function assignNpcHome(n) {
+  // map-wide roamer: home anywhere on the whole map (spreads the crowd off the
+  // Publix intersection). Wanders locally around that home (npcTargetFor).
+  if (Math.random() < NPC_W_MAP) {
+    var ms = mapRoamSpot();
+    if (ms) { n.roamer = true; n.zone = 9; n.turf = null; n.homeX = ms[0]; n.homeZ = ms[1]; n.x = ms[0]; n.z = ms[1]; return; }
+  }
+  n.roamer = false;
   var r = Math.random();
   var zone = r < NPC_W_CORE ? 0 : (r < NPC_W_CORE + NPC_W_RES ? 1 : 2);
   var list = zone === 1 ? expWalkRes : expWalkCol;
@@ -8255,6 +8293,15 @@ function rehomeNpc(n) {
 // neighborhood NPCs roam their local streets (jaywalking — no crosswalks out
 // there), keeping them within ~100u of their home street
 function npcTargetFor(n) {
+  if (n && n.roamer) {   // map roamer: amble within ~70u of its scattered home
+    for (var mr = 0; mr < 10; mr++) {
+      var ma = Math.random() * 6.283, mrr = 8 + Math.random() * 68;
+      var mx = Math.max(WLO + 6, Math.min(WHI - 6, n.homeX + Math.cos(ma) * mrr));
+      var mz = Math.max(WLO + 6, Math.min(WHI - 6, n.homeZ + Math.sin(ma) * mrr));
+      if (spotClear(mx, mz)) return [mx, mz];
+    }
+    return [n.homeX, n.homeZ];
+  }
   if (!n || !n.turf) return npcTarget();
   for (var tr = 0; tr < 8; tr++) {
     var c = expWalkSpot(n.turf);
@@ -10514,6 +10561,7 @@ function finishArrest() {
 }
 function enterJailCell() {
   inside = true; curInterior = JAIL;
+  if (typeof clearPolice === 'function') clearPolice();   // the arresting units clear out once you're booked
   if (!JAIL.built) { JAIL.build(JAIL); JAIL.built = true; }
   setZoom(false);
   player.x = JAIL.doorIn.x; player.z = JAIL.doorIn.z; player.y = JAIL.box.y + EYE;
@@ -15827,7 +15875,7 @@ function updateHeliCam(dt) {
 function updatePlayerHeli(dt) {
   if (!heliVeh) return;
   var h = heliVeh, g = h.group;
-  if (!h.piloting) { h.mainRotor.rotation.y += 2.5 * dt; return; }   // parked: idle rotor drift
+  if (!h.piloting) return;   // parked: rotors still, no sound (updateHeliSound skips a non-piloted heli)
   var yawIn = (keys['KeyA'] ? 1 : 0) - (keys['KeyD'] ? 1 : 0);       // A left, D right
   h.yaw += yawIn * 1.7 * dt;
   // cyclic HOLDS its tilt (set by the mouse) — no self-centering. You stay tilted
@@ -16967,6 +17015,57 @@ function parkAndDisgorge(cc) {
 function removeCopCar(cc) { if (cc.car && cc.car.group) scene.remove(cc.car.group); }
 function explodeCopCar(cc) { if (typeof boomAt === 'function') boomAt(cc.x, cc.z); removeCopCar(cc); }
 function damageCopCar(cc, dmg, pt) { cc.hp -= dmg; if (pt && typeof puff === 'function') puff(pt, 0xffe08a); }
+// wipe every pursuit unit off the map at once — the street cops, cop cars and
+// helicopters spawned by the wanted level. Called on death-respawn and on arrest
+// (user: they shouldn't be standing around once you've respawned / been jailed).
+// Interior cops (gas-station robbery) are left alone. Base patrol re-spawns later.
+function clearPolice() {
+  for (var i = cops.length - 1; i >= 0; i--) { if (cops[i].interior) continue; if (cops[i].mesh) scene.remove(cops[i].mesh); cops.splice(i, 1); }
+  for (i = copCars.length - 1; i >= 0; i--) { removeCopCar(copCars[i]); copCars.splice(i, 1); }
+  if (typeof helis !== 'undefined') for (i = helis.length - 1; i >= 0; i--) { if (helis[i].group) scene.remove(helis[i].group); if (helis[i].light) scene.remove(helis[i].light.grp); helis.splice(i, 1); }
+  copSpawnT = 4; copCarSpawnT = 4; if (typeof heliSpawnT !== 'undefined') heliSpawnT = 6;   // brief grace before base patrol re-forms
+}
+// snap a patrolling cruiser onto the nearest lane of the road graph, keeping its
+// current heading so it doesn't pivot 180. Sets the rEdge/rDir/rOff/rS lane state
+// the traffic follower (remapDriveCar) drives from.
+function copCarJoinLane(cc) {
+  if (typeof RM === 'undefined' || !RM.edges || !RM.edges.length) return false;
+  var bestD = 1e9, be = -1, bs = 0;
+  for (var ei = 0; ei < RM.edges.length; ei++) {
+    var e = RM.edges[ei]; if (e.stub) continue;
+    var pr = rmProject(e.pts, e.cum, cc.x, cc.z);
+    if (pr.d < bestD) { bestD = pr.d; be = ei; bs = pr.s; }
+  }
+  if (be < 0) return false;
+  var ed = RM.edges[be];
+  cc.rEdge = be;
+  cc.rS = Math.max(ed.m0, Math.min(ed.len - ed.m1, bs));
+  var at = rmAt(ed.pts, ed.cum, cc.rS);
+  var hx = Math.cos(cc.car.group.rotation.y), hz = -Math.sin(cc.car.group.rotation.y);
+  cc.rDir = (at.ux * hx + at.uz * hz) >= 0 ? 1 : -1;   // keep going roughly the way it faces
+  cc.rLane = 0; cc.rOff = ed.lanes[0];
+  cc.cruise = ed.spdA + Math.random() * ed.spdB;
+  return true;
+}
+// PATROL movement: drive the lanes exactly like civilian traffic (on-road, correct
+// side of the road, turning at junctions) via remapDriveCar. Off-road / wrong-lane
+// beelining only happens in the pursuit branch of driveCopCar.
+function copCarPatrol(cc, dt, pd) {
+  if (typeof RM === 'undefined' || !RM.edges || !RM.edges.length || typeof WC_REMAP === 'undefined' || !WC_REMAP) {
+    cc.speed += (0 - cc.speed) * Math.min(1, dt * 3); updateCarFeel(cc, dt, cc.speed, 0, 0); return;   // no lane graph: idle
+  }
+  if (cc.rEdge === undefined || cc.rEdge === null) { if (!copCarJoinLane(cc)) { updateCarFeel(cc, dt, 0, 0, 0); return; } }
+  cc.cruise = cc.cruise || 8;
+  cc.speed += (cc.cruise - cc.speed) * Math.min(1, dt * 1.4);
+  cc._near = pd < 130;   // only run the (pricey) avoid + swerve when near the player
+  var preH = cc.car.group.rotation.y;
+  remapDriveCar(cc, dt);
+  cc.x = cc.car.group.position.x; cc.z = cc.car.group.position.z;
+  var spin = (cc.speed * dt) / 0.34;
+  for (var wi = 0; wi < 4; wi++) { var ww = cc.car.wheels[wi]; ww.rotation.y -= spin * (ww.userData.sd || 1); }
+  var dyaw = cc.car.group.rotation.y - preH; while (dyaw > Math.PI) dyaw -= 6.283; while (dyaw < -Math.PI) dyaw += 6.283;
+  updateCarFeel(cc, dt, cc.speed, 0, Math.max(-1, Math.min(1, dyaw * 6)));
+}
 function driveCopCar(cc, dt, pd) {
   var car = cc.car, g = car.group, h = g.rotation.y;
   updateCopLights(cc, cc.state !== 'parked' && cc.state !== 'patrol');   // bar dark while patrolling, flashing in pursuit
@@ -16985,16 +17084,15 @@ function driveCopCar(cc, dt, pd) {
   var known = wantedNow && heat.known;   // a unit currently sees you (or you got close)
   var isDrv = (typeof driving !== 'undefined' && driving);
   var tx, tz, maxCruise = 18;
-  // ---- PATROL: cruise the streets with the bar dark until there's a reason to roll ----
+  // ---- PATROL: cruise the streets ON-ROAD (lane follower, correct side) with the
+  // bar dark until there's a reason to roll. Off-road/wrong-lane driving is ONLY
+  // for the pursuit branch below. ----
   if (cc.state === 'patrol') {
     if (wantedNow && (known || posSeesPlayer(cc.x, cc.z, COP_CAR_VISION2) || Math.hypot(cc.x - heat.crimeX, cc.z - heat.crimeZ) < 65)) {
-      cc.state = 'seek';   // a crime near this cruiser (or eyes on you) flips it into pursuit
+      cc.state = 'seek'; cc.rEdge = null;   // going hot -> drop the lane lock, chase free-form
     } else {
-      if (cc.patX === undefined || Math.hypot(cc.patX - cc.x, cc.patZ - cc.z) < 9 || (cc.patT = (cc.patT || 0) - dt) <= 0) {
-        var pa = Math.random() * 6.283, pr = 55 + Math.random() * 130, ppx = player.x + Math.cos(pa) * pr, ppz = player.z + Math.sin(pa) * pr;
-        var rp = copRoadPoint(ppx, ppz); cc.patX = rp ? rp.x : ppx; cc.patZ = rp ? rp.z : ppz; cc.patT = 8 + Math.random() * 8;
-      }
-      tx = cc.patX; tz = cc.patZ; maxCruise = 13;
+      copCarPatrol(cc, dt, pd);
+      return;
     }
   }
   // ---- PURSUIT / SEARCH ----
@@ -17500,32 +17598,26 @@ function startHeliSound() {
   for (var i = 0; i < len; i++) { var w = Math.random() * 2 - 1; last = (last + 0.02 * w) / 1.02; d[i] = last * 3.4; }
   var noise = ac.createBufferSource(); noise.buffer = buf; noise.loop = true;
   var bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 320; bp.Q.value = 0.7;
-  var chop = ac.createGain(); chop.gain.value = 0.55;
+  var chop = ac.createGain(); chop.gain.value = 0.7;   // JUST the chopped rotor wash — no tonal oscillators (user: the constant buzz was the turbine/engine tones)
   var lfo = ac.createOscillator(); lfo.type = 'sawtooth'; lfo.frequency.value = 13;   // ~13 Hz blade-pass thump
   var lfoG = ac.createGain(); lfoG.gain.value = 0.62;
   lfo.connect(lfoG); lfoG.connect(chop.gain);
   noise.connect(bp); bp.connect(chop);
-  var rum = ac.createOscillator(); rum.type = 'sine'; rum.frequency.value = 46;       // engine body rumble
-  var rumG = ac.createGain(); rumG.gain.value = 0.5; rum.connect(rumG);
-  var whine = ac.createOscillator(); whine.type = 'sawtooth'; whine.frequency.value = 560;  // turbine whine
-  var whHp = ac.createBiquadFilter(); whHp.type = 'highpass'; whHp.frequency.value = 420;
-  var whG = ac.createGain(); whG.gain.value = 0.05; whine.connect(whHp); whHp.connect(whG);
   var master = ac.createGain(); master.gain.value = 0;
-  chop.connect(master); rumG.connect(master); whG.connect(master);
+  chop.connect(master);
   var pan = ac.createStereoPanner ? ac.createStereoPanner() : null;
   if (pan) { master.connect(pan); pan.connect(ac.destination); } else master.connect(ac.destination);
-  noise.start(); lfo.start(); rum.start(); whine.start();
-  heliSnd = { master: master, pan: pan, nodes: [noise, lfo, rum, whine] };
+  noise.start(); lfo.start();
+  heliSnd = { master: master, pan: pan, nodes: [noise, lfo] };
 }
 var _heliSndDir = null;
 function updateHeliSound(dt) {
   if (!ac) return;
   var best = 1e9, bx = 0, bz = 0, mine = false;
   for (var i = 0; i < helis.length; i++) { var h = helis[i]; if (h.state !== 'fly' && h.state !== 'falling') continue; var d = Math.hypot(player.x - h.x, player.z - h.z); if (d < best) { best = d; bx = h.x; bz = h.z; } }
-  if (typeof heliVeh !== 'undefined' && heliVeh) {
-    if (heliVeh.piloting) { best = 0; mine = true; bx = heliVeh.group.position.x; bz = heliVeh.group.position.z; }
-    else { var dh = Math.hypot(player.x - heliVeh.group.position.x, player.z - heliVeh.group.position.z); if (dh < best) { best = dh; bx = heliVeh.group.position.x; bz = heliVeh.group.position.z; } }
-  }
+  // the player's own chopper only makes rotor noise while it's being FLOWN — a
+  // parked heli sitting at the airport is silent (user: no sound unless piloted).
+  if (typeof heliVeh !== 'undefined' && heliVeh && heliVeh.piloting) { best = 0; mine = true; bx = heliVeh.group.position.x; bz = heliVeh.group.position.z; }
   if (best > 240) { if (heliSnd) heliSnd.master.gain.value = Math.max(0, heliSnd.master.gain.value - dt * 0.8); return; }
   if (!heliSnd) startHeliSound();
   if (!heliSnd) return;
@@ -19342,6 +19434,7 @@ function updateNPCs(dt) {
   // (mrg4vcjd/mrg53rgl hands-free stroller — the owner always plays as a
   // pure client of the world bot).
   if (isClient()) { updateNPCExtras(); return; }
+  refreshCullCam();   // camera forward for the offscreen/far cull below
   // sample car velocities (player/remote-driven cars have no analytic speed —
   // approximate from last frame's position delta, same idea as _bx/_bz in
   // updateWorldFx but sampled here so the delta isn't already consumed)
@@ -19430,6 +19523,14 @@ function updateNPCs(dt) {
   npcAnimF++;   // LOD frame counter: distant NPCs repose every 3rd frame
   for (var i = 0; i < npcs.length; i++) {
     var n = npcs[i], m = n.mesh;
+    // hard perf cull: pedestrians you can't see (behind the camera, or deep in the
+    // fog) freeze + hide. Ambient states only — a ragdoll/down/hidden NPC keeps
+    // resolving so corpses + respawns aren't stuck. Un-hide the instant it's back
+    // in view. This is what keeps a map-wide crowd cheap.
+    if (n.state !== 'ragdoll' && n.state !== 'down' && n.state !== 'hidden') {
+      if (cullFar(n.x, n.z)) { if (m.visible) m.visible = false; continue; }
+      if (!m.visible) m.visible = true;
+    }
     // anim LOD: skinned repose is the NPC sim's hot path — NPCs >120u from
     // the player hold their last pose 2 of every 3 frames (phase/animT keep
     // accumulating, so the pose stays correct when it does update)
@@ -20273,6 +20374,8 @@ function updateKids(dt) {
   for (var i = 0; i < kids.length; i++) {
     var k = kids[i], m = k.mesh, p = k.parent;
     if (k.state === 'game') continue;   // driven by updateKidGames
+    if (k.state !== 'down' && k.state !== 'ragdoll' && cullFar(k.x, k.z)) { if (m.visible) m.visible = false; continue; }   // perf cull like the NPCs
+    if (!m.visible) m.visible = true;
     if (!p || p.state === 'down' || p.state === 'ragdoll' || (p.hp !== undefined && p.hp <= 0)) { repairKid(k); p = k.parent; }
     // kids have no whisker steering: one stuck on a prop collider while the
     // parent walks off would chase a point it can never reach — a parent far
@@ -22380,6 +22483,7 @@ function doRespawn() {
   endDeathCam();
   player.x = spawnX; player.z = spawnZ; player.y = EYE; yaw = 0; pitch = 0; recoilPitch = 0;
   state.hp = 100; state.dead = false;
+  clearPolice();   // the wanted forces that killed you don't linger at the respawn point
   document.getElementById('deadScreen').classList.add('hidden');
   document.getElementById('crosshair').style.display = '';   // always back on foot after respawn
   if (state.running) lockPointer();

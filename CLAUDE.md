@@ -131,6 +131,16 @@ forest walls + "ROAD CLOSED" barriers at the four road exits.
 - **Sidewalk layering gotcha**: sidewalks are 4 flanking strips (y 0.12 /
   0.125 for cross to avoid corner z-fights) laid AFTER roadStrip (y 0.05).
   A full-width sidewalk slab under the road once hid the asphalt entirely.
+- **NPC scatter + perf cull (v1.111.0):** `NPC_W_MAP=0.40` of pedestrians are
+  "map roamers" — `assignNpcHome` homes them to a random collider-free point
+  anywhere on the whole WLO..WHI map (`mapRoamSpot`) with `n.roamer=true`, and
+  `npcTargetFor` ambles them within ~70u of that home, so the crowd spreads over
+  the map instead of clustering at the Publix intersection. **Cull**: `updateNPCs`
+  (and `updateKids`) call `refreshCullCam` then `cullFar(x,z)` — a pedestrian
+  BEHIND the camera (`dot(rel, camFwd)<0` & `>55u`) or deep in the fog
+  (`>560u`) freezes + hides (`mesh.visible=false`, `continue`); ambient states
+  only (ragdoll/down/hidden still resolve), un-hidden the instant it's back in
+  view. Cuts the skinned-anim sim to just the on-screen crowd.
 - NPCs wander with an 85% sidewalk bias (`npcTarget`). Buildings register
   entrances in `npcDoors` (venues via the REMAP_VENUES front-face formula,
   houses via `feat.door`); NPCs run errands into them (`doorSeek` →
