@@ -333,7 +333,14 @@ game.js under `WC_REMAP`. Frame: junction `(0,0)`, **+x east / +z south**.
   `damageNPC`/`damageCop`), Grand theft auto (`enterCar`/`boardPlane`/`boardHeli`),
   Robbery (gas rob/bank teller/vault/ATM), Terrorism (`fireRocket`/`igniteTower`),
   Vandalism (spray on static surface / car wreck). `__wc`: `rapInfo`,
-  `arrestState`, `testCharge`. Release restores the
+  `arrestState`, `testCharge`. **v1.110.2 fixes**: (1) the arrest's
+  `exitPointerLock` no longer pops the PAUSED overlay — the `pointerlockchange`
+  handler + the Esc handler both gate on `!arrested`; (2) `finishArrest` restores
+  the FP fists viewmodel (`vm.visible=true; setEquipped('fists')`) since
+  `startArrestCam` hid it, so the cell isn't handless; (3) new `inVehicleOrAir()`
+  (driving/`para`/`arrested`/plane-or-heli piloting) gates `cycleEquip`/
+  `selectWeaponSlot` AND `setEquipped`'s `vm.visible`, so you can't switch weapons
+  or see the viewmodel in third-person (parachute, piloting). Release restores the
   snapshot for ≤2★, forfeits it for 3–5★, then teleports to the town spawn
   (`JAIL.doorOut` = Publix lot). The cell is a Blender GLB (`jail.js` =
   `JAIL_DATA`, single double-sided UV atlas, full-res JPEG — user said don't

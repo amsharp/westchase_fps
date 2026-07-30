@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.110.1';
+var GAME_VERSION = 'v1.110.2';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -10506,6 +10506,7 @@ function finishArrest() {
   if (arrestBody) { scene.remove(arrestBody); arrestBody = null; }
   enterJailCell();                 // book into the cell (teleport + start the sentence)
   arrested = false; arrestCam = null;
+  vm.visible = true; setEquipped('fists');   // restore the FP fists viewmodel (startArrestCam hid it)
   var af = document.getElementById('arrestFade');
   if (af) { af.style.transition = 'opacity .8s'; af.style.opacity = '0'; }   // black fades to reveal the cell
   var ch = document.getElementById('crosshair'); if (ch) ch.style.display = '';
@@ -21552,6 +21553,14 @@ function setZoom(on) {
   document.getElementById('scope').classList.toggle('hidden', !on);
   document.getElementById('crosshair').style.display = on ? 'none' : '';
 }
+// true when the player is in a state with NO first-person weapon in hand — driving,
+// parachuting, piloting the plane/heli, or mid-arrest. Weapon switching is blocked
+// and the viewmodel stays hidden in all of these.
+function inVehicleOrAir() {
+  return driving || (typeof para !== 'undefined' && para) || (typeof arrested !== 'undefined' && arrested) ||
+    (typeof plane !== 'undefined' && plane && plane.piloting) ||
+    (typeof heliVeh !== 'undefined' && heliVeh && heliVeh.piloting);
+}
 function setEquipped(w) {
   if (kameActive) return;   // weapon switching is locked mid-Kamehameha (endKamehameha clears the flag first, then calls this)
   if (w !== 'axe') axeAiming = false;   // leaving the axe drops throw-aim
@@ -21568,7 +21577,7 @@ function setEquipped(w) {
     // to the hidden vmFists group, so it's invisible while the axe is out)
     else if (GUNHOLD_GROUPS[w]) { vmMap[w].add(psxArms.root); armsPose(psxArms, gunHold.clip, gunHold.t, true); solveSupportIK(w); gripFingers(); }
   }
-  vm.visible = !zoomed && !driving && !state.dead;   // stay hidden during the death cinematic
+  vm.visible = !zoomed && !state.dead && !inVehicleOrAir();   // hidden during death/arrest/driving/parachuting/piloting
   Object.keys(vmMap).forEach(function (k) { vmMap[k].visible = (k === w); });
   var sub = w === 'fists' ? 'punch for cash' : (w === 'rifle' ? 'right-click: scope · R: reload' : (w === 'axe' ? 'hold right-click: aim &amp; throw' : (w === 'spray' ? 'hold left-click: spray · right-click: color' : (w === 'snack' ? 'left-click: eat (+50 hp) — x' + state.snacks : (w === 'soda' ? 'left-click: drink (+25 hp) — x' + state.sodas : (WEAPONS[w].ammo ? 'R: reload' : 'ammo: &#8734;'))))));
   document.getElementById('weaponBox').innerHTML = WEAPONS[w].name + '<br><small>' + sub + '</small>';
@@ -25355,7 +25364,7 @@ if (location.hash.indexOf('#join=') === 0) {
 // dead state (no menu, free mouse) when the browser refused the re-lock
 // inside its post-Esc cooldown (mrg4egvx)
 pauseScreen.addEventListener('click', function () { lockPointer(); });
-document.addEventListener('pointerlockchange', function () { var locked = document.pointerLockElement === canvas; if (!locked && photoMode) exitPhotoMode(); if (!locked && state.running && !state.menu && !chatOpen && !bugOpen && !state.dead) pauseScreen.classList.remove('hidden'); else if (locked) pauseScreen.classList.add('hidden'); });
+document.addEventListener('pointerlockchange', function () { var locked = document.pointerLockElement === canvas; if (!locked && photoMode) exitPhotoMode(); if (!locked && state.running && !state.menu && !chatOpen && !bugOpen && !state.dead && !arrested) pauseScreen.classList.remove('hidden'); else if (locked) pauseScreen.classList.add('hidden'); });
 document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 document.addEventListener('mousemove', function (e) {
   if (document.pointerLockElement !== canvas || state.menu) return;
@@ -25450,14 +25459,14 @@ function refreshHotbarHud() {
   }
 }
 function cycleEquip(dir) {   // scroll wheel: cycle non-empty hotbar slots
-  if (!state.running || state.menu || state.dead || driving) return;
+  if (!state.running || state.menu || state.dead || inVehicleOrAir()) return;
   var filled = hotbarFilled();
   if (!filled.length) return;
   var idx = filled.indexOf(state.equipped); if (idx < 0) idx = 0;
   setEquipped(filled[(idx + dir + filled.length) % filled.length]);
 }
 function selectWeaponSlot(n) {   // number keys 1-7 select that hotbar slot directly
-  if (!state.running || state.menu || state.dead || driving) return;
+  if (!state.running || state.menu || state.dead || inVehicleOrAir()) return;
   if (n < 1 || n > HOTBAR_SLOTS) return;
   var id = state.hotbar[n - 1];
   if (id && id !== state.equipped) setEquipped(id);
@@ -25940,7 +25949,7 @@ document.addEventListener('keydown', function (e) {
   // handler above raises the PAUSED overlay. This handles every Esc AFTER
   // that: overlay up -> resume (re-lock; the pointerlockchange handler hides
   // the overlay once the lock lands), overlay down + mouse free -> pause.
-  if (e.code === 'Escape' && state.running && !state.menu && !state.dead && !chatOpen && !bugOpen && !photoMode) {
+  if (e.code === 'Escape' && state.running && !state.menu && !state.dead && !chatOpen && !bugOpen && !photoMode && !arrested) {
     if (!pauseScreen.classList.contains('hidden')) { e.preventDefault(); lockPointer(); }
     else if (document.pointerLockElement !== canvas) { e.preventDefault(); pauseScreen.classList.remove('hidden'); }
   }
