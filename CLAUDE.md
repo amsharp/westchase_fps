@@ -170,6 +170,16 @@ game.js under `WC_REMAP`. Frame: junction `(0,0)`, **+x east / +z south**.
   the town's E/S road exits now open into the empty new land instead of hitting a
   ROAD CLOSED barrier. The new land is bare grass — the canvas for the editor
   expansion (nothing generated there yet).
+- **NPC/cop world clamps use `WLO/WHI`, not `HALF` (v1.110.3):** every per-frame
+  movement clamp AND spawn clamp for cops (`spawnCop`, cop-move in `updateCops`),
+  cop cars (`spawnCopCar`), NPCs (walk + ragdoll paths), and kids now clamps to
+  `[WLO+m, WHI-m]` instead of the original `±HALF`. Previously they were pinned to
+  the OLD centered-map border, so a crime committed out in the E/S expansion drew
+  cops that got shoved back to the ±HALF edge. The player clamp already used
+  `WLO/WHI`. (Ambient NPC WANDER targets — `WALK`/`sidewalkSpot`/`npcTarget` — are
+  still town-centered since the expansion has no roads/sidewalks yet; this change is
+  about the *capability* to traverse the whole map, which pursuit/flee/knockback now
+  can. Money-UFO crash + player waypoint clamps intentionally stay `HALF`.)
 - Editor authors: roads (polyline, `cls` 0–3 ground) + **new**: `kind:'highway'`
   (elevated, `elev`), `kind:'ramp'` (ground↔highway), `kind:'water'` (river);
   **areas** (`REMAP_AREAS` rects: `kind` forest/water/ocean); surfaces, buildings,

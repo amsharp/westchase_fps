@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.110.2';
+var GAME_VERSION = 'v1.110.3';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -13843,8 +13843,8 @@ function spawnCop(nearPlayer) {
     // spawn WELL away (90-150u) and let them travel in to the crime scene — no
     // more materializing on top of you the instant the heat goes up
     var a = Math.random() * Math.PI * 2, r = 90 + Math.random() * 60;
-    x = Math.max(-HALF + 6, Math.min(HALF - 6, hp0.x + Math.cos(a) * r));
-    z = Math.max(-HALF + 6, Math.min(HALF - 6, hp0.z + Math.sin(a) * r));
+    x = Math.max(WLO + 6, Math.min(WHI - 6, hp0.x + Math.cos(a) * r));
+    z = Math.max(WLO + 6, Math.min(WHI - 6, hp0.z + Math.sin(a) * r));
   } else { var t = randTarget(); x = t[0]; z = t[1]; }
   // officers step OUT of a nearby building entrance instead of materializing
   // in the open — snap the picked point to the nearest registered door (but
@@ -14251,8 +14251,8 @@ function updateCops(dt) {
         }
       }
       c.x += vx * spd * dt; c.z += vz * spd * dt;
-      c.x = Math.max(-HALF + 3, Math.min(HALF - 3, c.x));
-      c.z = Math.max(-HALF + 3, Math.min(HALF - 3, c.z));
+      c.x = Math.max(WLO + 3, Math.min(WHI - 3, c.x));
+      c.z = Math.max(WLO + 3, Math.min(WHI - 3, c.z));
       var pos = pushOut(c.x, c.z, 0.45, c.interior ? intColliders : colliders); c.x = pos.x; c.z = pos.z;
       c.phase += spd * dt * 3.4;
     }
@@ -16870,7 +16870,7 @@ function spawnCopCar() {
     }
     if (bx !== null) { sx = bx; sz = bz; }
   }
-  if (typeof HALF !== 'undefined') { sx = Math.max(-HALF + 12, Math.min(HALF - 12, sx)); sz = Math.max(-HALF + 12, Math.min(HALF - 12, sz)); }
+  if (typeof WLO !== 'undefined') { sx = Math.max(WLO + 12, Math.min(WHI - 12, sx)); sz = Math.max(WLO + 12, Math.min(WHI - 12, sz)); }
   var dirx = player.x - sx, dirz = player.z - sz, dl = Math.hypot(dirx, dirz) || 1;
   return makeCopCarAt(sx, sz, Math.atan2(-dirz / dl, dirx / dl), 'patrol');
 }
@@ -19450,8 +19450,8 @@ function updateNPCs(dt) {
       n.vy -= 24 * dt;
       n.airY += n.vy * dt;
       n.x += n.vx * dt; n.z += n.vz * dt;
-      n.x = Math.max(-HALF + 3, Math.min(HALF - 3, n.x));
-      n.z = Math.max(-HALF + 3, Math.min(HALF - 3, n.z));
+      n.x = Math.max(WLO + 3, Math.min(WHI - 3, n.x));
+      n.z = Math.max(WLO + 3, Math.min(WHI - 3, n.z));
       m.rotation.x += n.spinX * dt;
       m.rotation.z += n.spinZ * dt;
       if (n.airY <= 0) {
@@ -19653,7 +19653,7 @@ function updateNPCs(dt) {
     }
     var preX = n.x, preZ = n.z;
     n.x += vx * spd * dt; n.z += vz * spd * dt;
-    n.x = Math.max(-HALF + 3, Math.min(HALF - 3, n.x)); n.z = Math.max(-HALF + 3, Math.min(HALF - 3, n.z));
+    n.x = Math.max(WLO + 3, Math.min(WHI - 3, n.x)); n.z = Math.max(WLO + 3, Math.min(WHI - 3, n.z));
     var pos = pushOut(n.x, n.z, 0.45); n.x = pos.x; n.z = pos.z;
     // face-planting into a wall: if pushOut ate the whole step for ~1s,
     // give up on that target, turn around, go somewhere reachable
@@ -20346,7 +20346,7 @@ function updateKids(dt) {
     }
     if (spd > 0.05) {
       k.x += vx * spd * dt; k.z += vz * spd * dt;
-      k.x = Math.max(-HALF + 3, Math.min(HALF - 3, k.x)); k.z = Math.max(-HALF + 3, Math.min(HALF - 3, k.z));
+      k.x = Math.max(WLO + 3, Math.min(WHI - 3, k.x)); k.z = Math.max(WLO + 3, Math.min(WHI - 3, k.z));
       var pos = pushOut(k.x, k.z, 0.32); k.x = pos.x; k.z = pos.z;
       m.rotation.y = Math.atan2(vx, vz); k.phase += spd * dt * 3.4;
     }
