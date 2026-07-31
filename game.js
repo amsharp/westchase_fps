@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.114.0';
+var GAME_VERSION = 'v1.115.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -13959,6 +13959,87 @@ function copSearchPoint(c, dt) {
   }
   return { x: c.srchX, z: c.srchZ };
 }
+// ---- pursuit repositioning (v1.115) ----
+// Once the police actually SEE you (heat.known) and the chase has run ~20s, any
+// unit that's fallen way behind (foot cop or cruiser > PURSUIT_TP_FAR away) warps
+// in close but OFF the player's screen, so a foot chase across the whole map stays
+// a real chase instead of the far half of the force jogging uselessly. Re-arms
+// every 20s while you're seen; the timer resets whenever you break line of sight
+// (so it's the "you got away, then got spotted again" beat the player feels).
+var PURSUIT_TP_INTERVAL = 20;   // seconds of active pursuit before a catch-up warp
+var PURSUIT_TP_FAR = 165;       // only units at least this far away get pulled in
+var PURSUIT_TP_FAR2 = PURSUIT_TP_FAR * PURSUIT_TP_FAR;
+var _tpDir = new THREE.Vector3();
+// is world point (x,z) on the player's screen right now? behind the camera or
+// outside the horizontal FOV or occluded by geometry => not visible.
+function playerSeesPoint(x, z) {
+  if (typeof camera === 'undefined') return false;
+  camera.getWorldDirection(_tpDir);
+  var dx = x - camera.position.x, dz = z - camera.position.z;
+  var fwd = dx * _tpDir.x + dz * _tpDir.z;
+  if (fwd <= 1) return false;                              // at/behind the camera plane
+  var dh = Math.sqrt(dx * dx + dz * dz) || 1;
+  if (fwd / dh < 0.5) return false;                        // outside ~60° of the look axis
+  return !coverBlocked(camera.position.x, camera.position.z, x, z);   // a building between us hides it
+}
+// a walkable point ~dist away that the player can't see (rear hemisphere of the
+// camera, jittered, retried until one lands off-screen and out of a wall).
+function offscreenSpot(dist, forCar) {
+  camera.getWorldDirection(_tpDir);
+  var fa = Math.atan2(_tpDir.x, _tpDir.z);                 // camera yaw
+  for (var t = 0; t < 6; t++) {
+    var a = fa + Math.PI + (Math.random() * 2 - 1) * 1.15; // somewhere behind the view
+    var d = dist + Math.random() * 22;
+    var po = pushOut(player.x + Math.sin(a) * d, player.z + Math.cos(a) * d, forCar ? 1.2 : 0.6);
+    if (!playerSeesPoint(po.x, po.z)) return { x: po.x, z: po.z };
+  }
+  return { x: player.x - Math.sin(fa) * dist, z: player.z - Math.cos(fa) * dist };   // fallback: straight behind
+}
+var PURSUIT_GRACE = 6;   // a car/prop/corner briefly breaking LOS shouldn't reset the chase clock; only a real ~6s evasion does
+var pursuitTpT = PURSUIT_TP_INTERVAL;
+// drive the catch-up warp timer off the current heat state (called each frame from
+// updateCops, host/local only). Warps far units in when the interval elapses.
+function updatePursuitWarp(dt) {
+  if (isClient() || WC_BOT || state.dead || inside || (state.wanted || 0) <= 0) {
+    pursuitTpT = PURSUIT_TP_INTERVAL; heat.lastSeenT = -999; return;
+  }
+  if (heat.known) heat.lastSeenT = T;
+  // the chase is "active" while you were seen within the last few seconds — that
+  // rides through a car/pillar flickering the line of sight. Genuinely lose them
+  // for PURSUIT_GRACE seconds and the clock re-arms (so the next spot starts 20s).
+  if (heat.lastSeenT === undefined || (T - heat.lastSeenT) > PURSUIT_GRACE) { pursuitTpT = PURSUIT_TP_INTERVAL; return; }
+  pursuitTpT -= dt;
+  if (pursuitTpT > 0) return;
+  pursuitTpT = PURSUIT_TP_INTERVAL;
+  pursuitReposition();
+}
+function pursuitReposition() {
+  var i;
+  for (i = 0; i < cops.length; i++) {
+    var c = cops[i];
+    if (c.interior || c.state === 'down') continue;
+    var cdx = c.x - player.x, cdz = c.z - player.z;
+    if (cdx * cdx + cdz * cdz < PURSUIT_TP_FAR2) continue;
+    var s = offscreenSpot(42, false);
+    c.x = s.x; c.z = s.z; c.srchX = undefined; c.state = 'engage';
+    if (c.mesh) { c.mesh.position.set(c.x, c.baseY || 0, c.z); }
+  }
+  for (i = 0; i < copCars.length; i++) {
+    var cc = copCars[i];
+    if (cc.state === 'roadblock' || cc.state === 'parked') continue;
+    var ddx = cc.x - player.x, ddz = cc.z - player.z;
+    if (ddx * ddx + ddz * ddz < PURSUIT_TP_FAR2) continue;
+    var cs = offscreenSpot(70, true);
+    cc.x = cs.x; cc.z = cs.z; cc.life = Math.min(cc.life, 60);
+    // drop it onto the nearest lane so it can actually drive at you
+    if (typeof copCarJoinLane === 'function' && copCarJoinLane(cc) && typeof rmAt === 'function' && typeof RM !== 'undefined') {
+      var ed = RM.edges[cc.rEdge]; var at = rmAt(ed.pts, ed.cum, cc.rS);
+      if (at) { cc.x = at.x; cc.z = at.z; }
+    }
+    if (cc.car && cc.car.group) cc.car.group.position.set(cc.x, 0, cc.z);
+    cc.state = 'chase';
+  }
+}
 
 function buildCop() {
   if (MESHY_COPS.length) {
@@ -14298,6 +14379,7 @@ function updateCops(dt) {
   _copPpx = player.x; _copPpz = player.z;
   var pspd = Math.sqrt(_copPvx * _copPvx + _copPvz * _copPvz);
   recomputeHeat(dt);   // does dispatch currently KNOW where you are? run the escape timer.
+  updatePursuitWarp(dt);   // far-behind units warp in (off-screen) after ~20s of active pursuit
   var suppressed = (armLevel === 2) && (T - lastShot < 1.6) && (state.wanted || 0) > 0;
   if (armLevel === 1 && (state.wanted || 0) > 0 && !state.dead && !inside) {
     if (!copMeleeSince) copMeleeSince = T;
@@ -27165,6 +27247,8 @@ window.__wc = {
   testCharge: function (k, v) { if (k in rap) rap[k] = (v === undefined ? true : v); },
   posSeesPlayer: function (x, z, v) { return posSeesPlayer(x, z, v); },
   setHideTimer: function (v) { heat.loseT = v; },
+  pursuitReposition: function () { return pursuitReposition(); },
+  pursuitInfo: function () { return { tpT: pursuitTpT, lastSeenT: heat.lastSeenT, far: PURSUIT_TP_FAR }; },
   start: function () { startScreen.classList.add('hidden'); state.running = true; },
   setYaw: function (y) { yaw = y; camera.position.set(player.x, player.y, player.z); camera.rotation.y = yaw; camera.rotation.x = pitch; },
   setPitch: function (p2) { pitch = p2; camera.rotation.x = pitch; },

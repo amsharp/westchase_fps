@@ -550,6 +550,13 @@ of the cops' sight long enough — **one minute per star** (so 5★ takes a full
 five minutes of not being found) — and **all your stars drop at once**. Let them
 lay eyes on you and that escape timer resets to full.
 
+**Dispatch coordinates now.** Slip a pursuit and get spotted again by a fresh
+unit, and the whole force knows where you are. After about **20 seconds** of an
+active chase, any cops or cruisers that have fallen too far behind will **come up
+behind you off-screen** and rejoin the hunt — so you can't just outrun the map and
+leave half the department jogging in the wrong direction. Break line of sight and
+actually stay hidden for a few seconds and the catch-up clock resets.
+
 More badges, too: more officers patrol and pile onto a chase per star, more
 cruisers roll, and (from 3★) the Sheriff's choppers join. **Every cop now carries
 a real gun** — the same models and sounds you use. At **1–3 stars** they bring

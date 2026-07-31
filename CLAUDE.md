@@ -326,6 +326,20 @@ game.js under `WC_REMAP`. Frame: junction `(0,0)`, **+x east / +z south**.
   camera zooms out. They're removed only at the ACTUAL respawn/jail-teleport moment
   by `clearPolice` (called from `doRespawn` after `endDeathCam`, and `enterJailCell`).
   Foot cops already lingered until `clearPolice`; this makes cars/helis match.
+- **Pursuit catch-up warp (v1.115, `updatePursuitWarp`/`pursuitReposition`):** once
+  the police actually SEE you (`heat.known` → stamps `heat.lastSeenT`) and the chase
+  has run **~20s** (`PURSUIT_TP_INTERVAL`), any foot cop or cruiser that's fallen
+  `> PURSUIT_TP_FAR` (165u) away **warps in off-screen** so a cross-map chase stays a
+  chase. `offscreenSpot(dist,forCar)` picks a jittered point in the REAR hemisphere of
+  the **camera** (`playerSeesPoint` rejects anything on-screen — in front + within
+  ~60° + unoccluded), `pushOut`-cleared; cruisers then `copCarJoinLane` + `rmAt`-snap
+  onto the nearest lane so they can drive at you. Fires every 20s while seen. Foot cops
+  land ~42-64u behind, cruisers ~70-92u. Host/local only (`isClient()`/`WC_BOT` bail —
+  it keys off the local camera; helis are NOT warped, they already track from the air).
+  A car/pillar briefly breaking LOS won't reset the clock — a `PURSUIT_GRACE` (6s)
+  window rides through flicker; only a genuine ~6s evasion re-arms it (so the next
+  spot restarts the 20s). `updatePursuitWarp` runs in `updateCops` right after
+  `recomputeHeat`. `__wc`: `pursuitReposition()`, `pursuitInfo()`.
 - **Heat ops** (v1.109, `updateHeatOps` in loop + `__wc.tick`, host-only —
   `isClient()` bails; local like cop cars/helis): while you're **driving at 3+★**
   the police escalate the chase. `roadAhead(dist)` snaps a point `dist` ahead of
