@@ -304,6 +304,28 @@ game.js under `WC_REMAP`. Frame: junction `(0,0)`, **+x east / +z south**.
   (`c.interior`,`c.baseY`) spawn on a failed unarmed robbery, always local. Heat
   logic is host/local; clients mirror stars via `w`. `__wc` test hooks: `heatInfo`,
   `creditKill`, `posSeesPlayer`, `setHideTimer`.
+- **Kill → respawn lull (v1.114):** killing any pursuit unit holds its category's
+  spawn timer off for a random **30–60s** (`copRespawnDelay()` = `30+rand*30`), so
+  gunning police down actually buys breathing room instead of an instant refill.
+  Set on: foot-cop lethal kill (`damageCop` down-branch → `copSpawnT`), destroyed
+  cruiser (`updateCopCars` `hp<=0` → `copCarSpawnT`), downed chopper (`crashHeli`
+  → `heliSpawnT`). The INITIAL response to a fresh crime still ramps up fast — the
+  timer is only pushed out on a kill, not during buildup (buildup resets to the
+  short 2.6/4.5/6s intervals). `clearPolice` (respawn/jail) overrides with its own
+  ~4s grace. **Unit HP (v1.114):** `COPCAR_HP=500` (was 130), `HELI_HP=1000` (was
+  220) — the chopper is the tankiest pursuit unit, well above a cruiser; `fireRocket`
+  splash bumped to 900 (cop car, still a one-shot) / 420 (heli, ~2-3 rockets).
+  **Shooting a cruiser = heat (v1.114):** `damageCopCar` now sets `lastCrimeT` and
+  floors wanted to **2★** (`setWanted(2)` if `<2` and `!state.dead`), so plinking a
+  calm patrol car actually draws a response instead of eating rounds for free. (One
+  choke point covers bullets from both shoot handlers AND the rocket splash.)
+- **Police stay for the death/arrest cinematic (v1.114):** `updateCopCars`/
+  `updateHelis` compute `cine = state.dead || arrested` and, while it's true, skip
+  the want-based spawn AND the want===0 / roadblock / peel-off despawns — so the
+  cruisers + choppers you drew stay on the map (and keep moving) as the death/arrest
+  camera zooms out. They're removed only at the ACTUAL respawn/jail-teleport moment
+  by `clearPolice` (called from `doRespawn` after `endDeathCam`, and `enterJailCell`).
+  Foot cops already lingered until `clearPolice`; this makes cars/helis match.
 - **Heat ops** (v1.109, `updateHeatOps` in loop + `__wc.tick`, host-only —
   `isClient()` bails; local like cop cars/helis): while you're **driving at 3+★**
   the police escalate the chase. `roadAhead(dist)` snaps a point `dist` ahead of

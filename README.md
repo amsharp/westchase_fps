@@ -557,7 +557,18 @@ a real gun** — the same models and sounds you use. At **1–3 stars** they bri
 mostly show up with **SMGs and AK-47s** but a few still carry pistols or shotguns.
 The **helicopter gunners** wield the scoped **rifle**. Gun one down and it **drops
 its weapon** on the ground — grab it, and if you already own that gun you scavenge
-**half a magazine** of its ammo instead. Getting knocked
+**half a magazine** of its ammo instead.
+
+Cruisers and choppers are **much tougher** now — a cop car soaks around six rifle
+rounds (a rocket still guts it), and a **helicopter is the hardest unit in the sky**,
+taking even more punishment than a car. Even squeezing off a shot at a **calm patrol
+car** is a crime: it puts you at **2 stars** and the patrol flips to a pursuit.
+
+Taking one out actually **buys you time**: kill a cop, wreck a cruiser, or down
+a chopper and the department waits a random **30–60 seconds** before dispatching a
+replacement of that type — so shooting your way clear opens a real gap instead of an
+endless conveyor belt. (The *first* wave still responds quickly; the delay only
+kicks in once you start dropping them.) Getting knocked
 out — or **arrested** (see below) — wipes your wanted level.
 
 ### Getting arrested

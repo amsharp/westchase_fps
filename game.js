@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.113.0';
+var GAME_VERSION = 'v1.114.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -13798,6 +13798,11 @@ var cops = [];
 var copNid = 1;   // stable per-cop id: the cops array is spliced on despawn, so
                   // clients must address dmgCop by id, not array index
 var copSpawnT = 0, lastCrimeT = -99;
+// after you KILL a police unit (foot cop / cruiser / chopper) its category holds
+// off replacements for a random 30-60s, so gunning them down actually buys a lull
+// instead of an instant refill. The initial response to a fresh crime still ramps
+// up fast (the timer is only pushed out on a kill, not during buildup).
+function copRespawnDelay() { return 30 + Math.random() * 30; }
 var badgeM = new THREE.MeshBasicMaterial({ color: 0xffd94a });
 var holsterM = lamb({ color: 0x16181c });
 
@@ -14236,6 +14241,7 @@ function damageCop(c, dmg, kx, kz, silent) {
     if (c.gun && !c.interior && typeof dropWeapon === 'function') dropWeapon(c.gun, c.x, c.z);
     spawnCash(c.x, c.z, 10 + ((Math.random() * 30) | 0), c.baseY || 0);
     sfx('ko', { x: c.x, z: c.z, y: (c.baseY || 0) + 1.2, range: 50 });
+    if (!c.interior) copSpawnT = copRespawnDelay();   // killing a cop buys a 30-60s lull before the next foot cop arrives
     if (!silent) { popup('COP DOWN!'); creditCopKill(!meleeHit && dmg < 900); }   // bullet = gun kill; melee/explosion = not
   } else {
     c.state = 'engage';
@@ -17013,7 +17019,7 @@ function resetTower(t) {
 // Heading convention (matches remapDriveCar): nose forward = (cos h, -sin h);
 // rotation.y = atan2(-dirZ, dirX).
 var copCars = [], copCarSpawnT = 0;
-var COPCAR_HP = 130;
+var COPCAR_HP = 500;   // cruisers are tanky now (~6 rifle / ~15 AK rounds) — a rocket still one-shots (see fireRocket splash)
 function desiredCopCars() { var w = state.wanted; return w === 0 ? 2 : 2 + w; }   // 0*=2 patrol cruisers, then +1 per star (1*=3 … 5*=7)
 // snap an arbitrary point onto the nearest road centreline (for patrol waypoints)
 function copRoadPoint(x, z) {
@@ -17127,7 +17133,12 @@ function parkAndDisgorge(cc) {
 }
 function removeCopCar(cc) { if (cc.car && cc.car.group) scene.remove(cc.car.group); }
 function explodeCopCar(cc) { if (typeof boomAt === 'function') boomAt(cc.x, cc.z); removeCopCar(cc); }
-function damageCopCar(cc, dmg, pt) { cc.hp -= dmg; if (pt && typeof puff === 'function') puff(pt, 0xffe08a); }
+function damageCopCar(cc, dmg, pt) {
+  cc.hp -= dmg; if (pt && typeof puff === 'function') puff(pt, 0xffe08a);
+  // shooting/blowing up a marked cruiser is a crime — draw heat (even on a calm
+  // patrol car), so patrol units actually respond instead of eating rounds for free.
+  if (!state.dead) { lastCrimeT = T; if ((state.wanted || 0) < 2 && typeof setWanted === 'function') setWanted(2); }
+}
 // wipe every pursuit unit off the map at once — the street cops, cop cars and
 // helicopters spawned by the wanted level. Called on death-respawn and on arrest
 // (user: they shouldn't be standing around once you've respawned / been jailed).
@@ -17271,23 +17282,27 @@ function driveCopCar(cc, dt, pd) {
 var copSirenT = 0;
 function updateCopCars(dt) {
   if (!state.running) return;
-  var want = (state.dead || state.menu || (typeof inside !== 'undefined' && inside)) ? 0 : desiredCopCars();
+  // during the death / arrest cinematic keep the existing cruisers on the map so
+  // you can see them around you as the camera zooms out; clearPolice removes them
+  // at the actual respawn / jail-teleport moment.
+  var cine = state.dead || arrested;
+  var want = (state.menu || (typeof inside !== 'undefined' && inside)) ? 0 : desiredCopCars();
   copCarSpawnT -= dt;
-  if (copCars.length < want && copCarSpawnT <= 0) { spawnCopCar(); copCarSpawnT = 4.5; }
+  if (!cine && copCars.length < want && copCarSpawnT <= 0) { spawnCopCar(); copCarSpawnT = 4.5; }
   var nearest = null, nd = 1e9;
   for (var i = copCars.length - 1; i >= 0; i--) {
     var cc = copCars[i];
-    if (cc.hp <= 0) { explodeCopCar(cc); copCars.splice(i, 1); continue; }
+    if (cc.hp <= 0) { explodeCopCar(cc); copCars.splice(i, 1); copCarSpawnT = copRespawnDelay(); continue; }   // destroyed cruiser: 30-60s before a replacement
     cc.life += dt;
     var pd = Math.hypot(player.x - cc.x, player.z - cc.z);
     // roadblock cruisers have their own lifecycle (they don't chase; they hold the barricade)
     if (cc.state === 'roadblock') {
-      if ((state.wanted || 0) < 2 || pd > 340 || cc.life > 85) { removeCopCar(cc); copCars.splice(i, 1); continue; }
+      if ((!cine && (state.wanted || 0) < 2) || pd > 340 || cc.life > 85) { removeCopCar(cc); copCars.splice(i, 1); continue; }
       driveCopCar(cc, dt, pd);
       if (pd < nd) { nd = pd; nearest = cc; }
       continue;
     }
-    if ((want === 0 && cc.state !== 'parked') || pd > 280 || (cc.state === 'parked' && cc.parkT > 30) || cc.life > 300) { removeCopCar(cc); copCars.splice(i, 1); continue; }
+    if ((!cine && want === 0 && cc.state !== 'parked') || pd > 280 || (cc.state === 'parked' && cc.parkT > 30) || cc.life > 300) { removeCopCar(cc); copCars.splice(i, 1); continue; }
     driveCopCar(cc, dt, pd);
     if (cc.state !== 'parked' && cc.state !== 'patrol' && pd < nd) { nd = pd; nearest = cc; }   // no siren while merely patrolling
   }
@@ -17410,7 +17425,7 @@ function updateHeatOps(dt) {
 // side's fire) or pump enough rounds into the airframe -> it spins out, falls,
 // and explodes on the ground.
 var helis = [], heliSpawnT = 0;
-var HELI_HP = 220, HELI_GUNNER_HP = 55;
+var HELI_HP = 1000, HELI_GUNNER_HP = 55;   // choppers are the toughest pursuit unit — well above a cruiser's 500
 var HELI_MAX_SPD = 48;   // hard top speed — BELOW the plane (78) & Porsche (73) so they can outrun it, still fast enough to run down a normal car / a runner
 function desiredHelis() { var w = state.wanted; return w >= 3 ? Math.min(w - 2, 3) : 0; }   // 3*=1, 4*=2, 5*=3
 // the player only counts as "armed" (a threat the gunners will fire on) when a gun
@@ -17568,6 +17583,7 @@ function crashHeli(h) {
   for (var i = 0; i < h.gunners.length; i++) h.gunners[i].alive = false;
   if (typeof popup2 === 'function') popup2('CHOPPER DOWN!');
   if (typeof sfx === 'function') sfx('boom', { x: h.x, z: h.z, range: 220 });
+  heliSpawnT = copRespawnDelay();   // downed chopper: 30-60s before another is dispatched
 }
 function damageHeli(h, dmg, pt) {
   if (h.state !== 'fly') return;
@@ -17686,14 +17702,17 @@ function updateHeli(h, dt, idx) {
 }
 function updateHelis(dt) {
   if (!state.running) return;
-  var want = (state.dead || state.menu || (typeof inside !== 'undefined' && inside)) ? 0 : desiredHelis();
+  // during the death / arrest cinematic keep the choppers overhead so you can see
+  // them as the camera zooms out; clearPolice removes them at respawn / jail.
+  var cine = state.dead || arrested;
+  var want = (state.menu || (typeof inside !== 'undefined' && inside)) ? 0 : desiredHelis();
   var flying = 0; for (var f = 0; f < helis.length; f++) if (helis[f].state === 'fly') flying++;
   heliSpawnT -= dt;
-  if (flying < want && heliSpawnT <= 0) { spawnHeli(); heliSpawnT = 6; }
+  if (!cine && flying < want && heliSpawnT <= 0) { spawnHeli(); heliSpawnT = 6; }
   for (var i = helis.length - 1; i >= 0; i--) {
     var h = helis[i];
     // heat gone: a flying (undamaged) chopper just peels off and despawns — no crash
-    if (want === 0 && h.state === 'fly') { scene.remove(h.group); if (h.light) scene.remove(h.light.grp); helis.splice(i, 1); continue; }
+    if (!cine && want === 0 && h.state === 'fly') { scene.remove(h.group); if (h.light) scene.remove(h.light.grp); helis.splice(i, 1); continue; }
     updateHeli(h, dt, i);
     if (h.dead || (h.state === 'fly' && Math.hypot(player.x - h.x, player.z - h.z) > 320)) { scene.remove(h.group); if (h.light) scene.remove(h.light.grp); helis.splice(i, 1); }
   }
@@ -18644,8 +18663,8 @@ function detonateRocket(r, i) {
   boomAt(r.x, r.z);
   if (typeof rocketHitStreetcars === 'function') rocketHitStreetcars(r.x, r.z);   // rockets are the ONLY thing that wrecks a tram
   // a rocket blast wrecks any cop car or police chopper caught in it
-  if (typeof copCars !== 'undefined') for (var rc = 0; rc < copCars.length; rc++) { var rcc = copCars[rc]; if (Math.hypot(rcc.x - r.x, rcc.z - r.z) < 7) damageCopCar(rcc, 400, null); }
-  if (typeof helis !== 'undefined') for (var rh = 0; rh < helis.length; rh++) { var rhe = helis[rh]; if (rhe.state === 'fly' && Math.sqrt((rhe.x - r.x) * (rhe.x - r.x) + (rhe.y - r.y) * (rhe.y - r.y) + (rhe.z - r.z) * (rhe.z - r.z)) < 9) damageHeli(rhe, 400); }
+  if (typeof copCars !== 'undefined') for (var rc = 0; rc < copCars.length; rc++) { var rcc = copCars[rc]; if (Math.hypot(rcc.x - r.x, rcc.z - r.z) < 7) damageCopCar(rcc, 900, null); }   // still one-shots a 500hp cruiser
+  if (typeof helis !== 'undefined') for (var rh = 0; rh < helis.length; rh++) { var rhe = helis[rh]; if (rhe.state === 'fly' && Math.sqrt((rhe.x - r.x) * (rhe.x - r.x) + (rhe.y - r.y) * (rhe.y - r.y) + (rhe.z - r.z) * (rhe.z - r.z)) < 9) damageHeli(rhe, 420); }   // ~2-3 rockets down a 1000hp chopper
 }
 function updateRockets(dt) {
   for (var i = rockets.length - 1; i >= 0; i--) {
