@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.115.0';
+var GAME_VERSION = 'v1.115.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -14379,7 +14379,7 @@ function updateCops(dt) {
   _copPpx = player.x; _copPpz = player.z;
   var pspd = Math.sqrt(_copPvx * _copPvx + _copPvz * _copPvz);
   recomputeHeat(dt);   // does dispatch currently KNOW where you are? run the escape timer.
-  updatePursuitWarp(dt);   // far-behind units warp in (off-screen) after ~20s of active pursuit
+  // updatePursuitWarp(dt);   // TEMP DISABLED (v1.115.1): isolating a reported freeze-on-gaining-a-star
   var suppressed = (armLevel === 2) && (T - lastShot < 1.6) && (state.wanted || 0) > 0;
   if (armLevel === 1 && (state.wanted || 0) > 0 && !state.dead && !inside) {
     if (!copMeleeSince) copMeleeSince = T;
@@ -17217,9 +17217,8 @@ function removeCopCar(cc) { if (cc.car && cc.car.group) scene.remove(cc.car.grou
 function explodeCopCar(cc) { if (typeof boomAt === 'function') boomAt(cc.x, cc.z); removeCopCar(cc); }
 function damageCopCar(cc, dmg, pt) {
   cc.hp -= dmg; if (pt && typeof puff === 'function') puff(pt, 0xffe08a);
-  // shooting/blowing up a marked cruiser is a crime — draw heat (even on a calm
-  // patrol car), so patrol units actually respond instead of eating rounds for free.
-  if (!state.dead) { lastCrimeT = T; if ((state.wanted || 0) < 2 && typeof setWanted === 'function') setWanted(2); }
+  // (v1.115.1) TEMP: the "shooting a cruiser draws 2 stars" heat hook is removed
+  // while isolating a reported freeze that triggers when the wanted level rises.
 }
 // wipe every pursuit unit off the map at once — the street cops, cop cars and
 // helicopters spawned by the wanted level. Called on death-respawn and on arrest
