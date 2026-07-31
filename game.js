@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.111.0';
+var GAME_VERSION = 'v1.112.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -6347,6 +6347,100 @@ function pushYawCollider(cx, cz, W, D, rotY, topY) {
   // catalog models were previously invisible on the minimap
   if (typeof mapBuildings !== 'undefined') mapBuildings.push({ x: cx, z: cz, w: hx * 2, d: hz * 2, h: topY || 12, c: '#8b95a3', pad: false, model: true });
 }
+// ---- PRECISE building collision (v1.112): instead of one bounding box, decode the
+// building's actual ground-level footprint from its mesh and register a set of
+// oriented-box colliders that follow the real shape (L-wings, notches, courtyards,
+// thin control-tower shafts). Done ONCE at placement; pushOut is grid-accelerated
+// so the extra boxes are cheap. Roof/high overhangs are excluded (ground slice
+// only) and enclosed interiors flood-filled solid.
+function _ptInTri(px, pz, ax, az, bx, bz, cx, cz) {
+  var d1 = (px - bx) * (az - bz) - (ax - bx) * (pz - bz);
+  var d2 = (px - cx) * (bz - cz) - (bx - cx) * (pz - cz);
+  var d3 = (px - ax) * (cz - az) - (cx - ax) * (pz - az);
+  var neg = (d1 < 0) || (d2 < 0) || (d3 < 0), pos = (d1 > 0) || (d2 > 0) || (d3 > 0);
+  return !(neg && pos);
+}
+// model-space footprint of a decoded geometry -> a compact list of axis-aligned
+// rects {cx,cz,hx,hz} (model units). Returns null on degenerate input.
+function meshFootprintRects(geo, maxCells) {
+  var pos = geo.attributes.position.array;
+  var idx = geo.index ? geo.index.array : null;
+  var triCount = idx ? (idx.length / 3) : (pos.length / 9);
+  if (triCount < 1) return null;
+  var minx = 1e9, maxx = -1e9, minz = 1e9, maxz = -1e9, miny = 1e9, maxy = -1e9, i;
+  for (i = 0; i < pos.length; i += 3) {
+    var x = pos[i], y = pos[i + 1], z = pos[i + 2];
+    if (x < minx) minx = x; if (x > maxx) maxx = x; if (z < minz) minz = z; if (z > maxz) maxz = z;
+    if (y < miny) miny = y; if (y > maxy) maxy = y;
+  }
+  var W = maxx - minx, D = maxz - minz, H = maxy - miny;
+  if (W <= 1e-4 || D <= 1e-4) return null;
+  var bandTop = miny + Math.max(1.2, H * 0.14);   // ground slice: walls + floor cap, not high roofs/decks/overhangs
+  maxCells = maxCells || 56;
+  var cell = Math.max(W, D) / maxCells; if (cell < 1e-4) cell = 1e-4;
+  var nx = Math.max(1, Math.ceil(W / cell)), nz = Math.max(1, Math.ceil(D / cell));
+  if (nx * nz > 6400) { cell = Math.max(W, D) / 78; nx = Math.max(1, Math.ceil(W / cell)); nz = Math.max(1, Math.ceil(D / cell)); }
+  var occ = new Uint8Array(nx * nz);
+  function markPt(px, pz) { var ci = Math.floor((px - minx) / cell), cj = Math.floor((pz - minz) / cell); if (ci >= 0 && cj >= 0 && ci < nx && cj < nz) occ[ci * nz + cj] = 1; }
+  function markEdge(x0, z0, x1, z1) { var dx = x1 - x0, dz = z1 - z0, L = Math.sqrt(dx * dx + dz * dz), n = Math.max(1, Math.ceil(L / (cell * 0.5))); for (var s = 0; s <= n; s++) markPt(x0 + dx * s / n, z0 + dz * s / n); }
+  function v3(vi, k) { return pos[vi * 3 + k]; }
+  for (var t = 0; t < triCount; t++) {
+    var a = idx ? idx[t * 3] : t * 3, b = idx ? idx[t * 3 + 1] : t * 3 + 1, c = idx ? idx[t * 3 + 2] : t * 3 + 2;
+    if (Math.min(v3(a, 1), v3(b, 1), v3(c, 1)) > bandTop) continue;   // high-only feature: skip
+    var ax = v3(a, 0), az = v3(a, 2), bx = v3(b, 0), bz = v3(b, 2), cx2 = v3(c, 0), cz2 = v3(c, 2);
+    markEdge(ax, az, bx, bz); markEdge(bx, bz, cx2, cz2); markEdge(cx2, cz2, ax, az);   // thin walls: sample the edges
+    var lx = Math.min(ax, bx, cx2), hx2 = Math.max(ax, bx, cx2), lz = Math.min(az, bz, cz2), hz2 = Math.max(az, bz, cz2);
+    var ci0 = Math.max(0, Math.floor((lx - minx) / cell)), ci1 = Math.min(nx - 1, Math.floor((hx2 - minx) / cell));
+    var cj0 = Math.max(0, Math.floor((lz - minz) / cell)), cj1 = Math.min(nz - 1, Math.floor((hz2 - minz) / cell));
+    for (var ci = ci0; ci <= ci1; ci++) for (var cj = cj0; cj <= cj1; cj++) {
+      if (occ[ci * nz + cj]) continue;
+      if (_ptInTri(minx + (ci + 0.5) * cell, minz + (cj + 0.5) * cell, ax, az, bx, bz, cx2, cz2)) occ[ci * nz + cj] = 1;
+    }
+  }
+  // flood-fill the exterior from the border through empty cells; any empty cell not
+  // reached is an enclosed interior -> fill it solid (so you can't slip inside).
+  var out = new Uint8Array(nx * nz), stack = [];
+  function pushCell(ci, cj) { if (ci < 0 || cj < 0 || ci >= nx || cj >= nz) return; var k = ci * nz + cj; if (occ[k] || out[k]) return; out[k] = 1; stack.push(k); }
+  for (i = 0; i < nx; i++) { pushCell(i, 0); pushCell(i, nz - 1); }
+  for (i = 0; i < nz; i++) { pushCell(0, i); pushCell(nx - 1, i); }
+  while (stack.length) { var k = stack.pop(), kci = (k / nz) | 0, kcj = k % nz; pushCell(kci - 1, kcj); pushCell(kci + 1, kcj); pushCell(kci, kcj - 1); pushCell(kci, kcj + 1); }
+  for (i = 0; i < occ.length; i++) if (!occ[i] && !out[i]) occ[i] = 1;
+  // greedy maximal-rect decomposition -> few boxes for blocky shapes
+  var rects = [], claimed = new Uint8Array(nx * nz);
+  for (var gi = 0; gi < nx; gi++) for (var gj = 0; gj < nz; gj++) {
+    if (!occ[gi * nz + gj] || claimed[gi * nz + gj]) continue;
+    var w = 1; while (gi + w < nx && occ[(gi + w) * nz + gj] && !claimed[(gi + w) * nz + gj]) w++;
+    var h = 1;
+    grow: while (gj + h < nz) { for (var dw = 0; dw < w; dw++) { var kk = (gi + dw) * nz + (gj + h); if (!occ[kk] || claimed[kk]) break grow; } h++; }
+    for (var aw = 0; aw < w; aw++) for (var ah = 0; ah < h; ah++) claimed[(gi + aw) * nz + (gj + ah)] = 1;
+    var rx0 = minx + gi * cell, rx1 = minx + (gi + w) * cell, rz0 = minz + gj * cell, rz1 = minz + (gj + h) * cell;
+    rects.push({ cx: (rx0 + rx1) / 2, cz: (rz0 + rz1) / 2, hx: (rx1 - rx0) / 2, hz: (rz1 - rz0) / 2 });
+  }
+  return { rects: rects, W: W, D: D };
+}
+// register the precise footprint colliders (+ one minimap footprint) for a decoded
+// building placed at (wx,wz) scaled by `scale`, yawed by rotY. Returns the array
+// of collider objects (so a destructible tower can toggle them all on collapse).
+// Falls back to a single yaw box if the mesh footprint can't be built.
+function pushMeshColliders(cache, scale, wx, wz, rotY, topY, tag) {
+  var fr = (cache && cache.geo) ? meshFootprintRects(cache.geo) : null;
+  var cs = Math.cos(rotY || 0), sn = Math.sin(rotY || 0);
+  var cols = [];
+  if (fr && fr.rects.length && fr.rects.length <= 96) {
+    for (var i = 0; i < fr.rects.length; i++) {
+      var r = fr.rects[i], sx = r.cx * scale, sz = r.cz * scale;
+      var owx = wx + sx * cs + sz * sn, owz = wz - sx * sn + sz * cs;   // model->world (matches placeAirModel's g.rotation.y)
+      var col = addColliderOBB(owx, owz, Math.max(0.2, r.hx * scale), Math.max(0.2, r.hz * scale), rotY, tag || 'building');
+      if (topY !== undefined) col.topY = topY;
+      cols.push(col);
+    }
+    var c2 = Math.abs(cs), s2 = Math.abs(sn), hx = fr.W / 2 * scale * c2 + fr.D / 2 * scale * s2, hz = fr.W / 2 * scale * s2 + fr.D / 2 * scale * c2;
+    if (typeof mapBuildings !== 'undefined') mapBuildings.push({ x: wx, z: wz, w: hx * 2, d: hz * 2, h: topY || 12, c: '#8b95a3', pad: false, model: true });
+    return cols;
+  }
+  pushYawCollider(wx, wz, (fr ? fr.W : 8) * scale, (fr ? fr.D : 8) * scale, rotY, topY);   // fallback: single yaw box
+  return [colliders[colliders.length - 1]];
+}
 var _airMainC = {}, _airAtcC = {}, _airHangC = {}, _airTermC = {};
 var ATC_TOWER_H = 32;
 
@@ -6364,7 +6458,7 @@ function buildAirport(AX, AZ) {
 
   // ---- main terminal: canopy/drop-off faces south (+Z, landside) ----
   var mainM = placeAirModel(typeof AIRPORT_MAIN_DATA !== 'undefined' ? AIRPORT_MAIN_DATA : undefined, _airMainC, AIR.MAIN_S, AX, AZ, AIR.mainRot);
-  if (mainM) pushYawCollider(AX, AZ, mainM.W, mainM.D, AIR.mainRot, mainM.H);
+  if (mainM) pushMeshColliders(_airMainC, AIR.MAIN_S, AX, AZ, AIR.mainRot, mainM.H);   // precise footprint
   else { var g = new THREE.Group(); g.add(box(48, 20, 36, wallM, 0, 10, 0)); g.position.set(AX, 0, AZ); scene.add(g); colliders.push({ x0: AX - 24, x1: AX + 24, z0: AZ - 18, z1: AZ + 18, topY: 20 }); }
   // monorail exits on the main's flanks
   portal(AIR.monoW[0][0], AIR.monoW[0][1], -Math.PI / 2);
@@ -6373,7 +6467,7 @@ function buildAirport(AX, AZ) {
   // ---- two concourse terminals, splayed behind the main, gates outward ----
   function terminal(c, rot) {
     var tM = placeAirModel(typeof AIRPORT_TERMINAL_DATA !== 'undefined' ? AIRPORT_TERMINAL_DATA : undefined, _airTermC, AIR.TERM_S, c[0], c[1], rot);
-    if (tM) pushYawCollider(c[0], c[1], tM.W, tM.D, rot, tM.H);
+    if (tM) pushMeshColliders(_airTermC, AIR.TERM_S, c[0], c[1], rot, tM.H);   // precise footprint
     else { pushYawCollider(c[0], c[1], 40, 100, rot, 14); scene.add(box(40, 14, 100, wallM, c[0], 7, c[1])); }
   }
   terminal(AIR.wc, AIR.wrot); terminal(AIR.ec, AIR.erot);
@@ -6382,12 +6476,13 @@ function buildAirport(AX, AZ) {
 
   // ---- back row: ATC tower centre + four hangars, all facing the field (+Z) ----
   var backZ = AZ - 168, atcZ = AZ - 176;
-  var atcM = placeAirModel(typeof AIRPORT_ATC_DATA !== 'undefined' ? AIRPORT_ATC_DATA : undefined, _airAtcC, ATC_TOWER_H / (typeof AIRPORT_ATC_DATA !== 'undefined' ? AIRPORT_ATC_DATA.dims[1] : 1), AX, atcZ, 0);
-  if (atcM) { var acw = atcM.W * 0.28, acd = atcM.D * 0.28; colliders.push({ x0: AX - acw, x1: AX + acw, z0: atcZ - acd, z1: atcZ + acd }); }
+  var atcS = ATC_TOWER_H / (typeof AIRPORT_ATC_DATA !== 'undefined' ? AIRPORT_ATC_DATA.dims[1] : 1);
+  var atcM = placeAirModel(typeof AIRPORT_ATC_DATA !== 'undefined' ? AIRPORT_ATC_DATA : undefined, _airAtcC, atcS, AX, atcZ, 0);
+  if (atcM) pushMeshColliders(_airAtcC, atcS, AX, atcZ, 0, atcM.H);   // precise footprint (thin shaft, not the wide observation deck up top)
   else { var th = 30; scene.add(box(5, th, 5, wallM2, AX, th / 2, atcZ)); scene.add(box(9, 4, 9, wallM, AX, th + 2, atcZ)); colliders.push({ x0: AX - 2.6, x1: AX + 2.6, z0: atcZ - 2.6, z1: atcZ + 2.6 }); }
   function hangar(cx, cz) {   // door faces +Z (south, toward field): rotate -90deg
     var hM = placeAirModel(typeof AIRPORT_HANGAR_DATA !== 'undefined' ? AIRPORT_HANGAR_DATA : undefined, _airHangC, AIR.HANG_S, cx, cz, -Math.PI / 2);
-    if (hM) { pushYawCollider(cx, cz, hM.W, hM.D, -Math.PI / 2, hM.H); return; }
+    if (hM) { pushMeshColliders(_airHangC, AIR.HANG_S, cx, cz, -Math.PI / 2, hM.H); return; }   // precise footprint
     var w = 34, d = 22, h = 13; scene.add(box(w, h, d, hangM, cx, h / 2, cz)); scene.add(box(w - 8, h - 3, 0.5, darkM, cx, (h - 3) / 2, cz + d / 2 - 0.1)); colliders.push({ x0: cx - w / 2, x1: cx + w / 2, z0: cz - d / 2, z1: cz + d / 2, topY: h });
   }
   hangar(AX - 140, backZ); hangar(AX - 72, backZ); hangar(AX + 72, backZ); hangar(AX + 140, backZ);
@@ -6419,7 +6514,7 @@ function placeCatalogModel(id, x, z, rotDeg, footW, scale) {
   var s = (footW && e.dims[0]) ? footW / e.dims[0] : (scale || 1);
   var rotY = (rotDeg || 0) * Math.PI / 180;
   var placed = placeAirModel(e, cache, s, x, z, rotY);
-  if (placed) pushYawCollider(x, z, placed.W, placed.D, rotY, placed.H);   // registers footprint too
+  if (placed) placed.cols = pushMeshColliders(cache, s, x, z, rotY, placed.H);   // precise footprint (+ minimap)
   return placed;
 }
 function placeRemapModels() {
@@ -6454,7 +6549,7 @@ var towers = [];
     towers.push({
       id: row[i].id, group: placed.group, x: row[i].x, z: -240,
       W: placed.W, H: placed.H, D: placed.D,
-      col: colliders[colliders.length - 1],      // the yaw collider pushYawCollider just added
+      cols: placed.cols || [],                    // precise footprint colliders (toggled off on collapse)
       mb: mapBuildings[mapBuildings.length - 1],  // its minimap/plane-crash footprint
       fullH: placed.H, state: 'up', t: 0, emitT: 0, rubble: null
     });
@@ -16860,7 +16955,7 @@ function startTowerCollapse(t) {
   // the tower is no longer a tall obstacle: its tall box collider stops walling
   // you off (the rubble becomes a walkable hill via rubbleHeightAt instead)
   if (t.mb) t.mb.h = t.pileH;
-  if (t.col) t.col.active = false;
+  if (t.cols) for (var _tc = 0; _tc < t.cols.length; _tc++) t.cols[_tc].active = false;
   sfx('boom', { x: t.x, z: t.z, range: 500 });
   sfx('towercollapse', { x: t.x, z: t.z, range: 520 });   // the big collapse rumble (falls silent if the pack is absent)
   sfx('crash', { x: t.x, z: t.z, range: 260 });
@@ -16874,7 +16969,7 @@ function resetTower(t) {
   if (t.rubble) { scene.remove(t.rubble); t.rubble = null; }
   if (t.impactDecal) { t.group.remove(t.impactDecal); t.impactDecal = null; }   // fresh face on the reset tower
   if (t.mb) t.mb.h = t.fullH;                          // it's a full skyscraper footprint again
-  if (t.col) t.col.active = true;                      // wall collider back on
+  if (t.cols) for (var _rc = 0; _rc < t.cols.length; _rc++) t.cols[_rc].active = true;   // wall colliders back on
   for (var i = rubblePiles.length - 1; i >= 0; i--) if (rubblePiles[i].tid === t.id) rubblePiles.splice(i, 1);   // clear the walkable dome
 }
 

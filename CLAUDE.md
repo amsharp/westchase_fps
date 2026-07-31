@@ -29,6 +29,20 @@ something seems off.
   items (`meshyguns.js`, `meshyprops.js`, `axedata.js`) are fine as-is — the
   no-downscale rule is specifically for buildings. `decodeAirModel` sets
   `texture.anisotropy = MAXANISO` so grazing/tall surfaces stay sharp.
+- **Precise building collision (v1.112):** imported buildings no longer collide as
+  one bounding box — `pushMeshColliders(cache, scale, wx, wz, rotY, topY, tag)`
+  decodes the actual ground-level footprint from `cache.geo` (`meshFootprintRects`:
+  rasterize the ground-slice triangles `minY < miny+max(1.2,H*0.14)` into an
+  occupancy grid — edge-sample for thin walls + cell-center-in-tri for floor caps —
+  flood-fill the exterior so enclosed interiors fill solid, then greedy
+  maximal-rect decompose) and registers a set of oriented-box colliders
+  (`addColliderOBB`, tagged `building`, `topY` set) that follow the real shape
+  (L-wings, notches, thin ATC shaft). Falls back to one yaw box on bad geo.
+  Callers: `placeCatalogModel` (skyscrapers/REMAP_MODELS → returns `placed.cols`),
+  airport main/terminals/ATC/hangars. Destructible towers store `cols` (array) and
+  toggle every box `.active` on collapse/rebuild (was a single `t.col`). pushOut is
+  grid-accelerated so the extra boxes are cheap (~5–30 per tower, ~16 per airport
+  bldg). Jail (interior walls) + cabin (already a tight rect box) unchanged.
 
 ## Files
 
