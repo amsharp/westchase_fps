@@ -291,7 +291,16 @@ game.js under `WC_REMAP`. Frame: junction `(0,0)`, **+x east / +z south**.
   then +1/star (→7). **Patrol cop cars**: `copCars` spawn `state:'patrol'`
   (lights off, cruise road waypoints via `copRoadPoint`), flip to `seek/chase`
   when a crime happens near them or they spot you; `driveCopCar` has patrol/
-  search/pursuit target selection. pistols <4★, SMGs 4–5★. Interior cops
+  search/pursuit target selection. **Per-cop weapons** (v1.113, `rollCopGun(stars)`
+  + `COP_GUN_STATS`): each cop rolls its own gun the first time it draws (persisted
+  on `c.gun`). At 1–3★ → pistol (70%) or shotgun; at 4–5★ → auto/smg dominant (~70%)
+  but pistol/shotgun still appear. Held guns are the REAL player models (`dropMesh`→
+  `realGunModel`→`getGunMesh`, oriented at runtime by `copAimArm`/`copLowReady`'s
+  `lookAt` on the group-local -Z barrel) and fire the PLAYER gun `sfx` (`copWeapon(c)`
+  maps `.sfx`). Heli gunner uses `'rifle'` (scoped kar98k). Killed cops **drop their
+  gun** (`dropWeapon(c.gun,…)` in the death branch); picking one you already own
+  grants **half a mag** of that ammo type instead (`applyDropPickup` owned branch →
+  `state.ammoRes`). Interior cops
   (`c.interior`,`c.baseY`) spawn on a failed unarmed robbery, always local. Heat
   logic is host/local; clients mirror stars via `w`. `__wc` test hooks: `heatInfo`,
   `creditKill`, `posSeesPlayer`, `setHideTimer`.
@@ -312,11 +321,11 @@ game.js under `WC_REMAP`. Frame: junction `(0,0)`, **+x east / +z south**.
   `blowTires(driving)` sets `c.tiresBlown` (caps `pspeed` to 12, forces a slide).
   `updateDriving` reads `tiresBlown` → `topF=min(14)`/`topR=min(6)` + constant
   `slid` so a spiked car crawls forever; the flag lives on the car entry so a fresh
-  jack is clean, a spiked one stays crippled. **SWAT at 5★**: `spawnCop`/`spawnCopAt`
-  call `makeSwat(c)` when `maxWanted()>=5` → `c.swat=true`, `hp=175`, dark vest box;
-  `updateCops` wantGun forces `'smg'` for SWAT. `__wc`: `spikeStrips`,
-  `spawnRoadblock`, `spawnSpikeStrip`, `updateHeatOps`. (`maxWanted()` now guards
-  `net.remotes` — it's called at boot-time via the new SWAT hook in `spawnCop`.)
+  jack is clean, a spiked one stays crippled. (**SWAT removed v1.113** — the
+  placeholder black vest box read badly; 5★ cops are now regular officers whose
+  `rollCopGun` roll just skews to the automatics. A proper Meshy SWAT model may
+  replace it later.) `__wc`: `spikeStrips`,
+  `spawnRoadblock`, `spawnSpikeStrip`, `updateHeatOps`.
 - **Helicopter model** (v1.110, `heli.js` = `HELI_MODEL`, loaded before game.js,
   game guards `typeof HELI_MODEL`): the user's Blender AS350 GLB, 3 rigid parts
   (`body`/`mainRotor`/`tailRotor`) quantized like the airport models

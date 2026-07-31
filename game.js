@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.112.1';
+var GAME_VERSION = 'v1.113.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -14012,14 +14012,14 @@ function spawnCop(nearPlayer) {
   mesh.position.set(x, 0, z); if (doorYaw !== null) mesh.rotation.y = doorYaw;
   mesh.userData.cop = c;
   scene.add(mesh); cops.push(c);
-  if (maxWanted() >= 5) makeSwat(c);
   return c;
 }
 function spawnInteriorCops(n) {
   for (var i = 0; i < n; i++) {
     var mesh = buildCop();
     var c = { mesh: mesh, x: doorIn.x - 2 + i * 4, z: doorIn.z - 1, hp: 100, state: 'engage', tx: 0, tz: 0, phase: Math.random() * 9, fireT: 0.7 + i * 0.5, downT: 0, hurtFlash: 0, interior: true, baseY: INT.y, vname: mesh.userData.vname || null, fem: MESHY_FEM.indexOf(mesh.userData.vname || '') >= 0 };
-    attachHeldGun(mesh, state.wanted >= 4 ? 'smg' : 'pistol');
+    c.gun = rollCopGun(maxWanted());
+    attachHeldGun(mesh, c.gun);
     mesh.position.set(c.x, INT.y, c.z);
     mesh.userData.cop = c;
     scene.add(mesh); cops.push(c);
@@ -14039,10 +14039,32 @@ function responseAnchor() {
   if ((state.wanted || 0) > 0 && !heat.known) return { x: heat.lkx, z: heat.lkz };
   return hottestPlayerPos();
 }
-function copWeapon() {
-  return maxWanted() >= 4
-    ? { range: 46, dmg: 4, rate: 0.14, acc: 0.46, sfx: 'copsmg' }   // full-auto SMGs
-    : { range: 21, dmg: 9, rate: 1.05, acc: 0.55, sfx: 'copshot' }; // sidearms, short range
+// cop firing stats per weapon kind — tuned for the police (not the raw player
+// values), but each uses the PLAYER gun's sound (sfx = the weapon key, mapped in
+// SFX_MAP to the owner samples). pistol/shotgun at low stars; smg/auto at 4-5;
+// the scoped rifle for helicopter gunners.
+var COP_GUN_STATS = {
+  pistol:  { range: 34, dmg: 8,  rate: 0.85, acc: 0.55, sfx: 'pistol' },
+  shotgun: { range: 20, dmg: 13, rate: 1.05, acc: 0.62, sfx: 'shotgun' },
+  smg:     { range: 42, dmg: 5,  rate: 0.11, acc: 0.42, sfx: 'smg' },
+  auto:    { range: 56, dmg: 9,  rate: 0.13, acc: 0.5,  sfx: 'auto' },
+  rifle:   { range: 95, dmg: 18, rate: 0.9,  acc: 0.72, sfx: 'rifle' }
+};
+// roll a cop's weapon for a wanted tier. 1-3*: mostly pistols, some shotguns.
+// 4-5*: the automatics (smg/ak) are most common, but pistols/shotguns still show.
+function rollCopGun(stars) {
+  if (stars >= 4) {
+    var r = Math.random();
+    if (r < 0.30) return 'smg';
+    if (r < 0.58) return 'auto';
+    if (r < 0.80) return 'shotgun';
+    return 'pistol';
+  }
+  return Math.random() < 0.70 ? 'pistol' : 'shotgun';
+}
+function copWeapon(c) {
+  var k = (c && c.gun) || (maxWanted() >= 4 ? 'smg' : 'pistol');
+  return COP_GUN_STATS[k] || COP_GUN_STATS.pistol;
 }
 var copRay = new THREE.Raycaster();
 function copHasLOS(c, tgt) {
@@ -14194,7 +14216,7 @@ function copShoot(c, wpn, dt, tgt) {
 function recordCopFx(mz, wpn, hitV) {
   var buf = net.copFxBuf;
   if (buf.length > 48) return;   // burst-fire flood guard
-  var e = [Math.round(mz.x * 10), Math.round(mz.y * 10), Math.round(mz.z * 10), (wpn.sfx === 'copsmg' ? 1 : 0) | (hitV ? 2 : 0)];
+  var e = [Math.round(mz.x * 10), Math.round(mz.y * 10), Math.round(mz.z * 10), ((wpn.sfx === 'smg' || wpn.sfx === 'auto') ? 1 : 0) | (hitV ? 2 : 0)];
   if (hitV) { e.push(Math.round(hitV.x * 10), Math.round(hitV.y * 10), Math.round(hitV.z * 10)); }
   buf.push(e);
 }
@@ -14208,6 +14230,10 @@ function damageCop(c, dmg, kx, kz, silent) {
     if (c.mesh.userData.shadow) c.mesh.userData.shadow.visible = false;
     bloodPool(c.x, c.z, c.baseY || 0);   // spreading pool under the dead cop
     stopNpcVoice(c.vname);
+    // a killed cop drops the gun it was carrying (real model; grab it for the gun,
+    // or half a mag of its ammo if you already own one). Interior cops drop under
+    // the map — skip those so the pickup isn't unreachable.
+    if (c.gun && !c.interior && typeof dropWeapon === 'function') dropWeapon(c.gun, c.x, c.z);
     spawnCash(c.x, c.z, 10 + ((Math.random() * 30) | 0), c.baseY || 0);
     sfx('ko', { x: c.x, z: c.z, y: (c.baseY || 0) + 1.2, range: 50 });
     if (!silent) { popup('COP DOWN!'); creditCopKill(!meleeHit && dmg < 900); }   // bullet = gun kill; melee/explosion = not
@@ -14259,7 +14285,6 @@ function bustPlayer(cop) {
   jailPlayer(state.wanted || 1);                    // strip kit, teleport to the cell, serve the sentence (no fine)
 }
 function updateCops(dt) {
-  var wpn = copWeapon();
   // ---- read the player: threat class, speed (for "charging"), and whether we're
   // under fire right now (player fired a gun in the last ~1.6s) ----
   var armLevel = copPlayerThreat();
@@ -14308,7 +14333,6 @@ function updateCops(dt) {
     for (var i0 = 0; i0 < cops.length; i0++) if (cops[i0].state !== 'down' && !cops[i0].interior) alive++;
     if (alive < desiredCops() && copSpawnT <= 0) { spawnCop(state.wanted >= 2); copSpawnT = 2.6; }
   }
-  var tierGun = state.wanted >= 4 ? 'smg' : 'pistol';   // 4-star tier swaps sidearms for SMGs
   for (var i = 0; i < cops.length; i++) {
     var c = cops[i], m = c.mesh;
     if (isClient() && !c.interior) { scene.remove(m); cops.splice(i, 1); i--; continue; }   // street cops come from the host
@@ -14327,8 +14351,14 @@ function updateCops(dt) {
     if (c.interior) tgt = (inside && !state.dead) ? { x: player.x, z: player.z, y: player.y, id: null, d: Math.sqrt((player.x - c.x) * (player.x - c.x) + (player.z - c.z) * (player.z - c.z)) } : null;
     else tgt = copPickTarget(c);
     if (!c.interior) { if (tgt) c.state = 'engage'; else if (c.state === 'engage') c.state = 'patrol'; }
-    // holstered until they mean it: gun out only while engaging (interior cops always)
-    var wantGun = (c.state === 'engage' || c.interior) ? (c.swat ? 'smg' : tierGun) : null;
+    // holstered until they mean it: gun out only while engaging (interior cops always).
+    // roll this cop's weapon the first time it draws (persistent per-cop). At 4-5*
+    // rollCopGun mostly brings the automatics.
+    var wantGun = null;
+    if (c.state === 'engage' || c.interior) {
+      if (!c.gun) c.gun = rollCopGun(maxWanted());
+      wantGun = c.gun;
+    }
     if (m.userData.handR && (m.userData.heldKind || null) !== wantGun) attachHeldGun(m, wantGun);
     var vx = 0, vz = 0, spd = 0, moving = false, aimTgt = null;
     if (tgt) {
@@ -14401,7 +14431,7 @@ function updateCops(dt) {
     }
     m.position.set(c.x, baseY + (c.hurtFlash > 0 ? 0.06 : 0), c.z);
     animPerson(m, moving ? spd : 0, dt, c.phase);
-    if (aimTgt) { copAimArm(c, m, aimTgt); copShoot(c, wpn, dt, aimTgt); }
+    if (aimTgt) { copAimArm(c, m, aimTgt); copShoot(c, copWeapon(c), dt, aimTgt); }
     else if (m.userData.heldGun) copLowReady(m);   // drawn but not aiming: low-ready, not brick-on-palm
   }
   // losing the heat is handled by recomputeHeat() at the top: stay out of the
@@ -17080,23 +17110,11 @@ function spawnCopAt(x, z) {
   mesh.position.set(c.x, 0, c.z);
   mesh.userData.cop = c;
   scene.add(mesh); cops.push(c);
-  if (maxWanted() >= 5) makeSwat(c);
   return c;
 }
-// 5-star escalation: turn a fresh cop into a SWAT operator — heavier armour (more
-// HP), always an SMG (see updateCops wantGun), and a dark tactical vest slab so
-// you can tell them apart. Idempotent.
-var _swatVestM = new THREE.MeshLambertMaterial({ color: 0x20242a });
-function makeSwat(c) {
-  if (!c || c.swat) return;
-  c.swat = true; c.hp = 175;
-  if (c.mesh) {
-    var vest = box(0.62, 0.5, 0.34, _swatVestM, 0, 1.28, 0);   // chest rig over the torso
-    vest.userData.swatVest = true;
-    if (typeof JAIL_LAYER !== 'undefined') vest.layers.set(0);
-    c.mesh.add(vest);
-  }
-}
+// (SWAT operators removed for now — the placeholder black vest slab read badly.
+// 5-star cops are just regular officers with the heavier auto/smg weapon roll.
+// A proper Meshy SWAT model may replace this later.)
 function parkAndDisgorge(cc) {
   cc.state = 'parked'; cc.parkT = 0; cc.speed = 0;
   if (cc.disgorged) return;
@@ -17277,10 +17295,10 @@ function updateCopCars(dt) {
   copSirenT -= dt;
   if (nearest && nd < 95 && copSirenT <= 0) { copSirenT = 0.85; copSiren(nearest.x, nearest.z); }
 }
-// ==================== HEAT OPS (roadblocks + spike strips + SWAT) ====================
+// ==================== HEAT OPS (roadblocks + spike strips) ====================
 // While you're DRIVING at 3+ stars the police escalate beyond a straight chase:
 // they throw roadblocks (broadside cruisers + foot cops) and spike strips ahead of
-// you on the road, and at 5 stars foot cops arrive as SWAT (heavier HP + SMGs).
+// you on the road.
 // Local/per-player, host-only (isClient bails) — same policy as cop cars/helis.
 var spikeStrips = [], heatOpsT = 10;
 // nearest road-edge tangent to a point, or null if no road within ~22u.
@@ -17498,7 +17516,7 @@ function makeHeliGunner(hgroup, side) {
   var mesh = (typeof buildCop === 'function') ? buildCop() : new THREE.Group();
   mesh.position.set(-0.1, -0.35, side * 0.95);
   mesh.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2;   // face out the side door
-  if (typeof attachHeldGun === 'function') attachHeldGun(mesh, 'smg');
+  if (typeof attachHeldGun === 'function') attachHeldGun(mesh, 'rifle');   // heli gunners carry the scoped rifle
   hgroup.add(mesh);
   return { mesh: mesh, hp: HELI_GUNNER_HP, fireT: 0.6 + Math.random(), alive: true, side: side };
 }
@@ -17530,7 +17548,7 @@ function heliGunnerFire(h, gun, dt) {
   var wp = new THREE.Vector3(); gun.mesh.getWorldPosition(wp);
   if (typeof puff === 'function') puff(wp, 0xffe08a, 'muzzle');
   if (typeof spawnBeam === 'function') spawnBeam(wp.x, wp.y, wp.z, player.x, player.y - 0.4, player.z, 0xffdd66);
-  if (typeof sfx === 'function') sfx('copsmg', { x: h.x, z: h.z, y: h.y, range: 170 });
+  if (typeof sfx === 'function') sfx('rifle', { x: h.x, z: h.z, y: h.y, range: 190 });   // heli gunners fire the scoped rifle
   var d = Math.hypot(player.x - h.x, player.z - h.z);
   var chance = 0.3 * Math.max(0.12, 1 - d / 70);
   if (Math.random() < chance && !state.dead && !noclip) {
@@ -18713,7 +18731,26 @@ function updateThrownAxes(dt) {
 
 // ---------------- weapon drops ----------------
 var drops = [];
+// map a weapon key -> its real player gun model (MESHY_GUNS) + a drop-size length.
+var GUN_MODEL_NAME = { pistol: 'glock19', smg: 'tec9', shotgun: 'shotgun', rifle: 'kar98k', auto: 'ak47', rocket: 'rpg7' };
+var GUN_DROP_LEN = { pistol: 0.5, smg: 0.72, shotgun: 1.05, rifle: 1.05, auto: 1.0, rocket: 1.15 };
+// the actual player gun model, oriented barrel-forward (-z) in a wrapper so it
+// reads the same as the old box placeholder (spins as a drop, grips in a hand).
+function realGunModel(kind) {
+  var mn = GUN_MODEL_NAME[kind];
+  if (!mn || typeof getGunMesh !== 'function' || !(typeof hasMeshyGun === 'function' && hasMeshyGun(mn))) return null;
+  var mdl = null;
+  try { mdl = getGunMesh(mn, GUN_DROP_LEN[kind] || 0.6); } catch (e) { mdl = null; }
+  if (!mdl) return null;
+  var wrap = new THREE.Group();
+  mdl.rotation.order = 'YXZ';
+  mdl.rotation.y = -Math.PI / 2;   // baked muzzle is along local -x -> point it down local -z
+  wrap.add(mdl);
+  return wrap;
+}
 function dropMesh(kind) {
+  var real = realGunModel(kind);
+  if (real) return real;   // use the actual player gun model for dropped/cop-held guns
   var g = new THREE.Group();
   if (kind === 'pistol') { g.add(box(0.1, 0.12, 0.45, darkMetalM, 0, 0, 0)); g.add(box(0.09, 0.24, 0.13, gripM, 0, -0.14, 0.14)); }
   else if (kind === 'smg') { g.add(box(0.1, 0.13, 0.6, metalM, 0, 0, 0)); g.add(box(0.07, 0.34, 0.1, metalM, 0, -0.2, -0.1)); }
@@ -18770,10 +18807,18 @@ function applyDropPickup(kind) {
   }
   if (!WEAPONS[kind]) return;
   if (state.owned[kind]) {
-    var refund = Math.floor((WEAPONS[kind].price || 0) / 2);
-    state.money += refund;
-    popup(refund ? '+$' + refund + ' (sold ' + WEAPONS[kind].name + ')' : 'Already have a ' + WEAPONS[kind].name);
-    if (refund) sfx('cash');
+    // already own it -> scavenge HALF A MAG of its ammo type into your reserve
+    var w = WEAPONS[kind];
+    if (w.ammo && w.mag) {
+      var half = Math.max(1, Math.ceil(w.mag / 2));
+      if (!state.ammoRes) state.ammoRes = { pistol: 0, rifle: 0, shotgun: 0, rocket: 0 };
+      state.ammoRes[w.ammo] = (state.ammoRes[w.ammo] || 0) + half;
+      popup('+' + half + ' ' + w.ammo + ' ammo');
+      sfx('buy');
+      if (typeof refreshHotbarHud === 'function') refreshHotbarHud();
+    } else {
+      popup('Already have a ' + w.name);
+    }
   } else {
     state.owned[kind] = true;
     grantGunAmmo(kind, 1, 0);   // scavenged gun: one loaded mag, no spare

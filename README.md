@@ -353,10 +353,10 @@ takedowns stack up as a small **kill feed** under the money counter
 fading out after a few seconds.
 
 Die and you drop every gun you own — run back within 2 minutes to grab
-them off the pavement. Picking up a gun you already own sells it for half
-its price. In multiplayer the pavement is shared: anyone can scoop up your
-dropped arsenal before you get back, so dying near your killer is a
-donation.
+them off the pavement. Picking up a gun you **already own** scavenges **half a
+magazine** of its ammo type into your reserve instead. In multiplayer the
+pavement is shared: anyone can scoop up your dropped arsenal before you get
+back, so dying near your killer is a donation.
 
 Grab a wad of loose cash and a green **"+$" floats up from the spot** it
 was lying and fades — a little hit of feedback anchored to the world, not
@@ -434,9 +434,6 @@ At **3 stars and up the police escalate a car chase** with dedicated heat ops:
   out** — the car drops to a shredded crawl and never grips right again, so you
   either bail out or get run down. (A fresh car is clean; a spiked one stays
   crippled.)
-- **SWAT** — at **5 stars** the officers who arrive are **SWAT**: dark tactical
-  vests, tougher armour (they soak far more damage) and **SMGs across the board**.
-
 All of these are **single-player/local** effects (like the jet), so they hunt
 *you*.
 
@@ -554,8 +551,13 @@ five minutes of not being found) — and **all your stars drop at once**. Let th
 lay eyes on you and that escape timer resets to full.
 
 More badges, too: more officers patrol and pile onto a chase per star, more
-cruisers roll, and (from 3★) the Sheriff's choppers join. Below 4 stars they
-carry short-range pistols; at 4–5★ they bring full-auto SMGs. Getting knocked
+cruisers roll, and (from 3★) the Sheriff's choppers join. **Every cop now carries
+a real gun** — the same models and sounds you use. At **1–3 stars** they bring
+**pistols** (most common) or the occasional **shotgun**; at **4–5 stars** they
+mostly show up with **SMGs and AK-47s** but a few still carry pistols or shotguns.
+The **helicopter gunners** wield the scoped **rifle**. Gun one down and it **drops
+its weapon** on the ground — grab it, and if you already own that gun you scavenge
+**half a magazine** of its ammo instead. Getting knocked
 out — or **arrested** (see below) — wipes your wanted level.
 
 ### Getting arrested
