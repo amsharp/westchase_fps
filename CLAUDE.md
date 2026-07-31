@@ -32,9 +32,11 @@ something seems off.
 - **Precise building collision (v1.112):** imported buildings no longer collide as
   one bounding box — `pushMeshColliders(cache, scale, wx, wz, rotY, topY, tag)`
   decodes the actual ground-level footprint from `cache.geo` (`meshFootprintRects`:
-  rasterize the ground-slice triangles `minY < miny+max(1.2,H*0.14)` into an
-  occupancy grid — edge-sample for thin walls + cell-center-in-tri for floor caps —
-  flood-fill the exterior so enclosed interiors fill solid, then greedy
+  rasterize only the ground-slice **VERTICAL** faces (walls/pillars — `minY <
+  miny+max(1.2,H*0.14)` AND face normal `|ny|<0.6`; horizontal floor/roof slabs are
+  skipped so covered drop-offs / overhangs stay walkable — v1.112.1) into an
+  occupancy grid (edge-sampled), flood-fill the exterior so enclosed interiors fill
+  solid while open areas bounded only by gapped pillars stay free, then greedy
   maximal-rect decompose) and registers a set of oriented-box colliders
   (`addColliderOBB`, tagged `building`, `topY` set) that follow the real shape
   (L-wings, notches, thin ATC shaft). Falls back to one yaw box on bad geo.

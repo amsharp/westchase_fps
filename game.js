@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.112.0';
+var GAME_VERSION = 'v1.112.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -6386,16 +6386,16 @@ function meshFootprintRects(geo, maxCells) {
   function v3(vi, k) { return pos[vi * 3 + k]; }
   for (var t = 0; t < triCount; t++) {
     var a = idx ? idx[t * 3] : t * 3, b = idx ? idx[t * 3 + 1] : t * 3 + 1, c = idx ? idx[t * 3 + 2] : t * 3 + 2;
-    if (Math.min(v3(a, 1), v3(b, 1), v3(c, 1)) > bandTop) continue;   // high-only feature: skip
+    var ay = v3(a, 1), by = v3(b, 1), cy = v3(c, 1);
+    if (Math.min(ay, by, cy) > bandTop) continue;   // high-only feature (roof / raised deck): skip
     var ax = v3(a, 0), az = v3(a, 2), bx = v3(b, 0), bz = v3(b, 2), cx2 = v3(c, 0), cz2 = v3(c, 2);
-    markEdge(ax, az, bx, bz); markEdge(bx, bz, cx2, cz2); markEdge(cx2, cz2, ax, az);   // thin walls: sample the edges
-    var lx = Math.min(ax, bx, cx2), hx2 = Math.max(ax, bx, cx2), lz = Math.min(az, bz, cz2), hz2 = Math.max(az, bz, cz2);
-    var ci0 = Math.max(0, Math.floor((lx - minx) / cell)), ci1 = Math.min(nx - 1, Math.floor((hx2 - minx) / cell));
-    var cj0 = Math.max(0, Math.floor((lz - minz) / cell)), cj1 = Math.min(nz - 1, Math.floor((hz2 - minz) / cell));
-    for (var ci = ci0; ci <= ci1; ci++) for (var cj = cj0; cj <= cj1; cj++) {
-      if (occ[ci * nz + cj]) continue;
-      if (_ptInTri(minx + (ci + 0.5) * cell, minz + (cj + 0.5) * cell, ax, az, bx, bz, cx2, cz2)) occ[ci * nz + cj] = 1;
-    }
+    // ONLY vertical faces (walls, pillars) block — a horizontal face is a floor/roof
+    // you can stand under/on, so a drop-off slab or covered walkway stays walkable.
+    // face normal; |ny| near 1 => horizontal.
+    var e1x = bx - ax, e1y = by - ay, e1z = bz - az, e2x = cx2 - ax, e2y = cy - ay, e2z = cz2 - az;
+    var ny = e1z * e2x - e1x * e2z, nl = Math.sqrt((e1y * e2z - e1z * e2y) * (e1y * e2z - e1z * e2y) + ny * ny + (e1x * e2y - e1y * e2x) * (e1x * e2y - e1y * e2x)) || 1;
+    if (Math.abs(ny / nl) > 0.6) continue;   // horizontal floor/roof slab — not a wall
+    markEdge(ax, az, bx, bz); markEdge(bx, bz, cx2, cz2); markEdge(cx2, cz2, ax, az);   // wall/pillar footprint lines
   }
   // flood-fill the exterior from the border through empty cells; any empty cell not
   // reached is an enclosed interior -> fill it solid (so you can't slip inside).
