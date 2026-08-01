@@ -5,8 +5,35 @@
 (function () {
 'use strict';
 
+// ---- TEMP crash catcher (v1.115.2): surface the first runtime error ON SCREEN
+// so a freeze can be diagnosed from a screenshot (the render loop stops on a
+// throw but rAF keeps looping, so this overlay stays visible). Remove once the
+// freeze-on-arming bug is fixed. ----
+(function () {
+  var shown = false;
+  function show(msg) {
+    if (shown) return; shown = true;
+    try {
+      var d = document.getElementById('__wcErr');
+      if (!d) { d = document.createElement('div'); d.id = '__wcErr';
+        d.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:2147483647;background:rgba(150,0,0,.95);color:#fff;font:13px/1.35 monospace;padding:10px;white-space:pre-wrap;word-break:break-word;max-height:60vh;overflow:auto;pointer-events:none;';
+        (document.body || document.documentElement).appendChild(d); }
+      d.textContent = 'GAME ERROR — screenshot this:\n' + msg;
+    } catch (e) {}
+  }
+  window.addEventListener('error', function (ev) {
+    var m = (ev && ev.error && ev.error.stack) ? ev.error.stack
+          : ((ev && ev.message ? ev.message : 'error') + ' @ ' + (ev && ev.filename ? String(ev.filename).split('/').pop() : '?') + ':' + (ev && ev.lineno) + ':' + (ev && ev.colno));
+    show(String(m).slice(0, 1200));
+  });
+  window.addEventListener('unhandledrejection', function (ev) {
+    var r = ev && ev.reason; show('PROMISE: ' + String(r && r.stack ? r.stack : r).slice(0, 1200));
+  });
+  window.__wcShowErr = function (e) { show(String(e && e.stack ? e.stack : e).slice(0, 1200)); };
+})();
+
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.115.1';
+var GAME_VERSION = 'v1.115.2';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -27122,9 +27149,11 @@ function loop(now) {
   if (photoMode) { updatePhotoCam(dt); renderer.render(scene, camera); return; }
   T += dt;
   var sdt = dt;
+  try {   // TEMP (v1.115.2): surface a per-frame throw on-screen but keep rendering (no hard freeze)
   updatePlayer(dt); updateKick(dt); updatePlaneWorld(dt); updateAirportPlane(dt); updatePlayerHeli(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateCopCars(dt); updateHeatOps(dt); updateHelis(dt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); ensureSpraySpawn(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateJail(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
   if (state.dead) updateDeathCam(dt);   // top-down zoom-out cinematic drives the camera while dead
   else if (arrested) updateArrestCam(dt);   // arrest cinematic drives the camera while being booked
+  } catch (e) { if (window.__wcShowErr) window.__wcShowErr(e); }
   renderer.render(scene, camera);
 }
 setEquipped('fists');
