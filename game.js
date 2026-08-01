@@ -5,35 +5,8 @@
 (function () {
 'use strict';
 
-// ---- TEMP crash catcher (v1.115.2): surface the first runtime error ON SCREEN
-// so a freeze can be diagnosed from a screenshot (the render loop stops on a
-// throw but rAF keeps looping, so this overlay stays visible). Remove once the
-// freeze-on-arming bug is fixed. ----
-(function () {
-  var shown = false;
-  function show(msg) {
-    if (shown) return; shown = true;
-    try {
-      var d = document.getElementById('__wcErr');
-      if (!d) { d = document.createElement('div'); d.id = '__wcErr';
-        d.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:2147483647;background:rgba(150,0,0,.95);color:#fff;font:13px/1.35 monospace;padding:10px;white-space:pre-wrap;word-break:break-word;max-height:60vh;overflow:auto;pointer-events:none;';
-        (document.body || document.documentElement).appendChild(d); }
-      d.textContent = 'GAME ERROR — screenshot this:\n' + msg;
-    } catch (e) {}
-  }
-  window.addEventListener('error', function (ev) {
-    var m = (ev && ev.error && ev.error.stack) ? ev.error.stack
-          : ((ev && ev.message ? ev.message : 'error') + ' @ ' + (ev && ev.filename ? String(ev.filename).split('/').pop() : '?') + ':' + (ev && ev.lineno) + ':' + (ev && ev.colno));
-    show(String(m).slice(0, 1200));
-  });
-  window.addEventListener('unhandledrejection', function (ev) {
-    var r = ev && ev.reason; show('PROMISE: ' + String(r && r.stack ? r.stack : r).slice(0, 1200));
-  });
-  window.__wcShowErr = function (e) { show(String(e && e.stack ? e.stack : e).slice(0, 1200)); };
-})();
-
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.115.2';
+var GAME_VERSION = 'v1.115.3';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -14406,7 +14379,7 @@ function updateCops(dt) {
   _copPpx = player.x; _copPpz = player.z;
   var pspd = Math.sqrt(_copPvx * _copPvx + _copPvz * _copPvz);
   recomputeHeat(dt);   // does dispatch currently KNOW where you are? run the escape timer.
-  // updatePursuitWarp(dt);   // TEMP DISABLED (v1.115.1): isolating a reported freeze-on-gaining-a-star
+  updatePursuitWarp(dt);   // far-behind units warp in (off-screen) after ~20s of active pursuit
   var suppressed = (armLevel === 2) && (T - lastShot < 1.6) && (state.wanted || 0) > 0;
   if (armLevel === 1 && (state.wanted || 0) > 0 && !state.dead && !inside) {
     if (!copMeleeSince) copMeleeSince = T;
@@ -14475,6 +14448,7 @@ function updateCops(dt) {
       wantGun = c.gun;
     }
     if (m.userData.handR && (m.userData.heldKind || null) !== wantGun) attachHeldGun(m, wantGun);
+    var wpn = copWeapon(c);   // this cop's own weapon stats (range gates advance/aim below) — was a deleted top-of-fn var (v1.115.3 fix)
     var vx = 0, vz = 0, spd = 0, moving = false, aimTgt = null;
     if (tgt) {
       var dx = tgt.x - c.x, dz = tgt.z - c.z, d = tgt.d;
@@ -17244,8 +17218,9 @@ function removeCopCar(cc) { if (cc.car && cc.car.group) scene.remove(cc.car.grou
 function explodeCopCar(cc) { if (typeof boomAt === 'function') boomAt(cc.x, cc.z); removeCopCar(cc); }
 function damageCopCar(cc, dmg, pt) {
   cc.hp -= dmg; if (pt && typeof puff === 'function') puff(pt, 0xffe08a);
-  // (v1.115.1) TEMP: the "shooting a cruiser draws 2 stars" heat hook is removed
-  // while isolating a reported freeze that triggers when the wanted level rises.
+  // shooting/blowing up a marked cruiser is a crime — draw heat (even on a calm
+  // patrol car), so patrol units actually respond instead of eating rounds for free.
+  if (!state.dead) { lastCrimeT = T; if ((state.wanted || 0) < 2 && typeof setWanted === 'function') setWanted(2); }
 }
 // wipe every pursuit unit off the map at once — the street cops, cop cars and
 // helicopters spawned by the wanted level. Called on death-respawn and on arrest
@@ -27149,11 +27124,9 @@ function loop(now) {
   if (photoMode) { updatePhotoCam(dt); renderer.render(scene, camera); return; }
   T += dt;
   var sdt = dt;
-  try {   // TEMP (v1.115.2): surface a per-frame throw on-screen but keep rendering (no hard freeze)
   updatePlayer(dt); updateKick(dt); updatePlaneWorld(dt); updateAirportPlane(dt); updatePlayerHeli(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateCopCars(dt); updateHeatOps(dt); updateHelis(dt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); ensureSpraySpawn(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateJail(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
   if (state.dead) updateDeathCam(dt);   // top-down zoom-out cinematic drives the camera while dead
   else if (arrested) updateArrestCam(dt);   // arrest cinematic drives the camera while being booked
-  } catch (e) { if (window.__wcShowErr) window.__wcShowErr(e); }
   renderer.render(scene, camera);
 }
 setEquipped('fists');
