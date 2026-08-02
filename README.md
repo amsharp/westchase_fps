@@ -798,9 +798,13 @@ Walk up and press **E** to climb in. It flies on a simple cyclic/collective feel
   and the chopper **levels itself upright on the skids** — the held tilt eases
   back to flat once you're resting on the gear.
 
-Press **E** to hop out. Slam it into the ground or a building at speed and it
-goes up in a fireball (and takes you with it if you're aboard). Local /
-single-player like the plane.
+Press **E** to hop out. On the ground you step out beside it (parked upright on
+its skids). Hit **E while airborne** and you **bail out under a parachute** (float
+down in third person, WASD to steer) — the chopper flies on **pilotless**, keeping
+its momentum and losing altitude until it **augers into the ground or whatever it
+hits** and explodes. Unlike the jet, it's too light to bring a skyscraper down.
+Slam it into the ground or a building at speed while you're aboard and it goes up
+in a fireball (and takes you with it). Local / single-player like the plane.
 
 ### Flying into a skyscraper
 

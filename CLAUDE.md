@@ -387,14 +387,27 @@ game.js under `WC_REMAP`. Frame: junction `(0,0)`, **+x east / +z south**.
   y=-`skid` so a group at y=`skid` sits on the ground. `buildHeliMesh(variant)`
   builds `{group,mainRotor,tailRotor}` (same contract the old procedural mesh had —
   now `buildHeliMeshProc` fallback): `mainRotor` spins about **Y**, `tailRotor`
-  about **Z** (`updateHeli`/`updatePlayerHeli` already drive those). Two baked
-  atlases share the geometry: `texPolice` (Hillsborough Sheriff livery, baked into
-  the GLB) for the pursuit choppers, `texCivilian` (user's repaint zip) for the
-  player-flyable one (`spawnPlayerHeli` → `buildHeliMesh('civilian')`). Textures
-  are full-res 1536×1024 JPEG data-URLs (no downscale). Offline pipeline in
-  scratchpad: `extract_parts.js` (GLB→3 parts, world-baked) → `convgeo.js`
-  (rot +90°Y, scale, quantize) → JPEG re-encode → assemble `heli.js`. `heliSideTex`
-  and the procedural mesh are dead now but kept as the fallback.
+  about **Z** (`updateHeli`/`updatePlayerHeli` already drive those). `buildHeliMesh`
+  is model-generic (`buildHeliFromModel(model,texUrl,keyPrefix)` + `heliGeoFor`/
+  `heliTexFor`). **Police** choppers use `HELI_MODEL.texPolice` (Hillsborough Sheriff
+  livery baked into the GLB). **Civilian** (player-flyable, `spawnPlayerHeli` →
+  `buildHeliMesh('civilian')`) now has its OWN file **`civheli.js` = `CIV_HELI_MODEL`**
+  (v1.118, loaded before game.js, game guards `typeof CIV_HELI_MODEL`): the user
+  re-authored the UV layout, so it's a separate model/atlas — but it's the SAME AS350
+  mesh, so `tools/skygen`-style the converter (`tools/heligen/glb2civheli.js`) maps the
+  raw GLB (nose +Z, Blender scale) onto the OLD model's sim space via a similarity fit
+  (Ry+90°, scale ~0.55, translate) to the body bbox and REUSES the old part pivots →
+  identical geometry/pivots/spin, only UVs+skin differ. Falls back to
+  `HELI_MODEL.texCivilian` if `civheli.js` is absent. Textures are full-res 1536×1024
+  JPEG data-URLs (no downscale). `heliSideTex` + the procedural mesh are the fallback.
+- **Player heli bail/land** (v1.117.1/v1.118): landing eases the held cyclic tilt to
+  level so it sits upright on the skids (`exitHeli` also snaps level on a ground exit);
+  no big `[E] EXIT` HUD prompt (corner box shows it). **Exiting mid-air** (>2.5u up)
+  deploys the parachute like the plane (`deployParachute`) and the chopper flies on
+  **pilotless** (`heliVeh.pilotless` → `updateHeliFreeFlight`): keeps its momentum,
+  falls under gravity with a dead-stick tumble, and explodes on the first ground/
+  building/highway contact via `crashPlayerHeli` (a plain fireball — NEVER `igniteTower`,
+  so it can't collapse a skyscraper like the heavier jet can).
 - **Rotor sound** (v1.110, `startHeliSound`/`updateHeliSound`, called at the end of
   `updateHelis`): a procedural whump — brown-noise rotor wash bandpassed + chopped
   by a ~13 Hz sawtooth LFO (blade slap), a 46 Hz engine rumble, a 560 Hz turbine

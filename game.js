@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.117.1';
+var GAME_VERSION = 'v1.118.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -16075,7 +16075,7 @@ function heliGroundY(x, z) {
 function boardHeli() {
   if (!heliVeh || heliVeh.piloting) return;
   if (driving) exitCar();
-  heliVeh.piloting = true; heliVeh.pitch = 0; heliVeh.roll = 0; heliVeh.camInit = false; rap.gta = true;   // taking the chopper is grand theft auto
+  heliVeh.piloting = true; heliVeh.pilotless = false; heliVeh.pitch = 0; heliVeh.roll = 0; heliVeh.camInit = false; rap.gta = true;   // taking the chopper is grand theft auto
   setZoom(false); vm.visible = false;
   document.getElementById('crosshair').style.display = 'none';
   var wb = document.getElementById('weaponBox');
@@ -16083,17 +16083,51 @@ function boardHeli() {
 }
 function exitHeli() {
   if (!heliVeh) return;
-  heliVeh.piloting = false; heliVeh.vx = heliVeh.vy = heliVeh.vz = 0;
-  heliVeh.pitch = 0; heliVeh.roll = 0;               // park it upright on the skids, never frozen at a bank angle
+  var h = heliVeh, g = h.group;
   vm.visible = true;
   document.getElementById('crosshair').style.display = '';
   setEquipped(state.equipped);
-  var g = heliVeh.group;
-  g.rotation.set(0, heliVeh.yaw, 0, 'YXZ');          // level the parked chopper
+  var airborne = (g.position.y - heliGroundY(g.position.x, g.position.z)) > 2.5;
+  if (airborne) {
+    // BAILING mid-flight: a parachute auto-deploys (third person, WASD to steer),
+    // and the chopper flies on PILOTLESS — it keeps its momentum, loses altitude,
+    // and augers into the ground / whatever it hits (explodes, but it's too light
+    // to bring a skyscraper down, unlike the jet).
+    h.piloting = false; h.pilotless = true;
+    popup2('BAILING OUT!');
+    player.x = g.position.x; player.z = g.position.z;
+    player.y = Math.max(EYE + 4, g.position.y);
+    player.vy = -1; player.grounded = false;
+    deployParachute(h.vx * 0.4, h.vz * 0.4);         // carry a little of the chopper's momentum into the glide
+    return;
+  }
+  // landed: step out beside it, parked upright on the skids
+  h.piloting = false; h.pilotless = false; h.vx = h.vy = h.vz = 0;
+  h.pitch = 0; h.roll = 0;                            // never frozen at a bank angle
+  g.rotation.set(0, h.yaw, 0, 'YXZ');
   var side = new THREE.Vector3(0, 0, 1).applyQuaternion(g.quaternion);
   var pp = pushOut(g.position.x + side.x * 2.6, g.position.z + side.z * 2.6, 0.55, landColliders || colliders);
   player.x = pp.x; player.z = pp.z; player.y = EYE; player.vy = 0; player.grounded = true;
   popup('PARKED'); sfx('cardoor');
+}
+// pilotless free-flight after a mid-air bail: dead-stick drop with momentum + a
+// slow tumble, exploding on the first ground/building/highway contact. Routed
+// through crashPlayerHeli (a plain fireball) so it can NEVER collapse a tower.
+function updateHeliFreeFlight(dt) {
+  var h = heliVeh, g = h.group;
+  var dragc = Math.max(0, 1 - 0.5 * dt); h.vx *= dragc; h.vz *= dragc;   // keep momentum, light air drag
+  h.vy -= 16 * dt; if (h.vy < -42) h.vy = -42;                           // gravity (falls faster than a powered sink)
+  g.position.x += h.vx * dt; g.position.y += h.vy * dt; g.position.z += h.vz * dt;
+  g.position.x = Math.max(WLO + 4, Math.min(WHI - 4, g.position.x));
+  g.position.z = Math.max(WLO + 4, Math.min(WHI - 4, g.position.z));
+  h.roll += dt * 0.55; h.pitch += dt * 0.35;                             // slow dead-stick tumble
+  g.rotation.set(h.roll, h.yaw, -h.pitch, 'YXZ');
+  h.mainRotor.rotation.y += Math.max(4, 26 + h.vy) * dt;                 // rotor windmills down as it drops
+  h.tailRotor.rotation.z += 18 * dt;
+  var gy = heliGroundY(g.position.x, g.position.z);
+  if (g.position.y <= gy || planeHitBuilding(g.position.x, g.position.y, g.position.z) || planeHitHighway(g.position.x, g.position.y, g.position.z)) {
+    crashPlayerHeli();   // fireball only — no igniteTower, so no skyscraper collapse
+  }
 }
 function crashPlayerHeli() {
   if (!heliVeh) return;
@@ -16117,7 +16151,7 @@ function updateHeliCam(dt) {
 function updatePlayerHeli(dt) {
   if (!heliVeh) return;
   var h = heliVeh, g = h.group;
-  if (!h.piloting) return;   // parked: rotors still, no sound (updateHeliSound skips a non-piloted heli)
+  if (!h.piloting) { if (h.pilotless) updateHeliFreeFlight(dt); return; }   // bailed: dead-stick fall; else parked (rotors still)
   var yawIn = (keys['KeyA'] ? 1 : 0) - (keys['KeyD'] ? 1 : 0);       // A left, D right
   h.yaw += yawIn * 1.7 * dt;
   // cyclic HOLDS its tilt (set by the mouse) — no self-centering. You stay tilted
@@ -17584,19 +17618,18 @@ function heliSideTex() {
 // spins about Y, tailRotor about Z (baked so nose=+X, skids at y=-skid) — same
 // {group,mainRotor,tailRotor} contract the procedural fallback returned.
 var _heliTexCache = {}, _heliGeoCache = {};
-function heliTexture(which) {
-  if (_heliTexCache[which]) return _heliTexCache[which];
+function heliTexFor(url, key) {
+  if (_heliTexCache[key]) return _heliTexCache[key];
   var im = new Image(), tx = new THREE.Texture(im);
   tx.magFilter = THREE.LinearFilter; tx.minFilter = THREE.LinearMipmapLinearFilter;
   if (typeof MAXANISO !== 'undefined') tx.anisotropy = MAXANISO;
-  im.onload = function () { tx.needsUpdate = true; };
-  im.src = (which === 'civilian') ? HELI_MODEL.texCivilian : HELI_MODEL.texPolice;
-  _heliTexCache[which] = tx;
+  im.onload = function () { tx.needsUpdate = true; }; im.src = url;
+  _heliTexCache[key] = tx;
   return tx;
 }
-function heliPartGeo(name) {
-  if (_heliGeoCache[name]) return _heliGeoCache[name];
-  var e = HELI_MODEL.parts[name], q = HELI_MODEL.q;
+function heliGeoFor(model, name, key) {
+  if (_heliGeoCache[key]) return _heliGeoCache[key];
+  var e = model.parts[name], q = model.q;
   var qp = new Int16Array(b64Bytes(e.p).buffer), qu = new Uint16Array(b64Bytes(e.u).buffer);
   var fp = new Float32Array(qp.length), fu = new Float32Array(qu.length);
   for (var i = 0; i < qp.length; i++) fp[i] = qp[i] / q;
@@ -17606,23 +17639,31 @@ function heliPartGeo(name) {
   geo.setAttribute('uv', new THREE.BufferAttribute(fu, 2));
   geo.setIndex(new THREE.BufferAttribute(new Uint16Array(b64Bytes(e.i).buffer), 1));
   geo.computeVertexNormals();
-  _heliGeoCache[name] = geo;
+  _heliGeoCache[key] = geo;
   return geo;
 }
-function buildHeliMesh(variant) {
-  if (typeof HELI_MODEL === 'undefined') return buildHeliMeshProc();   // fallback keeps the game booting if heli.js is absent
-  var mat = lamb({ map: heliTexture(variant === 'civilian' ? 'civilian' : 'police'), side: THREE.DoubleSide });
+// build a heli {group,mainRotor,tailRotor} from a model ({q,parts:{pivot,p,u,i}}) + a texture.
+function buildHeliFromModel(model, texUrl, keyPrefix) {
+  var mat = lamb({ map: heliTexFor(texUrl, keyPrefix), side: THREE.DoubleSide });
   var g = new THREE.Group();
   function part(name) {
-    var pd = HELI_MODEL.parts[name];
+    var pd = model.parts[name];
     var grp = new THREE.Group(); grp.position.set(pd.pivot[0], pd.pivot[1], pd.pivot[2]);
-    grp.add(new THREE.Mesh(heliPartGeo(name), mat));
+    grp.add(new THREE.Mesh(heliGeoFor(model, name, keyPrefix + '_' + name), mat));
     g.add(grp); return grp;
   }
   part('body');
   var mainRotor = part('mainRotor');   // spins about Y
   var tailRotor = part('tailRotor');   // spins about Z
   return { group: g, mainRotor: mainRotor, tailRotor: tailRotor };
+}
+function buildHeliMesh(variant) {
+  // civilian (player-flyable) now has its OWN re-UV'd model + skin (civheli.js);
+  // the police pursuit choppers keep the HELI_MODEL atlas. Same mesh/pivots, so
+  // both fly identically — only the livery differs.
+  if (variant === 'civilian' && typeof CIV_HELI_MODEL !== 'undefined') return buildHeliFromModel(CIV_HELI_MODEL, CIV_HELI_MODEL.texCivilian, 'civ');
+  if (typeof HELI_MODEL === 'undefined') return buildHeliMeshProc();   // fallback keeps the game booting if heli.js is absent
+  return buildHeliFromModel(HELI_MODEL, variant === 'civilian' ? HELI_MODEL.texCivilian : HELI_MODEL.texPolice, variant === 'civilian' ? 'polciv' : 'pol');
 }
 function buildHeliMeshProc() {
   var g = new THREE.Group();
