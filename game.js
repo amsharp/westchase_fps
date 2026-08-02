@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.117.0';
+var GAME_VERSION = 'v1.117.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -16084,10 +16084,12 @@ function boardHeli() {
 function exitHeli() {
   if (!heliVeh) return;
   heliVeh.piloting = false; heliVeh.vx = heliVeh.vy = heliVeh.vz = 0;
+  heliVeh.pitch = 0; heliVeh.roll = 0;               // park it upright on the skids, never frozen at a bank angle
   vm.visible = true;
   document.getElementById('crosshair').style.display = '';
   setEquipped(state.equipped);
   var g = heliVeh.group;
+  g.rotation.set(0, heliVeh.yaw, 0, 'YXZ');          // level the parked chopper
   var side = new THREE.Vector3(0, 0, 1).applyQuaternion(g.quaternion);
   var pp = pushOut(g.position.x + side.x * 2.6, g.position.z + side.z * 2.6, 0.55, landColliders || colliders);
   player.x = pp.x; player.z = pp.z; player.y = EYE; player.vy = 0; player.grounded = true;
@@ -16146,6 +16148,16 @@ function updatePlayerHeli(dt) {
     if (h.vy < 0) h.vy = 0;
   }
   if ((planeHitBuilding(g.position.x, g.position.y, g.position.z) || planeHitHighway(g.position.x, g.position.y, g.position.z)) && (hsp > 8 || Math.abs(h.vy) > 8)) { crashPlayerHeli(); return; }
+  // resting on the ground -> settle level on the skids: ease the held cyclic tilt
+  // back to zero (unless you're lifting off with W) so a landed chopper sits
+  // upright on its gear instead of frozen at its last bank angle.
+  if (g.position.y <= gy + 0.06 && !keys['KeyW']) {
+    var lv = Math.min(1, dt * 5);
+    h.pitch += (0 - h.pitch) * lv; h.roll += (0 - h.roll) * lv;
+    if (Math.abs(h.pitch) < 0.004) h.pitch = 0;
+    if (Math.abs(h.roll) < 0.004) h.roll = 0;
+    var gd = Math.max(0, 1 - dt * 4); h.vx *= gd; h.vz *= gd;       // stop skidding once down
+  }
   g.rotation.set(h.roll, h.yaw, -h.pitch, 'YXZ');                   // bank(X), heading(Y), pitch(Z)
   h.mainRotor.rotation.y += 30 * dt; h.tailRotor.rotation.z += 44 * dt;
   player.x = g.position.x; player.z = g.position.z; player.y = g.position.y;
@@ -26386,12 +26398,12 @@ function updatePlayer(dt) {
     return;
   }
   if (heliVeh && heliVeh.piloting) {       // the heli sim owns the frame while flying
-    document.getElementById('prompt').textContent = '[E] EXIT HELICOPTER';
+    document.getElementById('prompt').textContent = '';   // no exit prompt on the HUD (the corner box shows [E] exit)
     rocketCdEl.classList.add('hidden');
     return;
   }
   if (plane && plane.piloting) {          // the flight sim (updatePlaneWorld) owns the frame while airborne
-    document.getElementById('prompt').textContent = '[E] EXIT PLANE';
+    document.getElementById('prompt').textContent = '';   // no exit prompt on the HUD (the corner box shows [E] exit)
     rocketCdEl.classList.add('hidden');
     return;
   }

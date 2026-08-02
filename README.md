@@ -794,7 +794,9 @@ Walk up and press **E** to climb in. It flies on a simple cyclic/collective feel
   bank and slide that way. The tilt **holds where you set it** — the chopper
   keeps leaning and cruising in that direction (carrying its momentum) until you
   steer the mouse back to level it out. Banked into a run it also **bleeds a
-  little altitude**, so long cruises want the occasional lift on W.
+  little altitude**, so long cruises want the occasional lift on W. Set it down
+  and the chopper **levels itself upright on the skids** — the held tilt eases
+  back to flat once you're resting on the gear.
 
 Press **E** to hop out. Slam it into the ground or a building at speed and it
 goes up in a fireball (and takes you with it if you're aboard). Local /
