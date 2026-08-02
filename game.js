@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.115.3';
+var GAME_VERSION = 'v1.116.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -14118,7 +14118,7 @@ function maxWanted() {
   if (typeof net !== 'undefined' && net && net.remotes) for (var id in net.remotes) { var r = net.remotes[id]; if (r && !r.dead && (r.w || 0) > w) w = r.w; }
   return w;
 }
-function desiredCops() { var w = maxWanted(); return w === 0 ? 3 : 3 + w * 2; }   // more boots on the ground (0*=3, 1*=5 … 5*=13)
+function desiredCops() { var w = maxWanted(); return w === 0 ? 2 : (2 + w * 1.6) | 0; }   // 0*=2,1*=3,2*=5,3*=6,4*=8,5*=10 (was 3+w*2 → 13 at 5*, too many)
 // where new responders converge: your LAST-KNOWN spot while you're out of sight
 // (so fleeing actually works), otherwise your live position once they're on you.
 function responseAnchor() {
@@ -14262,11 +14262,16 @@ function copMuzzle(c) {
   var mz = HELD_MUZZLE_Z[c.mesh.userData.heldKind];
   return new THREE.Vector3(0, 0, mz === undefined ? -0.35 : mz).applyMatrix4(gun.matrixWorld);
 }
+// cops TAKE TURNS firing: only one opens up per COP_FIRE_STAGGER window so a whole
+// squad never volleys on the same frame (that both looked bad and lagged — every
+// simultaneous shot is an sfx + hitscan + muzzle puff). Shared across all cops.
+var lastCopFireT = -99, COP_FIRE_STAGGER = 0.15;
 function copShoot(c, wpn, dt, tgt) {
   c.fireT -= dt;
   if (c.fireT > 0) return;
-  c.fireT = wpn.rate;
-  if (!c.interior && !copHasLOS(c, tgt)) return;   // interior is one small room — they can always see you
+  if (T - lastCopFireT < COP_FIRE_STAGGER) return;   // ready, but it's not our turn yet — hold (cheap gate before the LOS raycast)
+  if (!c.interior && !copHasLOS(c, tgt)) { c.fireT = wpn.rate; return; }   // interior is one small room — they can always see you
+  c.fireT = wpn.rate; lastCopFireT = T;
   if (!tgt.id) {   // barks only for the local player
     var copAt = { x: c.x, z: c.z, y: (c.baseY || 0) + 1.6, yell: true, net: c.interior ? 0 : 1, ref: c };
     if (state.wanted >= 4) playVoiceAny(c.fem ? ['cop_fire_f_1', 'cop_fire_f_2'] : ['cop_fire_1', 'cop_fire_2'], 0.6, 'copBark', 12, copAt);
@@ -14417,9 +14422,25 @@ function updateCops(dt) {
   }
   if (!isClient()) {
     copSpawnT -= dt;
-    var alive = 0;
-    for (var i0 = 0; i0 < cops.length; i0++) if (cops[i0].state !== 'down' && !cops[i0].interior) alive++;
-    if (alive < desiredCops() && copSpawnT <= 0) { spawnCop(state.wanted >= 2); copSpawnT = 2.6; }
+    var alive = 0, aliveArr = [];
+    for (var i0 = 0; i0 < cops.length; i0++) { var c0 = cops[i0]; if (c0.state !== 'down' && !c0.interior) { alive++; aliveArr.push(c0); } }
+    var wantN = desiredCops();
+    if (alive < wantN && copSpawnT <= 0) { spawnCop(state.wanted >= 2); copSpawnT = 2.6; }
+    else if (alive > wantN) {
+      // HARD CAP the foot-cop crowd: a long chase piles up far more than the level
+      // wants (disgorged cop-car crews never despawn, + star decay leaves a surplus),
+      // which turns into a laggy mob that all shoots at once. Retire the surplus
+      // that's off-screen and far from the hunted player, farthest first, so the
+      // count can't balloon. (hottestPlayerPos keeps it correct in multiplayer.)
+      var rp = (typeof hottestPlayerPos === 'function') ? hottestPlayerPos() : player;
+      aliveArr.sort(function (a, b) { return ((b.x - rp.x) * (b.x - rp.x) + (b.z - rp.z) * (b.z - rp.z)) - ((a.x - rp.x) * (a.x - rp.x) + (a.z - rp.z) * (a.z - rp.z)); });
+      var over = alive - wantN;
+      for (var ri = 0; ri < aliveArr.length && over > 0; ri++) {
+        var rc = aliveArr[ri];
+        if ((rc.x - rp.x) * (rc.x - rp.x) + (rc.z - rp.z) * (rc.z - rp.z) < 85 * 85) break;   // never pop a cop the hunted player can see up close
+        var idx = cops.indexOf(rc); if (idx >= 0) { if (rc.mesh) scene.remove(rc.mesh); cops.splice(idx, 1); over--; }
+      }
+    }
   }
   for (var i = 0; i < cops.length; i++) {
     var c = cops[i], m = c.mesh;
@@ -17208,9 +17229,14 @@ function parkAndDisgorge(cc) {
   cc.state = 'parked'; cc.parkT = 0; cc.speed = 0;
   if (cc.disgorged) return;
   cc.disgorged = true;
+  // don't overflow the foot-cop cap — crews spawn right next to you (the trim only
+  // clears FAR surplus), so a stream of parking cruisers used to pile up a mob.
+  var aliveN = 0; for (var ai = 0; ai < cops.length; ai++) if (cops[ai].state !== 'down' && !cops[ai].interior) aliveN++;
+  var room = desiredCops() - aliveN;
+  if (room <= 0) { if (typeof sfx === 'function') sfx('cardoor', { x: cc.x, z: cc.z, range: 40 }); return; }
   var h = cc.car.group.rotation.y;
   var sx = Math.cos(h + Math.PI / 2), sz = -Math.sin(h + Math.PI / 2);   // car's left/right axis
-  var n = 1 + (Math.random() < 0.65 ? 1 : 0);
+  var n = Math.min(room, 1 + (Math.random() < 0.65 ? 1 : 0));
   for (var i = 0; i < n; i++) { var sd = i === 0 ? 1 : -1; spawnCopAt(cc.x + sx * sd * 2.4, cc.z + sz * sd * 2.4); }
   if (typeof sfx === 'function') sfx('cardoor', { x: cc.x, z: cc.z, range: 40 });
 }

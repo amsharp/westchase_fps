@@ -286,9 +286,18 @@ game.js under `WC_REMAP`. Frame: junction `(0,0)`, **+x east / +z south**.
   responders spawn from `responseAnchor()` = **last-known** spot (not your live
   pos) so fleeing works; `spawnCop` ring is 90–150u. **Losing heat**: no more
   per-star decay — stay unseen `wanted*HIDE_PER_STAR` (60s/star) and ALL stars
-  drop at once (`clearHeat`); being seen resets `heat.loseT`. Counts bumped:
-  `desiredCops` 0★=3 then +2/star (→13); `desiredCopCars` 0★=2 patrol cruisers
-  then +1/star (→7). **Patrol cop cars**: `copCars` spawn `state:'patrol'`
+  drop at once (`clearHeat`); being seen resets `heat.loseT`. **Cop counts (v1.116,
+  cut way down — a long chase used to pile up a 25+ mob that all fired at once →
+  lag):** `desiredCops` = `w===0?2 : (2+w*1.6)|0` (0★=2,1★=3,2★=5,3★=6,4★=8,5★=10);
+  `desiredCopCars` per its own formula. **Hard cap:** the spawn block trims the
+  surplus every frame — if `alive > desiredCops()` it retires the FARTHEST cops that
+  are `>85u` from the hunted player (`hottestPlayerPos`), so foot cops (which never
+  despawn on their own) can't balloon past the level target from disgorged cop-car
+  crews or star decay. `parkAndDisgorge` also clamps its crew to the remaining room
+  under the cap. **Fire stagger (v1.116):** cops TAKE TURNS — a shared
+  `lastCopFireT`/`COP_FIRE_STAGGER` (0.15s) in `copShoot` lets only one cop open fire
+  per window, so a squad never volleys on one frame (was a bullet-wall + per-shot
+  sfx/hitscan lag). **Patrol cop cars**: `copCars` spawn `state:'patrol'`
   (lights off, cruise road waypoints via `copRoadPoint`), flip to `seek/chase`
   when a crime happens near them or they spot you; `driveCopCar` has patrol/
   search/pursuit target selection. **Per-cop weapons** (v1.113, `rollCopGun(stars)`
