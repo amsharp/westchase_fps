@@ -219,6 +219,15 @@ game.js under `WC_REMAP`. Frame: junction `(0,0)`, **+x east / +z south**.
   vertices **snap** onto other roads' nodes (`nodeSnap`) for seamless junctions
   across types (ramp→highway, etc.). mapimport skips wall-exit generation for
   rivers.
+  - **Ramp↔highway auto-match (v1.118.1):** `buildRamp` no longer trusts the ramp's
+    own authored profile at its deck end — `rampDeckLink(r)` finds the highway/exitdeck
+    its high end joins (nearest end within `RAMP_JOIN_R=14`) and the ramp INHERITS that
+    deck's `elev`, `hw`, `oneway`, and `lanes`, then SNAPS its top vertex exactly onto
+    the join point. So an editor-drawn on/off ramp lines up flush with the highway it
+    feeds (same height, width, median/one-way, and no gap) regardless of the elev/width
+    it was given — just draw it and node-snap the end to the highway. Falls back to the
+    ramp's authored values only when it doesn't reach any highway end. (Draw the ramp's
+    last segment roughly tangent to the highway so the decks meet at a clean angle.)
 - **PENDING game-side rendering (TODO when the expansion map lands):** game.js
   does NOT yet render `REMAP_AREAS` (forest/lake/ocean) or the new road kinds.
   Need: areas → forest scatter / swimmable water like `LAKE` / big ocean plane;

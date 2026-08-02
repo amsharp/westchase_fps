@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.118.0';
+var GAME_VERSION = 'v1.118.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -3178,29 +3178,48 @@ function buildHighway(r) {
 // A ramp rises from pts[0] (ground) to pts[last] (deck). If it was drawn the
 // other way (deck end first), the incline builds inverted. Detect the deck end
 // by proximity to a highway/exit endpoint and return the pts ground-end-first.
-function rampGroundFirst(r, pts) {
-  if (typeof REMAP_ROADS === 'undefined') return pts;
-  var n = pts.length;
+// Work out how a ramp joins the highway net. Returns the pts GROUND-END-FIRST
+// (so the incline builds right-way-up) PLUS the highway/exitdeck its high end
+// meets and that deck's exact join point + elevation. The ramp then INHERITS the
+// deck's height and SNAPS its top vertex onto the join point, so an editor-drawn
+// ramp lines up flush with the main highway no matter what elev/position it was
+// given (node-snap gets it close; this makes it exact). SNAP_R = join tolerance.
+var RAMP_JOIN_R = 14;
+function rampDeckLink(r) {
+  var pts = r.pts.slice(), n = pts.length, link = { pts: pts, hwy: null, joinPt: null, joinD: 1e9 };
+  if (typeof REMAP_ROADS === 'undefined') return link;
+  // nearest highway/exitdeck ENDPOINT to (x,z) -> {d, hwy, pt}
   function nearHigh(x, z) {
-    var best = 1e9;
+    var best = { d: 1e9, hwy: null, pt: null };
     for (var k = 0; k < REMAP_ROADS.length; k++) {
       var rk = REMAP_ROADS[k];
       if (rk.id === r.id || (rk.kind !== 'highway' && rk.kind !== 'exitdeck')) continue;
-      var e0 = rk.pts[0], e1 = rk.pts[rk.pts.length - 1];
-      best = Math.min(best, Math.hypot(x - e0[0], z - e0[1]), Math.hypot(x - e1[0], z - e1[1]));
+      var ends = [rk.pts[0], rk.pts[rk.pts.length - 1]];
+      for (var e = 0; e < 2; e++) { var d = Math.hypot(x - ends[e][0], z - ends[e][1]); if (d < best.d) best = { d: d, hwy: rk, pt: ends[e] }; }
     }
     return best;
   }
-  var d0 = nearHigh(pts[0][0], pts[0][1]), d1 = nearHigh(pts[n - 1][0], pts[n - 1][1]);
-  // pts[0] is clearly nearer a highway end than pts[last] -> pts[0] is the deck end -> flip
-  if (d0 < d1 - 1 && d0 < 8) return pts.slice().reverse();
-  return pts;
+  var h0 = nearHigh(pts[0][0], pts[0][1]), h1 = nearHigh(pts[n - 1][0], pts[n - 1][1]);
+  // the DECK end is whichever ramp end sits nearest a highway end; ground end goes first
+  if (h0.d < h1.d - 1) { pts = pts.slice().reverse(); link.hwy = h0.d < RAMP_JOIN_R ? h0.hwy : null; link.joinPt = h0.pt; link.joinD = h0.d; }
+  else { link.hwy = h1.d < RAMP_JOIN_R ? h1.hwy : null; link.joinPt = h1.pt; link.joinD = h1.d; }
+  link.pts = pts;
+  // snap the deck-end vertex exactly onto the highway join point (closes the gap)
+  if (link.hwy && link.joinPt && link.joinD < RAMP_JOIN_R) pts[pts.length - 1] = [link.joinPt[0], link.joinPt[1]];
+  return link;
 }
 function buildRamp(r) {
   // STRAIGHT ramp built off the chord with FIXED width — no rmNormals miter, so
   // the terminal vertex can't flare (that endpoint 1.5x miter was the taper).
-  var pts = rampGroundFirst(r, r.pts), hw = r.hw || 18, hi = r.elev || 8, cum = rmCum(pts), total = cum[cum.length - 1] || 1, n = pts.length, i;
-  var oneway = !!r.oneway, lanes = r.lanes || Math.max(1, Math.round(hw / 5));
+  var link = rampDeckLink(r), pts = link.pts, hwj = link.hwy;
+  // MATCH the highway we join, so the ramp's deck end is flush with it: same deck
+  // height, width, one-way/two-way (median), and lane count. Falls back to the
+  // ramp's own authored values only when it doesn't reach any highway end.
+  var hw = (hwj && hwj.hw != null) ? hwj.hw : (r.hw || 18);
+  var hi = (hwj && hwj.elev != null) ? hwj.elev : (r.elev || 8);
+  var oneway = hwj ? !!hwj.oneway : !!r.oneway;
+  var lanes = (hwj && hwj.lanes) ? hwj.lanes : (r.lanes || Math.max(1, Math.round(hw / 5)));
+  var cum = rmCum(pts), total = cum[cum.length - 1] || 1, n = pts.length, i;
   var a0 = pts[0], a1 = pts[n - 1], rdx = a1[0] - a0[0], rdz = a1[1] - a0[1], rlen = Math.hypot(rdx, rdz) || 1, ux = rdx / rlen, uz = rdz / rlen;
   var px = -uz, pz = ux;                                                  // fixed perpendicular (uniform width)
   driveRamps.push({ ax: a0[0], az: a0[1], ux: ux, uz: uz, len: rlen, rise: hi, wid: hw * 2, grad: hi / rlen });
