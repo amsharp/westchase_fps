@@ -228,6 +228,16 @@ game.js under `WC_REMAP`. Frame: junction `(0,0)`, **+x east / +z south**.
     it was given — just draw it and node-snap the end to the highway. Falls back to the
     ramp's authored values only when it doesn't reach any highway end. (Draw the ramp's
     last segment roughly tangent to the highway so the decks meet at a clean angle.)
+  - **Jersey-barrier junction stitching (v1.118.2):** each elevated road rails only its
+    OWN two edges, so where two of them meet end-to-end the rails used to stop short and
+    leave a gap. `buildHighway`/`buildExitDeck` (both jersey edges) and `buildRamp` (its
+    deck-END parapets) now `registerHwBarrierEnds`; after all elevated roads build,
+    `stitchHwBarriers()` bridges barrier termini of DIFFERENT roads whose deck-ENDS
+    coincide (`JUNC_R=6`) with a short guardrail box (`hw:barrier`), shortest-gap-first so
+    same-side termini bridge before any cross-deck pair, `STITCH_MAX=11`. Only end-to-end
+    junctions bridge — mid-span exit throats (`barGap`) are never road-ends, so they stay
+    open. Runs at map load ⇒ any highway drawn + node-snapped in the editor auto-connects
+    its rail to the neighbour's. Debug: `window.__hwStitch` ({ends, bridges:[[x,z]…]}).
 - **PENDING game-side rendering (TODO when the expansion map lands):** game.js
   does NOT yet render `REMAP_AREAS` (forest/lake/ocean) or the new road kinds.
   Need: areas → forest scatter / swimmable water like `LAKE` / big ocean plane;

@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.118.1';
+var GAME_VERSION = 'v1.118.2';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -3074,6 +3074,47 @@ function hwWallGapped(edgePts, yBase, h, thick, mat, colTag, minY, gaps) {
     hwWall(sub, yBase, h, thick, mat, colTag, minY);
   }
 }
+// ---- jersey-barrier junction stitching ----
+// Each elevated road (highway/exitdeck) rails its OWN two edges, so where two of
+// them meet end-to-end the two rails just stop at their endpoints and leave a gap.
+// buildHighway/buildExitDeck register their 4 barrier-edge termini here; after all
+// elevated roads are built, stitchHwBarriers() bridges termini of DIFFERENT roads
+// whose deck-ENDS coincide (a real junction) with a short guardrail box — so the
+// jersey barriers read as one continuous rail. Runs at map load, so any highway the
+// user draws + node-snaps in the editor auto-connects to its neighbour's rail.
+var hwBarrierEnds = [];
+function registerHwBarrierEnds(roadId, deckY, pts, edgeA, edgeB) {
+  var e0 = pts[0], eN = pts[pts.length - 1];
+  var spec = [[edgeA, 0, e0], [edgeA, edgeA.length - 1, eN], [edgeB, 0, e0], [edgeB, edgeB.length - 1, eN]];
+  for (var i = 0; i < spec.length; i++) {
+    var edge = spec[i][0], idx = spec[i][1], de = spec[i][2];
+    if (!edge || !edge[idx]) continue;
+    hwBarrierEnds.push({ x: edge[idx][0], z: edge[idx][1], y: deckY, road: roadId, ex: de[0], ez: de[1], used: false });
+  }
+}
+function stitchHwBarriers() {
+  var JUNC_R = 6, STITCH_MAX = 11, BARH = 1.05, BART = 0.5, i, j;
+  var pairs = [];
+  for (i = 0; i < hwBarrierEnds.length; i++) for (j = i + 1; j < hwBarrierEnds.length; j++) {
+    var a = hwBarrierEnds[i], b = hwBarrierEnds[j];
+    if (a.road === b.road) continue;
+    if (Math.hypot(a.ex - b.ex, a.ez - b.ez) > JUNC_R) continue;   // the two roads' ENDS must coincide = a junction (not a mid-span exit throat)
+    var gap = Math.hypot(a.x - b.x, a.z - b.z);
+    if (gap < 0.3 || gap > STITCH_MAX) continue;                   // gap>0 (real gap) but not clear across the deck
+    pairs.push({ i: i, j: j, gap: gap });
+  }
+  pairs.sort(function (p, q) { return p.gap - q.gap; });           // shortest first: same-side termini bridge before any cross-deck pair
+  var mids = [];
+  for (var k = 0; k < pairs.length; k++) {
+    var p = pairs[k], ea = hwBarrierEnds[p.i], eb = hwBarrierEnds[p.j];
+    if (ea.used || eb.used) continue;
+    ea.used = true; eb.used = true;
+    var y = (ea.y + eb.y) / 2;
+    hwWall([[ea.x, ea.z], [eb.x, eb.z]], y, BARH, BART, hwConcreteM, 'hw:barrier', y - 0.3);
+    mids.push([Math.round((ea.x + eb.x) / 2), Math.round((ea.z + eb.z) / 2)]);
+  }
+  if (typeof window !== 'undefined') window.__hwStitch = { ends: hwBarrierEnds.length, bridges: mids };
+}
 // flat drivable deck surface: OBB colliders flagged .deck (never block) with a
 // topY so surfaceHeightAt raises a car onto them once its feet reach deck level.
 function hwDeckColliders(pts, hw, topY) {
@@ -3134,8 +3175,10 @@ function buildHighway(r) {
   // except across the actual road opening.
   var gapPos = [], gapNeg = [], bgi;
   if (r.barGap) for (bgi = 0; bgi < r.barGap.length; bgi++) { var bg = r.barGap[bgi]; (bg.side > 0 ? gapPos : gapNeg).push([bg.s0, bg.s1]); }
-  hwWallGapped(rmOffsetPts(pts, hw - 0.35), deckY, 1.05, 0.5, hwConcreteM, 'hw:barrier', barM, gapPos);
-  hwWallGapped(rmOffsetPts(pts, -(hw - 0.35)), deckY, 1.05, 0.5, hwConcreteM, 'hw:barrier', barM, gapNeg);
+  var posEdge = rmOffsetPts(pts, hw - 0.35), negEdge = rmOffsetPts(pts, -(hw - 0.35));
+  hwWallGapped(posEdge, deckY, 1.05, 0.5, hwConcreteM, 'hw:barrier', barM, gapPos);
+  hwWallGapped(negEdge, deckY, 1.05, 0.5, hwConcreteM, 'hw:barrier', barM, gapNeg);
+  registerHwBarrierEnds(r.id, deckY, pts, posEdge, negEdge);   // so junctions with other elevated roads get their rails stitched together
   if (!oneway) hwWall(pts, deckY, 1.15, 0.85, hwConcreteM, 'hw:median', barM);   // center median (2-way only)
   // rectangular-prism piers: twin columns (one per direction) joined by a cap
   // beam on a 2-way deck; a single central column on a narrow one-way deck.
@@ -3303,6 +3346,12 @@ function buildRamp(r) {
   // level still passes over, but ground-level movers are blocked from behind.
   var ewc = addColliderOBB(a1[0], a1[1], wallOff + 0.3, 0.4, Math.atan2(-pz, px), 'ramp:endwall');
   ewc.topY = hy;
+  // register the ramp's DECK-END parapet tops so its side walls stitch to the
+  // highway's jersey barriers at the junction (the ground end has no rail to join).
+  if (link.hwy) {
+    hwBarrierEnds.push({ x: a1[0] + px * wallOff, z: a1[1] + pz * wallOff, y: hi, road: r.id, ex: a1[0], ez: a1[1], used: false });
+    hwBarrierEnds.push({ x: a1[0] - px * wallOff, z: a1[1] - pz * wallOff, y: hi, road: r.id, ex: a1[0], ez: a1[1], used: false });
+  }
   for (var j = 1; j < pts.length; j++) mapRoads.push({ x1: pts[j - 1][0], z1: pts[j - 1][1], x2: pts[j][0], z2: pts[j][1], hw: hw, cls: 4 });
 }
 // ground-level transition: a flat road tapering from the ramp (6-lane, pts[0])
@@ -3386,6 +3435,7 @@ function buildExitDeck(r) {
   // guardrail) then follows the lane away. No rail along the shared gore edge.
   if (ki > 0 && ki < n) hwWall(inner.slice(ki - 1), deckY, 1.05, 0.5, hwConcreteM, 'hw:barrier', barM);
   else hwWallGapped(inner, deckY, 1.05, 0.5, hwConcreteM, 'hw:barrier', barM, r.innerGap);
+  registerHwBarrierEnds(r.id, deckY, pts, outer, inner);   // stitch this spur's rails to the roads it meets end-to-end
   deckStripColliders(inner, outer, deckY + 0.02);   // floor follows the real tapered/gore strip (no fall-through near the junction)
   // single central piers, placed at the DECK CENTRE with a cap beam sized to the
   // LOCAL deck width (so the beam always tucks under the deck — never pokes out).
@@ -3567,6 +3617,7 @@ function buildPendingSpecialRoads() {
     else if (r.kind === 'runway') buildRunway(r);
     else if (r.kind === 'taxiway') buildTaxiway(r);
   }
+  stitchHwBarriers();   // connect the jersey barriers across elevated-road junctions
   pendingSpecial = [];
 }
 
