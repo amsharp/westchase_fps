@@ -294,7 +294,10 @@ game.js under `WC_REMAP`. Frame: junction `(0,0)`, **+x east / +z south**.
   are `>85u` from the hunted player (`hottestPlayerPos`), so foot cops (which never
   despawn on their own) can't balloon past the level target from disgorged cop-car
   crews or star decay. `parkAndDisgorge` also clamps its crew to the remaining room
-  under the cap. **Fire stagger (v1.116):** cops TAKE TURNS — a shared
+  under the cap, and (v1.116.1) if the cap is already FULL it returns `false` without
+  parking — the caller keeps the cruiser chasing instead of stopping it and faking the
+  `cardoor` sound with nobody getting out (the old "cop got out but there's no cop"
+  phantom). **Fire stagger (v1.116):** cops TAKE TURNS — a shared
   `lastCopFireT`/`COP_FIRE_STAGGER` (0.15s) in `copShoot` lets only one cop open fire
   per window, so a squad never volleys on one frame (was a bullet-wall + per-shot
   sfx/hitscan lag). **Patrol cop cars**: `copCars` spawn `state:'patrol'`

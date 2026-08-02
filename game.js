@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.116.0';
+var GAME_VERSION = 'v1.116.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -17226,19 +17226,23 @@ function spawnCopAt(x, z) {
 // 5-star cops are just regular officers with the heavier auto/smg weapon roll.
 // A proper Meshy SWAT model may replace this later.)
 function parkAndDisgorge(cc) {
+  // don't STOP to disgorge if the foot-cop cap is full — a cruiser parking with
+  // nobody getting out (and faking the door sound) reads as broken. Return false so
+  // the caller keeps it chasing instead (it can still ram / block the road).
+  if (!cc.disgorged) {
+    var aliveN = 0; for (var ai = 0; ai < cops.length; ai++) if (cops[ai].state !== 'down' && !cops[ai].interior) aliveN++;
+    var room = desiredCops() - aliveN;
+    if (room <= 0) return false;
+  }
   cc.state = 'parked'; cc.parkT = 0; cc.speed = 0;
-  if (cc.disgorged) return;
+  if (cc.disgorged) return true;
   cc.disgorged = true;
-  // don't overflow the foot-cop cap — crews spawn right next to you (the trim only
-  // clears FAR surplus), so a stream of parking cruisers used to pile up a mob.
-  var aliveN = 0; for (var ai = 0; ai < cops.length; ai++) if (cops[ai].state !== 'down' && !cops[ai].interior) aliveN++;
-  var room = desiredCops() - aliveN;
-  if (room <= 0) { if (typeof sfx === 'function') sfx('cardoor', { x: cc.x, z: cc.z, range: 40 }); return; }
   var h = cc.car.group.rotation.y;
   var sx = Math.cos(h + Math.PI / 2), sz = -Math.sin(h + Math.PI / 2);   // car's left/right axis
-  var n = Math.min(room, 1 + (Math.random() < 0.65 ? 1 : 0));
+  var n = Math.min(room, 1 + (Math.random() < 0.65 ? 1 : 0));   // clamp the crew to the room under the cap
   for (var i = 0; i < n; i++) { var sd = i === 0 ? 1 : -1; spawnCopAt(cc.x + sx * sd * 2.4, cc.z + sz * sd * 2.4); }
-  if (typeof sfx === 'function') sfx('cardoor', { x: cc.x, z: cc.z, range: 40 });
+  if (typeof sfx === 'function') sfx('cardoor', { x: cc.x, z: cc.z, range: 40 });   // only sounds when a cop actually gets out
+  return true;
 }
 function removeCopCar(cc) { if (cc.car && cc.car.group) scene.remove(cc.car.group); }
 function explodeCopCar(cc) { if (typeof boomAt === 'function') boomAt(cc.x, cc.z); removeCopCar(cc); }
@@ -17333,7 +17337,7 @@ function driveCopCar(cc, dt, pd) {
     if (known) {
       tx = player.x; tz = player.z;
       if (isDrv) { var pv = driving.pspeed || 0, lt = (cc.role === 'block') ? 2.4 : 0.4; tx = player.x + (driving.mvx || 0) * pv * lt; tz = player.z + (driving.mvz || 0) * pv * lt; }
-      if (!isDrv && pd < 12) { parkAndDisgorge(cc); return; }   // caught up on foot -> officers pile out
+      if (!isDrv && pd < 12) { if (parkAndDisgorge(cc)) return; }   // caught up on foot -> officers pile out (unless the cap's full: keep chasing, no phantom door)
       cc.state = isDrv ? 'chase' : 'seek'; maxCruise = isDrv ? 22 : 18;
       if ((player.y - g.position.y) > 4) { var rt = rampTargetFor(cc); if (rt) { tx = rt.x; tz = rt.z; } }   // player on a highway -> take a ramp
     } else if (wantedNow) {
