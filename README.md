@@ -802,9 +802,9 @@ single-player like the plane.
 
 ### Flying into a skyscraper
 
-There's a row of five real Tampa towers out in the open land **northeast of
+There's a row of seven real Tampa towers out in the open land **northeast of
 town** (drive/walk east on the main road, then look north): Bank of America,
-PNC, Regions, Sykes, and Wells Fargo. Fly the **Learjet into one** and it goes
+PNC, Regions, Sykes, Wells Fargo, BB&T, and SunTrust. Fly the **Learjet into one** and it goes
 up in a fireball, then **burns and smokes for about a minute** before it
 **collapses** — with a deep **collapse rumble**, the whole tower sinks straight
 down through the ground behind a wall of dust while a **heap of rubble rises up**

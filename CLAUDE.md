@@ -20,7 +20,7 @@ something seems off.
   offline; multiplayer needs internet only to reach the relay server.
 - Plain ES5-flavored JS (`var`, function declarations). Match that style.
 - **Imported-model textures: DO NOT downscale (user policy).** The user-imported
-  building models (`skyscrapers.js` boa/pnc/regions/sykes/wellsfargo,
+  building models (`skyscrapers.js` boa/pnc/regions/sykes/wellsfargo/bbt/suntrust,
   `airport_main/atc/hangar/terminal.js`, `jail.js`, etc. — all `{q,dims,p,u,i,tex}`
   decoded by `decodeAirModel`) each texture a whole building on ONE UV atlas that
   is already low-res/pixelated; downscaling it in the converter makes it mush.
@@ -29,6 +29,12 @@ something seems off.
   items (`meshyguns.js`, `meshyprops.js`, `axedata.js`) are fine as-is — the
   no-downscale rule is specifically for buildings. `decodeAirModel` sets
   `texture.anisotropy = MAXANISO` so grazing/tall surfaces stay sharp.
+  **Adding skyscrapers:** `tools/skygen/glb2sky.js` (+ README) converts a textured
+  building `.glb` → a catalog entry (centers X/Z, base→y=0, `q=32760/maxAbs`, raw-v
+  UVs, native-res JPEG atlas). `bbt`+`suntrust` (v1.117) were imported this way; the
+  showcase (`placeSkyscraperShowcase`) uses one shared scale for the pair to keep the
+  Blender-authored relative height. Placement is by footprint width (uniform scale,
+  never stretched), so correct `dims` = correct relative height.
 - **Precise building collision (v1.112):** imported buildings no longer collide as
   one bounding box — `pushMeshColliders(cache, scale, wx, wz, rotY, topY, tag)`
   decodes the actual ground-level footprint from `cache.geo` (`meshFootprintRects`:

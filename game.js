@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.116.1';
+var GAME_VERSION = 'v1.117.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -6541,7 +6541,12 @@ var towers = [];
     { id: 'pnc', x: 760, scale: 7.0 },
     { id: 'regions', x: 900, scale: 3.5 },
     { id: 'sykes', x: 1060, scale: 2.2 },
-    { id: 'wellsfargo', x: 1220, scale: 4.0 }
+    { id: 'wellsfargo', x: 1220, scale: 4.0 },
+    // BB&T + SunTrust (user-imported): one shared factor keeps the two at the
+    // relative height the user scaled them to in Blender (BB&T's box runs a hair
+    // taller — its model includes the plaza podium + rooftop mast).
+    { id: 'bbt', x: 1360, scale: 5.7 },
+    { id: 'suntrust', x: 1500, scale: 5.7 }
   ];
   for (var i = 0; i < row.length; i++) {
     var placed = placeCatalogModel(row[i].id, row[i].x, -240, 0, null, row[i].scale);
