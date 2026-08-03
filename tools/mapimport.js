@@ -51,9 +51,11 @@ for (const r of map.roads) {
 const clears = [];
 const venues = [];
 const models = [];   // catalog-model placements (skyscrapers etc.) -> REMAP_MODELS
+const garages = [];  // editor-placed parking garages -> REMAP_GARAGES (buildParkingGarage)
 for (const b of map.buildings) {
   clears.push({ x: r2(b.x), z: r2(b.z), rot: b.rot || 0, w: b.w, d: b.d, id: b.id });
   if (b.type === 'model') { models.push({ id: b.id, model: b.model, x: r2(b.x), z: r2(b.z), rot: b.rot || 0, w: r2(b.w) }); continue; }
+  if (b.type === 'garage') { garages.push({ x: r2(b.x), z: r2(b.z), rot: b.rot || 0 }); continue; }
   venues.push({ id: b.id, type: b.type, x: r2(b.x), z: r2(b.z), rot: b.rot || 0, w: b.w, d: b.d });
 }
 // passthrough parking-lot polys
@@ -81,6 +83,7 @@ out += 'var REMAP_EXITS = ' + J(exits) + ';\n';
 out += 'var REMAP_CLEAR = ' + J(clears) + ';\n';
 out += 'var REMAP_VENUES = ' + J(venues) + ';\n';
 out += 'var REMAP_MODELS = ' + J(models) + ';\n';
+out += 'var REMAP_GARAGES = ' + J(garages) + ';\n';
 if (map.houses) out += 'var REMAP_HOUSES = ' + J(map.houses) + ';\n';       // editor-authored survey-house placements
 if (map.airport) out += 'var REMAP_AIRPORT = ' + J(map.airport) + ';\n';    // airport group origin
 out += 'var REMAP_SURFACES = ' + J(surfaces) + ';\n';

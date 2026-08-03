@@ -303,7 +303,12 @@ var BUILDINGS = [
   { type:'townhouse',  name:'Townhouses',  w:48, d:10, color:'#c7b48a' },
   { type:'red_house',  name:'Red House',   w:18, d:18, color:'#a93226' },
   { type:'house',      name:'House',       w:11, d:9,  color:'#d8c8a0' },
-  { type:'shop',       name:'Generic Shop',w:20, d:16, color:'#b8b0a0' }
+  { type:'shop',       name:'Generic Shop',w:20, d:16, color:'#b8b0a0' },
+  // multi-level parking garage: axis-aligned 60x44 footprint (buildParkingGarage);
+  // E+W ground entrances face along X. Placed/moved/deleted like any building;
+  // mapimport -> REMAP_GARAGES -> game placeRemapGarages(). Connect the E/W
+  // entrances to the street grid with short roads.
+  { type:'garage',     name:'Parking Garage', w:60, d:44, color:'#9aa0a8' }
 ];
 var PROPS = [
   { type:'oak',        name:'Oak Tree',   color:'#2f6f2e', r:2.4 },
@@ -473,6 +478,11 @@ function loadFromGame() {
     REMAP_MODELS.forEach(function(m){ var mm=modelById(m.model), dims=mm?mm.dims:[20,60,20];
       var w=m.w||dims[0], h=dims[1]*(w/dims[0]);
       S.buildings.push({ _id:nid(), id:m.id||(m.model+'_'+nid()), type:'model', model:m.model, h:round(h), x:m.x, z:m.z, rot:m.rot||0, w:round(w), d:round(dims[2]*(w/dims[0])) }); });
+  }
+  // editor-placed parking garages (REMAP_GARAGES) as movable building objects
+  if (typeof REMAP_GARAGES !== 'undefined') {
+    var gm = bldByType('garage');
+    REMAP_GARAGES.forEach(function(g){ S.buildings.push({ _id:nid(), id:'garage_'+nid(), type:'garage', x:g.x, z:g.z, rot:g.rot||0, w:gm.w, d:gm.d }); });
   }
   // survey houses as individually-editable objects (REMAP_HOUSES overrides the
   // baked HOUSE_INSTANCES; fall back to the full set on first load)

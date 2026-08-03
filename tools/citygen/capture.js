@@ -18,10 +18,10 @@ const VIEWS = [
   const errs = []; p.on('pageerror', e => errs.push(e.message));
   await p.goto('file://' + path.resolve(__dirname, '../../index.html'), { waitUntil: 'domcontentloaded', timeout: 60000 });
   await p.waitForFunction(() => window.__wc && window.__wc.scene, { timeout: 90000 });
-  await p.evaluate(() => { __wc.start(); __wc.setWanted(0); if (__wc.state) __wc.state.hp = 100; });
+  await p.evaluate(() => { __wc.start(); __wc.setWanted(0); if (__wc.state) __wc.state.hp = 100; if (__wc.setClock) __wc.setClock(180); });
   // let a few frames run so lazy geometry/materials warm up
   await p.waitForTimeout(1500);
-  await p.evaluate(async () => { for (let i = 0; i < 30; i++) { __wc.tick(1 / 30); await new Promise(r => setTimeout(r, 20)); } });
+  await p.evaluate(async () => { for (let i = 0; i < 30; i++) { __wc.setClock && __wc.setClock(180); __wc.tick(1 / 30); await new Promise(r => setTimeout(r, 20)); } });
   for (const v of VIEWS) {
     const url = await p.evaluate((v) => {
       const T = window.THREE, cam = new T.PerspectiveCamera(v.fov, 1280 / 800, 0.5, 6000);

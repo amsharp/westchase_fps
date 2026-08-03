@@ -6396,6 +6396,13 @@ var GARAGE_SPOTS = [
 ];
 function placeGarages() { for (var i = 0; i < GARAGE_SPOTS.length; i++) buildParkingGarage(GARAGE_SPOTS[i][0], GARAGE_SPOTS[i][1], GARAGE_SPOTS[i][2]); }
 placeGarages();
+// editor-placed downtown garages (REMAP_GARAGES, from the map editor). Axis-aligned
+// like buildParkingGarage; the editor author wires the E/W entrances to the streets.
+function placeRemapGarages() {
+  if (typeof REMAP_GARAGES === 'undefined') return;
+  for (var i = 0; i < REMAP_GARAGES.length; i++) { var g = REMAP_GARAGES[i]; buildParkingGarage(g.x, g.z); }
+}
+placeRemapGarages();
 
 // ================= AIRPORT (structures) =================
 // The runways / monorails / taxiway / access road are already in REMAP_ROADS
@@ -27537,6 +27544,10 @@ window.__wc = {
   towerBits: function () { return towerBits; }, towerFallers: function () { return towerFallers; }, spawnTowerFaller: function (i) { spawnTowerFaller(towers[i]); },
   deployParachute: function (vx, vz) { deployParachute(vx || 0, vz || 0); }, para: function () { return para; },
   towerAt: function (x, z, y) { return towerAt(x, z, y); },
+  cityBuildings: function () { return cityBuildings; },
+  rubbleSwap: function (i) { rubbleSwapBuilding(cityBuildings[i]); },
+  collapseTower: function (i) { startTowerCollapse(towers[i]); },
+  surfAt: function (x, z, fy) { return surfaceHeightAt(x, z, false, fy); },
   placeCatalogModel: (typeof placeCatalogModel === 'function' ? placeCatalogModel : null),
   modelCatalog: function () { return MODEL_CATALOGS; },
   allBuildings: function () { return mapBuildings; },   // full footprint registry (venues+houses+airport) for the editor reference layer
