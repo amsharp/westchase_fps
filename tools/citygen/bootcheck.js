@@ -14,12 +14,14 @@ const OUT = path.resolve(__dirname, 'shots'); if (!fs.existsSync(OUT)) fs.mkdirS
   errs.slice(0, 5).forEach(e => console.log('  ERR:', e));
   const info = await p.evaluate(() => {
     __wc.start(); if (__wc.setClock) __wc.setClock(180);
-    return { towers: (window.__wc.towerCount ? __wc.towerCount() : 'n/a') };
+    return { foundSlabs: window.__foundSlabs, cityBuildings: __wc.cityBuildings ? __wc.cityBuildings().length : 'n/a' };
   });
+  console.log('foundation slabs:', info.foundSlabs, '| city buildings:', info.cityBuildings);
   await p.evaluate(async () => { for (let i = 0; i < 20; i++) { __wc.setClock && __wc.setClock(180); __wc.tick(1 / 30); await new Promise(r => setTimeout(r, 25)); } });
   const V = [
     { name: 'oblique_center', eye: [2086, 420, 2560], look: [2086, 40, 2170], fov: 60 },
-    { name: 'street_face', eye: [2150, 6, 2150], look: [2260, 9, 2188], fov: 72 }
+    { name: 'block_low', eye: [2300, 70, 2380], look: [2280, 6, 2200], fov: 62 },
+    { name: 'block_low2', eye: [2200, 55, 1950], look: [2200, 6, 2120], fov: 62 }
   ];
   for (const v of V) {
     const url = await p.evaluate((v) => {

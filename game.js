@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.121.0';
+var GAME_VERSION = 'v1.121.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -6662,11 +6662,7 @@ function placeCatalogModel(id, x, z, rotDeg, footW, scale, opts) {
   var placed = placeAirModel(e, cache, s, x, z, rotY);
   if (!placed) return null;
   var foundH = 0;
-  if (opts && opts.foundation) {
-    foundH = FOUND_H;
-    placed.group.position.y = foundH;                                   // sit the building on its plinth
-    addFoundation(x, z, rotY, placed.W, placed.D, opts.apron || 2.0);
-  }
+  if (opts && opts.foundation) { foundH = FOUND_H; placed.group.position.y = foundH; }   // sits on the merged block foundation (buildDowntownFoundations)
   placed.foundH = foundH;
   placed.cols = pushMeshColliders(cache, s, x, z, rotY, foundH + placed.H);   // walls block; roof (topY) is walkable
   return placed;
@@ -6705,6 +6701,88 @@ function placeRemapModels() {
   }
 }
 placeRemapModels();
+// ---- MERGED BLOCK FOUNDATIONS (v1.121.1) ----
+// Instead of a plinth per building, pour ONE raised concrete pad per city block:
+// fill every road-enclosed block that contains buildings entirely (so the alleys
+// between buildings aren't grassy), and merge the footprints of buildings that
+// front the same open road into a continuous strip. Rasterise the downtown region,
+// mark road + building + garage cells, flood-fill the "open" exterior from the
+// border, and treat any non-road cell that is either under a building or inside a
+// building-bearing enclosed block as foundation; greedy-rect the result into raised
+// concrete slabs (walkable decks, top at FOUND_H). Buildings already sit at FOUND_H.
+function buildDowntownFoundations() {
+  if (typeof cityBuildings === 'undefined' || !cityBuildings.length) return;
+  var minx = 1e9, maxx = -1e9, minz = 1e9, maxz = -1e9, i;
+  for (i = 0; i < cityBuildings.length; i++) { var b = cityBuildings[i], rr = Math.max(b.W, b.D) / 2 + 4; if (b.x - rr < minx) minx = b.x - rr; if (b.x + rr > maxx) maxx = b.x + rr; if (b.z - rr < minz) minz = b.z - rr; if (b.z + rr > maxz) maxz = b.z + rr; }
+  var MARGIN = 18; minx -= MARGIN; maxx += MARGIN; minz -= MARGIN; maxz += MARGIN;
+  var C = 3;                                              // cell size (u)
+  var GW = Math.ceil((maxx - minx) / C), GH = Math.ceil((maxz - minz) / C);
+  if (GW < 2 || GH < 2 || GW * GH > 600000) return;       // safety clamp
+  var N = GW * GH, road = new Uint8Array(N), bld = new Uint8Array(N);
+  function IX(gx, gz) { return gz * GW + gx; }
+  function stampRotRect(mask, cx, cz, yaw, hu, hv) {
+    var co = Math.cos(yaw), si = Math.sin(yaw), rad = Math.hypot(hu, hv);
+    var g0x = Math.max(0, Math.floor((cx - rad - minx) / C)), g1x = Math.min(GW - 1, Math.floor((cx + rad - minx) / C));
+    var g0z = Math.max(0, Math.floor((cz - rad - minz) / C)), g1z = Math.min(GH - 1, Math.floor((cz + rad - minz) / C));
+    for (var gz = g0z; gz <= g1z; gz++) for (var gx = g0x; gx <= g1x; gx++) {
+      var wx = minx + (gx + 0.5) * C - cx, wz = minz + (gz + 0.5) * C - cz;
+      var u = wx * co - wz * si, v = wx * si + wz * co;
+      if (Math.abs(u) <= hu && Math.abs(v) <= hv) mask[IX(gx, gz)] = 1;
+    }
+  }
+  // roads (every kind) exclude foundation — march each segment stamping a disk band
+  if (typeof REMAP_ROADS !== 'undefined') for (i = 0; i < REMAP_ROADS.length; i++) {
+    var rd = REMAP_ROADS[i], pts = rd.pts, hw = (rd.hw || 5) + 0.4;
+    for (var sgi = 0; sgi < pts.length - 1; sgi++) {
+      var ax = pts[sgi][0], az = pts[sgi][1], bx = pts[sgi + 1][0], bz = pts[sgi + 1][1];
+      var L = Math.hypot(bx - ax, bz - az), steps = Math.max(1, Math.ceil(L / (C * 0.6)));
+      for (var k = 0; k <= steps; k++) {
+        var t = k / steps, px = ax + (bx - ax) * t, pz = az + (bz - az) * t;
+        if (px < minx - 24 || px > maxx + 24 || pz < minz - 24 || pz > maxz + 24) continue;
+        stampRotRect(road, px, pz, 0, hw, hw);            // axis-aligned disk-ish band (square within hw)
+      }
+    }
+  }
+  if (typeof REMAP_GARAGES !== 'undefined') for (i = 0; i < REMAP_GARAGES.length; i++) { var gg = REMAP_GARAGES[i]; stampRotRect(road, gg.x, gg.z, 0, 32, 24); }  // garage builds its own slab
+  var AP = 2.5;                                           // sidewalk apron on each footprint
+  for (i = 0; i < cityBuildings.length; i++) { var cb = cityBuildings[i]; var yaw = cb.group ? cb.group.rotation.y : 0; stampRotRect(bld, cb.x, cb.z, yaw, cb.W / 2 + AP, cb.D / 2 + AP); }
+  // flood-fill OPEN (exterior) from the region border through non-road cells
+  var open = new Uint8Array(N), stack = [];
+  function pushOpen(gx, gz) { var id = IX(gx, gz); if (!road[id] && !open[id]) { open[id] = 1; stack.push(id); } }
+  for (var gx0 = 0; gx0 < GW; gx0++) { pushOpen(gx0, 0); pushOpen(gx0, GH - 1); }
+  for (var gz0 = 0; gz0 < GH; gz0++) { pushOpen(0, gz0); pushOpen(GW - 1, gz0); }
+  while (stack.length) { var id = stack.pop(), gx = id % GW, gz = (id / GW) | 0; if (gx > 0) pushOpen(gx - 1, gz); if (gx < GW - 1) pushOpen(gx + 1, gz); if (gz > 0) pushOpen(gx, gz - 1); if (gz < GH - 1) pushOpen(gx, gz + 1); }
+  // foundation cells: building footprints + enclosed (non-open) blocks that hold a building
+  var found = new Uint8Array(N), seen = new Uint8Array(N);
+  for (i = 0; i < N; i++) if (!road[i] && bld[i]) found[i] = 1;
+  for (i = 0; i < N; i++) {
+    if (road[i] || open[i] || seen[i]) continue;
+    var comp = [], hasB = false, st = [i]; seen[i] = 1;
+    while (st.length) {
+      var cid = st.pop(); comp.push(cid); if (bld[cid]) hasB = true;
+      var cgx = cid % GW, cgz = (cid / GW) | 0;
+      var nb = [cgx > 0 ? cid - 1 : -1, cgx < GW - 1 ? cid + 1 : -1, cgz > 0 ? cid - GW : -1, cgz < GH - 1 ? cid + GW : -1];
+      for (var q = 0; q < 4; q++) { var nid = nb[q]; if (nid < 0 || road[nid] || open[nid] || seen[nid]) continue; seen[nid] = 1; st.push(nid); }
+    }
+    if (hasB) for (var c = 0; c < comp.length; c++) found[comp[c]] = 1;
+  }
+  for (i = 0; i < N; i++) if (road[i]) found[i] = 0;      // never pour over a road
+  // greedy rectangle decomposition -> raised concrete slabs
+  var used = new Uint8Array(N), mat = foundMat(), nSlabs = 0;
+  for (var rz0 = 0; rz0 < GH; rz0++) for (var rx0 = 0; rx0 < GW; rx0++) {
+    var i0 = IX(rx0, rz0); if (!found[i0] || used[i0]) continue;
+    var w = 0; while (rx0 + w < GW && found[IX(rx0 + w, rz0)] && !used[IX(rx0 + w, rz0)]) w++;
+    var h = 1, ok = true;
+    while (rz0 + h < GH && ok) { for (var kk = 0; kk < w; kk++) { var idc = IX(rx0 + kk, rz0 + h); if (!found[idc] || used[idc]) { ok = false; break; } } if (ok) h++; }
+    for (var uz = 0; uz < h; uz++) for (var ux = 0; ux < w; ux++) used[IX(rx0 + ux, rz0 + uz)] = 1;
+    var wx0 = minx + rx0 * C, wz0 = minz + rz0 * C, ww = w * C, hh = h * C, cxp = wx0 + ww / 2, czp = wz0 + hh / 2;
+    scene.add(box(ww, FOUND_H, hh, mat, cxp, FOUND_H / 2, czp));
+    var col = addColliderOBB(cxp, czp, ww / 2, hh / 2, 0, 'foundation'); col.topY = FOUND_H; col.deck = true;
+    nSlabs++;
+  }
+  if (typeof window !== 'undefined') window.__foundSlabs = nSlabs;
+}
+buildDowntownFoundations();
 // Destructible skyscrapers: fly the Learjet into one and it explodes, burns +
 // smokes for ~1 min, then collapses (sinks through the floor behind dust while a
 // rubble pile rises), and rebuilds itself ~10 min later. LOCAL/singleplayer-only,
