@@ -4,15 +4,15 @@
 // puts the modelled FRONT on +Z. Per-file atlas -> native-res JPEG (no downscale).
 const fs = require('fs');
 const { chromium } = require('/opt/node22/lib/node_modules/playwright');
-const U = '/root/.claude/uploads/6762ca26-85bb-50ae-aa02-dab118a4400c/';
+const U = 'tools/citygen/glbs/';   // in-repo, revert-proof
 
 // file -> {obj-name-prefix, id-prefix, startIndex}
 const JOBS = [
-  { file: U + '2a4bd37e-GenericBrickBuildings.glb', idp: 'brick', start: 1 },
-  { file: U + '79636a5a-GenericCityBusinessesWithApartments.glb', idp: 'citybiz', start: 1 },
-  { file: U + '9013a35a-GenericCityBusinessesWithApartments2.glb', idp: 'citybiz', start: 6 },
-  { file: U + 'e5fb8fdd-GenericOfficeBuildings.glb', idp: 'office', start: 1 },
-  { file: U + '0a079b04-HighriseApartment.glb', idp: 'highrise', start: 1 }
+  { file: U + 'GenericBrickBuildings.glb', idp: 'brick', start: 1 },
+  { file: U + 'GenericCityBusinessesWithApartments.glb', idp: 'citybiz', start: 1 },
+  { file: U + 'GenericCityBusinessesWithApartments2.glb', idp: 'citybiz', start: 6 },
+  { file: U + 'GenericOfficeBuildings.glb', idp: 'office', start: 1 },
+  { file: U + 'HighriseApartment.glb', idp: 'highrise', start: 1 }
 ];
 
 function mul(a, c) { const o = new Array(16); for (let r = 0; r < 4; r++)for (let cc = 0; cc < 4; cc++) { let s = 0; for (let k = 0; k < 4; k++)s += a[k * 4 + r] * c[cc * 4 + k]; o[cc * 4 + r] = s; } return o; }
@@ -64,22 +64,22 @@ function encObj(o, id, tex) {
   const qp = new Int16Array(tp.length); for (let i = 0; i < tp.length; i++) qp[i] = Math.max(-32767, Math.min(32767, Math.round(tp[i] * q)));
   const qu = new Uint16Array(o.UV.length); for (let i = 0; i < o.UV.length; i++) { let v = o.UV[i]; if (v < 0) v = 0; if (v > 1) v = 1; qu[i] = Math.round(v * 8192); }
   const qi = new Uint16Array(o.I.length); for (let i = 0; i < o.I.length; i++) qi[i] = o.I[i];
-  return { id, name: id, q, dims: dims.map(d => +d.toFixed(4)), tris: o.I.length / 3, p: b64(qp), u: b64(qu), i: b64(qi), tex };
+  return { id, name: id, q, dims: dims.map(d => +d.toFixed(4)), tris: o.I.length / 3, p: b64(qp), u: b64(qu), i: b64(qi), texRef: tex };
 }
 
 (async () => {
   const parsed = JOBS.map(j => ({ ...j, ...parse(j.file) }));
   const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' });
   const page = await browser.newPage();
-  const out = [];
+  const out = []; const texArr = [];
   for (const j of parsed) {
     const src = 'data:' + j.mime + ';base64,' + j.png.toString('base64');
     const jpeg = await page.evaluate(async (s) => { const img = new Image(); img.src = s; await img.decode(); const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight; c.getContext('2d').drawImage(img, 0, 0); return { url: c.toDataURL('image/jpeg', 0.9), w: img.naturalWidth, h: img.naturalHeight }; }, src);
-    j.objs.forEach((o, k) => { const id = j.idp + (j.start + k); out.push(encObj(o, id, jpeg.url)); });
+    const ti = texArr.push(jpeg.url) - 1; j.objs.forEach((o, k) => { const id = j.idp + (j.start + k); out.push(encObj(o, id, ti)); });
     console.log(j.idp + ' x' + j.objs.length, 'tex', jpeg.w + 'x' + jpeg.h, (jpeg.url.length / 1024).toFixed(0) + 'KB');
   }
   await browser.close();
-  const body = 'var CITY_BUILDINGS = ' + JSON.stringify(out) + ';\n';
+  const body = 'var CITY_TEX = ' + JSON.stringify(texArr) + ';\nvar CITY_BUILDINGS = ' + JSON.stringify(out) + ';\nfor (var _i = 0; _i < CITY_BUILDINGS.length; _i++) CITY_BUILDINGS[_i].tex = CITY_TEX[CITY_BUILDINGS[_i].texRef];\n';
   fs.writeFileSync('/home/user/westchase_fps/citybuildings.js',
     '// citybuildings.js — CITY_BUILDINGS: user-imported generic city buildings for downtown.\n' +
     '// Categories: brick1-5 (rowhouses), citybiz1-10 (businesses+apartments), office1-5\n' +
