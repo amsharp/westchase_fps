@@ -264,10 +264,15 @@ game.js under `WC_REMAP`. Frame: junction `(0,0)`, **+x east / +z south**.
     idempotent re-run strips priors + old garage/lot artifacts) → `tools/mapimport.js`
     regens `remapdata.js` REMAP_MODELS (526 = 8 skyscrapers + 518 fillers). Keep-out
     seeds from the SKYSCRAPERS only (ignores prior gen fillers still in remapdata).
-  - **Foundations (v1.121):** `placeCatalogModel(id,x,z,rot,footW,scale,{foundation:true})`
-    raises the building onto a concrete plinth (`addFoundation`, `FOUND_H=0.45 < STEP_UP`
-    so you walk up it; deck collider never walls you; sidewalk-doubling). All REMAP_MODELS
-    get one via `placeRemapModels`.
+  - **Foundations (v1.121, merged v1.121.1):** `placeCatalogModel({foundation:true})`
+    only RAISES the building onto `FOUND_H=0.45` (< STEP_UP so you walk up).
+    `buildDowntownFoundations()` (after placeRemapModels) pours the actual concrete:
+    rasterises the downtown region (cell 3u), marks road/garage/building cells,
+    flood-fills the OPEN exterior from the border, then pours foundation over every
+    building footprint + any road-ENCLOSED block that holds a building (so alleys
+    aren't grassy; open road-frontages merge into strips), greedy-rects into raised
+    concrete deck slabs (topY=FOUND_H, `deck` so never walls you). ~555 slabs.
+    `foundMat`/`addFoundation` (per-building plinth) are now dead but kept.
   - **Roofs walkable:** already free from v1.112 — building OBB colliders carry
     `topY=foundH+H`, so the 2.5D `surfaceHeightAt` logic lets you stand on any roof
     (parachute/heli land, jump off).

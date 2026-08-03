@@ -906,9 +906,11 @@ Buildings get **taller toward the skyscraper core** — offices and near-skyscra
 highrises in the middle band, rowhouses on the fringe — packed into contiguous
 "walls" in places and spaced out for alleyways in others.
 
-Every building (skyscrapers included) sits on a **raised concrete foundation that
-doubles as the sidewalk** — a cubic plinth just tall enough to read as a curb;
-you walk straight up onto it, and the foundations never cover the road. You can
+The whole downtown sits on **raised concrete foundations that double as the
+sidewalk** — every road-enclosed block that has buildings is poured as one solid
+pad (so the alleys between buildings are paved, not grassy), and buildings that
+front the same open street share one continuous foundation strip. It's a curb-
+height step you walk straight up onto, and it never covers the road. You can
 **walk on the roof of any building** — parachute or land a helicopter on top,
 stroll around, and jump off.
 
