@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.120.0';
+var GAME_VERSION = 'v1.121.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -6391,11 +6391,8 @@ function buildParkingGarage(cx, cz, opts) {
 }
 var GARAGE_SPOTS = [
   // [cx, cz]  (axis-aligned; add more to reuse the structure elsewhere)
-  [-245, 585],
-  // downtown garages (E+W entrances wired to the grid via grg*_e / grg*_w
-  // access roads in remapdata.js — keep these in sync with placebuildings.js)
-  [2525, 1712],
-  [2554, 2406]
+  [-245, 585]
+  // downtown garages are now editor-placed (REMAP_GARAGES) — see placeRemapGarages()
 ];
 function placeGarages() { for (var i = 0; i < GARAGE_SPOTS.length; i++) buildParkingGarage(GARAGE_SPOTS[i][0], GARAGE_SPOTS[i][1], GARAGE_SPOTS[i][2]); }
 placeGarages();
@@ -6619,22 +6616,85 @@ function findCatalogModel(id) {
   for (var c = 0; c < MODEL_CATALOGS.length; c++) { var L = MODEL_CATALOGS[c]; for (var i = 0; i < L.length; i++) if (L[i].id === id) return L[i]; }
   return null;
 }
+// ---- concrete FOUNDATIONS (v1.121): every downtown building (skyscrapers incl.)
+// sits on a raised cubic concrete plinth that doubles as the sidewalk. FOUND_H is
+// kept just under STEP_UP so you walk straight up onto it from the street; the
+// plinth collider is a `deck` (never walls you) + surfaceHeightAt lifts you the
+// curb. The small apron keeps the plinth clear of the road (placement already
+// offsets the building hw+2.5 off the centreline).
+var FOUND_H = 0.45;
+var _foundM = null;
+function foundMat() {
+  if (_foundM) return _foundM;
+  var t = tex(64, function (g, s) {
+    g.fillStyle = '#b7b2a6'; g.fillRect(0, 0, s, s);
+    noise(g, s, 520, 0.10, 0.06);
+    g.strokeStyle = 'rgba(120,116,108,0.35)'; g.lineWidth = 1;
+    for (var k = 1; k < 3; k++) { g.beginPath(); g.moveTo(0, s * k / 3); g.lineTo(s, s * k / 3); g.stroke(); }
+  });
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  _foundM = lamb({ map: t });
+  return _foundM;
+}
+function addFoundation(x, z, rotY, W, D, apron) {
+  var fw = W + apron * 2, fd = D + apron * 2;
+  var m = box(fw, FOUND_H, fd, foundMat(), 0, 0, 0);
+  m.position.set(x, FOUND_H / 2, z); m.rotation.y = rotY; scene.add(m);
+  var col = addColliderOBB(x, z, fw / 2, fd / 2, rotY, 'foundation');
+  col.topY = FOUND_H; col.deck = true;   // deck: never blocks horizontally; you step up onto it
+  return m;
+}
 // place one catalog model; footW (optional) sets footprint width -> uniform
-// scale, else `scale` is used directly. Returns the placed {group,W,H,D} or null.
-function placeCatalogModel(id, x, z, rotDeg, footW, scale) {
+// scale, else `scale` is used directly. opts.foundation adds a plinth (and raises
+// the building onto it). Returns the placed {group,W,H,D,cols,foundH} or null.
+function placeCatalogModel(id, x, z, rotDeg, footW, scale, opts) {
   var e = findCatalogModel(id); if (!e || typeof placeAirModel !== 'function') return null;
   var cache = _catModelCache[id] || (_catModelCache[id] = {});
   var s = (footW && e.dims[0]) ? footW / e.dims[0] : (scale || 1);
   var rotY = (rotDeg || 0) * Math.PI / 180;
   var placed = placeAirModel(e, cache, s, x, z, rotY);
-  if (placed) placed.cols = pushMeshColliders(cache, s, x, z, rotY, placed.H);   // precise footprint (+ minimap)
+  if (!placed) return null;
+  var foundH = 0;
+  if (opts && opts.foundation) {
+    foundH = FOUND_H;
+    placed.group.position.y = foundH;                                   // sit the building on its plinth
+    addFoundation(x, z, rotY, placed.W, placed.D, opts.apron || 2.0);
+  }
+  placed.foundH = foundH;
+  placed.cols = pushMeshColliders(cache, s, x, z, rotY, foundH + placed.H);   // walls block; roof (topY) is walkable
   return placed;
 }
+// destructible tower registry (skyscrapers + offices + highrises) and the full
+// city-building registry (every placed model — used for plane-hit rubble + the
+// chain-collapse that flattens a struck tower's neighbours). Declared before
+// placeRemapModels so it can register as it places.
+var towers = [];
+var cityBuildings = [];
+var SKY_IDS = { boa: 1, pnc: 1, regions: 1, sykes: 1, wellsfargo: 1, bbt: 1, suntrust: 1 };
+function isTowerModel(model) { return SKY_IDS[model] || /^office/.test(model) || /^highrise/.test(model); }
 function placeRemapModels() {
   if (typeof REMAP_MODELS === 'undefined') return;
   for (var i = 0; i < REMAP_MODELS.length; i++) {
     var m = REMAP_MODELS[i];
-    placeCatalogModel(m.model, m.x, m.z, m.rot || 0, m.w, m.scale);
+    var placed = placeCatalogModel(m.model, m.x, m.z, m.rot || 0, m.w, m.scale, { foundation: true });
+    if (!placed) continue;
+    var rec = {
+      model: m.model, group: placed.group, x: m.x, z: m.z,
+      W: placed.W, H: placed.H, D: placed.D, foundH: placed.foundH || 0,
+      cols: placed.cols || [], mb: mapBuildings[mapBuildings.length - 1],
+      tower: isTowerModel(m.model), destroyed: false, towerObj: null
+    };
+    cityBuildings.push(rec);
+    if (rec.tower) {
+      var t = {
+        id: 'city' + i + '_' + m.model, group: placed.group, x: m.x, z: m.z,
+        W: placed.W, H: placed.H, D: placed.D, baseY: rec.foundH,
+        cols: placed.cols || [], mb: rec.mb, cityRec: rec,
+        fullH: placed.H + rec.foundH, state: 'up', t: 0, emitT: 0, rubble: null
+      };
+      rec.towerObj = t;
+      towers.push(t);
+    }
   }
 }
 placeRemapModels();
@@ -6643,7 +6703,7 @@ placeRemapModels();
 // rubble pile rises), and rebuilds itself ~10 min later. LOCAL/singleplayer-only,
 // like the plane + interiors — never net-synced. Registered here as each tower is
 // placed (capture the collider + minimap footprint pushed by pushYawCollider).
-var towers = [];
+// (`towers` + `cityBuildings` are declared above, before placeRemapModels.)
 // SHOWCASE: one of each skyscraper in a row in the open land just NE of town
 // (drive/walk east along the main road). Scales pick a nice per-tower height;
 // easy to reposition or remove later via the map editor.
@@ -16871,6 +16931,10 @@ function crashPlane() {
   // did we fly into a standing skyscraper? kick off its destruction sequence
   var struck = (typeof towerAt === 'function') ? towerAt(x, z, y) : null;
   if (struck) igniteTower(struck, y, x, z);   // pass the impact point so the plane-hole lands on the struck face
+  else if (typeof cityBuildingAt === 'function') {   // small building (brick/biz): no drawn-out event — instant rubble
+    var sb = cityBuildingAt(x, z, y);
+    if (sb && !sb.tower) rubbleSwapBuilding(sb);
+  }
   // extra fireball
   for (var i = 0; i < 14; i++) puff(new THREE.Vector3(x + (Math.random() - 0.5) * 6, 0.8 + Math.random() * 4, z + (Math.random() - 0.5) * 6), i % 2 ? 0x333333 : 0xff7a1e);
   sfx('boom', { x: x, z: z, range: 300 });
@@ -17264,12 +17328,59 @@ function startTowerCollapse(t) {
   sfx('towercollapse', { x: t.x, z: t.z, range: 520 });   // the big collapse rumble (falls silent if the pack is absent)
   sfx('crash', { x: t.x, z: t.z, range: 260 });
   popup('COLLAPSE!');
+  chainCollapse(t);                                       // flatten neighbouring buildings into rubble
+}
+// A collapsing tower crushes every building around it: they simply swap to the
+// rubble model (scaled to their own size) — no drawn-out event. Radius scales
+// with the falling tower's footprint. Covers ALL types (brick/biz too).
+function chainCollapse(t) {
+  if (typeof cityBuildings === 'undefined') return;
+  var R = Math.max(t.W, t.D) * 1.4 + 28;
+  for (var i = 0; i < cityBuildings.length; i++) {
+    var rec = cityBuildings[i];
+    if (rec.destroyed || rec.towerObj === t || rec.group === t.group) continue;
+    if (Math.hypot(rec.x - t.x, rec.z - t.z) < R) rubbleSwapBuilding(rec);
+  }
+}
+// swap a building for the (footprint-scaled) rubble model: hide the mesh, kill its
+// wall colliders, drop a walkable rubble heap, neutralise its tower entry if any.
+function rubbleSwapBuilding(rec) {
+  if (!rec || rec.destroyed) return;
+  rec.destroyed = true;
+  if (rec.group) rec.group.visible = false;
+  if (rec.cols) for (var c = 0; c < rec.cols.length; c++) rec.cols[c].active = false;
+  if (rec.towerObj && rec.towerObj.state === 'up') rec.towerObj.state = 'gone';   // no longer a standing tower
+  var fake = { W: rec.W, D: rec.D, fullH: rec.H + (rec.foundH || 0), mb: rec.mb };
+  var pile = buildRubblePile(fake);                    // sets fake.pileH
+  pile.position.set(rec.x, rec.foundH || 0, rec.z);
+  scene.add(pile); rec.rubble = pile;
+  var ph = fake.pileH || 3;
+  if (rec.mb) rec.mb.h = ph;
+  if (typeof rubblePiles !== 'undefined') {
+    var rR = Math.max(rec.W, rec.D) * 1.2;
+    rubblePiles.push({ tid: 'sb' + (rec.x | 0) + '_' + (rec.z | 0), x: rec.x, z: rec.z, R2: rR * rR, peak: ph + (rec.foundH || 0) });
+  }
+  boomAt(rec.x, rec.z);
+  var fw = Math.max(rec.W, rec.D);
+  for (var d = 0; d < 9; d++) { var da = Math.random() * 6.283, dr = Math.random() * fw; bigPuff(rec.x + Math.cos(da) * dr, 1 + Math.random() * 4, rec.z + Math.sin(da) * dr, 'dust', fw * (0.9 + Math.random()), 2.2, 1.4, 3 + Math.random() * 3); }
+  sfx('boom', { x: rec.x, z: rec.z, range: 220 });
+  sfx('crash', { x: rec.x, z: rec.z, range: 180 });
+}
+// which non-tower (small) building, if any, contains world point (x,z) below roof
+function cityBuildingAt(x, z, y) {
+  if (typeof cityBuildings === 'undefined') return null;
+  for (var i = 0; i < cityBuildings.length; i++) {
+    var r = cityBuildings[i];
+    if (r.destroyed) continue;
+    if (Math.abs(x - r.x) < r.W / 2 + 2 && Math.abs(z - r.z) < r.D / 2 + 2 && (y === undefined || y < r.H + r.foundH + 2)) return r;
+  }
+  return null;
 }
 function resetTower(t) {
   // INSTANT reset: no rise-out-of-the-ground animation, no dust. The tower is
   // simply standing again the moment the rubble timer is up.
   t.state = 'up'; t.t = 0;
-  t.group.position.y = 0;
+  t.group.position.y = t.baseY || 0;
   if (t.rubble) { scene.remove(t.rubble); t.rubble = null; }
   if (t.impactDecal) { t.group.remove(t.impactDecal); t.impactDecal = null; }   // fresh face on the reset tower
   if (t.mb) t.mb.h = t.fullH;                          // it's a full skyscraper footprint again
@@ -18088,7 +18199,7 @@ function updateTowers(dt) {
       if (t.t >= TOWER_BURN) startTowerCollapse(t);
     } else if (t.state === 'collapsing') {
       var p = Math.min(1, t.t / TOWER_COLLAPSE), e = p * p;   // ease-in: slow start, accelerates down
-      t.group.position.y = -e * (t.fullH + 3);               // sink the whole tower through the floor
+      t.group.position.y = (t.baseY || 0) - e * (t.fullH + 3);   // sink the whole tower through the floor
       if (t.rubble) t.rubble.position.y = -t.pileH * (1 - p); // rubble rises to ground level as it drops
       // a MASSIVE wall of dust + smoke boiling out and up around the base hides the seam
       if ((t.t * 60 | 0) % 2 === 0) {
