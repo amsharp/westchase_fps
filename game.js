@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.119.0';
+var GAME_VERSION = 'v1.119.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -3160,6 +3160,24 @@ function medianLampAt(x, z, ux, uz, deckY) {
   }
   g.position.set(x, deckY, z); scene.add(g);
 }
+// nearest point on a polyline to (x,z): chainage s, perpendicular distance d, and
+// which SIDE it's on (+1 = +normal edge, matching rmOffsetPts/gapPos; -1 = -normal).
+// Used to auto-open a highway's guardrail where an exit/ramp meets its edge.
+function hwProjSide(pts, cum, x, z) {
+  var bs = 0, bd = 1e9, bside = 1;
+  for (var j = 0; j < pts.length - 1; j++) {
+    var ax = pts[j][0], az = pts[j][1], bx = pts[j + 1][0], bz = pts[j + 1][1];
+    var dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz || 1;
+    var t = ((x - ax) * dx + (z - az) * dz) / L2; t = t < 0 ? 0 : (t > 1 ? 1 : t);
+    var cx = ax + dx * t, cz = az + dz * t, ex = cx - x, ez = cz - z, d2 = ex * ex + ez * ez;
+    if (d2 < bd) {
+      bd = d2; bs = cum[j] + Math.sqrt(L2) * t;
+      var nl = Math.sqrt(L2);
+      bside = ((x - cx) * (-dz / nl) + (z - cz) * (dx / nl)) >= 0 ? 1 : -1;   // +normal = (-dz,dx), matches rmNormals
+    }
+  }
+  return { s: bs, d: Math.sqrt(bd), side: bside };
+}
 function buildHighway(r) {
   var pts = r.pts, hw = r.hw, deckY = r.elev || 8, cum = rmCum(pts), total = cum[cum.length - 1], s;
   var oneway = !!r.oneway, lanes = r.lanes || Math.max(1, Math.round(hw / 5));
@@ -3173,8 +3191,28 @@ function buildHighway(r) {
   // outer Jersey barriers — opened at exit throats via r.barGap ({side:+1/-1,
   // s0,s1} chainage ranges; +side = +normal edge). Guardrails stay continuous
   // except across the actual road opening.
-  var gapPos = [], gapNeg = [], bgi;
-  if (r.barGap) for (bgi = 0; bgi < r.barGap.length; bgi++) { var bg = r.barGap[bgi]; (bg.side > 0 ? gapPos : gapNeg).push([bg.s0, bg.s1]); }
+  // NOTE: the editor's authored `r.barGap` chainages are systematically ~22u off
+  // from the real throats (an editor↔game chainage mismatch) and some exits get no
+  // barGap at all — so we IGNORE r.barGap and derive the openings from geometry below.
+  var gapPos = [], gapNeg = [];
+  // AUTO-OPEN the guardrail wherever an exit/entrance ramp meets THIS highway's
+  // EDGE, so cars can actually take the exit. The editor only injects a barGap for
+  // exits stamped with the Exit tool (here: just the one 2-way loop) — every one-way
+  // collector exit was otherwise walled shut. Detect any exitdeck/ramp whose endpoint
+  // sits on this deck's edge and cut a gap there on the matching side (union w/ authored).
+  if (typeof REMAP_ROADS !== 'undefined') {
+    for (var aei = 0; aei < REMAP_ROADS.length; aei++) {
+      var ark = REMAP_ROADS[aei];
+      if (ark.id === r.id || !ark.pts || (ark.kind !== 'exitdeck' && ark.kind !== 'ramp')) continue;
+      var aend = [ark.pts[0], ark.pts[ark.pts.length - 1]];
+      for (var aee = 0; aee < 2; aee++) {
+        var aps = hwProjSide(pts, cum, aend[aee][0], aend[aee][1]);
+        if (aps.d > hw + 6 || aps.d < hw * 0.35 || aps.s < 1 || aps.s > total - 1) continue;   // must sit ON the deck edge, not this highway's own end
+        var agh = (ark.hw || 5) + 5;                                                            // gap ~ exit width + margin
+        (aps.side > 0 ? gapPos : gapNeg).push([aps.s - agh, aps.s + agh]);
+      }
+    }
+  }
   var posEdge = rmOffsetPts(pts, hw - 0.35), negEdge = rmOffsetPts(pts, -(hw - 0.35));
   hwWallGapped(posEdge, deckY, 1.05, 0.5, hwConcreteM, 'hw:barrier', barM, gapPos);
   hwWallGapped(negEdge, deckY, 1.05, 0.5, hwConcreteM, 'hw:barrier', barM, gapNeg);
