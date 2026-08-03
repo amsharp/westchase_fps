@@ -244,23 +244,45 @@ game.js under `WC_REMAP`. Frame: junction `(0,0)`, **+x east / +z south**.
   `kind:'highway'` → raised drivable deck at `elev`; `kind:'ramp'` → elevation
   transition the car climbs; `kind:'water'` → river water strip. Until then the
   editor + JSON + remapdata carry the data but it won't appear in-game.
-- **Downtown filler buildings (v1.120):** `citybuildings.js` (`CITY_BUILDINGS`
-  catalog — 21 entries: brick rowhouses, citybiz storefronts, offices, one
-  highrise; 5 shared JPEG atlases via `texRef`, ~3.4MB; loaded blocking BEFORE
-  game.js, pushed into `MODEL_CATALOGS`) holds the models. Converter:
+- **Downtown filler buildings (v1.120, reworked v1.121):** `citybuildings.js`
+  (`CITY_BUILDINGS` catalog — 21 entries: brick rowhouses, citybiz storefronts,
+  offices, one highrise; 5 shared JPEG atlases via `texRef`, ~3.4MB; loaded blocking
+  BEFORE game.js, pushed into `MODEL_CATALOGS`) holds the models. Converter:
   `tools/citygen/glb2city.js` (multi-object GLB → catalog, dedupes atlases; source
-  GLBs committed in `tools/citygen/glbs/`). Placement generator:
-  `tools/citygen/placebuildings.js` frontage-walks every ground road (hw≥8) inside
-  the downtown box (X 1632–2860, Z 1474–2689), lines both sides with fronts facing
-  the road (model +Z is front → `rotDeg=atan2(frontX,frontZ)`), tiers height by
-  distance from the skyscraper centroid, drops 2 parking garages + `grg*_e/_w`
-  access roads + a few parking-lot surfaces, then writes back into
-  `westchase_map.json` (buildings `gen:'city'`, idempotent re-run strips priors) →
-  run `tools/mapimport.js` to regen `remapdata.js` REMAP_MODELS (787 now = 8
-  skyscrapers + 779 fillers). Downtown garage `GARAGE_SPOTS` are hardcoded in
-  game.js (editor has no garage concept) — keep them in sync with placebuildings.js.
-  Verify with `tools/citygen/capture.js` (headless custom-camera aerials, fog
-  nulled per-render → `tools/citygen/shots/`).
+  GLBs committed in `tools/citygen/glbs/`).
+  - **MODEL ORIENTATION (verified by render):** every family's FRONT (storefront /
+    entrance / lobby) is on the model's **local +X face**, so `dims[2]` (Z) is the
+    FRONTAGE width and `dims[0]` (X) is the DEPTH. placeCatalogModel scales by
+    `w/dims[0]`, so the stored `w` == depth; frontage = `dims[2]*w/dims[0]`. To face
+    the road: rotate +X toward it → `rot = atan2(Nu[1], -Nu[0])` (Nu = normal away
+    from road). Getting this wrong makes buildings show their SIDE to the street.
+  - **Placement generator** `tools/citygen/placebuildings.js` frontage-walks every
+    ground road (hw≥8) in the downtown box (X 1632–2860, Z 1474–2689), lines both
+    sides fronts-to-road, tiers by distance from the skyscraper centroid (offices +
+    near-core highrises in the middle band, rowhouses on the fringe; highrises/offices
+    scaled BIG so fewer fit), writes `westchase_map.json` (buildings `gen:'city'`,
+    idempotent re-run strips priors + old garage/lot artifacts) → `tools/mapimport.js`
+    regens `remapdata.js` REMAP_MODELS (526 = 8 skyscrapers + 518 fillers). Keep-out
+    seeds from the SKYSCRAPERS only (ignores prior gen fillers still in remapdata).
+  - **Foundations (v1.121):** `placeCatalogModel(id,x,z,rot,footW,scale,{foundation:true})`
+    raises the building onto a concrete plinth (`addFoundation`, `FOUND_H=0.45 < STEP_UP`
+    so you walk up it; deck collider never walls you; sidewalk-doubling). All REMAP_MODELS
+    get one via `placeRemapModels`.
+  - **Roofs walkable:** already free from v1.112 — building OBB colliders carry
+    `topY=foundH+H`, so the 2.5D `surfaceHeightAt` logic lets you stand on any roof
+    (parachute/heli land, jump off).
+  - **Destruction (v1.121):** `placeRemapModels` registers a `cityBuildings[]` rec per
+    model + pushes skyscrapers/offices/highrises (`isTowerModel`) into `towers[]`.
+    Plane crash → `towerAt` ignites the big event (offices/highrises too); non-tower
+    hit → `rubbleSwapBuilding` (instant footprint-scaled rubble). `startTowerCollapse`
+    → `chainCollapse` rubble-swaps every neighbour in radius (all types). Rubble reuses
+    `buildRubblePile(fake)`. Debug: `__wc.cityBuildings/towers/rubbleSwap/collapseTower/surfAt`.
+  - **Parking garages are now EDITOR-placed:** editor "Parking Garage" building
+    (`type:'garage'`, BUILDINGS entry) → mapimport `REMAP_GARAGES` → game
+    `placeRemapGarages()` (axis-aligned `buildParkingGarage`, rot stored but ignored).
+    Wire E/W entrances to streets with roads. `GARAGE_SPOTS` keeps only the SW test one.
+  - Verify: `tools/citygen/bootcheck.js` (boot + 0 pageerrors + shots),
+    `desttest.js` (roof/foundation/rubble/chain), `frontshot.js` (street facing).
 
 ## Systems summary
 
