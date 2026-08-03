@@ -437,7 +437,7 @@
   <div id="bootLabel">warming up the engine…</div>
 </div>
 <script>
-var wcBootDone = 0, WC_BOOT_TOTAL = 23.25;   // = SUM of the wcTick weights below — re-sum when adding scripts (grep wcTick | add). Voice packs (~33MB) are NOT counted: they defer-load after boot (game.js loadVoicePacks).
+var wcBootDone = 0, WC_BOOT_TOTAL = 26.65;   // = SUM of the wcTick weights below — re-sum when adding scripts (grep wcTick | add). Voice packs (~33MB) are NOT counted: they defer-load after boot (game.js loadVoicePacks).
 function wcTick(w, nextLabel) {
   wcBootDone += w;
   var b = document.getElementById('bootBar');
@@ -478,6 +478,7 @@ function wcTick(w, nextLabel) {
 <script src="airport_hangar.js"></script>
 <script src="airport_terminal.js"></script>
 <script src="skyscrapers.js"></script>
+<script src="citybuildings.js" onload="wcTick(3.4,'raising downtown…')"></script>
 <script src="rubble.js"></script>
 <script src="splatbody.js"></script>
 <script src="leg.js"></script>

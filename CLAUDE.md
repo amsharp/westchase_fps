@@ -244,6 +244,23 @@ game.js under `WC_REMAP`. Frame: junction `(0,0)`, **+x east / +z south**.
   `kind:'highway'` → raised drivable deck at `elev`; `kind:'ramp'` → elevation
   transition the car climbs; `kind:'water'` → river water strip. Until then the
   editor + JSON + remapdata carry the data but it won't appear in-game.
+- **Downtown filler buildings (v1.120):** `citybuildings.js` (`CITY_BUILDINGS`
+  catalog — 21 entries: brick rowhouses, citybiz storefronts, offices, one
+  highrise; 5 shared JPEG atlases via `texRef`, ~3.4MB; loaded blocking BEFORE
+  game.js, pushed into `MODEL_CATALOGS`) holds the models. Converter:
+  `tools/citygen/glb2city.js` (multi-object GLB → catalog, dedupes atlases; source
+  GLBs committed in `tools/citygen/glbs/`). Placement generator:
+  `tools/citygen/placebuildings.js` frontage-walks every ground road (hw≥8) inside
+  the downtown box (X 1632–2860, Z 1474–2689), lines both sides with fronts facing
+  the road (model +Z is front → `rotDeg=atan2(frontX,frontZ)`), tiers height by
+  distance from the skyscraper centroid, drops 2 parking garages + `grg*_e/_w`
+  access roads + a few parking-lot surfaces, then writes back into
+  `westchase_map.json` (buildings `gen:'city'`, idempotent re-run strips priors) →
+  run `tools/mapimport.js` to regen `remapdata.js` REMAP_MODELS (787 now = 8
+  skyscrapers + 779 fillers). Downtown garage `GARAGE_SPOTS` are hardcoded in
+  game.js (editor has no garage concept) — keep them in sync with placebuildings.js.
+  Verify with `tools/citygen/capture.js` (headless custom-camera aerials, fog
+  nulled per-render → `tools/citygen/shots/`).
 
 ## Systems summary
 

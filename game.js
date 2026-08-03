@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.119.1';
+var GAME_VERSION = 'v1.120.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -6391,7 +6391,11 @@ function buildParkingGarage(cx, cz, opts) {
 }
 var GARAGE_SPOTS = [
   // [cx, cz]  (axis-aligned; add more to reuse the structure elsewhere)
-  [-245, 585]
+  [-245, 585],
+  // downtown garages (E+W entrances wired to the grid via grg*_e / grg*_w
+  // access roads in remapdata.js — keep these in sync with placebuildings.js)
+  [2525, 1712],
+  [2554, 2406]
 ];
 function placeGarages() { for (var i = 0; i < GARAGE_SPOTS.length; i++) buildParkingGarage(GARAGE_SPOTS[i][0], GARAGE_SPOTS[i][1], GARAGE_SPOTS[i][2]); }
 placeGarages();
@@ -6609,6 +6613,7 @@ buildAirport(AIRPORT_ORIGIN.x, AIRPORT_ORIGIN.z);
 // registered in mapBuildings so it shows on the minimap.
 var MODEL_CATALOGS = [];
 if (typeof SKYSCRAPERS !== 'undefined') MODEL_CATALOGS.push(SKYSCRAPERS);
+if (typeof CITY_BUILDINGS !== 'undefined') MODEL_CATALOGS.push(CITY_BUILDINGS);
 var _catModelCache = {};
 function findCatalogModel(id) {
   for (var c = 0; c < MODEL_CATALOGS.length; c++) { var L = MODEL_CATALOGS[c]; for (var i = 0; i < L.length; i++) if (L[i].id === id) return L[i]; }
