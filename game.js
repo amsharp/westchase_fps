@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.122.1';
+var GAME_VERSION = 'v1.122.2';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -14130,6 +14130,14 @@ var copSpawnT = 0, lastCrimeT = -99;
 // instead of an instant refill. The initial response to a fresh crime still ramps
 // up fast (the timer is only pushed out on a kill, not during buildup).
 function copRespawnDelay() { return 30 + Math.random() * 30; }
+// v1.122.2: dispatch takes TIME to reach a fresh crime, and units trickle in one
+// at a time instead of the whole squad materialising at once. COP_FIRST_RESPONSE
+// gates the first responder of each kind when a crime first raises your stars; the
+// per-kind GAP constants space out every additional unit after that.
+var COP_FIRST_RESPONSE = 8;    // seconds before the first foot cop reaches a new crime scene
+var COP_SPAWN_GAP = 4.5;       // seconds between each additional foot cop trickling in
+var COPCAR_SPAWN_GAP = 7;      // seconds between each additional cruiser
+var HELI_SPAWN_GAP = 9;        // seconds between each additional chopper
 var badgeM = new THREE.MeshBasicMaterial({ color: 0xffd94a });
 var holsterM = lamb({ color: 0x16181c });
 
@@ -14165,6 +14173,15 @@ function setWanted(v) {
     heat.crimeX = player.x; heat.crimeZ = player.z;
     heat.lkx = player.x; heat.lkz = player.z; heat.lkvx = _copPvx || 0; heat.lkvz = _copPvz || 0;
     heat.loseT = Math.max(heat.loseT, v * HIDE_PER_STAR);
+    // FRESH crime from a clean slate: dispatch has to travel — hold every kind of
+    // responder off for COP_FIRST_RESPONSE so the police don't teleport onto you
+    // the instant you get a star. (Only from 0★ — escalating an ongoing chase
+    // shouldn't slow the units already hunting you.)
+    if (state.wanted === 0) {
+      copSpawnT = Math.max(copSpawnT, COP_FIRST_RESPONSE);
+      if (typeof copCarSpawnT !== 'undefined') copCarSpawnT = Math.max(copCarSpawnT, COP_FIRST_RESPONSE + 3);
+      if (typeof heliSpawnT !== 'undefined') heliSpawnT = Math.max(heliSpawnT, COP_FIRST_RESPONSE + 10);
+    }
   }
   state.wanted = v; lastCrimeT = T;
   updateStarsHUD();
@@ -14699,9 +14716,51 @@ function copFindCover(c, tgt) {
   }
   return best;
 }
+// ---- progressive arrest (v1.122.2) ----------------------------------------
+// An unarmed catch no longer cuffs you the instant a cop touches you. A cop has
+// to be RIGHT on you, on the SAME level (not you-on-a-roof / cop-on-the-ground),
+// while you're NOT in a vehicle/parachute/heli and holding still, for
+// ARREST_HOLD seconds. A HUD indicator counts it down; moving/climbing away
+// bleeds the progress back off.
+var ARREST_REACH = 1.9;      // how close a cop must be to start cuffing
+var ARREST_DY = 2.6;         // max height difference (cop-feet vs player-feet) to reach you
+var ARREST_STILL = 1.6;      // above this player speed the cuffing can't lock on
+var ARREST_HOLD = 2.0;       // seconds pinned before you're actually taken in
+var arrestProg = 0;          // 0..ARREST_HOLD accumulator
+function arrestAllowed(cop) {
+  if (jailT > 0 || arrested || state.dead || inside) return false;
+  if (typeof inVehicleOrAir === 'function' && inVehicleOrAir()) return false;   // driving / parachute / plane / heli
+  if (typeof driving !== 'undefined' && driving) return false;
+  var pFeet = player.y - EYE, cFeet = (cop && cop.baseY) || 0;
+  if (Math.abs(pFeet - cFeet) > ARREST_DY) return false;                        // you're up on a roof, they're below
+  return true;
+}
 function bustPlayer(cop) {
-  if (jailT > 0 || arrested || state.dead || inside) return;   // already jailed / mid-arrest / dead / indoors
+  if (!arrestAllowed(cop)) return;
+  arrestProg = 0; arrestHudSet(0);
   jailPlayer(state.wanted || 1);                    // strip kit, teleport to the cell, serve the sentence (no fine)
+}
+var _arrestHud = null;
+function arrestHudEl() {
+  if (_arrestHud) return _arrestHud;
+  var d = document.createElement('div');
+  d.id = 'arrestHud';
+  d.style.cssText = 'position:fixed;top:96px;left:50%;transform:translateX(-50%);z-index:60;' +
+    'font-family:monospace;font-weight:bold;color:#ffe08a;text-align:center;text-shadow:0 2px 6px #000;' +
+    'background:rgba(30,12,10,.62);border:2px solid #c23b2e;border-radius:8px;padding:7px 20px;' +
+    'font-size:15px;letter-spacing:3px;display:none;pointer-events:none';
+  (document.body || document.documentElement).appendChild(d);
+  _arrestHud = d; return d;
+}
+// p = 0..1 progress; <=0 hides the indicator
+function arrestHudSet(p) {
+  var el = arrestHudEl(); if (!el) return;
+  if (p <= 0.001) { el.style.display = 'none'; return; }
+  var w = Math.round(Math.min(1, p) * 100);
+  el.style.display = 'block';
+  el.innerHTML = 'BEING ARRESTED &mdash; STAY STILL' +
+    '<div style="margin-top:6px;height:8px;width:200px;background:rgba(0,0,0,.5);border:1px solid #c23b2e;border-radius:4px;overflow:hidden">' +
+    '<div style="height:100%;width:' + w + '%;background:#e8b23a"></div></div>';
 }
 function updateCops(dt) {
   // ---- read the player: threat class, speed (for "charging"), and whether we're
@@ -14752,7 +14811,7 @@ function updateCops(dt) {
     var alive = 0, aliveArr = [];
     for (var i0 = 0; i0 < cops.length; i0++) { var c0 = cops[i0]; if (c0.state !== 'down' && !c0.interior) { alive++; aliveArr.push(c0); } }
     var wantN = desiredCops();
-    if (alive < wantN && copSpawnT <= 0) { spawnCop(state.wanted >= 2); copSpawnT = 2.6; }
+    if (alive < wantN && copSpawnT <= 0) { spawnCop(state.wanted >= 2); copSpawnT = COP_SPAWN_GAP; }
     else if (alive > wantN) {
       // HARD CAP the foot-cop crowd: a long chase piles up far more than the level
       // wants (disgorged cop-car crews never despawn, + star decay leaves a surplus),
@@ -14769,6 +14828,7 @@ function updateCops(dt) {
       }
     }
   }
+  var _arrestReach = null;   // a cop that's right on the (unarmed) local player this frame
   for (var i = 0; i < cops.length; i++) {
     var c = cops[i], m = c.mesh;
     if (isClient() && !c.interior) { scene.remove(m); cops.splice(i, 1); i--; continue; }   // street cops come from the host
@@ -14820,9 +14880,10 @@ function updateCops(dt) {
           if (d < wpn.range) aimTgt = tgt;
         }
       } else if (armLevel === 0 && !tgt.id) {
-        // harmless player: run them down and cuff them (no shooting)
-        if (d > 1.4) { vx = dx / d; vz = dz / d; spd = 4.8; moving = true; }
-        else bustPlayer(c);
+        // harmless player: run them down and cuff them (no shooting). The actual
+        // cuffing is progressive (see after the loop) — the cop just plants on you.
+        if (d > ARREST_REACH) { vx = dx / d; vz = dz / d; spd = 4.8; moving = true; }
+        else if (arrestAllowed(c)) _arrestReach = c;
         c.coverT = 0;
       } else {
         // player stopped shooting / melee-escalated / armed: advance and fire
@@ -14870,6 +14931,16 @@ function updateCops(dt) {
     animPerson(m, moving ? spd : 0, dt, c.phase);
     if (aimTgt) { copAimArm(c, m, aimTgt); copShoot(c, copWeapon(c), dt, aimTgt); }
     else if (m.userData.heldGun) copLowReady(m);   // drawn but not aiming: low-ready, not brick-on-palm
+  }
+  // ---- progressive arrest: a cop pinned on the still, unarmed, same-level,
+  // on-foot player fills the arrest bar; break any of those and it drains. ----
+  if (_arrestReach && arrestAllowed(_arrestReach) && pspd < ARREST_STILL) {
+    arrestProg += dt;
+    if (arrestProg >= ARREST_HOLD) { bustPlayer(_arrestReach); }
+    else arrestHudSet(arrestProg / ARREST_HOLD);
+  } else if (arrestProg > 0) {
+    arrestProg = Math.max(0, arrestProg - dt * 2.2);   // drains faster than it fills — moving shakes it
+    arrestHudSet(arrestProg / ARREST_HOLD);
   }
   // losing the heat is handled by recomputeHeat() at the top: stay out of the
   // cops' sight for wanted*60s and ALL your stars drop at once (no slow decay).
@@ -17889,7 +17960,7 @@ function updateCopCars(dt) {
   var cine = state.dead || arrested;
   var want = (state.menu || (typeof inside !== 'undefined' && inside)) ? 0 : desiredCopCars();
   copCarSpawnT -= dt;
-  if (!cine && copCars.length < want && copCarSpawnT <= 0) { spawnCopCar(); copCarSpawnT = 4.5; }
+  if (!cine && copCars.length < want && copCarSpawnT <= 0) { spawnCopCar(); copCarSpawnT = COPCAR_SPAWN_GAP; }
   var nearest = null, nd = 1e9;
   for (var i = copCars.length - 1; i >= 0; i--) {
     var cc = copCars[i];
@@ -18316,7 +18387,7 @@ function updateHelis(dt) {
   var want = (state.menu || (typeof inside !== 'undefined' && inside)) ? 0 : desiredHelis();
   var flying = 0; for (var f = 0; f < helis.length; f++) if (helis[f].state === 'fly') flying++;
   heliSpawnT -= dt;
-  if (!cine && flying < want && heliSpawnT <= 0) { spawnHeli(); heliSpawnT = 6; }
+  if (!cine && flying < want && heliSpawnT <= 0) { spawnHeli(); heliSpawnT = HELI_SPAWN_GAP; }
   for (var i = helis.length - 1; i >= 0; i--) {
     var h = helis[i];
     // heat gone: a flying (undamaged) chopper just peels off and despawns — no crash
@@ -27776,7 +27847,8 @@ window.__wc = {
   heatInfo: function () { return { known: heat.known, loseT: heat.loseT, lkx: heat.lkx, lkz: heat.lkz, crimeX: heat.crimeX, crimeZ: heat.crimeZ, killPts: state.killPts, wanted: state.wanted, desiredCops: desiredCops(), desiredCopCars: desiredCopCars() }; },
   creditKill: function (k) { if (k === 'ko') creditKnockout(); else if (k === 'cop') creditCopKill(); else creditCivKill(k); },
   rapInfo: function () { return { charges: chargeList(), assault: rap.assault, gta: rap.gta, robbery: rap.robbery, terror: rap.terror, vandalism: rap.vandalism, kills: rap.kills, gunKills: rap.gunKills }; },
-  arrestState: function () { return { arrested: arrested, phase: arrestCam && arrestCam.phase, jailT: jailT, inside: inside, cur: curInterior && curInterior.id }; },
+  arrestState: function () { return { arrested: arrested, phase: arrestCam && arrestCam.phase, jailT: jailT, inside: inside, cur: curInterior && curInterior.id, arrestProg: arrestProg }; },
+  arrestAllowed: function (cop) { return arrestAllowed(cop || null); },
   testCharge: function (k, v) { if (k in rap) rap[k] = (v === undefined ? true : v); },
   posSeesPlayer: function (x, z, v) { return posSeesPlayer(x, z, v); },
   setHideTimer: function (v) { heat.loseT = v; },

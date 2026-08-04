@@ -584,6 +584,18 @@ If an officer catches you **unarmed** (fists, food, spray paint — nothing
 they'd shoot over) and closes the distance, they don't just knock you out —
 they **cuff you and haul you to the county jail**.
 
+Cuffing isn't instant, though. An officer has to be **right on top of you** and
+you have to **hold still for about two seconds** — a **BEING ARRESTED — STAY
+STILL** meter fills on screen while they slap the cuffs on, and it drains the
+moment you break away and run. They **can't arrest you** while you're in a car,
+under a parachute, or flying a helicopter, and they can't reach up to cuff you
+if **you're up on a rooftop and they're stuck on the ground** — get to high
+ground or a vehicle and the meter never lands.
+
+Dispatch also takes a beat to arrive now: commit a crime and the first units are
+**several seconds out**, then they **trickle in one at a time** instead of the
+whole squad appearing on top of you at once.
+
 The bust plays out as a cutscene: the camera pulls up and **zooms out over you**
 as you stand there caught, then **fades to black** and reads **ARRESTED**, with
 your **rap sheet** — every charge you racked up this wanted streak — listed

@@ -505,6 +505,21 @@ game.js under `WC_REMAP`. Frame: junction `(0,0)`, **+x east / +z south**.
   (3) **Only fires when armed** — `heliGunnerFire` bails unless `heliPlayerArmed()`
   (a real gun in `GUN_LIST` equipped, and NOT driving/piloting the plane), so
   fleeing unarmed / in a vehicle draws no fire. `__wc.helis`/`spawnHeli` for tests.
+- **Progressive arrest (v1.122.2):** an unarmed catch is no longer instant. A cop
+  has to be RIGHT on you (`ARREST_REACH=1.9`) for `ARREST_HOLD=2s` while you hold
+  still (`pspd<ARREST_STILL=1.6`) — a `#arrestHud` bar ("BEING ARRESTED — STAY
+  STILL") fills as `arrestProg` accumulates in `updateCops` (after the cop loop),
+  and drains 2.2×-fast the moment you move/climb away. `arrestAllowed(cop)` gates
+  it: never while `inVehicleOrAir()` (driving/parachute/plane/heli) and never
+  across a height gap (`|player-feet − cop.baseY| > ARREST_DY=2.6`, so a cop on
+  the ground can't cuff you up on a roof). The cuff branch in `updateCops` sets a
+  frame-scoped `_arrestReach` instead of calling `bustPlayer` directly. `__wc`:
+  `arrestState().arrestProg`, `arrestAllowed(cop)`.
+- **Police response pacing (v1.122.2):** a fresh crime from 0★ holds ALL responders
+  off for `COP_FIRST_RESPONSE=8s` (`setWanted` sets `copSpawnT`/`copCarSpawnT`/
+  `heliSpawnT` only when escalating FROM 0★, so an ongoing chase isn't slowed), then
+  units trickle in one at a time via `COP_SPAWN_GAP=4.5` / `COPCAR_SPAWN_GAP=7` /
+  `HELI_SPAWN_GAP=9` instead of the whole squad materialising at once.
 - **Arrest → jail** (`bustPlayer`→`jailPlayer`→arrest cam→`enterJailCell`/
   `releaseFromJail`/`updateJail`, per-player): an unarmed catch cuffs you instead
   of KO'ing — NO fine anymore. `jailPlayer(stars)` captures the charge list, then
