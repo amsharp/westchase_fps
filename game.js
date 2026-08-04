@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.122.3';
+var GAME_VERSION = 'v1.122.4';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -14497,9 +14497,63 @@ function copWeapon(c) {
   return COP_GUN_STATS[k] || COP_GUN_STATS.pistol;
 }
 var copRay = new THREE.Raycaster();
+// ---- shot line-of-sight through solid geometry (v1.122.4) -------------------
+// copHasLOS raycasts solidMeshes, but catalog buildings (skyscrapers, downtown
+// fillers, airport) and highway decks are added to the scene ONLY as colliders,
+// not as raycast meshes — so police could shoot straight through a whole building
+// or up through the overpass you're standing on. This tests the shot segment
+// against the collider VOLUMES too: a solid footprint occludes from its base up
+// to topY; a deck slab occludes only where the segment crosses the deck plane
+// (so you can't be shot up through the highway you're on, but two people under it
+// can still see each other). Broad-phased through the collider grid; cheap because
+// it only runs on the fire-gated LOS check, not every frame.
+var _losScratch = [];
+function _slabClip(p, d, lo, hi, tr) {
+  if (d > -1e-9 && d < 1e-9) return p >= lo && p <= hi;   // parallel: inside the slab or never
+  var ta = (lo - p) / d, tb = (hi - p) / d;
+  if (ta > tb) { var t = ta; ta = tb; tb = t; }
+  if (ta > tr[0]) tr[0] = ta;
+  if (tb < tr[1]) tr[1] = tb;
+  return tr[0] <= tr[1];
+}
+function segHitsBox(ax, ay, az, bx, by, bz, b, ymin, ymax) {
+  var lx0, lz0, lx1, lz1, hx, hz;
+  if (b.obb) {
+    var o0x = ax - b.x, o0z = az - b.z, o1x = bx - b.x, o1z = bz - b.z;
+    lx0 = o0x * b.c - o0z * b.s; lz0 = o0x * b.s + o0z * b.c;
+    lx1 = o1x * b.c - o1z * b.s; lz1 = o1x * b.s + o1z * b.c;
+    hx = b.hx; hz = b.hz;
+  } else {
+    var ccx = (b.x0 + b.x1) / 2, ccz = (b.z0 + b.z1) / 2;
+    lx0 = ax - ccx; lz0 = az - ccz; lx1 = bx - ccx; lz1 = bz - ccz;
+    hx = (b.x1 - b.x0) / 2; hz = (b.z1 - b.z0) / 2;
+  }
+  var tr = [0, 1];
+  if (!_slabClip(lx0, lx1 - lx0, -hx, hx, tr)) return false;
+  if (!_slabClip(lz0, lz1 - lz0, -hz, hz, tr)) return false;
+  if (!_slabClip(ay, by - ay, ymin, ymax, tr)) return false;
+  return true;
+}
+function losColliderBlocked(ax, ay, az, bx, by, bz) {
+  var midx = (ax + bx) / 2, midz = (az + bz) / 2, rad = Math.hypot(bx - ax, bz - az) / 2 + 6;
+  var L = collidersNear(midx, midz, rad, _losScratch);
+  var minx = Math.min(ax, bx), maxx = Math.max(ax, bx), minz = Math.min(az, bz), maxz = Math.max(az, bz);
+  for (var i = 0; i < L.length; i++) {
+    var b = L[i];
+    if (b.active === false || b.lake || b.topY === undefined) continue;
+    if (maxx < b.x0 || minx > b.x1 || maxz < b.z0 || minz > b.z1) continue;
+    var ymin, ymax;
+    if (b.deck) { ymin = b.topY - 0.4; ymax = b.topY + 0.4; }                       // thin overpass slab
+    else { ymin = (b.minY !== undefined ? b.minY : 0) - 0.2; ymax = b.topY; if (ymax < 1.2) continue; }   // solid footprint base..roof (ignore curb-height pads)
+    if (segHitsBox(ax, ay, az, bx, by, bz, b, ymin, ymax)) return true;
+  }
+  return false;
+}
 function copHasLOS(c, tgt) {
   var oy = (c.baseY || 0) + 1.4;
-  var dir = new THREE.Vector3(tgt.x - c.x, (tgt.y || EYE) - oy, tgt.z - c.z);
+  var ty = (tgt.y || EYE) - 0.2;
+  if (losColliderBlocked(c.x, oy, c.z, tgt.x, ty, tgt.z)) return false;   // buildings/decks aren't in solidMeshes — test collider volumes
+  var dir = new THREE.Vector3(tgt.x - c.x, ty - oy, tgt.z - c.z);
   var dist = dir.length(); dir.normalize();
   copRay.set(new THREE.Vector3(c.x, oy, c.z), dir); copRay.far = Math.max(0.1, dist - 0.6);
   return copRay.intersectObjects(solidMeshes, true).length === 0;
@@ -18108,6 +18162,7 @@ function updateHeatOps(dt) {
 // and explodes on the ground.
 var helis = [], heliSpawnT = 0;
 var HELI_HP = 1000, HELI_GUNNER_HP = 55;   // choppers are the toughest pursuit unit — well above a cruiser's 500
+var HELI_FIRE_INTERVAL = 3.0;   // one aimed burst every 3s (per chopper), only with clear LOS — was two door-gunners spraying ~0.25s apart (way too fast)
 var HELI_MAX_SPD = 48;   // hard top speed — BELOW the plane (78) & Porsche (73) so they can outrun it, still fast enough to run down a normal car / a runner
 function desiredHelis() { var w = state.wanted; return w >= 3 ? Math.min(w - 2, 3) : 0; }   // 3*=1, 4*=2, 5*=3
 // the player only counts as "armed" (a threat the gunners will fire on) when a gun
@@ -18216,14 +18271,10 @@ function buildHeliMeshProc() {
   g.add(mainRotor);
   return { group: g, mainRotor: mainRotor, tailRotor: tailRotor };
 }
-function makeHeliGunner(hgroup, side) {
-  var mesh = (typeof buildCop === 'function') ? buildCop() : new THREE.Group();
-  mesh.position.set(-0.1, -0.35, side * 0.95);
-  mesh.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2;   // face out the side door
-  if (typeof attachHeldGun === 'function') attachHeldGun(mesh, 'rifle');   // heli gunners carry the scoped rifle
-  hgroup.add(mesh);
-  return { mesh: mesh, hp: HELI_GUNNER_HP, fireT: 0.6 + Math.random(), alive: true, side: side };
-}
+// (v1.122.4) the side door-gunner cops were removed — they read badly hanging off
+// the airframe and, being two of them spraying ~0.25s apart, they laser-beamed the
+// player. The chopper still shoots (see heliFire): one aimed, LOS-gated, deliberately
+// inaccurate burst every HELI_FIRE_INTERVAL seconds, fired from the cabin doorway.
 function spawnHeli() {
   var m = buildHeliMesh();
   // spawn FAR (like responding cops) and fly IN toward the crime scene / last-known
@@ -18232,32 +18283,52 @@ function spawnHeli() {
   var a = Math.random() * 6.283, dist = 240 + Math.random() * 90;
   var sx = anc.x + Math.cos(a) * dist, sz = anc.z + Math.sin(a) * dist;
   if (typeof WLO !== 'undefined') { sx = Math.max(WLO + 20, Math.min(WHI - 20, sx)); sz = Math.max(WLO + 20, Math.min(WHI - 20, sz)); }
-  var h = { group: m.group, mainRotor: m.mainRotor, tailRotor: m.tailRotor, x: sx, y: 34, z: sz, vx: 0, vz: 0, vy: 0, orbitA: a + Math.PI, orbitDir: Math.random() < 0.5 ? 0.5 : -0.5, state: 'fly', hp: HELI_HP, spin: 0, tumble: 0, smokeT: 0, gunners: [], dead: false, light: null };
-  h.gunners = [makeHeliGunner(m.group, 1), makeHeliGunner(m.group, -1)];
+  var h = { group: m.group, mainRotor: m.mainRotor, tailRotor: m.tailRotor, x: sx, y: 34, z: sz, vx: 0, vz: 0, vy: 0, orbitA: a + Math.PI, orbitDir: Math.random() < 0.5 ? 0.5 : -0.5, state: 'fly', hp: HELI_HP, spin: 0, tumble: 0, smokeT: 0, gunners: [], fireT: 1.5 + Math.random() * HELI_FIRE_INTERVAL, dead: false, light: null };
   m.group.position.set(sx, 34, sz);
   m.group.rotation.order = 'YXZ';
   m.group.userData.heli = h; m.group.traverse(function (o) { o.userData.heli = h; });   // whole airframe shootable
-  for (var gi = 0; gi < h.gunners.length; gi++) h.gunners[gi].mesh.traverse((function (gun) { return function (o) { o.userData.heliGunner = gun; }; })(h.gunners[gi]));   // gunners shootable individually (checked before .heli)
   h.light = buildHeliLight(); scene.add(h.light.grp); h.light.grp.visible = false;   // night search light
   scene.add(m.group);
   helis.push(h);
   if (typeof sfx === 'function') sfx('alarm', { x: sx, z: sz, range: 60 });
   return h;
 }
-function heliGunnerFire(h, gun, dt) {
-  if (!gun.alive) return;
-  if (!heliPlayerArmed()) return;   // only open fire when you actually have a gun out
-  gun.fireT -= dt; if (gun.fireT > 0) return;
-  gun.fireT = 0.45 + Math.random() * 0.4;
-  var wp = new THREE.Vector3(); gun.mesh.getWorldPosition(wp);
-  if (typeof puff === 'function') puff(wp, 0xffe08a, 'muzzle');
-  if (typeof spawnBeam === 'function') spawnBeam(wp.x, wp.y, wp.z, player.x, player.y - 0.4, player.z, 0xffdd66);
-  if (typeof sfx === 'function') sfx('rifle', { x: h.x, z: h.z, y: h.y, range: 190 });   // heli gunners fire the scoped rifle
+// does the chopper have a clear shot at the player? (no building/deck between the
+// cabin and the player) — same collider-volume + solidMeshes test the foot cops use
+var _heliLosRay = new THREE.Raycaster();
+function heliHasLOS(h) {
+  var oy = h.y - 0.7, ty = player.y - 0.3;
+  if (losColliderBlocked(h.x, oy, h.z, player.x, ty, player.z)) return false;
+  var dir = new THREE.Vector3(player.x - h.x, ty - oy, player.z - h.z);
+  var dist = dir.length(); if (dist < 0.1) return true; dir.normalize();
+  _heliLosRay.set(new THREE.Vector3(h.x, oy, h.z), dir); _heliLosRay.far = Math.max(0.1, dist - 0.8);
+  return _heliLosRay.intersectObjects(solidMeshes, true).length === 0;
+}
+// one aimed burst per HELI_FIRE_INTERVAL, ONLY with clear line of sight, and
+// deliberately inaccurate — the round scatters, so it misses fairly often and
+// never laser-beams the player like the old twin door-gunners did.
+function heliFire(h, dt) {
+  if (!heliPlayerArmed()) { h.fireT = HELI_FIRE_INTERVAL; return; }   // only shoot when you actually have a gun out
+  h.fireT -= dt; if (h.fireT > 0) return;
+  if (!heliHasLOS(h)) { h.fireT = 0.5; return; }                     // blocked: recheck soon, don't blow the whole 3s
+  h.fireT = HELI_FIRE_INTERVAL;
+  // muzzle from the cabin doorway (down + out the side of the airframe)
+  var wp = new THREE.Vector3(); h.group.getWorldPosition(wp); wp.y -= 0.6;
   var d = Math.hypot(player.x - h.x, player.z - h.z);
-  var chance = 0.3 * Math.max(0.12, 1 - d / 70);
-  if (Math.random() < chance && !state.dead && !noclip) {
-    if (typeof driving !== 'undefined' && driving) { driving.carHP = (driving.carHP === undefined ? 100 : driving.carHP) - 6; if (driving.carHP <= 0 && typeof igniteCar === 'function') igniteCar(driving); }
-    else hurtPlayer(5, h.x, h.z);
+  // scatter: a random miss offset that shrinks up close but is always present, so
+  // shots land around you, not dead-on. Bigger spread the farther out you are.
+  var spread = 1.6 + d * 0.05;
+  var mx = player.x + (Math.random() - 0.5) * 2 * spread;
+  var mz = player.z + (Math.random() - 0.5) * 2 * spread;
+  var my = player.y - 0.4 + (Math.random() - 0.5) * 1.4;
+  if (typeof puff === 'function') puff(wp, 0xffe08a, 'muzzle');
+  if (typeof spawnBeam === 'function') spawnBeam(wp.x, wp.y, wp.z, mx, my, mz, 0xffdd66);   // beam goes to the SCATTERED point — visibly misses
+  if (typeof sfx === 'function') sfx('rifle', { x: h.x, z: h.z, y: h.y, range: 190 });
+  // a hit only lands when the scattered shot fell close to you
+  var miss = Math.hypot(mx - player.x, mz - player.z);
+  if (miss < 1.5 && !state.dead && !noclip) {
+    if (typeof driving !== 'undefined' && driving) { driving.carHP = (driving.carHP === undefined ? 100 : driving.carHP) - 8; if (driving.carHP <= 0 && typeof igniteCar === 'function') igniteCar(driving); }
+    else hurtPlayer(8, h.x, h.z);
   }
 }
 function hitHeliGunner(gun, dmg, pt) {
@@ -18387,7 +18458,7 @@ function updateHeli(h, dt, idx) {
   g.rotation.x += (rollT - g.rotation.x) * Math.min(1, dt * 2.2);
   g.position.set(h.x, h.y, h.z);
   updateHeliLight(h);
-  if (Math.hypot(player.x - h.x, player.z - h.z) < 62) for (var gi = 0; gi < h.gunners.length; gi++) heliGunnerFire(h, h.gunners[gi], dt);
+  if (h.state === 'fly' && Math.hypot(player.x - h.x, player.z - h.z) < 110) heliFire(h, dt);   // LOS + 3s cadence gate the actual shot
 }
 function updateHelis(dt) {
   if (!state.running) return;
@@ -27855,6 +27926,10 @@ window.__wc = {
   kidGames: function () { return kidGames; }, tryStartKidGame: tryStartKidGame, endKidGame: endKidGame,
   setWanted: setWanted, damageCop: damageCop, damageNPC: damageNPC, ragdollNPC: (typeof ragdollNPC === 'function' ? ragdollNPC : null),
   heatInfo: function () { return { known: heat.known, loseT: heat.loseT, lkx: heat.lkx, lkz: heat.lkz, crimeX: heat.crimeX, crimeZ: heat.crimeZ, killPts: state.killPts, wanted: state.wanted, desiredCops: desiredCops(), desiredCopCars: desiredCopCars() }; },
+  losBlocked: function (ax, ay, az, bx, by, bz) { return losColliderBlocked(ax, ay, az, bx, by, bz); },
+  copHasLOS: function (c, t) { return copHasLOS(c, t); },
+  heliHasLOS: function (h) { return heliHasLOS(h); },
+  heliFire: function (h, dt) { return heliFire(h, dt); },
   creditKill: function (k) { if (k === 'ko') creditKnockout(); else if (k === 'cop') creditCopKill(); else creditCivKill(k); },
   rapInfo: function () { return { charges: chargeList(), assault: rap.assault, gta: rap.gta, robbery: rap.robbery, terror: rap.terror, vandalism: rap.vandalism, kills: rap.kills, gunKills: rap.gunKills }; },
   arrestState: function () { return { arrested: arrested, phase: arrestCam && arrestCam.phase, jailT: jailT, inside: inside, cur: curInterior && curInterior.id, arrestProg: arrestProg }; },
