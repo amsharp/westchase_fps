@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.121.5';
+var GAME_VERSION = 'v1.122.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -17538,6 +17538,33 @@ function resetTower(t) {
 // Heading convention (matches remapDriveCar): nose forward = (cos h, -sin h);
 // rotation.y = atan2(-dirZ, dirX).
 var copCars = [], copCarSpawnT = 0;
+// ram arbitration: only ONE cop car may ram the player's car at a time, and after
+// a ram that car (and every other) is locked out briefly so they can't spam-hit.
+var copRammer = null, copRamLockUntil = 0;
+// resolve a cop car against OTHER cop cars + NPC traffic (not the player's car —
+// that's the ram logic). Cop cars now collide with / bump apart from other cars.
+function copCarResolveCars(cc) {
+  var pgc = (typeof driving !== 'undefined' && driving && driving.car && driving.car.group) ? driving.car.group : null;
+  var i, o, dx, dz, d, ov, ux, uz;
+  for (i = 0; i < copCars.length; i++) {
+    o = copCars[i]; if (o === cc || !o.car || !o.car.group) continue;
+    dx = cc.x - o.x; dz = cc.z - o.z; d = Math.hypot(dx, dz);
+    if (d < 3.0 && d > 0.01) { ov = (3.0 - d) * 0.5; ux = dx / d; uz = dz / d; cc.x += ux * ov; cc.z += uz * ov; o.x -= ux * ov; o.z -= uz * ov; o.car.group.position.x = o.x; o.car.group.position.z = o.z; }
+  }
+  if (typeof cars !== 'undefined') for (i = 0; i < cars.length; i++) {
+    var c = cars[i]; if (!c || !c.group || c.group === pgc) continue;   // skip the player's own car
+    dx = cc.x - c.group.position.x; dz = cc.z - c.group.position.z; d = Math.hypot(dx, dz);
+    if (d < 3.0 && d > 0.01) { ov = 3.0 - d; ux = dx / d; uz = dz / d; cc.x += ux * ov * 0.7; cc.z += uz * ov * 0.7; c.group.position.x -= ux * ov * 0.3; c.group.position.z -= uz * ov * 0.3; }
+  }
+}
+// is (x,z) blocked by another cop car / NPC car (for pursuit whisker avoidance)?
+function copCarNear(x, z, cc) {
+  var pgc = (typeof driving !== 'undefined' && driving && driving.car && driving.car.group) ? driving.car.group : null;
+  var i;
+  for (i = 0; i < copCars.length; i++) { var o = copCars[i]; if (o === cc || !o.car) continue; if (Math.hypot(o.x - x, o.z - z) < 2.7) return true; }
+  if (typeof cars !== 'undefined') for (i = 0; i < cars.length; i++) { var c = cars[i]; if (!c || !c.group || c.group === pgc) continue; if (Math.hypot(c.group.position.x - x, c.group.position.z - z) < 2.7) return true; }
+  return false;
+}
 var COPCAR_HP = 500;   // cruisers are tanky now (~6 rifle / ~15 AK rounds) — a rocket still one-shots (see fireRocket splash)
 function desiredCopCars() { var w = state.wanted; return w === 0 ? 2 : 2 + w; }   // 0*=2 patrol cruisers, then +1 per star (1*=3 … 5*=7)
 // snap an arbitrary point onto the nearest road centreline (for patrol waypoints)
@@ -17659,7 +17686,7 @@ function parkAndDisgorge(cc) {
   if (typeof sfx === 'function') sfx('cardoor', { x: cc.x, z: cc.z, range: 40 });   // only sounds when a cop actually gets out
   return true;
 }
-function removeCopCar(cc) { if (cc.car && cc.car.group) scene.remove(cc.car.group); }
+function removeCopCar(cc) { if (copRammer === cc) copRammer = null; if (cc.car && cc.car.group) scene.remove(cc.car.group); }
 function explodeCopCar(cc) { if (typeof boomAt === 'function') boomAt(cc.x, cc.z); removeCopCar(cc); }
 function damageCopCar(cc, dmg, pt) {
   cc.hp -= dmg; if (pt && typeof puff === 'function') puff(pt, 0xffe08a);
@@ -17752,10 +17779,11 @@ function driveCopCar(cc, dt, pd) {
     if (known) {
       tx = player.x; tz = player.z;
       if (isDrv) { var pv = driving.pspeed || 0, lt = (cc.role === 'block') ? 2.4 : 0.4; tx = player.x + (driving.mvx || 0) * pv * lt; tz = player.z + (driving.mvz || 0) * pv * lt; }
-      if (!isDrv && pd < 12) { if (parkAndDisgorge(cc)) return; }   // caught up on foot -> officers pile out (unless the cap's full: keep chasing, no phantom door)
+      if (!isDrv && pd < 15) { if (parkAndDisgorge(cc)) return; }   // caught up on foot -> officers pile out (unless the cap's full: keep chasing, no phantom door)
       cc.state = isDrv ? 'chase' : 'seek'; maxCruise = isDrv ? 22 : 18;
       if ((player.y - g.position.y) > 4) { var rt = rampTargetFor(cc); if (rt) { tx = rt.x; tz = rt.z; } }   // player on a highway -> take a ramp
     } else if (wantedNow) {
+      if (!isDrv && pd < 13) { if (parkAndDisgorge(cc)) return; }   // rolled right up next to you on foot (even if LOS momentarily broke) -> pile out
       var sp = copSearchPoint(cc, dt); tx = sp.x; tz = sp.z; cc.state = 'search'; maxCruise = 15;   // sweep the last-known trail
     } else {
       cc.state = 'patrol'; updateCarFeel(cc, dt, cc.speed, 0, 0); return;   // heat's gone -> back to patrol next frame
@@ -17768,7 +17796,8 @@ function driveCopCar(cc, dt, pd) {
   var offs = [0, 0.45, -0.45, 0.9, -0.9, 1.5, -1.5, 2.2, -2.2];
   for (var oi = 0; oi < offs.length; oi++) {
     var b = desDir + offs[oi], bx = Math.cos(b), bz = -Math.sin(b);
-    if (pointFree(cc.x + bx * probe, cc.z + bz * probe, 1.7) && pointFree(cc.x + bx * probe * 0.55, cc.z + bz * probe * 0.55, 1.7)) { bear = b; clear = true; break; }
+    var fx1 = cc.x + bx * probe, fz1 = cc.z + bz * probe, fx2 = cc.x + bx * probe * 0.55, fz2 = cc.z + bz * probe * 0.55;
+    if (pointFree(fx1, fz1, 1.7) && pointFree(fx2, fz2, 1.7) && !copCarNear(fx1, fz1, cc) && !copCarNear(fx2, fz2, cc)) { bear = b; clear = true; break; }   // steer around other cop cars / traffic too
   }
   var dh = bear - h; while (dh > Math.PI) dh -= 6.283; while (dh < -Math.PI) dh += 6.283;
   var steer = Math.max(-1, Math.min(1, dh * 1.8));
@@ -17783,15 +17812,29 @@ function driveCopCar(cc, dt, pd) {
   var nx = cc.x + nfx * cc.speed * dt, nz = cc.z + nfz * cc.speed * dt;
   var po = pushOut(nx, nz, 1.5, landColliders || colliders);
   cc.x = po.x; cc.z = po.z;
+  copCarResolveCars(cc);   // collide with / bump apart from other cop cars + NPC traffic
   // --- ram / resist against the player's car (cop cars are heavy: they barely give) ---
+  // --- ram / resist against the player's car. Only ONE cop car may ram at a time
+  // (the copRammer token), and after a ram everybody is locked out for RAM_LOCK so
+  // they can't spam-hit; the rammer eases off during its own pause. ---
+  var RAM_LOCK = 1.8;
+  var inRamPause = T < (cc.ramPause || 0);
   if (isDrv && driving.car && driving.car.group) {
     var pg = driving.car.group, rdx = cc.x - pg.position.x, rdz = cc.z - pg.position.z, rdd = Math.hypot(rdx, rdz);
     if (rdd < 3.5 && rdd > 0.01) {
       var ov = 3.5 - rdd, ux = rdx / rdd, uz = rdz / rdd;
-      pg.position.x -= ux * ov * 0.82; pg.position.z -= uz * ov * 0.82;   // player's car takes most of the push
-      cc.x += ux * ov * 0.18; cc.z += uz * ov * 0.18;                      // cop barely budges (metal bumpers)
-      if (T - cc.ramT > 0.7 && cc.speed > 7) {
-        cc.ramT = T;
+      var amRammer = (copRammer === cc && T <= copRamLockUntil);
+      if (amRammer) {                                                     // the active rammer shoves the player's car
+        pg.position.x -= ux * ov * 0.82; pg.position.z -= uz * ov * 0.82;
+        cc.x += ux * ov * 0.18; cc.z += uz * ov * 0.18;
+      } else {                                                            // everyone else just keeps their distance (backs OFF, doesn't shove you)
+        cc.x += ux * ov * 0.9; cc.z += uz * ov * 0.9;
+      }
+      var tokenFree = (copRammer === null || copRammer === cc || T > copRamLockUntil);
+      if (tokenFree && !inRamPause && T - cc.ramT > 0.7 && cc.speed > 7) {
+        cc.ramT = T; cc.ramPause = T + RAM_LOCK;                          // this car pauses before it can ram again
+        copRammer = cc; copRamLockUntil = T + RAM_LOCK;                   // and no OTHER cop car rams during the lockout
+        cc.speed *= 0.35;                                                 // the cruiser bleeds momentum on impact (backs off)
         var cross = (driving.mvx || 0) * rdz - (driving.mvz || 0) * rdx;   // spin the player away from the impact
         driving.spinDir = cross >= 0 ? 1 : -1;
         driving.slid = Math.min(3.5, (driving.slid || 0) + 1.3);           // knock them into a skid/spin-out
@@ -17802,6 +17845,7 @@ function driveCopCar(cc, dt, pd) {
       }
     }
   }
+  if (inRamPause) cc.speed = Math.min(cc.speed, 5);   // during its pause the cruiser holds back a car length instead of grinding on you
   g.position.set(cc.x, surfaceHeightAt(cc.x, cc.z, false, g.position.y + 1.5), cc.z);
   var spin = (cc.speed * dt) / 0.34;
   for (var wi = 0; wi < 4; wi++) { var ww = car.wheels[wi]; ww.rotation.y -= spin * (ww.userData.sd || 1); }
