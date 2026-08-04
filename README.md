@@ -413,14 +413,16 @@ Push your **wanted level** up and the response gets serious.
   *whump* that grows as it nears and pans to tell you which way it is — as it
   **flies in from far away** toward the crime
   scene and **circles the area where you were last seen**, just like the ground
-  units, then **orbits overhead** once it spots you, with two **side gunners**.
+  units, then **orbits overhead** once it spots you and opens fire from the cabin.
   It's **not that fast** — a plane or a Porsche will pull away from it, though it
-  runs down a normal car or a runner easily. The gunners **only open fire when you
-  actually have a gun out** — flee unarmed (or fly/drive) and they hold their fire.
-  The choppers keep their distance from each other so they never collide. **Shoot
-  a gunner off** the skid to silence that side, or pour rounds into the airframe to
-  **shoot the whole thing down** — it spins out, drops out of the sky, and explodes
-  on impact.
+  runs down a normal car or a runner easily. It **only opens fire when you
+  actually have a gun out** — flee unarmed (or fly/drive) and it holds fire — and
+  **only when it has a clear line of sight**: duck behind (or under) a building and
+  the rounds stop. It fires a **single shot roughly every three seconds** and its
+  aim is **loose** — plenty of shots go wide — so it pressures you without laser-
+  beaming you. The choppers keep their distance from each other so they never
+  collide. Pour rounds into the airframe to **shoot the whole thing down** — it
+  spins out, drops out of the sky, and explodes on impact.
 
 At **3 stars and up the police escalate a car chase** with dedicated heat ops:
 
@@ -562,9 +564,14 @@ cruisers roll, and (from 3★) the Sheriff's choppers join. **Every cop now carr
 a real gun** — the same models and sounds you use. At **1–3 stars** they bring
 **pistols** (most common) or the occasional **shotgun**; at **4–5 stars** they
 mostly show up with **SMGs and AK-47s** but a few still carry pistols or shotguns.
-The **helicopter gunners** wield the scoped **rifle**. Gun one down and it **drops
-its weapon** on the ground — grab it, and if you already own that gun you scavenge
-**half a magazine** of its ammo instead.
+The **helicopter** fires the scoped **rifle** from the cabin. Gun a foot cop down
+and it **drops its weapon** on the ground — grab it, and if you already own that
+gun you scavenge **half a magazine** of its ammo instead.
+
+**Cops (and the chopper) have to actually see you to shoot** — put a wall, a
+building, or the overpass you're standing on between you and them and the bullets
+stop. Break line of sight and they'll advance to get a clean angle instead of
+firing through the scenery.
 
 Cruisers and choppers are **much tougher** now — a cop car soaks around six rifle
 rounds (a rocket still guts it), and a **helicopter is the hardest unit in the sky**,

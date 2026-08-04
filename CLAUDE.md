@@ -509,9 +509,29 @@ game.js under `WC_REMAP`. Frame: junction `(0,0)`, **+x east / +z south**.
   (last-known, not live pos), and `updateHeli` orbits the crime-scene center (`cX/
   cZ` = `responseAnchor()`) whenever `!heat.known`, only locking onto the live
   player once a unit SEES you — same lose-them-by-hiding rule as the ground units.
-  (3) **Only fires when armed** — `heliGunnerFire` bails unless `heliPlayerArmed()`
+  (3) **Only fires when armed** — `heliFire` bails unless `heliPlayerArmed()`
   (a real gun in `GUN_LIST` equipped, and NOT driving/piloting the plane), so
   fleeing unarmed / in a vehicle draws no fire. `__wc.helis`/`spawnHeli` for tests.
+- **Heli gunplay overhaul (v1.122.4):** the two side door-gunner cops were REMOVED
+  (they read badly hanging off the airframe, and twin gunners spraying ~0.25s apart
+  laser-beamed the player). `makeHeliGunner`/`heliGunnerFire` are gone; `h.gunners`
+  stays `[]`. The chopper now fires via `heliFire(h,dt)`: ONE aimed burst every
+  `HELI_FIRE_INTERVAL=3s`, gated on `heliHasLOS(h)` (clear shot required — recheck
+  every 0.5s while blocked so it doesn't blow the whole 3s), deliberately INACCURATE
+  (the beam goes to a scattered point `1.6 + d*0.05` wide, so it misses often), ~8 dmg
+  on a `miss<1.5` hit. Engages within 110u (was 62). `__wc.heliFire/heliHasLOS`.
+- **Shot line-of-sight through solids (v1.122.4, `losColliderBlocked`):** catalog
+  buildings (skyscrapers/downtown fillers/airport) and highway decks are scene
+  meshes but are only registered as COLLIDERS, not raycast meshes — so `copHasLOS`'s
+  `solidMeshes` raycast passed straight through them and police shot you through
+  whole buildings / up through the overpass you stand on. `losColliderBlocked(ax..bz)`
+  now segment-tests the collider VOLUMES too (grid broad-phase + slab-clip
+  `segHitsBox`): a solid footprint occludes base→`topY`; a `deck` slab occludes only
+  where the segment crosses its `topY` plane (so you can't be shot up through the
+  highway you're on, but two people UNDER it still see each other). Both `copHasLOS`
+  and `heliHasLOS` consult it before every shot. Cheap — runs on the fire-gated LOS
+  check, not per-frame. Detection (`posSeesPlayer`/`coverBlocked`) is unchanged; this
+  is purely a SHOOTING gate. `__wc.losBlocked/copHasLOS`.
 - **Progressive arrest (v1.122.2):** an unarmed catch is no longer instant. A cop
   has to be RIGHT on you (`ARREST_REACH=1.9`) for `ARREST_HOLD=2s` while you hold
   still (`pspd<ARREST_STILL=1.6`) — a `#arrestHud` bar ("BEING ARRESTED — STAY
