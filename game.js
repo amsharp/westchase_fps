@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.122.0';
+var GAME_VERSION = 'v1.122.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -6696,7 +6696,16 @@ function placeCatalogModel(id, x, z, rotDeg, footW, scale, opts) {
   var foundH = 0;
   if (opts && opts.foundation) { foundH = FOUND_H; placed.group.position.y = foundH; }   // sits on the merged block foundation (buildDowntownFoundations)
   placed.foundH = foundH;
-  placed.cols = pushMeshColliders(cache, s, x, z, rotY, foundH + placed.H);   // walls block; roof (topY) is walkable
+  placed.cols = pushMeshColliders(cache, s, x, z, rotY, foundH + placed.H);   // precise walls block; roof (topY) is walkable
+  // GUARANTEED roof + solid footprint (v1.122.1): the precise wall-decode can leave a
+  // HOLE in the middle of the roof (open-lobby flood-fill leak -> you fall through) or
+  // fall back to a tiny box on a complex tower (SunTrust -> no collision). Add ONE
+  // collider spanning the model's full footprint at the roof height so you can stand /
+  // land ANYWHERE on top and it always blocks. Pushed into cols so a collapsing tower
+  // toggles it off with the rest.
+  var roofC = addColliderOBB(x, z, placed.W / 2, placed.D / 2, rotY, 'building');
+  roofC.topY = foundH + placed.H;
+  placed.cols.push(roofC);
   return placed;
 }
 // destructible tower registry (skyscrapers + offices + highrises) and the full
@@ -16381,8 +16390,11 @@ function spawnPlayerHeli() {
     camPos: new THREE.Vector3(), camInit: false };
   return heliVeh;
 }
-function heliGroundY(x, z) {
-  var s = (typeof surfaceHeightAt === 'function') ? surfaceHeightAt(x, z, false, 0) : 0;
+function heliGroundY(x, z, feetY) {
+  // pass the chopper's altitude so a BUILDING ROOF counts as the ground under it
+  // (surfaceHeightAt's 2.5D roof logic needs feetY) — this is what lets you set down
+  // on any rooftop. feetY omitted -> ground only.
+  var s = (typeof surfaceHeightAt === 'function') ? surfaceHeightAt(x, z, false, feetY === undefined ? 0 : feetY) : 0;
   return s + HELI_SKID;
 }
 function boardHeli() {
@@ -16400,7 +16412,7 @@ function exitHeli() {
   vm.visible = true;
   document.getElementById('crosshair').style.display = '';
   setEquipped(state.equipped);
-  var airborne = (g.position.y - heliGroundY(g.position.x, g.position.z)) > 2.5;
+  var airborne = (g.position.y - heliGroundY(g.position.x, g.position.z, g.position.y)) > 2.5;   // a rooftop counts as ground -> exit onto the roof, don't parachute
   if (airborne) {
     // BAILING mid-flight: a parachute auto-deploys (third person, WASD to steer),
     // and the chopper flies on PILOTLESS — it keeps its momentum, loses altitude,
@@ -16437,7 +16449,7 @@ function updateHeliFreeFlight(dt) {
   g.rotation.set(h.roll, h.yaw, -h.pitch, 'YXZ');
   h.mainRotor.rotation.y += Math.max(4, 26 + h.vy) * dt;                 // rotor windmills down as it drops
   h.tailRotor.rotation.z += 18 * dt;
-  var gy = heliGroundY(g.position.x, g.position.z);
+  var gy = heliGroundY(g.position.x, g.position.z, g.position.y);
   if (g.position.y <= gy || planeHitBuilding(g.position.x, g.position.y, g.position.z) || planeHitHighway(g.position.x, g.position.y, g.position.z)) {
     crashPlayerHeli();   // fireball only — no igniteTower, so no skyscraper collapse
   }
@@ -16488,13 +16500,21 @@ function updatePlayerHeli(dt) {
   g.position.x = Math.max(WLO + 4, Math.min(WHI - 4, g.position.x));
   g.position.z = Math.max(WLO + 4, Math.min(WHI - 4, g.position.z));
   if (g.position.y > HELI_CEIL) { g.position.y = HELI_CEIL; if (h.vy > 0) h.vy = 0; }
-  var gy = heliGroundY(g.position.x, g.position.z);
+  var gy = heliGroundY(g.position.x, g.position.z, g.position.y);   // rooftops count as ground -> you can set down on them
   if (g.position.y < gy) {
     var impact = -h.vy; g.position.y = gy;
     if (impact > 26 || hsp > 34) { crashPlayerHeli(); return; }    // slammed down -> wreck
     if (h.vy < 0) h.vy = 0;
   }
-  if ((planeHitBuilding(g.position.x, g.position.y, g.position.z) || planeHitHighway(g.position.x, g.position.y, g.position.z)) && (hsp > 8 || Math.abs(h.vy) > 8)) { crashPlayerHeli(); return; }
+  // side impact with a building / overpass: ONLY a fast hit wrecks it. A gentle bump
+  // just gets BLOCKED — the chopper is pushed back out and its momentum killed — so
+  // you can nudge up against a wall or roof edge without dying.
+  if (planeHitBuilding(g.position.x, g.position.y, g.position.z) || planeHitHighway(g.position.x, g.position.y, g.position.z)) {
+    if (hsp > 24 || Math.abs(h.vy) > 22) { crashPlayerHeli(); return; }
+    var po = pushOut(g.position.x, g.position.z, 2.0, landColliders || colliders, g.position.y);
+    g.position.x = po.x; g.position.z = po.z;
+    h.vx *= 0.25; h.vz *= 0.25;
+  }
   // resting on the ground -> settle level on the skids: ease the held cyclic tilt
   // back to zero (unless you're lifting off with W) so a landed chopper sits
   // upright on its gear instead of frozen at its last bank angle.
