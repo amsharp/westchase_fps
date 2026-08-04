@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.121.4';
+var GAME_VERSION = 'v1.121.5';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -11798,7 +11798,7 @@ if (WC_REMAP) (function densityLayer() {
     densityStats.batches = n;
   }
   // helpers to place one asset instance into the right batch
-  function dDecal(name, x, z, y, ry, scale) { if (!dAsset[name]) return; var a = dAsset[name]; var w = a.dims[0] * (scale || 1), d = a.dims[1] * (scale || 1); bake('d_' + name, { texName: name, decal: true }, UDECAL, mtx(x, (y || 0) + 0.03, z, ry || 0, w, 1, d)); densityStats.decals++; }   // +0.03 lift so decals sit clearly above the ground (owner: z-fighting)
+  function dDecal(name, x, z, y, ry, scale) { if (name === 'mulch_bed' || !dAsset[name]) return; var a = dAsset[name];   // user: no brown mulch beds anywhere var w = a.dims[0] * (scale || 1), d = a.dims[1] * (scale || 1); bake('d_' + name, { texName: name, decal: true }, UDECAL, mtx(x, (y || 0) + 0.03, z, ry || 0, w, 1, d)); densityStats.decals++; }   // +0.03 lift so decals sit clearly above the ground (owner: z-fighting)
   // placards were a single DoubleSide plane → text read MIRRORED from behind
   // (seen live on a FOR SALE yard sign, mrft7zm5 shot). Same fix as greenSign:
   // bake the plane twice, front-to-front (ry and ry+PI), FrontSide material —
@@ -12655,6 +12655,7 @@ if (WC_REMAP) (function landscapePass() {
     return true;
   }
   function hedge(ax, az, bx, bz, h, th, hug) {
+    return;   // user: remove the box-hedge-on-mulch look everywhere
     var dx = bx - ax, dz = bz - az, L = Math.sqrt(dx * dx + dz * dz); if (L < 0.4) return;
     if (!hedgeClear(ax, az, bx, bz, hug)) return;
     th = th || 0.7; var ry = Math.atan2(dx, dz);
@@ -12696,8 +12697,7 @@ if (WC_REMAP) (function landscapePass() {
   }
   // mulch/planting bed ground quad (rotated to a wall/island)
   function mulchBed(x, z, w, d, ry) {
-    lbake('ls_mulch', mulchMat, UQUAD, mtx(x, 0.045, z, ry || 0, w, 1, d));
-    landscapeStats.mulch++;
+    return;   // user: remove the brown dirt/mulch beds everywhere
   }
   // thin light-grey curb ring around an island (4 low boxes, no collider)
   function curbRing(x, z, w, d, ry) {
