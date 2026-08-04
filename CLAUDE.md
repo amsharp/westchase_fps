@@ -478,6 +478,13 @@ game.js under `WC_REMAP`. Frame: junction `(0,0)`, **+x east / +z south**.
   identical geometry/pivots/spin, only UVs+skin differ. Falls back to
   `HELI_MODEL.texCivilian` if `civheli.js` is absent. Textures are full-res 1536×1024
   JPEG data-URLs (no downscale). `heliSideTex` + the procedural mesh are the fallback.
+- **Rooftop exit (v1.122.3):** `exitHeli`'s landed branch keeps the player on
+  whatever surface the chopper set down on. The skids rest at `roofY + HELI_SKID`,
+  so `roofY = g.position.y - HELI_SKID` is the deck; the step-out spot uses
+  feetY-aware `pushOut(..., roofY)` + `surfaceHeightAt(..., roofY)` and sets
+  `player.y = surf + EYE` (was a hardcoded `EYE`, which dumped you to the street
+  next to a skyscraper). If the sideways step would drop off the roof edge to a
+  lower surface, it steps out under the chopper instead so you stay on the deck.
 - **Player heli bail/land** (v1.117.1/v1.118): landing eases the held cyclic tilt to
   level so it sits upright on the skids (`exitHeli` also snaps level on a ground exit);
   no big `[E] EXIT` HUD prompt (corner box shows it). **Exiting mid-air** (>2.5u up)

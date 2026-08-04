@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.122.2';
+var GAME_VERSION = 'v1.122.3';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -16497,13 +16497,23 @@ function exitHeli() {
     deployParachute(h.vx * 0.4, h.vz * 0.4);         // carry a little of the chopper's momentum into the glide
     return;
   }
-  // landed: step out beside it, parked upright on the skids
+  // landed: step out beside it, parked upright on the skids. Keep the player on
+  // whatever surface the chopper set down on (a ROOFTOP counts) — the heli rests
+  // at roofY + HELI_SKID, so roofY is the deck under it. feetY-aware pushOut +
+  // surfaceHeightAt so exiting on a roof leaves you standing on the roof, not
+  // shoved off the footprint down to the street.
   h.piloting = false; h.pilotless = false; h.vx = h.vy = h.vz = 0;
   h.pitch = 0; h.roll = 0;                            // never frozen at a bank angle
   g.rotation.set(0, h.yaw, 0, 'YXZ');
+  var roofY = g.position.y - HELI_SKID;               // the deck the skids are resting on
   var side = new THREE.Vector3(0, 0, 1).applyQuaternion(g.quaternion);
-  var pp = pushOut(g.position.x + side.x * 2.6, g.position.z + side.z * 2.6, 0.55, landColliders || colliders);
-  player.x = pp.x; player.z = pp.z; player.y = EYE; player.vy = 0; player.grounded = true;
+  var ex = g.position.x + side.x * 2.6, ez = g.position.z + side.z * 2.6;
+  // if stepping to the side would drop us off the roof edge to a lower surface,
+  // step out right under the chopper instead so we stay on the deck
+  if (Math.abs(surfaceHeightAt(ex, ez, false, roofY) - roofY) > 1.2) { ex = g.position.x; ez = g.position.z; }
+  var pp = pushOut(ex, ez, 0.55, landColliders || colliders, roofY);
+  var surf = surfaceHeightAt(pp.x, pp.z, false, roofY);
+  player.x = pp.x; player.z = pp.z; player.y = surf + EYE; player.vy = 0; player.grounded = true;
   popup('PARKED'); sfx('cardoor');
 }
 // pilotless free-flight after a mid-air bail: dead-stick drop with momentum + a
