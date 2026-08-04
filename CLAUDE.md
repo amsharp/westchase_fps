@@ -273,6 +273,21 @@ game.js under `WC_REMAP`. Frame: junction `(0,0)`, **+x east / +z south**.
     aren't grassy; open road-frontages merge into strips), greedy-rects into raised
     concrete deck slabs (topY=FOUND_H, `deck` so never walls you). ~555 slabs.
     `foundMat`/`addFoundation` (per-building plinth) are now dead but kept.
+  - **Foundations lift EVERYTHING (v1.121.2):** buildDowntownFoundations publishes an
+    O(1) height field (`_fdGrid` + `foundationHeightAt(x,z)`); `surfaceHeightAt` raises
+    every mover (player/NPC/car/cop car) onto FOUND_H over it, and `planeGroundY` /
+    `heliGroundY` too — no per-slab colliders (they'd wall cars). Props ride on at
+    PLACEMENT (grid is ready post-pour): `registerBreakable` (lamps/hydrants/poles/
+    trees), env `place()`, and street-prop `spFull` (SP_SOLID branch) each add
+    `foundationHeightAt`. Don't double-lift SP_SNAP props — those are breakables, lifted
+    once by registerBreakable.
+  - **User ground textures (v1.121.2):** `groundtex.js` (`GRASS_TEX_RGBA` +
+    `CONCRETE_TEX_RGBA`, 128² raw RGBA base64, decoded by `tools/citygen/decodetex.js`
+    from the user's grass.jpg/concrete.jpg, POT so RepeatWrapping tiles). `rawImgTex()`
+    builds them SYNCHRONOUSLY (putImageData) so cloned materials get real pixels at load.
+    `grassT`→grass (ground/medians); `concreteT`→concrete (sidewalks/pads/foundations),
+    and `CONC_TEX` swaps onto `hwConcreteM`/`hwUnderM` (highway+monorail piers/underside),
+    `monoDeckM`, garage `_grgFloorM`/`_grgWallM`, `foundMat`. Loaded before game.js.
   - **Roofs walkable:** already free from v1.112 — building OBB colliders carry
     `topY=foundH+H`, so the 2.5D `surfaceHeightAt` logic lets you stand on any roof
     (parachute/heli land, jump off).

@@ -910,9 +910,15 @@ The whole downtown sits on **raised concrete foundations that double as the
 sidewalk** — every road-enclosed block that has buildings is poured as one solid
 pad (so the alleys between buildings are paved, not grassy), and buildings that
 front the same open street share one continuous foundation strip. It's a curb-
-height step you walk straight up onto, and it never covers the road. You can
-**walk on the roof of any building** — parachute or land a helicopter on top,
-stroll around, and jump off.
+height step you walk straight up onto, and it never covers the road. **Everything
+rides on the foundations** — you, pedestrians, cars, cop cars, planes and
+helicopters drive/land right up onto them (no more sinking), and street props
+(lamps, hydrants, benches…) sit on top. You can also **walk on the roof of any
+building** — parachute or land a helicopter on top, stroll around, and jump off.
+
+The ground and every concrete surface (foundations, sidewalks, highway + monorail
+supports, parking garages) now use real photo textures (grass + concrete),
+embedded offline in `groundtex.js`.
 
 **Destruction:** the downtown skyscrapers, offices, and highrises are all
 destructible — fly the Learjet into one for the full explode → burn → collapse →
