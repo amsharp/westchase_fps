@@ -1577,6 +1577,9 @@ function getPackPropPink(name) {   // blossom recolor of a pack prop (crepe myrt
 // doesn't leave a floating wall.
 function registerBreakable(g, x, z, r, type, light, collR) {
   var col = collR ? addCollider(x, z, collR * 2, collR * 2, 'prop:' + type) : null;
+  // sit on a downtown foundation if one's under it (grid ready once poured; town
+  // props registered before the pour get 0)
+  if (typeof foundationHeightAt === 'function') { var _fh = foundationHeightAt(x, z); if (_fh > 0.001) g.position.y += _fh; }
   breakables.push({
     g: g, x: x, z: z, r: r, type: type, light: light || null,
     broken: false, fallT: 0, respawnT: 0, fx: 1, fz: 0, thudded: false,
@@ -6824,17 +6827,8 @@ function foundationHeightAt(x, z) {
   return _fdGrid[gz * _fdGW + gx] ? FOUND_H : 0;
 }
 buildDowntownFoundations();
-// Road furniture (street lamps, hydrants, poles, benches, trees) was placed at
-// ground level before the foundations were poured — lift anything sitting on a
-// downtown foundation up onto it so it isn't sunken. `fdLift` stashes the offset
-// so breakProp/respawn can keep it (see updateWorldFx).
-(function liftBreakablesOntoFoundations() {
-  if (!_fdGrid || typeof breakables === 'undefined') return;
-  for (var i = 0; i < breakables.length; i++) {
-    var b = breakables[i], fh = foundationHeightAt(b.x, b.z);
-    if (fh > 0.001) { b.g.position.y += fh; b.fdLift = fh; }
-  }
-})();
+// (props placed after this pour ride onto foundations at their own placement:
+// registerBreakable, env place(), and spFull all add foundationHeightAt.)
 // Destructible skyscrapers: fly the Learjet into one and it explodes, burns +
 // smokes for ~1 min, then collapses (sinks through the floor behind dust while a
 // rubble pile rises), and rebuilds itself ~10 min later. LOCAL/singleplayer-only,
@@ -12443,7 +12437,12 @@ if (WC_REMAP) (function densityLayer() {
     var hx = (dims[0] * c + dims[2] * s) / 2, hz = (dims[0] * s + dims[2] * c) / 2;
     if (spOverlapsBuilding(x, z, hx, hz)) return;
     g.position.set(x, y === undefined ? 0.13 : y, z); g.rotation.y = ry; scene.add(g);
-    if (SP_SOLID[name]) { var _spc = addCollider(x, z, hx * 2, hz * 2, 'prop:' + name); _spc.topY = new THREE.Box3().setFromObject(g).max.y; solidMeshes.push(g); }   // 2.5D: real top -> stand on it
+    // non-breakable solid street props (dumpster/bench/mailbox…) ride onto a
+    // downtown foundation (SP_SNAP ones are lifted by registerBreakable instead)
+    if (SP_SOLID[name]) {
+      if (typeof foundationHeightAt === 'function') { var _sfh = foundationHeightAt(x, z); if (_sfh > 0.001) g.position.y += _sfh; }
+      var _spc = addCollider(x, z, hx * 2, hz * 2, 'prop:' + name); _spc.topY = new THREE.Box3().setFromObject(g).max.y; solidMeshes.push(g);   // 2.5D: real top -> stand on it
+    }
     if (SP_SNAP[name]) { registerBreakable(g, x, z, Math.max(hx, hz) + 0.15, SP_SNAP[name], null, SP_BLOCKR[name] || 0); var bb = breakables[breakables.length - 1]; if (name === 'parkingmeter') bb.kind = 'meter'; if (name === 'hydrant') bb.kind = 'hydrant'; if (name === 'trashcan' || name === 'wheeliebin') bb.kind = 'trash'; }
     if (SP_INTERACT[name]) { var it = { kind: SP_INTERACT[name], x: x, z: z, fx: -Math.cos(ry), fz: Math.sin(ry), g: g, cd: -99, robbed: false }; if (it.kind === 'atm') { g.userData.atm = it; if (!SP_SOLID[name]) solidMeshes.push(g); } if (it.kind === 'kick' && SP_SNAP[name]) it.bb = breakables[breakables.length - 1]; streetPropInteractables.push(it); }
     densityStats.props++;
@@ -27680,6 +27679,9 @@ window.__wc = {
   rubbleSwap: function (i) { rubbleSwapBuilding(cityBuildings[i]); },
   collapseTower: function (i) { startTowerCollapse(towers[i]); },
   surfAt: function (x, z, fy) { return surfaceHeightAt(x, z, false, fy); },
+  foundAt: function (x, z) { return foundationHeightAt(x, z); },
+  grassIsImg: function () { return !!(grassT && grassT.image && grassT.image.width === (typeof GROUND_TEX_SIZE !== 'undefined' ? GROUND_TEX_SIZE : 128)); },
+  concIsImg: function () { return !!(concreteT && concreteT.image && concreteT.image.width === (typeof GROUND_TEX_SIZE !== 'undefined' ? GROUND_TEX_SIZE : 128)); },
   placeCatalogModel: (typeof placeCatalogModel === 'function' ? placeCatalogModel : null),
   modelCatalog: function () { return MODEL_CATALOGS; },
   allBuildings: function () { return mapBuildings; },   // full footprint registry (venues+houses+airport) for the editor reference layer
