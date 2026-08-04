@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.122.4';
+var GAME_VERSION = 'v1.122.5';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -17696,6 +17696,11 @@ var copCars = [], copCarSpawnT = 0;
 // ram arbitration: only ONE cop car may ram the player's car at a time, and after
 // a ram that car (and every other) is locked out briefly so they can't spam-hit.
 var copRammer = null, copRamLockUntil = 0;
+// on-foot standoff (v1.122.5): a cruiser that catches an on-foot runner but CAN'T
+// pour cops out (the foot-cop cap is full) must not grind into you — it holds at
+// COP_FOOT_STANDOFF, parks with the lights going (no cops out), and only re-approaches
+// once you've opened SHADOW_REAPPROACH of distance (or jumped in a car).
+var COP_FOOT_STANDOFF = 14, SHADOW_REAPPROACH = 24;
 // resolve a cop car against OTHER cop cars + NPC traffic (not the player's car —
 // that's the ram logic). Cop cars now collide with / bump apart from other cars.
 function copCarResolveCars(cc) {
@@ -17823,22 +17828,15 @@ function spawnCopAt(x, z) {
 // 5-star cops are just regular officers with the heavier auto/smg weapon roll.
 // A proper Meshy SWAT model may replace this later.)
 function parkAndDisgorge(cc) {
-  // don't STOP to disgorge if the foot-cop cap is full — a cruiser parking with
-  // nobody getting out (and faking the door sound) reads as broken. Return false so
-  // the caller keeps it chasing instead (it can still ram / block the road).
+  // only STOP to pour cops out if there's genuine room under the foot-cop cap (which
+  // scales with your stars — "high enough stars & more cops allowed"). If the cap is
+  // full, return false: the caller shadow-parks nearby instead (no phantom cop, no
+  // grinding into an on-foot runner). A cruiser that already disgorged just re-parks.
   var room = 1;
   if (!cc.disgorged) {
     var alive = []; for (var ai = 0; ai < cops.length; ai++) { var cp = cops[ai]; if (cp.state !== 'down' && !cp.interior) alive.push(cp); }
     room = desiredCops() - alive.length;
-    if (room <= 0) {
-      // cap full: a cruiser that CAUGHT you on foot should still pour a cop out at
-      // your position — retire the FARTHEST existing foot cop to free a slot so the
-      // action stays where you are (keeps the overall cap the same).
-      var far = -1, fd = -1;
-      for (var k = 0; k < alive.length; k++) { var fdist = Math.hypot(alive[k].x - player.x, alive[k].z - player.z); if (fdist > fd) { fd = fdist; far = k; } }
-      if (far >= 0 && fd > 45) { var rc = alive[far]; if (rc.mesh) scene.remove(rc.mesh); var ridx = cops.indexOf(rc); if (ridx >= 0) cops.splice(ridx, 1); room = 1; }
-      else return false;
-    }
+    if (room <= 0) return false;
   }
   cc.state = 'parked'; cc.parkT = 0; cc.speed = 0;
   if (cc.disgorged) return true;
@@ -17923,6 +17921,22 @@ function driveCopCar(cc, dt, pd) {
     updateCarFeel(cc, dt, cc.speed, 0, 0);
     return;
   }
+  if (cc.state === 'shadow') {
+    // caught an on-foot runner but the foot-cop cap is full: sit nearby with the
+    // lights going instead of grinding into you. Pile out the instant a slot frees
+    // (a cop dies / your stars rise), and peel back out to re-approach if you open
+    // up distance or jump in a car.
+    updateCopLights(cc, true);
+    cc.speed += (0 - cc.speed) * Math.min(1, dt * 5); cc.parkT += dt;
+    copCarResolveCars(cc);   // don't stack on other shadow cruisers
+    updateCarFeel(cc, dt, cc.speed, 0, 0);
+    var sWanted = (state.wanted || 0) > 0 && !state.dead && !inside;
+    var sOnFoot = !(typeof driving !== 'undefined' && driving);
+    if (!sWanted) { cc.state = 'patrol'; return; }
+    if (sOnFoot && pd < COP_FOOT_STANDOFF + 2 && parkAndDisgorge(cc)) return;   // room opened up -> park for good, cops out
+    if (!sOnFoot || pd > SHADOW_REAPPROACH) { cc.state = 'seek'; cc.rEdge = null; }   // you ran off / got in a car -> re-approach
+    return;
+  }
   var wantedNow = (state.wanted || 0) > 0 && !state.dead && !inside;
   var known = wantedNow && heat.known;   // a unit currently sees you (or you got close)
   var isDrv = (typeof driving !== 'undefined' && driving);
@@ -17943,11 +17957,17 @@ function driveCopCar(cc, dt, pd) {
     if (known) {
       tx = player.x; tz = player.z;
       if (isDrv) { var pv = driving.pspeed || 0, lt = (cc.role === 'block') ? 2.4 : 0.4; tx = player.x + (driving.mvx || 0) * pv * lt; tz = player.z + (driving.mvz || 0) * pv * lt; }
-      if (!isDrv && pd < 15) { if (parkAndDisgorge(cc)) return; }   // caught up on foot -> officers pile out (unless the cap's full: keep chasing, no phantom door)
+      if (!isDrv && pd < COP_FOOT_STANDOFF) {   // caught up on foot
+        if (parkAndDisgorge(cc)) return;        // room -> park for good, officers pile out
+        cc.state = 'shadow'; cc.parkT = 0; cc.speed = 0; updateCarFeel(cc, dt, 0, 0, 0); return;   // cap full -> hold nearby, no cops out, no ramming
+      }
       cc.state = isDrv ? 'chase' : 'seek'; maxCruise = isDrv ? 22 : 18;
       if ((player.y - g.position.y) > 4) { var rt = rampTargetFor(cc); if (rt) { tx = rt.x; tz = rt.z; } }   // player on a highway -> take a ramp
     } else if (wantedNow) {
-      if (!isDrv && pd < 13) { if (parkAndDisgorge(cc)) return; }   // rolled right up next to you on foot (even if LOS momentarily broke) -> pile out
+      if (!isDrv && pd < COP_FOOT_STANDOFF) {   // rolled right up next to you on foot (even if LOS momentarily broke)
+        if (parkAndDisgorge(cc)) return;        // room -> pile out
+        cc.state = 'shadow'; cc.parkT = 0; cc.speed = 0; updateCarFeel(cc, dt, 0, 0, 0); return;   // cap full -> hold nearby
+      }
       var sp = copSearchPoint(cc, dt); tx = sp.x; tz = sp.z; cc.state = 'search'; maxCruise = 15;   // sweep the last-known trail
     } else {
       cc.state = 'patrol'; updateCarFeel(cc, dt, cc.speed, 0, 0); return;   // heat's gone -> back to patrol next frame
