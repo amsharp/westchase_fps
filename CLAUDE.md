@@ -379,9 +379,18 @@ game.js under `WC_REMAP`. Frame: junction `(0,0)`, **+x east / +z south**.
   despawn on their own) can't balloon past the level target from disgorged cop-car
   crews or star decay. `parkAndDisgorge` also clamps its crew to the remaining room
   under the cap, and (v1.116.1) if the cap is already FULL it returns `false` without
-  parking — the caller keeps the cruiser chasing instead of stopping it and faking the
-  `cardoor` sound with nobody getting out (the old "cop got out but there's no cop"
-  phantom). **Fire stagger (v1.116):** cops TAKE TURNS — a shared
+  parking. **On-foot shadow-park (v1.122.5):** when a cruiser catches an ON-FOOT
+  runner but `parkAndDisgorge` returns false (cap full), it no longer keeps grinding
+  into the player — it enters a new `state:'shadow'`: eases to a stop at
+  `COP_FOOT_STANDOFF` (14u), lights flashing, NO cops out, and holds there. The
+  shadow block re-checks `parkAndDisgorge` every frame (so it pours cops out the
+  instant a slot frees — a cop dies / your stars raise `desiredCops`) and re-enters
+  `seek` to drive closer + re-park once you open `SHADOW_REAPPROACH` (24u) of distance
+  or jump in a car. So: high enough stars / room → park-for-good-with-cops; otherwise
+  shadow nearby. `parkAndDisgorge` no longer force-retires a far foot cop to make room
+  (that was the v1.116.1 behavior); genuine cap room is required to disgorge. The
+  car-vs-car RAM logic (`copRammer`) is unchanged and still only applies to a DRIVING
+  player. `__wc` test: `tools/citygen/shadowcoptest.js`. **Fire stagger (v1.116):** cops TAKE TURNS — a shared
   `lastCopFireT`/`COP_FIRE_STAGGER` (0.15s) in `copShoot` lets only one cop open fire
   per window, so a squad never volleys on one frame (was a bullet-wall + per-shot
   sfx/hitscan lag). **Patrol cop cars**: `copCars` spawn `state:'patrol'`
