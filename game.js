@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.121.2';
+var GAME_VERSION = 'v1.121.3';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -885,9 +885,11 @@ var horizonSkirt = (function () {
     }
   }
   var geo = new THREE.ShapeGeometry(s, 24);
-  // ShapeGeometry UVs are in shape units — normalize to the plane's 0..1
+  // tile the grass every GRASS_TILE world-units (RepeatWrapping) instead of
+  // stretching one texture over the whole ~6000u plane — UVs = worldpos / tile.
+  var GRASS_TILE = 6;
   var uv = geo.attributes.uv;
-  for (var i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) / (E * 2) + 0.5, uv.getY(i) / (E * 2) + 0.5);
+  for (var i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) / GRASS_TILE, uv.getY(i) / GRASS_TILE);
   geo.rotateX(-Math.PI / 2);
   // push the huge base plane very slightly back in depth so the many overlaid
   // ground layers (road 0.05 / lots 0.10 / sidewalks 0.12 / pads 0.16) always
