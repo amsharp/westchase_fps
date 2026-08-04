@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.121.1';
+var GAME_VERSION = 'v1.121.2';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -231,6 +231,17 @@ function finishTex(t, repX, repY) {
   if (repX) t.repeat.set(repX, repY || repX);
   return t;
 }
+// build a tiling texture from a base64 raw-RGBA blob (groundtex.js: user grass +
+// concrete, 128x128 POT). Synchronous (putImageData) so cloned materials get the
+// right pixels at load. Returns a finished RepeatWrapping CanvasTexture.
+function rawImgTex(b64, repX, repY) {
+  var sz = (typeof GROUND_TEX_SIZE !== 'undefined') ? GROUND_TEX_SIZE : 128;
+  var bin = atob(b64), n = bin.length, arr = new Uint8ClampedArray(n);
+  for (var i = 0; i < n; i++) arr[i] = bin.charCodeAt(i);
+  var c = document.createElement('canvas'); c.width = c.height = sz;
+  c.getContext('2d').putImageData(new ImageData(arr, sz, sz), 0, 0);
+  return finishTex(new THREE.CanvasTexture(c), repX, repY);
+}
 function tex(size, draw, repX, repY) {
   var c = document.createElement('canvas');
   c.width = c.height = size;
@@ -322,6 +333,14 @@ var concreteT = tex(128, function (g, s) {
   g.strokeStyle = 'rgba(90,86,78,0.5)'; g.lineWidth = 2;
   for (i = 0; i <= s; i += 32) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i, s); g.stroke(); g.beginPath(); g.moveTo(0, i); g.lineTo(s, i); g.stroke(); }
 });
+// user-supplied real textures (groundtex.js) override the procedural grass +
+// concrete everywhere: ground, medians, sidewalks, building pads, foundations,
+// highway/monorail piers + underside, parking garages.
+if (typeof GRASS_TEX_RGBA !== 'undefined') grassT = rawImgTex(GRASS_TEX_RGBA);
+if (typeof CONCRETE_TEX_RGBA !== 'undefined') concreteT = rawImgTex(CONCRETE_TEX_RGBA);
+// give the color-only concrete materials (highway/monorail piers, undersides,
+// garage walls) the concrete map too (color left as a subtle multiplier tint).
+var CONC_TEX = (typeof CONCRETE_TEX_RGBA !== 'undefined') ? concreteT : null;
 // plain asphalt for access roads / driveways
 var driveT = tex(128, function (g, s) {
   g.fillStyle = '#3d3e44'; g.fillRect(0, 0, s, s);
@@ -2985,6 +3004,7 @@ var hwDeckT = tex(256, function (g, s) {
 var hwDeckM = lamb({ map: hwDeckT });
 var hwConcreteM = lamb({ color: 0xbcbbb4, side: THREE.DoubleSide });   // barriers + ramp embankment walls (DoubleSide so walls read both faces)
 var hwUnderM = lamb({ color: 0x6d6c67, side: THREE.DoubleSide });   // deck underside — DoubleSide so it's solid from below
+if (CONC_TEX) { hwConcreteM.map = CONC_TEX; hwConcreteM.color.setHex(0xffffff); hwUnderM.map = CONC_TEX; hwUnderM.color.setHex(0x8f8e88); }   // real concrete (underside keeps a shadow tint)
 var hwApronM = new THREE.MeshLambertMaterial({ map: hwDeckT, side: THREE.DoubleSide });   // ground merge apron (DoubleSide = winding-proof)
 var hwMergeT = tex(256, function (g, s) {
   g.fillStyle = '#8f8f88'; g.fillRect(0, 0, s, s);                       // same base grey as hwDeckT
@@ -3541,6 +3561,7 @@ function buildRail(r) {
 var monoGuideways = [];
 var monoDeckT = tex(128, function (g, s) { g.fillStyle = '#b7b5ad'; g.fillRect(0, 0, s, s); noise(g, s, 900, 0.1, 0.05); g.strokeStyle = 'rgba(120,118,110,0.35)'; for (var k = 0; k < 4; k++) { g.beginPath(); g.moveTo(0, s * k / 4); g.lineTo(s, s * k / 4); g.stroke(); } });
 var monoDeckM = lamb({ map: monoDeckT });
+if (CONC_TEX) monoDeckM.map = CONC_TEX;   // real concrete monorail deck
 function buildMonorail(r) {
   var pts = r.pts, hw = r.hw || 5, deckY = r.elev || 9, cum = rmCum(pts), total = cum[cum.length - 1], s;
   if (total < 3 || pts.length < 2) return;
@@ -6243,6 +6264,10 @@ function grgMats() {
   var ft = tex(128, function (g, s) { g.fillStyle = '#b4b2aa'; g.fillRect(0, 0, s, s); noise(g, s, 700, 0.09, 0.05); g.strokeStyle = 'rgba(150,148,140,0.5)'; g.lineWidth = 2; for (var k = 1; k < 4; k++) { g.beginPath(); g.moveTo(s * k / 4, 0); g.lineTo(s * k / 4, s); g.stroke(); } });
   _grgFloorM = lamb({ map: ft });
   _grgWallM = lamb({ color: 0xc0beb6, side: THREE.DoubleSide });
+  if (typeof CONC_TEX !== 'undefined' && CONC_TEX) {   // real concrete garage floors + walls
+    var fc = CONC_TEX.clone(); fc.repeat.set(8, 6); fc.needsUpdate = true; _grgFloorM.map = fc;
+    _grgWallM.map = CONC_TEX; _grgWallM.color.setHex(0xf2f0ea);
+  }
   // ramp surface: darker concrete with a bold yellow up-slope chevron every tile,
   // so a ramp reads instantly as a ramp instead of blending into the flat floors.
   var rt = tex(64, function (g, s) {
@@ -6630,6 +6655,8 @@ function findCatalogModel(id) {
 // curb. The small apron keeps the plinth clear of the road (placement already
 // offsets the building hw+2.5 off the centreline).
 var FOUND_H = 0.45;
+// foundation height field (set by buildDowntownFoundations, read by surfaceHeightAt)
+var _fdGrid = null, _fdX0 = 0, _fdZ0 = 0, _fdC = 3, _fdGW = 0, _fdGH = 0;
 var _foundM = null;
 function foundMat() {
   if (_foundM) return _foundM;
@@ -6640,7 +6667,7 @@ function foundMat() {
     for (var k = 1; k < 3; k++) { g.beginPath(); g.moveTo(0, s * k / 3); g.lineTo(s, s * k / 3); g.stroke(); }
   });
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  _foundM = lamb({ map: t });
+  _foundM = lamb({ map: (typeof CONC_TEX !== 'undefined' && CONC_TEX) ? CONC_TEX : t });   // real concrete foundations
   return _foundM;
 }
 function addFoundation(x, z, rotY, W, D, apron) {
@@ -6767,8 +6794,9 @@ function buildDowntownFoundations() {
     if (hasB) for (var c = 0; c < comp.length; c++) found[comp[c]] = 1;
   }
   for (i = 0; i < N; i++) if (road[i]) found[i] = 0;      // never pour over a road
-  // greedy rectangle decomposition -> raised concrete slabs
-  var used = new Uint8Array(N), mat = foundMat(), nSlabs = 0;
+  // greedy rectangle decomposition -> raised concrete slabs (fresh box geometry per
+  // slab, so we scale its UVs to tile the concrete ~every TILE world-units)
+  var used = new Uint8Array(N), mat = foundMat(), nSlabs = 0, TILE = 4;
   for (var rz0 = 0; rz0 < GH; rz0++) for (var rx0 = 0; rx0 < GW; rx0++) {
     var i0 = IX(rx0, rz0); if (!found[i0] || used[i0]) continue;
     var w = 0; while (rx0 + w < GW && found[IX(rx0 + w, rz0)] && !used[IX(rx0 + w, rz0)]) w++;
@@ -6776,13 +6804,37 @@ function buildDowntownFoundations() {
     while (rz0 + h < GH && ok) { for (var kk = 0; kk < w; kk++) { var idc = IX(rx0 + kk, rz0 + h); if (!found[idc] || used[idc]) { ok = false; break; } } if (ok) h++; }
     for (var uz = 0; uz < h; uz++) for (var ux = 0; ux < w; ux++) used[IX(rx0 + ux, rz0 + uz)] = 1;
     var wx0 = minx + rx0 * C, wz0 = minz + rz0 * C, ww = w * C, hh = h * C, cxp = wx0 + ww / 2, czp = wz0 + hh / 2;
-    scene.add(box(ww, FOUND_H, hh, mat, cxp, FOUND_H / 2, czp));
-    var col = addColliderOBB(cxp, czp, ww / 2, hh / 2, 0, 'foundation'); col.topY = FOUND_H; col.deck = true;
+    var m = box(ww, FOUND_H, hh, mat, cxp, FOUND_H / 2, czp);
+    var uv = m.geometry.attributes.uv, ua = uv.array;
+    for (var vi = 0; vi < ua.length; vi += 2) { ua[vi] *= ww / TILE; ua[vi + 1] *= hh / TILE; }
+    uv.needsUpdate = true; scene.add(m);
     nSlabs++;
   }
+  // publish the foundation height field: surfaceHeightAt raises EVERY mover (player,
+  // NPCs, cars, cop cars) onto FOUND_H over these cells (no per-slab colliders — the
+  // grid is O(1) and the slabs are walk/drive-up curbs, not walls).
+  _fdGrid = found; _fdX0 = minx; _fdZ0 = minz; _fdC = C; _fdGW = GW; _fdGH = GH;
   if (typeof window !== 'undefined') window.__foundSlabs = nSlabs;
 }
+// O(1) foundation height at (x,z): FOUND_H over a foundation cell, else 0.
+function foundationHeightAt(x, z) {
+  if (!_fdGrid) return 0;
+  var gx = ((x - _fdX0) / _fdC) | 0, gz = ((z - _fdZ0) / _fdC) | 0;
+  if (gx < 0 || gz < 0 || gx >= _fdGW || gz >= _fdGH) return 0;
+  return _fdGrid[gz * _fdGW + gx] ? FOUND_H : 0;
+}
 buildDowntownFoundations();
+// Road furniture (street lamps, hydrants, poles, benches, trees) was placed at
+// ground level before the foundations were poured — lift anything sitting on a
+// downtown foundation up onto it so it isn't sunken. `fdLift` stashes the offset
+// so breakProp/respawn can keep it (see updateWorldFx).
+(function liftBreakablesOntoFoundations() {
+  if (!_fdGrid || typeof breakables === 'undefined') return;
+  for (var i = 0; i < breakables.length; i++) {
+    var b = breakables[i], fh = foundationHeightAt(b.x, b.z);
+    if (fh > 0.001) { b.g.position.y += fh; b.fdLift = fh; }
+  }
+})();
 // Destructible skyscrapers: fly the Learjet into one and it explodes, burns +
 // smokes for ~1 min, then collapses (sinks through the floor behind dust while a
 // rubble pile rises), and rebuilds itself ~10 min later. LOCAL/singleplayer-only,
@@ -6845,6 +6897,7 @@ function surfaceHeightAt(x, z, skipRects, feetY) {
     if (!remapPointClear(x, z, 0)) { if (0.05 > h) h = 0.05; }         // road asphalt / junction
     else if (onSidewalk(x, z)) { if (0.12 > h) h = 0.12; }            // flanking sidewalk
   }
+  if (_fdGrid) { var fdh = foundationHeightAt(x, z); if (fdh > h) h = fdh; }   // downtown block foundations — every mover rides ON them
   if (!skipRects) {   // NPC fast path skips the lot/pad/drive register scans
     h = surfRect(x, z, mapParking, 0.10, h);
     h = surfRect(x, z, mapDrives, 0.14, h);
@@ -13569,7 +13622,8 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
     if (typeof bankDoorClear === 'function' && bankDoorClear(x, z)) return null;   // keep the bank entrance walkway clear
     var e = ENV_BY_NAME[name]; if (!e) return null;
     if (ENV_THIN[e.cat] && Math.random() < ENV_THIN[e.cat]) return null;   // owner: thin decorative filler ~half
-    opts = opts || {}; ry = ry || 0; var y = opts.y || 0, dims = e.dims;
+    opts = opts || {}; ry = ry || 0; var dims = e.dims;
+    var y = (opts.y || 0) + ((typeof foundationHeightAt === 'function') ? foundationHeightAt(x, z) : 0);   // ride ON a downtown foundation
     if (MERGE[name] && !opts.instance) {
       bake(name, mtx(x, y, z, ry)); envStats.merged++;
     } else {
@@ -16196,7 +16250,7 @@ var planeDebris = [];         // [{mesh, vx,vy,vz, spinx,spiny,spinz, life, y0}]
 var planeScorch = [];         // [{mesh, life, max}]
 var _planeTmpV = new THREE.Vector3(), _planeTmpV2 = new THREE.Vector3(), _planeTmpQ = new THREE.Quaternion();
 var _planeWorldUp = new THREE.Vector3(0, 1, 0);
-function planeGroundY(x, z) { return 0; }   // land sits at y=0 (lake edge ignored — arcade)
+function planeGroundY(x, z) { return (typeof foundationHeightAt === 'function') ? foundationHeightAt(x, z) : 0; }   // land at y=0, but ON downtown foundations
 // Spawn the Learjet ~22u in front of the player, on the ground, nose away from
 // the player, and immediately board them as pilot (instant flight test).
 function spawnPlane() {
