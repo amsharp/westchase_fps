@@ -17671,10 +17671,19 @@ function parkAndDisgorge(cc) {
   // don't STOP to disgorge if the foot-cop cap is full — a cruiser parking with
   // nobody getting out (and faking the door sound) reads as broken. Return false so
   // the caller keeps it chasing instead (it can still ram / block the road).
+  var room = 1;
   if (!cc.disgorged) {
-    var aliveN = 0; for (var ai = 0; ai < cops.length; ai++) if (cops[ai].state !== 'down' && !cops[ai].interior) aliveN++;
-    var room = desiredCops() - aliveN;
-    if (room <= 0) return false;
+    var alive = []; for (var ai = 0; ai < cops.length; ai++) { var cp = cops[ai]; if (cp.state !== 'down' && !cp.interior) alive.push(cp); }
+    room = desiredCops() - alive.length;
+    if (room <= 0) {
+      // cap full: a cruiser that CAUGHT you on foot should still pour a cop out at
+      // your position — retire the FARTHEST existing foot cop to free a slot so the
+      // action stays where you are (keeps the overall cap the same).
+      var far = -1, fd = -1;
+      for (var k = 0; k < alive.length; k++) { var fdist = Math.hypot(alive[k].x - player.x, alive[k].z - player.z); if (fdist > fd) { fd = fdist; far = k; } }
+      if (far >= 0 && fd > 45) { var rc = alive[far]; if (rc.mesh) scene.remove(rc.mesh); var ridx = cops.indexOf(rc); if (ridx >= 0) cops.splice(ridx, 1); room = 1; }
+      else return false;
+    }
   }
   cc.state = 'parked'; cc.parkT = 0; cc.speed = 0;
   if (cc.disgorged) return true;
