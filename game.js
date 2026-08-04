@@ -11798,7 +11798,7 @@ if (WC_REMAP) (function densityLayer() {
     densityStats.batches = n;
   }
   // helpers to place one asset instance into the right batch
-  function dDecal(name, x, z, y, ry, scale) { if (name === 'mulch_bed' || !dAsset[name]) return; var a = dAsset[name];   // user: no brown mulch beds anywhere var w = a.dims[0] * (scale || 1), d = a.dims[1] * (scale || 1); bake('d_' + name, { texName: name, decal: true }, UDECAL, mtx(x, (y || 0) + 0.03, z, ry || 0, w, 1, d)); densityStats.decals++; }   // +0.03 lift so decals sit clearly above the ground (owner: z-fighting)
+  function dDecal(name, x, z, y, ry, scale) { if (name === 'mulch_bed' || !dAsset[name]) return; var a = dAsset[name]; var w = a.dims[0] * (scale || 1), d = a.dims[1] * (scale || 1); bake('d_' + name, { texName: name, decal: true }, UDECAL, mtx(x, (y || 0) + 0.03, z, ry || 0, w, 1, d)); densityStats.decals++; }   // mulch_bed skipped (user: no brown mulch beds); +0.03 lift avoids z-fighting
   // placards were a single DoubleSide plane → text read MIRRORED from behind
   // (seen live on a FOR SALE yard sign, mrft7zm5 shot). Same fix as greenSign:
   // bake the plane twice, front-to-front (ry and ry+PI), FrontSide material —
