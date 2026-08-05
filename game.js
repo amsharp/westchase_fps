@@ -13767,7 +13767,7 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
     place('drinking_fountain', cx + 5.5 * Math.sin(rot) + 1.5, cz - 5.5 * Math.cos(rot), rot, { instance: true });
     place('bench_back', cx - 5.5 * Math.sin(rot), cz + 5.5 * Math.cos(rot), rot + Math.PI);
   }
-  playground(-104, -52, 0);                 // open lawn between school and townhouses
+  playground(-172, -62, 0);                 // moved off the road at (-104,-52) into the open grass west of the school (v1.122.8)
   if (byId.farnell) { var fa = byId.farnell, faf = vFront(fa); playground(fa.x + 22, fa.z + faf.fz * (fa.d / 2 + 8), Math.PI / 2); }
   // skate ramp in an open cul-de-sac
   place('skate_ramp', -46, -150, Math.PI / 2, { instance: true });
