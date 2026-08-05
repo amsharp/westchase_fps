@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.122.7';
+var GAME_VERSION = 'v1.122.8';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -5252,6 +5252,12 @@ var houseFronts = [];      // final (post-nudge) house-front frames for the land
     var ci = inst[0], x = inst[1], z = inst[2], rot = inst[3], vi = inst[4], sc = inst[5] || 1;
     var cl = HOUSE_CLUSTERS[ci];
     if (!cl) continue;
+    // (v1.122.8) drop the striped commercial "canopy" plaza (gc_misc_D) — it read
+    // as a stray 7-Eleven strip mall dropped into residential blocks and the user
+    // asked to remove every instance. It's the ONLY canopy cluster, so gating on
+    // spec.canopy pulls them all (mesh + collider skipped together). Remove this
+    // line if a canopy commercial is ever wanted back.
+    if (cl.spec && cl.spec.canopy) { houseStats.skipped++; continue; }
     if (WC_REMAP && houseOnRoad(x, z, cl.spec.dims[0], cl.spec.dims[1], rot, sc)) { houseStats.skipped++; continue; }
     if (WC_REMAP && !cl.spec.canopy) {
       var nud = houseSidewalkNudge(x, z, cl.spec.dims[0] * sc, cl.spec.dims[1] * sc, rot);
@@ -6421,8 +6427,9 @@ function buildParkingGarage(cx, cz, opts) {
 }
 var GARAGE_SPOTS = [
   // [cx, cz]  (axis-aligned; add more to reuse the structure elsewhere)
-  [-245, 585]
-  // downtown garages are now editor-placed (REMAP_GARAGES) — see placeRemapGarages()
+  // (v1.122.8) the lone SW test garage at [-245,585] was removed at the user's
+  // request — it was only there to try the structure out. Downtown garages are
+  // editor-placed via REMAP_GARAGES (see placeRemapGarages()), so this stays empty.
 ];
 function placeGarages() { for (var i = 0; i < GARAGE_SPOTS.length; i++) buildParkingGarage(GARAGE_SPOTS[i][0], GARAGE_SPOTS[i][1], GARAGE_SPOTS[i][2]); }
 placeGarages();
@@ -6846,35 +6853,11 @@ buildDowntownFoundations();
 // like the plane + interiors — never net-synced. Registered here as each tower is
 // placed (capture the collider + minimap footprint pushed by pushYawCollider).
 // (`towers` + `cityBuildings` are declared above, before placeRemapModels.)
-// SHOWCASE: one of each skyscraper in a row in the open land just NE of town
-// (drive/walk east along the main road). Scales pick a nice per-tower height;
-// easy to reposition or remove later via the map editor.
-(function placeSkyscraperShowcase() {
-  if (typeof SKYSCRAPERS === 'undefined' || typeof placeCatalogModel !== 'function') return;
-  var row = [
-    { id: 'boa', x: 620, scale: 3.5 },
-    { id: 'pnc', x: 760, scale: 7.0 },
-    { id: 'regions', x: 900, scale: 3.5 },
-    { id: 'sykes', x: 1060, scale: 2.2 },
-    { id: 'wellsfargo', x: 1220, scale: 4.0 },
-    // BB&T + SunTrust (user-imported): one shared factor keeps the two at the
-    // relative height the user scaled them to in Blender (BB&T's box runs a hair
-    // taller — its model includes the plaza podium + rooftop mast).
-    { id: 'bbt', x: 1360, scale: 5.7 },
-    { id: 'suntrust', x: 1500, scale: 5.7 }
-  ];
-  for (var i = 0; i < row.length; i++) {
-    var placed = placeCatalogModel(row[i].id, row[i].x, -240, 0, null, row[i].scale);
-    if (!placed) continue;
-    towers.push({
-      id: row[i].id, group: placed.group, x: row[i].x, z: -240,
-      W: placed.W, H: placed.H, D: placed.D,
-      cols: placed.cols || [],                    // precise footprint colliders (toggled off on collapse)
-      mb: mapBuildings[mapBuildings.length - 1],  // its minimap/plane-crash footprint
-      fullH: placed.H, state: 'up', t: 0, emitT: 0, rubble: null
-    });
-  }
-})();
+// SHOWCASE (REMOVED v1.122.8): the test row of one-of-each skyscraper that stood
+// in the open land NE of town (z=-240) was scaffolding for importing/scaling the
+// tower models — the user asked to pull it. The real skyscrapers live downtown via
+// REMAP_MODELS/placeRemapModels; this showcase is gone. Kept as a no-op stub so the
+// git history + the "how skyscrapers get placed" note stay legible.
 
 // Top walkable/drivable surface height at (x,z): people + cars ride ON the
 // highest layer (grass 0 / road .05 / lot .10 / sidewalk .12 / pad .13 /
