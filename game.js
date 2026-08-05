@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.122.9';
+var GAME_VERSION = 'v1.122.10';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -22173,8 +22173,8 @@ var vmRifle = new THREE.Group();
   if (hasMeshyGun('kar98k')) {
     // v: no-arms build — barrel points straight down-range (-z). yaw -PI/2 aims
     // the -x muzzle forward; small +cant toes it toward center. Framed lower-right.
-    var mg = getGunMesh('kar98k', 1.15);
-    mg.position.set(0.22, -0.30, -0.62);
+    var mg = getGunMesh('kar98k', 1.42);   // (v1.122.10) scaled up from 1.15 — read too small in the viewmodel
+    mg.position.set(0.24, -0.33, -0.66);
     mg.rotation.order = 'YXZ';
     mg.rotation.set(0.02, -Math.PI / 2 + 0.10, 0);
     vmRifle.add(mg);
