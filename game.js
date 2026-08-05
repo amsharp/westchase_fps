@@ -1398,11 +1398,9 @@ function school(x, z) {
   vCanopy(x, fz, 1, 2 * seg, 3.0, 4.4, venCapM, stuccoMat('#a9855a'));
   vAC(x - 20, z - 5, h + 0.1, venAcM); vAC(x + 20, z - 5, h + 0.1, venAcM);
   signPlane(x, 7.2, fz + 0.95, 0, 24, 2.2, ['FARNELL', 'MIDDLE SCHOOL'], '#2c3e70', '#ffe9a0');
-  // running track + field to the north
-  var track = new THREE.Mesh(new THREE.CircleGeometry(24, 28), lamb({ color: 0xb05a3a }));
-  track.rotation.x = -Math.PI / 2; track.scale.set(1.4, 1, 1); track.position.set(x, 0.14, z - 34); scene.add(track);
-  var field = new THREE.Mesh(new THREE.CircleGeometry(20, 24), lamb({ color: 0x3f8a3f }));
-  field.rotation.x = -Math.PI / 2; field.scale.set(1.4, 1, 1); field.position.set(x, 0.16, z - 34); scene.add(field);
+  // (v1.122.8) the running-track + field oval that used to sit to the north was
+  // removed at the user's request — it read as a big green/orange blob dropped over
+  // the roads by the school. Only the flat decal meshes are gone (no colliders).
   parkingLot(x + 54, z, 24, 44);
 }
 
