@@ -141,9 +141,11 @@ scrub speed to catch it. Cars also **climb** ramps and kerbs. Hit a real
 **ramp** with a run-up and the car **launches along the ramp's angle** and
 sails through the air, keeping its momentum until it lands — the faster
 you're going, the further it flies. Little **kerbs and sidewalk edges** only
-give a small hop now (they used to fling you skyward). And crashing
-**into a solid wall at speed hurts** — hit a building fast enough and it's a
-fatal, fiery wreck. **Wooden jump ramps** are scattered along the roads — big
+give a small hop now (they used to fling you skyward). And smashing
+**head-on into a solid wall at speed hurts** — clip a building with your
+front bumper fast enough and it's a fatal, fiery wreck. **Side-swiping**
+something with the car's flank, though, just bumps you off it so you slide
+along instead of instantly totalling the car. **Wooden jump ramps** are scattered along the roads — big
 right-triangle kickers built from real planks, in a mix of sizes (little ones
 for a quick pop, big ones for serious air). Each sits on a straightaway with
 room to build speed into it and open road to land on: line one up, floor it,

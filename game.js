@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.122.14';
+var GAME_VERSION = 'v1.122.15';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -16106,13 +16106,22 @@ function updateDriving(dt) {
   if (Math.abs(p.x - nx) > 0.01 || Math.abs(p.z - nz) > 0.01) {
     if (asp > 8) sfx('crash', { x: p.x, z: p.z, range: 80 });
     c.svy = (c.svy || 0) - Math.min(1.6, asp * 0.09);   // suspension slam
-    // a hard smash into a SOLID wall (not a snappable tree/pole) hurts you; fast
-    // enough and it's a fatal wreck.
-    if (asp > 16 && !state.dead && !nearBreakable(p.x, p.z, 2.6)) {
+    // Classify the impact by the push-out direction vs the car's nose: a HEAD-ON
+    // (front) smash shoves the car back along its heading (headOn ~ +1); a glancing
+    // SIDE scrape shoves it sideways (headOn ~ 0). Only genuine front hits into a
+    // SOLID wall (not a snappable tree/pole) hurt/wreck you — a side graze at speed
+    // just bumps you off the wall and lets you keep sliding, so brushing something
+    // with the flank no longer instantly crashes/kills (owner request).
+    var pdx = p.x - nx, pdz = p.z - nz, pdl = Math.sqrt(pdx * pdx + pdz * pdz) || 1;
+    var headOn = -(pdx / pdl * fx + pdz / pdl * fz);   // +1 = obstacle dead ahead, ~0 = to the side, <0 = behind
+    var frontal = headOn > 0.5;   // within ~60deg of dead-ahead counts as a head-on impact
+    if (frontal && asp > 16 && !state.dead && !nearBreakable(p.x, p.z, 2.6)) {
       if (asp > 30) { hurtPlayer(200); explodeCar(c); return; }
       hurtPlayer(Math.round((asp - 16) * 3.4), p.x, p.z);
     }
-    c.pspeed *= -0.15;
+    // head-on: hard rebound (near dead stop). Side/glancing: only shed a little
+    // speed so you slide along the wall instead of jarring to a halt.
+    c.pspeed *= frontal ? -0.15 : 0.85;
   }
   // ---- vertical: ride the surface. Two distinct ways to catch air, kept apart so
   // curbs no longer over-launch (report: "air too exaggerated on little curbs"):
