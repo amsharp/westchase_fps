@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.122.8';
+var GAME_VERSION = 'v1.122.9';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -9467,20 +9467,30 @@ function updateLeashDog(a, n, dt) {
   lm.quaternion.setFromUnitVectors(Y_UP, _accDir.set(ldx / llen, ldy / llen, ldz / llen));
 }
 
+// novelty pedestrian looks that should show up only rarely (v1.122.9): the
+// clown (GIGGLES), the furry/fursuit (RUFUS), and the hooded cult figure
+// (MORTIS). RARE_CIV_CHANCE of spawns roll ONLY these; the rest exclude them.
+var RARE_CIV_NAMES = { GIGGLES: 1, RUFUS: 1, MORTIS: 1 };
+var RARE_CIV_CHANCE = 0.02;
 function spawnNPC() {
   var cfg = randomCharConfig();
   // pedestrians always wear the Meshy roster — the old blocky PSX bodies
   // (custom + JESS/MARCUS/SPIKE) are player-creator-only now — and no
-  // townsfolk doppelgangers: pick the least-used look on the street
+  // townsfolk doppelgangers: pick the least-used look on the street.
   if (MESHY_CIVS.length) {
+    var wantRare = Math.random() < RARE_CIV_CHANCE;   // this spawn allowed to be a novelty look?
     var use = {}, ui, un;
     for (ui = 0; ui < npcs.length; ui++) { un = npcs[ui].vname; if (un) use[un] = (use[un] || 0) + 1; }
     var pool = [], bestC = 1e9;
     for (ui = 0; ui < MESHY_CIVS.length; ui++) {
-      var uc = use[MESHY_LIST[MESHY_CIVS[ui]].n] || 0;
+      var nm = MESHY_LIST[MESHY_CIVS[ui]].n;
+      if (!!RARE_CIV_NAMES[nm] !== wantRare) continue;   // rare roll -> only novelty looks; normal roll -> everyone else
+      var uc = use[nm] || 0;
       if (uc < bestC) { bestC = uc; pool = [ui]; }
       else if (uc === bestC) pool.push(ui);
     }
+    // fallback (e.g. a rare roll but the novelty looks aren't in this build): any least-used
+    if (!pool.length) { bestC = 1e9; for (ui = 0; ui < MESHY_CIVS.length; ui++) { var u2 = use[MESHY_LIST[MESHY_CIVS[ui]].n] || 0; if (u2 < bestC) { bestC = u2; pool = [ui]; } else if (u2 === bestC) pool.push(ui); } }
     cfg.preset = 1 + PSX_SKINS.length + pool[(Math.random() * pool.length) | 0];
   }
   var mesh = buildCharacter(cfg);
@@ -16577,6 +16587,7 @@ function updateHeliFreeFlight(dt) {
 function crashPlayerHeli() {
   if (!heliVeh) return;
   var g = heliVeh.group, x = g.position.x, z = g.position.z, wasP = heliVeh.piloting;
+  if (wasP && typeof radioStop === 'function') { heliRadio = radioSnapshot(); radioStop(); }   // cockpit radio dies with the chopper (v1.122.9)
   boomAt(x, z); sfx('boom', { x: x, z: z, range: 260 });
   for (var i = 0; i < 12; i++) puff(new THREE.Vector3(x + (Math.random() - 0.5) * 5, 0.8 + Math.random() * 3, z + (Math.random() - 0.5) * 5), i % 2 ? 0x333333 : 0xff7a1e);
   scene.remove(g); heliVeh = null;
@@ -17206,6 +17217,7 @@ function crashPlane() {
   if (!plane) return;
   var g = plane.group, x = g.position.x, y = g.position.y, z = g.position.z;
   var wasPiloting = plane.piloting;
+  if (wasPiloting && typeof radioStop === 'function') { planeRadio = radioSnapshot(); radioStop(); }   // cockpit radio dies with the jet (v1.122.9)
   plane.alive = false;
   boomAt(x, z);
   // did we fly into a standing skyscraper? kick off its destruction sequence
@@ -18930,10 +18942,10 @@ function spawnBalloonCluster() {
 }
 function disposeBalloon(b) { scene.remove(b.g); b.g.traverse(function (o) { if (o.material && o.material.dispose) o.material.dispose(); }); }
 function updateBalloons(dt) {
-  if (!inside) {
-    balloonCD -= dt;
-    if (balloonCD <= 0) { balloonCD = 150 + Math.random() * 180; if (Math.random() < 0.5) spawnBalloonCluster(); }
-  }
+  // (v1.122.9) the random free-floating balloon clusters were removed at the user's
+  // request — they spawned every few minutes and drifted up into the sky, reading as
+  // out of place. The spawner is disabled; the animate/despawn loop stays so any
+  // balloon already aloft (or spawned via the __wc test hook) still floats off.
   for (var i = balloons.length - 1; i >= 0; i--) {
     var b = balloons[i]; b.ph += dt;
     b.g.position.y += b.vy * dt;
