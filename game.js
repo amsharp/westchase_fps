@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.122.12';
+var GAME_VERSION = 'v1.122.13';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -13788,7 +13788,8 @@ if (WC_REMAP && typeof ENV_PROPS !== 'undefined') (function envPropsLayer() {
     place('bench_back', cx - 5.5 * Math.sin(rot), cz + 5.5 * Math.cos(rot), rot + Math.PI);
   }
   playground(-172, -62, 0);                 // moved off the road at (-104,-52) into the open grass west of the school (v1.122.8)
-  if (byId.farnell) { var fa = byId.farnell, faf = vFront(fa); playground(fa.x + 22, fa.z + faf.fz * (fa.d / 2 + 8), Math.PI / 2); }
+  // (v1.122.13) the second, Farnell-adjacent playground (~-82,-56, by the school
+  // fence) was removed at the user's request — one playground is enough.
   // skate ramp in an open cul-de-sac
   place('skate_ramp', -46, -150, Math.PI / 2, { instance: true });
 
