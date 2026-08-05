@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.122.5';
+var GAME_VERSION = 'v1.122.6';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -16449,6 +16449,7 @@ function boardPlane() {
     plane.atc = { warnCD: 0, tookOff: false, wasOnGround: true, hijackAt: 0, busy: 0 };
   }
   plane.piloting = true; rap.gta = true;   // stealing the jet is grand theft auto
+  radioApplySnapshot(planeRadio || { station: -1 });     // cockpit radio: OFF by default (R cycles stations)
   startJet();                                            // spin up the turbine loop
   setZoom(false);
   vm.visible = false;                                    // hide FP arms/viewmodel like driving
@@ -16465,6 +16466,7 @@ function exitPlane() {
   var spd = plane.vel.length();
   var safe = (spd < PLANE_BAIL_SPD && alt < PLANE_BAIL_ALT && plane.onGround);
   plane.piloting = false;
+  planeRadio = radioSnapshot(); radioStop();              // remember the cockpit station, cut the music on exit
   stopJet();                                             // kill the turbine on exit/bail
   vm.visible = true;
   document.getElementById('crosshair').style.display = '';
@@ -16526,6 +16528,7 @@ function boardHeli() {
   if (!heliVeh || heliVeh.piloting) return;
   if (driving) exitCar();
   heliVeh.piloting = true; heliVeh.pilotless = false; heliVeh.pitch = 0; heliVeh.roll = 0; heliVeh.camInit = false; rap.gta = true;   // taking the chopper is grand theft auto
+  radioApplySnapshot(heliRadio || { station: -1 });      // cockpit radio: OFF by default (R cycles stations)
   setZoom(false); vm.visible = false;
   document.getElementById('crosshair').style.display = 'none';
   var wb = document.getElementById('weaponBox');
@@ -16534,6 +16537,7 @@ function boardHeli() {
 function exitHeli() {
   if (!heliVeh) return;
   var h = heliVeh, g = h.group;
+  heliRadio = radioSnapshot(); radioStop();               // remember the cockpit station, cut the music on exit
   vm.visible = true;
   document.getElementById('crosshair').style.display = '';
   setEquipped(state.equipped);
@@ -23850,6 +23854,10 @@ var RADIO_STATIONS = [
   { id: 'rock',       name: 'ROCK',       tracks: ['music/rock_alice_in_chains_them_bones.mp3', 'music/rock_deans_dream.mp3', 'music/rock_nirvana_lithium.mp3', 'music/rock_way_down_the_line.mp3', 'music/rock_death_from_above_1979_turn_it_out.mp3', 'music/rock_flyleaf_im_so_sick.mp3', 'music/rock_junkie.mp3', 'music/rock_queens_of_the_stone_age_go_with_the_flow.mp3'] }
 ];
 var radioStation = -1;    // -1 = OFF; 0..N-1 = station index (persists across cars)
+// the plane + helicopter get their OWN radio memory, defaulting to OFF, so boarding
+// one starts silent (press R to turn a station on) instead of blasting whatever the
+// last car was playing. Remembers per-vehicle if you turn it on and hop back in.
+var planeRadio = { station: -1 }, heliRadio = { station: -1 };
 var radioTrack = 0;       // current track index within the station's tracks[]
 var radioQueue = [];      // shuffled play order (track indices) for the current station
 var radioQPos = 0;        // cursor into radioQueue
@@ -23926,10 +23934,32 @@ function radioSkipBroken() {
   if (!n || radioErr > n) { radioStop(); return; }      // all tracks bad: give up quietly
   radioNext();
 }
+// on-screen station indicator — the general popup()/popup2() are no-ops (all the
+// ambient on-screen text was pulled), but the user asked specifically to keep the
+// radio-station name, so it gets its own little HUD chip that fades on its own.
+var _radioHud = null, _radioHudT = null;
+function radioToast(text) {
+  var d = _radioHud;
+  if (!d) {
+    d = document.createElement('div');
+    d.id = 'radioHud';
+    d.style.cssText = 'position:fixed;left:50%;bottom:118px;transform:translateX(-50%);z-index:60;' +
+      'font-family:monospace;font-weight:bold;font-size:19px;letter-spacing:3px;color:#ffe08a;' +
+      'text-shadow:0 2px 8px #000;background:rgba(20,18,16,.62);border:2px solid #6a6258;' +
+      'border-radius:10px;padding:7px 22px;pointer-events:none;opacity:0;transition:opacity .25s';
+    (document.body || document.documentElement).appendChild(d);
+    _radioHud = d;
+  }
+  d.textContent = text;
+  d.style.display = 'block';
+  d.style.opacity = '1';
+  clearTimeout(_radioHudT);
+  _radioHudT = setTimeout(function () { if (_radioHud) _radioHud.style.opacity = '0'; }, 2400);
+}
 function radioSetStation(idx) {
   radioInit();
   radioStation = idx;
-  if (idx < 0) { radioStop(); popup('RADIO OFF'); return; }
+  if (idx < 0) { radioStop(); radioToast('RADIO OFF'); return; }
   var st = RADIO_STATIONS[idx];
   var n = (st && st.tracks) ? st.tracks.length : 0;
   radioErr = 0; radioLastTrack = -1;
@@ -23938,7 +23968,7 @@ function radioSetStation(idx) {
   radioTrack = n ? radioQueue[0] : 0;
   radioSeekPending = 10 + Math.random() * 40;           // drop in mid-song (~10-50s) as if the station had already been playing
   radioLoadAndPlay();
-  popup('♪ ' + st.name);
+  radioToast('♪ ' + st.name);
 }
 function radioCycle() {
   // OFF -> Electronic -> Rap -> Chill -> Rock -> OFF
@@ -26928,10 +26958,12 @@ document.addEventListener('keydown', function (e) {
   }
   // QoL: M drops/clears a personal waypoint at whatever you're looking at
   if (e.code === 'KeyM' && !e.repeat && state.running && !state.menu && !state.dead) { e.preventDefault(); toggleWaypointAtLook(); return; }
-  // R: cycle the car radio (OFF -> Electronic -> Rap -> Chill -> Rock -> OFF) — only while driving.
-  if (e.code === 'KeyR' && !e.repeat && state.running && !state.menu && !state.dead && driving) { e.preventDefault(); radioCycle(); return; }
-  // R (on foot): manually reload the equipped gun from the shared reserve pool
-  if (e.code === 'KeyR' && !e.repeat && state.running && !state.menu && !state.dead && !driving) { e.preventDefault(); startReload(); return; }
+  // R: cycle the radio (OFF -> Electronic -> Rap -> Chill -> Rock -> OFF) while driving
+  // a car OR piloting the plane / helicopter (their cockpit radios default to OFF).
+  var _pilotingVeh = driving || (typeof plane !== 'undefined' && plane && plane.piloting) || (typeof heliVeh !== 'undefined' && heliVeh && heliVeh.piloting);
+  if (e.code === 'KeyR' && !e.repeat && state.running && !state.menu && !state.dead && _pilotingVeh) { e.preventDefault(); radioCycle(); return; }
+  // R (on foot, not piloting): manually reload the equipped gun from the shared reserve pool
+  if (e.code === 'KeyR' && !e.repeat && state.running && !state.menu && !state.dead && !_pilotingVeh) { e.preventDefault(); startReload(); return; }
   // QoL: number-key direct weapon select (1..9, 0 = slot 10).
   if (!e.repeat && state.running && !state.menu && !state.dead) {
     var wslot = -1;
