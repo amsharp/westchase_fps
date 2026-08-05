@@ -682,10 +682,13 @@ runs off screaming (and yes, that's a crime). Driving is third-person:
 WASD to drive, **E** to get out (the controls all live in the pause-menu
 **CONTROLS** tab — the driving view itself stays clean, no on-screen speedo
 or button prompts). Tap **R** to flip on the
-**car radio** and cycle its stations — **Electronic, Rap, Chill, Rock**, or
-off. Each station plays a set of tracks on a loop; the music is yours alone
-(other cars stay quiet), and it cuts out the moment you step out, wreck, or
-die. Every car remembers **its own** radio: hop out and back into the same
+**car radio** and cycle its stations — the station name flashes on screen as
+you switch: **Electronic, Rap, Chill, Rock**, or off. Each station plays a set
+of tracks on a loop; the music is yours alone (other cars stay quiet), and it
+cuts out the moment you step out, wreck, or die. The **plane and helicopter
+have the radio too** — tap **R** in the cockpit to turn a station on — but they
+**start with the radio off** (they don't blast whatever your last car was
+playing). Every car remembers **its own** radio: hop out and back into the same
 ride and it's right where you left it, same station and song. But **jack a
 fresh car** and you inherit whatever the last driver had going — often the
 radio's off, and when it's on you drop in **partway through** a random song,
@@ -1129,7 +1132,7 @@ the same quiet noise bed as before, and the SFX volume slider controls it.
   timer with a short cooldown (no spamming), and works independently of your
   left-click attack — so you can kick while holding a gun, or mix it into a
   punch combo.
-- **R** — **reload** the equipped gun from your reserve (while driving, R cycles the car radio)
+- **R** — **reload** the equipped gun from your reserve (while driving or piloting the plane/heli, R cycles the radio — the station name shows on screen)
 - **Scroll wheel** — quick-swap to your next / previous weapon
 - **1 – 0** — jump straight to a weapon by number (its slot in your owned list —
   1 is fists; keys for weapons you don't own are ignored). A **quick-bar** along
