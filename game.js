@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.122.11';
+var GAME_VERSION = 'v1.122.12';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -9507,6 +9507,16 @@ function spawnNPC() {
     if (!twin) break;
     assignNpcHome(n);
   }
+  mesh.position.set(n.x, 0, n.z); mesh.userData.npc = n;
+  scene.add(mesh); npcs.push(n); setNpcTarget(n); maybeAttachAccessory(n); return n;
+}
+// spawn ONE pedestrian pinned to a specific roster look (used by the SYD test
+// keybind, v1.122.12). Same npc contract as spawnNPC, but the look is forced and
+// it drops in at (dx,dz) near the player instead of a home spot.
+function spawnNamedNpc(name, dx, dz) {
+  var cfg = (typeof cfgForName === 'function') ? cfgForName(name) : randomCharConfig();
+  var mesh = buildCharacter(cfg);
+  var n = { mesh: mesh, x: dx, z: dz, tx: dx, tz: dz, hp: 100, state: 'walk', speed: 1.5 + Math.random() * 1.1, phase: Math.random() * 9, pause: 0, fleeT: 0, fleeDX: 0, fleeDZ: 0, downT: 0, hurtFlash: 0, vname: meshyNameFromCfg(cfg), fem: femFromCfg(cfg) };
   mesh.position.set(n.x, 0, n.z); mesh.userData.npc = n;
   scene.add(mesh); npcs.push(n); setNpcTarget(n); maybeAttachAccessory(n); return n;
 }
@@ -26942,6 +26952,15 @@ document.addEventListener('keydown', function (e) {
   // pilot (single plane — re-spawns/replaces any existing one). Temporary test
   // key — this whole spawn-on-keypress goes away once airports exist.
   if (e.code === 'KeyK' && !e.repeat) { e.preventDefault(); if (!state.running || state.dead || state.menu) return; spawnPlane(); return; }
+  // N: spawn SYD a few steps in front of you (testing hook, v1.122.12).
+  if (e.code === 'KeyN' && !e.repeat && state.running && !state.menu && !state.dead) {
+    e.preventDefault();
+    var _sd = new THREE.Vector3(); camera.getWorldDirection(_sd);
+    var _sx = player.x + _sd.x * 5, _sz = player.z + _sd.z * 5;
+    var _sp = pushOut(_sx, _sz, 0.5, landColliders || colliders);
+    if (typeof spawnNamedNpc === 'function') { spawnNamedNpc('SYD', _sp.x, _sp.z); popup('SYD spawned'); }
+    return;
+  }
   if (e.code === 'KeyG' && !e.repeat && state.running && !state.menu && !state.dead && !(plane && plane.piloting)) { e.preventDefault(); toggleNoclip(); return; }
   if (e.code === 'KeyQ' && state.menu === 'inv') { e.preventDefault(); if (bagSel >= 0 && state.bag[bagSel]) bagDrop(bagSel); return; }
   // #46 minimap zoom: [ zooms out (wider), ] zooms in (closer)

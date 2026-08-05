@@ -2688,5 +2688,59 @@
    "The prophecy speaks of this. Continue.",
    "Yes. The darkness agrees with you."
   ]
+ },
+ "SYD": {
+  "bump": [
+   "(angry) Um, personal space? Ever heard of it?",
+   "Whoa, okay, we're just walking into people now.",
+   "(sighing) Great, love that for me.",
+   "Watch it, these bracelets are stacked for a reason.",
+   "(laughing) Rude. But kinda iconic, honestly.",
+   "Ugh, you almost made me drop my phone.",
+   "(angry) Bestie. No.",
+   "(sighing) And they say chivalry is dead. Correct."
+  ],
+  "hit": [
+   "(scared) Ow?! What is your problem?!",
+   "(angry) Did you seriously just hit me?",
+   "(scared) Okay, that actually hurt, psycho!",
+   "(angry) I will literally post about this.",
+   "(scared) Not the arm, my tattoo is healing!",
+   "(angry) You are so getting blocked in real life."
+  ],
+  "gunscared": [
+   "(scared) Okay, that's a gun, I'm out!",
+   "(scared) Nope nope nope, bye!",
+   "(scared) This is NOT the vibe. Later!"
+  ],
+  "chat": [
+   "This town is so dead, it's almost funny.",
+   "I would kill for decent coffee around here.",
+   "My playlist is carrying me through today, honestly.",
+   "(sighing) I have like four unread texts I am ignoring.",
+   "New tattoo is still healing. Worth it, though.",
+   "(laughing) I said I would go to bed early. I lied."
+  ],
+  "quirk": [
+   "Yeah, it's a band you have never heard of.",
+   "(laughing) I'm not sad, I just dress like this.",
+   "Black goes with everything. That's just science.",
+   "I don't do mornings. Or afternoons, really.",
+   "(laughing) My whole personality is this one Converse pair.",
+   "I only smile ironically.",
+   "(sighing) Everyone's fake, my earbuds are real."
+  ],
+  "chatQ": [
+   "Wait, is your phone case new? I'm kind of obsessed.",
+   "You heard the gas station got robbed again? This town, I swear.",
+   "Ugh, who is that guy in the parking lot? Total energy vampire.",
+   "Did they finally open that place? Overrated, probably."
+  ],
+  "chatA": [
+   "(laughing) Okay, that's actually so real.",
+   "No, because same, though.",
+   "(sighing) Ugh, don't even get me started.",
+   "Wait, that's kind of iconic, actually."
+  ]
  }
 }
