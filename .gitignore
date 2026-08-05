@@ -21,3 +21,4 @@ hudfix_*.png
 # plane QA generated harness
 tools/planeqa/_comp.html
 tools/citygen/shots/
+tools/vehgen/shots/
