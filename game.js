@@ -28300,6 +28300,9 @@ window.__wc = {
   radioCycle: radioCycle, radioSetStation: radioSetStation, radioStop: radioStop, radioNext: radioNext,
   radioFireEnded: function () { if (radioEl) radioEl.dispatchEvent(new Event('ended')); },
   radioState: function () { return { station: radioStation, stationName: radioStation >= 0 ? RADIO_STATIONS[radioStation].name : 'OFF', track: radioTrack, src: radioEl ? radioEl.src : '', playing: radioWantPlay, paused: radioEl ? radioEl.paused : true, stations: RADIO_STATIONS.length }; },
+  radioCycle: function () { return radioCycle(); },
+  radioSetStation: function (i) { return radioSetStation(i); },
+  radioHudText: function () { var d = document.getElementById('radioHud'); return d ? { text: d.textContent, shown: d.style.opacity === '1' } : null; },
   // lightweight physics step (no render, no NPC/cop/car sim) — fast headless
   // stepping for plane/fall tests. Renders only when you call renderer yourself.
   stepLite: function (dt) { T += dt; updatePlayer(dt); updatePlaneWorld(dt); },
