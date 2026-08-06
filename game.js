@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.123.2';
+var GAME_VERSION = 'v1.123.3';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -19951,8 +19951,8 @@ function updateThrownAxes(dt) {
 // ---------------- weapon drops ----------------
 var drops = [];
 // map a weapon key -> its real player gun model (MESHY_GUNS) + a drop-size length.
-var GUN_MODEL_NAME = { pistol: 'glock19', smg: 'tec9', shotgun: 'shotgun', rifle: 'kar98k', auto: 'ak47', rocket: 'rpg7' };
-var GUN_DROP_LEN = { pistol: 0.5, smg: 0.72, shotgun: 1.05, rifle: 1.05, auto: 1.0, rocket: 1.15 };
+var GUN_MODEL_NAME = { pistol: 'glock19', smg: 'tec9', shotgun: 'shotgun', rifle: 'kar98k', auto: 'ak47', rocket: 'rpg7', m249: 'm249' };
+var GUN_DROP_LEN = { pistol: 0.5, smg: 0.72, shotgun: 1.05, rifle: 1.05, auto: 1.0, m249: 1.2, rocket: 1.15 };
 // the actual player gun model, oriented barrel-forward (-z) in a wrapper so it
 // reads the same as the old box placeholder (spins as a drop, grips in a hand).
 function realGunModel(kind) {
@@ -19975,7 +19975,7 @@ function dropMesh(kind) {
   else if (kind === 'smg') { g.add(box(0.1, 0.13, 0.6, metalM, 0, 0, 0)); g.add(box(0.07, 0.34, 0.1, metalM, 0, -0.2, -0.1)); }
   else if (kind === 'rifle') { g.add(box(0.09, 0.11, 0.95, woodM, 0, 0, 0)); var sc = cyl(0.04, 0.04, 0.3, 8, darkMetalM, 0, 0.1, 0.1); sc.rotation.x = Math.PI / 2; g.add(sc); }
   else if (kind === 'auto') { g.add(box(0.09, 0.12, 0.85, woodM, 0, 0, 0)); var mg = box(0.07, 0.24, 0.11, metalM, 0, -0.15, -0.05); mg.rotation.x = 0.5; g.add(mg); }
-  else if (kind === 'm249') {   // PROCEDURAL placeholder LMG (user will swap a Meshy model later)
+  else if (kind === 'm249') {   // procedural FALLBACK (used only if meshyguns.js lacks the m249 model)
     g.add(box(0.12, 0.15, 0.6, darkMetalM, 0, 0, 0.08));                                   // receiver
     g.add(box(0.1, 0.11, 0.5, metalM, 0, 0.005, -0.34));                                   // barrel shroud / handguard
     var m249bar = cyl(0.03, 0.03, 0.5, 10, darkMetalM, 0, 0, -0.62); m249bar.rotation.x = Math.PI / 2; g.add(m249bar);   // barrel
@@ -22779,10 +22779,22 @@ var vmAuto = new THREE.Group();
   vmAuto.add(vmArm(0.29, -0.47, -0.3, 0.18));
   vmAuto.add(vmArm(0.13, -0.44, -0.72, -0.3));
 })();
-// M249 SAW — procedural viewmodel (placeholder; user swaps a Meshy model later).
-// Bigger/beefier than the AK, framed lower-right, barrel down-range (-z).
+// M249 SAW — user's own baked Meshy model (falls back to the procedural build).
+// It's a big machine gun, so it's framed a touch lower/right and sized up.
 var vmM249 = new THREE.Group();
 (function () {
+  if (hasMeshyGun('m249')) {
+    var mg = getGunMesh('m249', 1.32);   // big LMG — longer than the AK's 1.12
+    mg.position.set(0.24, -0.33, -0.52);
+    mg.rotation.order = 'YXZ';
+    mg.rotation.set(0.02, -Math.PI / 2 + 0.10, 0);
+    vmM249.add(mg);
+    var mAr1 = vmArm(0.33, -0.49, -0.32, 0.18); mAr1.userData.gunArm = 1; vmM249.add(mAr1);
+    var mAr2 = vmArm(0.16, -0.45, -0.82, -0.3); mAr2.userData.gunArm = 1; vmM249.add(mAr2);
+    WEAPONS.m249.flashAt = meshyMuzzleAt(mg);
+    WEAPONS.m249.flashScale = 0.5;
+    return;
+  }
   var X = 0.27;
   vmM249.add(box(0.09, 0.11, 0.42, darkMetalM, X, -0.27, -0.52));            // receiver
   vmM249.add(box(0.075, 0.08, 0.34, metalM, X, -0.265, -0.86));             // barrel shroud
