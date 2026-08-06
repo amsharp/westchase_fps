@@ -597,6 +597,21 @@ they soak far more damage than a regular officer (roughly 2.4×), always carry
 five-star firefight gets genuinely hairy. The van itself is tankier than a
 cruiser (a rocket still wrecks it).
 
+### The Juggernaut
+
+Reach five stars and, **once** per five-star spree, the police send in a
+**juggernaut** — a giant of a man in a full bomb-disposal suit. A helicopter
+flies to wherever you are (as soon as the cops know your position) and he
+**fast-ropes down** onto the street. He has **2000 HP**, wades straight through
+gunfire without flinching, and rips **bursts of M249 machine-gun fire** at you —
+**armed or not**, he does not taser or arrest, he just shoots. While he's alive
+the heat stays pinned at five stars: **you cannot wait him out or hide** — the
+only way to end it is to put him down.
+
+Do that and he **drops his M249** — the **only** way to get one. It's a belt-fed
+light machine gun that runs on **rifle ammo** and hits **harder and faster than
+the AK-47**. (It's not sold anywhere.)
+
 ### Gangs
 
 The city has **gangs** now — a hostile third faction that holds turf out in the

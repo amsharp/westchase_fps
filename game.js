@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.123.1';
+var GAME_VERSION = 'v1.123.2';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -61,6 +61,9 @@ var WEAPONS = {
   auto:   { name: 'AK-47',  price: 1000, dmg: 34, rate: 0.075, auto: true, spread: 0.012, ammo: 'rifle', mag: 30, reload: 3, desc: 'Full auto, long range.', flashAt: [0.26, -0.255, -1.2] },
   shotgun: { name: 'SHOTGUN', price: 500, dmg: 17, rate: 0.85, auto: false, pellets: 9, spread: 0.06, falloff: 34, ammo: 'shotgun', mag: 6, reload: 5, desc: 'Pump-action. Point-blank headshots take the head clean off.', flashAt: [0.24, -0.25, -1.0], flashScale: 1.25 },
   rocket: { name: 'ROCKET LAUNCHER', price: 2000, rate: 5, rocket: true, ammo: 'rocket', mag: 1, reload: 5, desc: 'Danger close. Reload with R.', flashAt: [0.3, -0.28, -1.0] },
+  // M249 SAW — NOT for sale; the ONLY way to get it is to kill a juggernaut, who
+  // drops it. Rifle ammo, faster + harder than the AK, reuses the AK gunshot sfx.
+  m249:   { name: 'M249', worldOnly: true, dmg: 48, rate: 0.05, auto: true, spread: 0.02, spreadMax: 0.06, bloomPerShot: 0.003, ammo: 'rifle', mag: 100, reload: 5, sfx: 'auto', desc: 'Belt-fed light machine gun, pried off a downed juggernaut.', flashAt: [0.28, -0.255, -1.3] },
   raygun: { name: 'RAY GUN', price: 0, dmg: 70, rate: 0.22, auto: false, spread: 0, laser: true, desc: 'Alien tech. Semi-auto. Never misses.', flashAt: [0.26, -0.25, -0.95] },
   // #78 quest-reward guns (not purchasable; granted by Q6 / Q8)
   neon_blaster: { name: 'NEON BLASTER', price: 0, dmg: 68, rate: 0.19, auto: false, spread: 0.006, laser: true, quest: true, desc: '8-bit ray tech. ADS to bend time.', flashAt: [0.26, -0.25, -0.95] },
@@ -68,13 +71,13 @@ var WEAPONS = {
   snack:  { name: 'SNACK', snack: true, rate: 0.8 },
   soda:   { name: 'SODA', snack: true, rate: 0.6 }   // vending machines (streetprops)
 };
-var GUN_LIST = ['pistol', 'smg', 'shotgun', 'rifle', 'auto', 'axe', 'spray', 'rocket', 'raygun', 'neon_blaster', 'silenced'];
+var GUN_LIST = ['pistol', 'smg', 'shotgun', 'rifle', 'auto', 'm249', 'axe', 'spray', 'rocket', 'raygun', 'neon_blaster', 'silenced'];
 
 // ---------------- state ----------------
 var state = {
   running: false, menu: null,
   money: 400, hp: 100, dead: false,
-  owned: { pistol: false, smg: false, shotgun: false, axe: false, spray: false, rifle: false, auto: false, rocket: false, raygun: false, neon_blaster: false, silenced: false },
+  owned: { pistol: false, smg: false, shotgun: false, axe: false, spray: false, rifle: false, auto: false, m249: false, rocket: false, raygun: false, neon_blaster: false, silenced: false },
   equipped: 'fists',
   lastHurt: -99, lastCarHit: -99, lastRob: -99,
   wanted: 0, civKills: 0, copKills: 0, killPts: 0, snacks: 0,
@@ -7978,13 +7981,14 @@ function getPSXParts() {
 }
 // ---- Meshy AI characters (optional meshychars.js, loaded before game.js) --
 var MESHY_LIST = (typeof MESHY_CHARS !== 'undefined') ? MESHY_CHARS : [];
-var MESHY_CIVS = [], MESHY_COPS = [], MESHY_GANG = [], MESHY_SWAT = [], MESHY_ROLE = {};
+var MESHY_CIVS = [], MESHY_COPS = [], MESHY_GANG = [], MESHY_SWAT = [], MESHY_JUGG = [], MESHY_ROLE = {};
 for (var mli = 0; mli < MESHY_LIST.length; mli++) {
   var mr = MESHY_LIST[mli].role || 'civ';
   if (mr === 'civ') MESHY_CIVS.push(mli);
   else if (mr === 'cop') MESHY_COPS.push(mli);
   else if (mr === 'gang') MESHY_GANG.push(mli);       // hostile gang faction (NPC-based, armed)
   else if (mr === 'swat') MESHY_SWAT.push(mli);       // 5-star SWAT operators (cop-based, armored)
+  else if (mr === 'jugg') MESHY_JUGG.push(mli);       // juggernaut boss (cop-based, 2000 HP, M249)
   else MESHY_ROLE[mr] = mli;
 }
 // ---- shop staff (optional staffchars.js): full skinned, uniformed workers.
@@ -14601,6 +14605,22 @@ function buildSwat() {
   var g = buildPerson('#14161a', '#0d0f12', '#caa07a', { cap: true, shades: true, hairColor: 0x0a0a0a });
   return g;
 }
+var JUGG_SCALE = 1.42;   // he's a very large man — towers over everyone
+// juggernaut model (Meshy, role:'jugg'), scaled up big. Falls back to a bulky
+// dark trooper if no jugg model shipped.
+function buildJugg() {
+  var g;
+  if (MESHY_JUGG.length) {
+    var cfg = randomCharConfig(); cfg.preset = 0; cfg.build = 3;
+    var mi = MESHY_JUGG[(Math.random() * MESHY_JUGG.length) | 0];
+    g = buildMeshySkinned(cfg, mi);
+    g.userData.vname = MESHY_LIST[mi].n;
+  } else {
+    g = buildPerson('#4a4a38', '#3a3a2c', '#caa07a', { cap: true, hairColor: 0x2a2a1c });
+  }
+  g.scale.setScalar(JUGG_SCALE);
+  return g;
+}
 // gang-member model (Meshy, role:'gang'). Returns null if no gang model shipped.
 function buildGangster() {
   if (!MESHY_GANG.length) return null;
@@ -14689,7 +14709,8 @@ var COP_GUN_STATS = {
   shotgun: { range: 20, dmg: 13, rate: 1.05, acc: 0.62, sfx: 'shotgun' },
   smg:     { range: 42, dmg: 5,  rate: 0.11, acc: 0.42, sfx: 'smg' },
   auto:    { range: 56, dmg: 9,  rate: 0.13, acc: 0.5,  sfx: 'auto' },
-  rifle:   { range: 95, dmg: 18, rate: 0.9,  acc: 0.72, sfx: 'rifle' }
+  rifle:   { range: 95, dmg: 18, rate: 0.9,  acc: 0.72, sfx: 'rifle' },
+  m249:    { range: 70, dmg: 11, rate: 0.06, acc: 0.52, sfx: 'auto' }   // juggernaut LMG — burst cadence is handled in copShoot
 };
 // roll a cop's weapon for a wanted tier. 1-3*: mostly pistols, some shotguns.
 // 4-5*: the automatics (smg/ak) are most common, but pistols/shotguns still show.
@@ -14772,6 +14793,13 @@ function copHasLOS(c, tgt) {
 // pick the closest wanted player (local or remote) this cop can go after
 function copPickTarget(c) {
   var best = null, bd = 1e9;
+  // The JUGGERNAUT is a relentless boss: he ALWAYS knows where you are and hunts
+  // you down until one of you is dead — you can't just break line of sight to
+  // shake him like a regular officer.
+  if (c && c.jugg && !state.dead && !inside) {
+    var jdx = player.x - c.x, jdz = player.z - c.z;
+    return { x: player.x, z: player.z, y: player.y, id: null, d: Math.sqrt(jdx * jdx + jdz * jdz) };
+  }
   // LOCAL player: dispatch only hands out your position while the police
   // actually KNOW where you are (someone sees you / you got close). Otherwise
   // this returns nothing and updateCops drops the cop into a SEARCH.
@@ -14878,9 +14906,15 @@ var lastCopFireT = -99, COP_FIRE_STAGGER = 0.15;
 function copShoot(c, wpn, dt, tgt) {
   c.fireT -= dt;
   if (c.fireT > 0) return;
-  if (T - lastCopFireT < COP_FIRE_STAGGER) return;   // ready, but it's not our turn yet — hold (cheap gate before the LOS raycast)
+  if (!c.jugg && T - lastCopFireT < COP_FIRE_STAGGER) return;   // ready, but it's not our turn yet — hold (the juggernaut ignores the squad stagger and rips his own bursts)
   if (!c.interior && !copHasLOS(c, tgt)) { c.fireT = wpn.rate; return; }   // interior is one small room — they can always see you
-  c.fireT = wpn.rate; lastCopFireT = T;
+  if (c.jugg) {
+    // BURST fire: a string of rounds at the weapon's rate, then a longer aim/reload pause
+    if (c.burstLeft === undefined || c.burstLeft <= 0) c.burstLeft = 8 + ((Math.random() * 5) | 0);
+    c.burstLeft--;
+    c.fireT = (c.burstLeft > 0) ? wpn.rate : (1.3 + Math.random() * 0.9);
+  } else { c.fireT = wpn.rate; }
+  lastCopFireT = T;
   if (!tgt.id) {   // barks only for the local player
     var copAt = { x: c.x, z: c.z, y: (c.baseY || 0) + 1.6, yell: true, net: c.interior ? 0 : 1, ref: c };
     if (state.wanted >= 4) playVoiceAny(c.fem ? ['cop_fire_f_1', 'cop_fire_f_2'] : ['cop_fire_1', 'cop_fire_2'], 0.6, 'copBark', 12, copAt);
@@ -14933,11 +14967,12 @@ function damageCop(c, dmg, kx, kz, silent) {
     // a killed cop drops the gun it was carrying (real model; grab it for the gun,
     // or half a mag of its ammo if you already own one). Interior cops drop under
     // the map — skip those so the pickup isn't unreachable.
-    if (c.gun && !c.interior && typeof dropWeapon === 'function') dropWeapon(c.gun, c.x, c.z);
-    spawnCash(c.x, c.z, 10 + ((Math.random() * 30) | 0), c.baseY || 0);
+    if (c.jugg && c.roping) { c.roping = false; if (juggRope) { scene.remove(juggRope); juggRope = null; } }   // died mid-descent: drop the rope
+    if (c.gun && !c.interior && typeof dropWeapon === 'function') dropWeapon(c.gun, c.x, c.z);   // the juggernaut's M249 is the only place to get one
+    spawnCash(c.x, c.z, (c.jugg ? 200 : 10) + ((Math.random() * 30) | 0), c.baseY || 0);
     sfx('ko', { x: c.x, z: c.z, y: (c.baseY || 0) + 1.2, range: 50 });
     if (!c.interior) copSpawnT = copRespawnDelay();   // killing a cop buys a 30-60s lull before the next foot cop arrives
-    if (!silent) { popup('COP DOWN!'); creditCopKill(!meleeHit && dmg < 900); }   // bullet = gun kill; melee/explosion = not
+    if (!silent) { popup(c.jugg ? 'JUGGERNAUT DOWN — GRAB THE M249' : 'COP DOWN!'); creditCopKill(!meleeHit && dmg < 900); }   // bullet = gun kill; melee/explosion = not
   } else {
     c.state = 'engage';
     if (!silent && state.wanted < 1) setWanted(1);
@@ -15035,6 +15070,12 @@ function updateCops(dt) {
   _copPpx = player.x; _copPpz = player.z;
   var pspd = Math.sqrt(_copPvx * _copPvx + _copPvz * _copPvz);
   recomputeHeat(dt);   // does dispatch currently KNOW where you are? run the escape timer.
+  // A live juggernaut PINS the heat: he has eyes on you and radios it in, so you
+  // can't wait out the wanted level or hide — the only way to end it is to kill
+  // him (and claim his M249). Keeps him engaged + on the map until he's down.
+  if (!isClient() && !state.dead && !inside) {
+    for (var _jl = 0; _jl < cops.length; _jl++) { if (cops[_jl].jugg && cops[_jl].state !== 'down') { if (state.wanted < 5) setWanted(5); heat.known = true; heat.loseT = 5 * HIDE_PER_STAR; break; } }
+  }
   updatePursuitWarp(dt);   // far-behind units warp in (off-screen) after ~20s of active pursuit
   var suppressed = (armLevel === 2) && (T - lastShot < 1.6) && (state.wanted || 0) > 0;
   if (armLevel === 1 && (state.wanted || 0) > 0 && !state.dead && !inside) {
@@ -15074,7 +15115,7 @@ function updateCops(dt) {
   if (!isClient()) {
     copSpawnT -= dt;
     var alive = 0, aliveArr = [];
-    for (var i0 = 0; i0 < cops.length; i0++) { var c0 = cops[i0]; if (c0.state !== 'down' && !c0.interior && !c0.swat) { alive++; aliveArr.push(c0); } }   // SWAT are bonus units: they don't count toward (or get culled by) the regular foot-cop cap
+    for (var i0 = 0; i0 < cops.length; i0++) { var c0 = cops[i0]; if (c0.state !== 'down' && !c0.interior && !c0.swat && !c0.jugg) { alive++; aliveArr.push(c0); } }   // SWAT + juggernaut are bonus units: they don't count toward (or get culled by) the regular foot-cop cap
     var wantN = desiredCops();
     if (alive < wantN && copSpawnT <= 0) { spawnCop(state.wanted >= 2); copSpawnT = COP_SPAWN_GAP; }
     else if (alive > wantN) {
@@ -15100,6 +15141,7 @@ function updateCops(dt) {
     var baseY = c.baseY || 0;
     if (c.interior && !inside && c.state !== 'down') { scene.remove(m); cops.splice(i, 1); i--; continue; }
     if (c.hurtFlash > 0) c.hurtFlash -= dt;
+    if (c.roping && c.state !== 'down') { updateJuggRoping(c, dt); continue; }   // juggernaut still fast-roping down — no combat yet
     if (c.state === 'down') {
       c.downT -= dt;
       m.rotation.x = Math.max(-1.45, m.rotation.x - dt * 7);
@@ -15127,12 +15169,13 @@ function updateCops(dt) {
     if (tgt) {
       var dx = tgt.x - c.x, dz = tgt.z - c.z, d = tgt.d;
       m.rotation.y = Math.atan2(dx, dz);                    // always face the target
-      var wantFire = c.interior || copsFire || !!tgt.id;    // interior room + remote players: engage as before
+      var wantFire = c.interior || copsFire || !!tgt.id || c.jugg;    // interior room + remote players: engage as before; the juggernaut ALWAYS fires
       if (c.interior) {
         if (d > 5) { vx = dx / d; vz = dz / d; spd = 4.4; moving = true; }
         aimTgt = tgt;
-      } else if (suppressed && wantFire) {
+      } else if (suppressed && wantFire && !c.jugg) {
         // UNDER FIRE: break for cover and hold; pop back out when the player stops shooting
+        // (the juggernaut never flinches — he walks straight through fire, see the else below)
         if (c.coverT === undefined || c.coverT <= 0 || !coverBlocked(c.x, c.z, tgt.x, tgt.z)) {
           var cv = copFindCover(c, tgt);
           if (cv) { c.coverX = cv.x; c.coverZ = cv.z; c.coverT = 1.2; } else c.coverX = undefined;
@@ -15145,7 +15188,7 @@ function updateCops(dt) {
           if (d > wpn.range * 0.65) { vx = dx / d; vz = dz / d; spd = 4.4; moving = true; }
           if (d < wpn.range) aimTgt = tgt;
         }
-      } else if (armLevel === 0 && !tgt.id) {
+      } else if (armLevel === 0 && !tgt.id && !c.jugg) {
         // harmless player: TASE them from range, then cuff. The manual cuffing is
         // progressive (see after the loop) — but a runner never holds still, so the
         // taser is what actually drops them and makes an unarmed arrest reliable.
@@ -18114,6 +18157,50 @@ function spawnSwatVan() {
   var cc = makeSwatVanAt(rp.x, rp.z, Math.atan2(a.x - rp.x, a.z - rp.z), 'seek');
   return cc;
 }
+// ---- JUGGERNAUT (v1.123.2): a 2000-HP boss that fast-ropes in from a chopper ----
+// One deploys per 5-star level: a police helicopter flies to your position (once
+// the police KNOW where you are) and lowers a juggernaut on a rope. He rides the
+// cops[] array (c.jugg) so shooting/cover/damage all work, but: 2000 HP, an M249
+// with BURST fire, and he ALWAYS shoots — armed or not, no taser/arrest. Killing
+// him is the ONLY way to get the M249 (he drops it).
+var JUGG_HP = 2000;
+function spawnJuggAt(x, z, y) {
+  if (typeof buildJugg !== 'function') return null;
+  var mesh = buildJugg();
+  var po = pushOut(x, z, 0.9, landColliders || colliders);
+  var c = { mesh: mesh, nid: copNid++, x: po.x, z: po.z, hp: JUGG_HP, state: 'engage', tx: po.x, tz: po.z, phase: Math.random() * 9, fireT: 1.0 + Math.random(), downT: 0, hurtFlash: 0, vname: mesh.userData.vname || null, fem: false, jugg: true, gun: 'm249', burstLeft: 0, baseY: 0 };
+  mesh.position.set(c.x, (y === undefined ? 0 : y), c.z);
+  mesh.userData.cop = c;
+  scene.add(mesh); cops.push(c);
+  return c;
+}
+// delivery chopper: flies straight to the player, hovers, ropes the juggernaut
+// down, then peels off. Reuses the helis[] system with h.delivery.
+var juggDeployed = false, juggRope = null;
+function spawnDeliveryHeli() {
+  if (typeof spawnHeli !== 'function') return null;
+  var h = spawnHeli();
+  if (!h) return null;
+  h.delivery = true; h.dropped = false; h.deliverT = 0;
+  return h;
+}
+function makeJuggRope(ax, ay, az) {
+  var g = new THREE.Group();
+  var rope = box(0.06, 1, 0.06, new THREE.MeshBasicMaterial({ color: 0x141414 }), 0, -0.5, 0);   // unit box, top pinned at the anchor
+  g.add(rope); g.position.set(ax, ay, az); g.userData.rope = rope; scene.add(g);
+  return g;
+}
+// lower the roping juggernaut from the chopper to the ground; drives the rope length.
+function updateJuggRoping(c, dt) {
+  c.ropeT -= dt;
+  var f = Math.max(0, Math.min(1, c.ropeT / JUGG_ROPE_T));   // 1 (top) -> 0 (ground)
+  var y = (c.baseY || 0) + f * (c.ropeStartY - (c.baseY || 0));
+  c.mesh.position.set(c.x, y, c.z);
+  c.mesh.rotation.y = Math.atan2(player.x - c.x, player.z - c.z);
+  if (juggRope && c.ropeAnchor) { var L = Math.max(0.1, c.ropeAnchor.y - (y + 2.6 * JUGG_SCALE)); juggRope.userData.rope.scale.y = L; }
+  if (c.ropeT <= 0) { c.roping = false; c.mesh.position.set(c.x, c.baseY || 0, c.z); if (juggRope) { scene.remove(juggRope); juggRope = null; } if (typeof sfx === 'function') sfx('thud', { x: c.x, z: c.z, range: 50 }); }
+}
+var JUGG_ROPE_T = 1.7;
 // a pursuit vehicle reaching the player pours out its crew: a SWAT van dumps an
 // armored squad (ignoring the foot-cop cap); a cruiser does the capped version.
 function disgorgeUnit(cc) { return cc.swat ? disgorgeSwat(cc) : parkAndDisgorge(cc); }
@@ -18726,6 +18813,35 @@ function updateHeli(h, dt, idx) {
   // crime spot (responseAnchor) — same as the ground units — so you can slip it by
   // breaking line of sight. Once seen, it locks onto your live position.
   var ox0 = h.x, oy0 = h.y, oz0 = h.z;
+  // DELIVERY: fly to directly over the player, hover low, then rope the juggernaut down
+  if (h.delivery && !h.dropped) {
+    var kx = (typeof heat !== 'undefined' && heat.known && !state.dead && !inside) ? player.x : (h.tgtx !== undefined ? h.tgtx : player.x);
+    var kz = (typeof heat !== 'undefined' && heat.known && !state.dead && !inside) ? player.z : (h.tgtz !== undefined ? h.tgtz : player.z);
+    h.tgtx = kx; h.tgtz = kz;
+    var dclr = Math.max(heliBuildingHeightAt(h.x, h.z), heliBuildingHeightAt(kx, kz));
+    var tyd = Math.max(19, dclr + 12);
+    var sxd = (kx - h.x) * Math.min(1, dt * 0.9), szd = (kz - h.z) * Math.min(1, dt * 0.9);
+    var sld = Math.hypot(sxd, szd), cld = HELI_MAX_SPD * dt;
+    if (sld > cld && sld > 1e-4) { var kc = cld / sld; sxd *= kc; szd *= kc; }
+    h.x += sxd; h.z += szd; h.y += (tyd - h.y) * Math.min(1, dt * 1.4);
+    h.vx = (h.x - ox0) / dt; h.vy = (h.y - oy0) / dt; h.vz = (h.z - oz0) / dt;
+    var spdd = Math.hypot(h.vx, h.vz);
+    if (spdd > 1.2) { var whd = Math.atan2(-h.vz, h.vx), dyd = whd - g.rotation.y; while (dyd > Math.PI) dyd -= 6.283; while (dyd < -Math.PI) dyd += 6.283; g.rotation.y += dyd * Math.min(1, dt * 2.5); }
+    g.rotation.z += (0 - g.rotation.z) * Math.min(1, dt * 2); g.rotation.x += (0 - g.rotation.x) * Math.min(1, dt * 2);
+    g.position.set(h.x, h.y, h.z); updateHeliLight(h);
+    // arrived + roughly stable overhead? drop the juggernaut on a rope
+    if (Math.hypot(kx - h.x, kz - h.z) < 9 && Math.abs(h.y - tyd) < 3.5) {
+      h.dropped = true;
+      var jg = spawnJuggAt(h.x, h.z, h.y - 2.5);
+      if (jg) {
+        jg.roping = true; jg.ropeStartY = h.y - 2.5; jg.ropeT = JUGG_ROPE_T; jg.ropeAnchor = { x: h.x, y: h.y, z: h.z };
+        juggRope = makeJuggRope(h.x, h.y, h.z);
+        if (typeof popup === 'function') popup('JUGGERNAUT DEPLOYED');
+        if (typeof sfx === 'function') sfx('alarm', { x: h.x, z: h.z, range: 70 });
+      }
+    }
+    return;
+  }
   h.orbitA += dt * (h.orbitDir || 0.5);
   var R = 27, BASE_ALT = 32;
   var known = (typeof heat === 'undefined') ? true : (heat.known && !state.dead && !inside);
@@ -18782,16 +18898,23 @@ function updateHelis(dt) {
   // during the death / arrest cinematic keep the choppers overhead so you can see
   // them as the camera zooms out; clearPolice removes them at respawn / jail.
   var cine = state.dead || arrested;
+  // ONE juggernaut per 5-star level: once the police KNOW where you are, a delivery
+  // chopper flies in and ropes him down. Re-arms only after you drop below 5 stars.
+  if (!(typeof isClient === 'function' && isClient())) {
+    if (state.wanted >= 5 && (typeof heat === 'undefined' || heat.known) && !state.dead && !inside && !juggDeployed) { juggDeployed = true; spawnDeliveryHeli(); }
+    if (state.wanted < 5) juggDeployed = false;
+  }
   var want = (state.menu || (typeof inside !== 'undefined' && inside)) ? 0 : desiredHelis();
   var flying = 0; for (var f = 0; f < helis.length; f++) if (helis[f].state === 'fly') flying++;
   heliSpawnT -= dt;
   if (!cine && flying < want && heliSpawnT <= 0) { spawnHeli(); heliSpawnT = HELI_SPAWN_GAP; }
   for (var i = helis.length - 1; i >= 0; i--) {
     var h = helis[i];
-    // heat gone: a flying (undamaged) chopper just peels off and despawns — no crash
-    if (!cine && want === 0 && h.state === 'fly') { scene.remove(h.group); if (h.light) scene.remove(h.light.grp); helis.splice(i, 1); continue; }
+    // heat gone: a flying (undamaged) chopper just peels off and despawns — no crash.
+    // A delivery chopper that hasn't dropped its juggernaut yet is exempt (it completes the drop).
+    if (!cine && want === 0 && h.state === 'fly' && !(h.delivery && !h.dropped)) { scene.remove(h.group); if (h.light) scene.remove(h.light.grp); helis.splice(i, 1); continue; }
     updateHeli(h, dt, i);
-    if (h.dead || (h.state === 'fly' && Math.hypot(player.x - h.x, player.z - h.z) > 320)) { scene.remove(h.group); if (h.light) scene.remove(h.light.grp); helis.splice(i, 1); }
+    if (h.dead || (h.state === 'fly' && !(h.delivery && !h.dropped) && Math.hypot(player.x - h.x, player.z - h.z) > 320)) { scene.remove(h.group); if (h.light) scene.remove(h.light.grp); helis.splice(i, 1); }
   }
   updateHeliSound(dt);
 }
@@ -19852,6 +19975,18 @@ function dropMesh(kind) {
   else if (kind === 'smg') { g.add(box(0.1, 0.13, 0.6, metalM, 0, 0, 0)); g.add(box(0.07, 0.34, 0.1, metalM, 0, -0.2, -0.1)); }
   else if (kind === 'rifle') { g.add(box(0.09, 0.11, 0.95, woodM, 0, 0, 0)); var sc = cyl(0.04, 0.04, 0.3, 8, darkMetalM, 0, 0.1, 0.1); sc.rotation.x = Math.PI / 2; g.add(sc); }
   else if (kind === 'auto') { g.add(box(0.09, 0.12, 0.85, woodM, 0, 0, 0)); var mg = box(0.07, 0.24, 0.11, metalM, 0, -0.15, -0.05); mg.rotation.x = 0.5; g.add(mg); }
+  else if (kind === 'm249') {   // PROCEDURAL placeholder LMG (user will swap a Meshy model later)
+    g.add(box(0.12, 0.15, 0.6, darkMetalM, 0, 0, 0.08));                                   // receiver
+    g.add(box(0.1, 0.11, 0.5, metalM, 0, 0.005, -0.34));                                   // barrel shroud / handguard
+    var m249bar = cyl(0.03, 0.03, 0.5, 10, darkMetalM, 0, 0, -0.62); m249bar.rotation.x = Math.PI / 2; g.add(m249bar);   // barrel
+    var m249fh = cyl(0.05, 0.04, 0.1, 8, darkMetalM, 0, 0, -0.88); m249fh.rotation.x = Math.PI / 2; g.add(m249fh);       // flash hider (muzzle at -z)
+    g.add(box(0.18, 0.2, 0.24, metalM, 0, -0.17, 0.14));                                   // 200-round ammo box (SAW signature)
+    g.add(box(0.07, 0.14, 0.3, gripM, 0, 0.02, 0.48));                                     // buttstock
+    var m249pg = box(0.07, 0.2, 0.1, gripM, 0, -0.13, 0.24); m249pg.rotation.x = 0.35; g.add(m249pg);                    // pistol grip
+    g.add(box(0.05, 0.055, 0.2, darkMetalM, 0, 0.12, -0.02));                              // carry handle
+    var m249b1 = cyl(0.013, 0.013, 0.38, 6, darkMetalM, 0.06, -0.16, -0.5); m249b1.rotation.z = 0.4; g.add(m249b1);      // bipod legs
+    var m249b2 = cyl(0.013, 0.013, 0.38, 6, darkMetalM, -0.06, -0.16, -0.5); m249b2.rotation.z = -0.4; g.add(m249b2);
+  }
   else if (kind === 'raygun') {
     if (hasMeshyProp('raygun')) { var rg = getUfoMesh('raygun', 0.85); rg.position.y = -0.3; g.add(rg); return g; }
     var rb = cyl(0.07, 0.1, 0.5, 8, metalM, 0, 0, 0); rb.rotation.x = Math.PI / 2; g.add(rb);
@@ -22644,6 +22779,24 @@ var vmAuto = new THREE.Group();
   vmAuto.add(vmArm(0.29, -0.47, -0.3, 0.18));
   vmAuto.add(vmArm(0.13, -0.44, -0.72, -0.3));
 })();
+// M249 SAW — procedural viewmodel (placeholder; user swaps a Meshy model later).
+// Bigger/beefier than the AK, framed lower-right, barrel down-range (-z).
+var vmM249 = new THREE.Group();
+(function () {
+  var X = 0.27;
+  vmM249.add(box(0.09, 0.11, 0.42, darkMetalM, X, -0.27, -0.52));            // receiver
+  vmM249.add(box(0.075, 0.08, 0.34, metalM, X, -0.265, -0.86));             // barrel shroud
+  var mbrl = cyl(0.017, 0.017, 0.34, 8, darkMetalM, X, -0.265, -1.08); mbrl.rotation.x = Math.PI / 2; vmM249.add(mbrl);   // barrel
+  var mfh = cyl(0.028, 0.022, 0.07, 8, darkMetalM, X, -0.265, -1.26); mfh.rotation.x = Math.PI / 2; vmM249.add(mfh);      // flash hider (muzzle)
+  vmM249.add(box(0.14, 0.15, 0.17, metalM, X, -0.40, -0.42));               // 200-round ammo box
+  vmM249.add(box(0.055, 0.06, 0.16, darkMetalM, X, -0.20, -0.62));          // carry handle
+  var mstk = box(0.05, 0.1, 0.24, gripM, X, -0.30, -0.28); mstk.rotation.x = 0.16; vmM249.add(mstk);   // stock
+  var mgrip = box(0.05, 0.12, 0.08, gripM, X, -0.38, -0.42); mgrip.rotation.x = 0.3; vmM249.add(mgrip); // pistol grip
+  var mbp1 = cyl(0.008, 0.008, 0.22, 6, darkMetalM, X + 0.05, -0.40, -0.95); mbp1.rotation.z = 0.4; vmM249.add(mbp1);     // bipod legs
+  var mbp2 = cyl(0.008, 0.008, 0.22, 6, darkMetalM, X - 0.05, -0.40, -0.95); mbp2.rotation.z = -0.4; vmM249.add(mbp2);
+  vmM249.add(vmArm(X + 0.03, -0.47, -0.3, 0.18));
+  vmM249.add(vmArm(X - 0.14, -0.45, -0.8, -0.3));
+})();
 // rocket launcher: shoulder tube
 var vmRocket = new THREE.Group();
 // spare rocket head: visible when loaded; slides back into the muzzle
@@ -22828,7 +22981,7 @@ var vmSpray = new THREE.Group(), vmSprayCan = null;
   vmSprayCan.scale.setScalar(1.15);
   vmSpray.add(vmSprayCan);
 })();
-var vmMap = { fists: vmFists, pistol: vmPistol, shotgun: vmShotgun, axe: vmAxe, spray: vmSpray, smg: vmSmg, rifle: vmRifle, auto: vmAuto, rocket: vmRocket, raygun: vmRaygun, snack: vmSnack };
+var vmMap = { fists: vmFists, pistol: vmPistol, shotgun: vmShotgun, axe: vmAxe, spray: vmSpray, smg: vmSmg, rifle: vmRifle, auto: vmAuto, m249: vmM249, rocket: vmRocket, raygun: vmRaygun, snack: vmSnack };
 
 // ==================== FOREST CABIN (axe spawn) ====================
 // A pallet-wood shed with a corrugated barrel-metal roof (Meshy image-to-3d,
@@ -23601,7 +23754,7 @@ function tryAttack() {
   flash.scale.set(_fb * (0.85 + Math.random() * 0.4), _fb * (0.85 + Math.random() * 0.4), 1);
   if (flashTexs.length) flash.material.map = flashTexs[(Math.random() * flashTexs.length) | 0];
   else if (flash.material.color) flash.material.color.setHSL(0.09 + Math.random() * 0.06, 1, 0.6 + Math.random() * 0.25);
-  sfx(state.equipped);
+  sfx(w.sfx || state.equipped);   // w.sfx lets the M249 borrow the AK-47 gunshot sound
   if (w.pellets) { fireShotgun(w); return; }   // shotgun: cone of pellets + gore (own resolve)
   var dir = new THREE.Vector3(); camera.getWorldDirection(dir);
   // bloom weapons (SMG): tight while tapping, blossoms under sustained fire
@@ -28401,6 +28554,8 @@ window.__wc = {
   copCars: function () { return copCars; }, spawnCopCar: function () { return spawnCopCar(); }, desiredCopCars: function () { return desiredCopCars(); },
   spawnGangGroup: function (x, z, n) { return spawnGangGroup(x, z, n || 3); }, spawnGangster: function (x, z) { return spawnGangster(x, z, ++gangGroupSeq); },
   spawnSwatVan: function () { return spawnSwatVan(); }, spawnSwatAt: function (x, z) { return spawnSwatAt(x, z); }, makeSwatVanAt: function (x, z, h) { return makeSwatVanAt(x, z, h || 0, 'seek'); },
+  spawnJuggAt: function (x, z, y) { return spawnJuggAt(x, z, y); }, spawnDeliveryHeli: function () { return spawnDeliveryHeli(); },
+  juggInfo: function () { var jn = 0, roping = 0; for (var i = 0; i < cops.length; i++) if (cops[i].jugg && cops[i].state !== 'down') { jn++; if (cops[i].jugg && cops[i].roping) roping++; } var deliv = 0; for (i = 0; i < helis.length; i++) if (helis[i].delivery) deliv++; return { juggModels: MESHY_JUGG.length, juggAlive: jn, juggRoping: roping, deliveryHelis: deliv, deployed: juggDeployed, hasM249: !!state.owned.m249 }; },
   enemyInfo: function () { var gang = 0, swat = 0; for (var i = 0; i < npcs.length; i++) if (npcs[i].gang) gang++; for (i = 0; i < cops.length; i++) if (cops[i].swat) swat++; var vans = 0; for (i = 0; i < copCars.length; i++) if (copCars[i].swat) vans++; return { gangModels: MESHY_GANG.length, swatModels: MESHY_SWAT.length, gangAlive: gang, swatAlive: swat, swatVans: vans, turf: GANG_TURF.length }; },
   gangTurf: function () { return GANG_TURF; }, seedGangTurf: function () { return seedGangTurf(); },
   spikeStrips: function () { return spikeStrips; }, spawnRoadblock: function () { return spawnRoadblock(); }, spawnSpikeStrip: function () { return spawnSpikeStrip(); }, updateHeatOps: function (dt) { return updateHeatOps(dt); },
