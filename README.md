@@ -605,7 +605,8 @@ with a clear line of sight, or shoot one of them, **the whole crew turns on you*
 and opens fire. They're not police: gunning a gangster down is treated as
 self-defense and **doesn't cost you any wanted stars**. They'll also trade fire
 with the **cops** if the law wanders into their turf — so you can start a
-three-way street war and slip out the back while they shoot it out.
+three-way street war and slip out the back while they shoot it out. The set
+carries **five different gang looks** so a crew reads as a real crew, not clones.
 
 ### Getting arrested
 
