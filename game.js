@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.122.15';
+var GAME_VERSION = 'v1.122.16';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -10976,6 +10976,133 @@ function finishArrest() {
   var ch = document.getElementById('crosshair'); if (ch) ch.style.display = '';
   if (state.running && typeof lockPointer === 'function') lockPointer();
 }
+// ---- TASER (v1.122.16) ----------------------------------------------------
+// Unarmed players used to just outrun the cuff. Now a cop within range with a
+// clear shot can TASE you: you drop, the view swings to a third-person shot of
+// your character convulsing on the ground for a few seconds, and by the time it
+// wears off the officer has closed in and books you. Local/per-player only.
+var tased = false, tasedCam = null, tasedBody = null, tasedT = 0, tasedBy = null;
+var TASE_DUR = 3.6;          // seconds of writhing on the ground
+var TASER_RANGE = 16;        // how far a cop can reach with the taser
+var TASER_CD = 5.0;          // per-cop taser cooldown between darts
+var TASE_ARREST_R = 7.0;     // a cop this close when the tase ends makes the collar
+// a plain on-foot pedestrian who can be tased / cuffed (not in a car, plane,
+// heli, parachute, indoors, already down, or mid-cinematic)
+function playerCuffable() {
+  return !state.dead && !inside && !arrested && !tased && jailT <= 0 &&
+    !driving && !(typeof para !== 'undefined' && para) &&
+    !(typeof plane !== 'undefined' && plane && plane.piloting) &&
+    !(typeof heliVeh !== 'undefined' && heliVeh && heliVeh.piloting);
+}
+// cop fires the taser at the (unarmed, on-foot) local player
+function copTase(c) {
+  c.taserCd = T + TASER_CD;
+  var copAt = { x: c.x, z: c.z, y: (c.baseY || 0) + 1.4, yell: true, net: 1, ref: c };
+  if (!playVoiceAny(c.fem ? ['cop_fire_f_1', 'cop_fire_f_2'] : ['cop_fire_1', 'cop_fire_2'], 0.55, 'copBark', 8, copAt))
+    playVoiceAny(c.fem ? ['cop_engage_f_1', 'cop_engage_f_2'] : ['cop_engage_1', 'cop_engage_2'], 0.55, 'copBark', 8, copAt);
+  sfx('taser', { x: c.x, z: c.z, y: (c.baseY || 0) + 1.4, range: 90 });
+  spawnTaserWire(c);
+  taserPlayer(c);
+}
+// a quick pair of wires/darts from the cop's hand to the player + a spark puff
+function spawnTaserWire(c) {
+  try {
+    var a = new THREE.Vector3(c.x, (c.baseY || 0) + 1.3, c.z);
+    var b = new THREE.Vector3(player.x, player.y - 0.9, player.z);
+    var g = new THREE.BufferGeometry().setFromPoints([a, b]);
+    var ln = new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0xfff2a0 }));
+    scene.add(ln);
+    taserWires.push({ ln: ln, t: 0.5 });
+    if (typeof puff === 'function') puff(b, 0x9fdfff, 'muzzle');
+  } catch (e) { }
+}
+var taserWires = [];
+function updateTaserWires(dt) {
+  for (var i = taserWires.length - 1; i >= 0; i--) {
+    var w = taserWires[i]; w.t -= dt;
+    if (w.ln.material) w.ln.material.opacity = Math.max(0, w.t / 0.5), w.ln.material.transparent = true;
+    if (w.t <= 0) { scene.remove(w.ln); if (w.ln.geometry) w.ln.geometry.dispose(); taserWires.splice(i, 1); }
+  }
+}
+// put the local player into the tased (twitching-on-the-ground) state
+function taserPlayer(cop) {
+  if (!playerCuffable()) return;
+  tased = true; tasedT = TASE_DUR; tasedBy = cop || null;
+  lastCrimeT = T;
+  startTasedCam();
+  popup('TASED!');
+  var to = document.getElementById('tasedOverlay'); if (to) to.classList.remove('hidden');
+  var ch = document.getElementById('crosshair'); if (ch) ch.style.display = 'none';
+  // drop any inputs so nothing sticks through the cinematic
+  for (var k in keys) keys[k] = false;
+  if (document.exitPointerLock) document.exitPointerLock();
+}
+function startTasedCam() {
+  var bx = player.x, bz = player.z, by = (player.y - EYE);   // feet on whatever surface you're standing on
+  if (tasedBody) { scene.remove(tasedBody); tasedBody = null; }
+  try {
+    tasedBody = buildCharacter(typeof playerChar !== 'undefined' && playerChar ? playerChar : randomCharConfig());
+    tasedBody.position.set(bx, by + 0.16, bz);
+    tasedBody.rotation.set(-1.5, yaw, 0);   // flat on their back where they were tased
+    if (tasedBody.userData && tasedBody.userData.shadow) tasedBody.userData.shadow.visible = false;
+    scene.add(tasedBody);
+  } catch (e) { tasedBody = null; }
+  vm.visible = false;
+  tasedCam = { el: 0, x: bx, y: by, z: bz };
+}
+// violent electrocution spasm: high-frequency flailing on every limb + a
+// juddering torso, so the body reads as convulsing, not ragdoll-limp
+function animTasedBody(dt) {
+  if (!tasedBody) return;
+  var t = tasedCam ? tasedCam.el : 0;
+  var L = tasedBody.userData && tasedBody.userData.limbs;
+  var buzz = 34;   // fast twitch frequency
+  if (L) {
+    if (L.armL) { L.armL.rotation.x = Math.sin(t * buzz) * 1.2 + Math.sin(t * 61) * 0.5; L.armL.rotation.z = Math.sin(t * buzz * 0.8 + 1) * 0.7; }
+    if (L.armR) { L.armR.rotation.x = Math.sin(t * buzz + 2) * 1.2 + Math.sin(t * 57 + 1) * 0.5; L.armR.rotation.z = -Math.sin(t * buzz * 0.8) * 0.7; }
+    if (L.legL) { L.legL.rotation.x = Math.sin(t * buzz * 1.1 + 1) * 0.9; L.legL.rotation.z = Math.sin(t * 44) * 0.35; }
+    if (L.legR) { L.legR.rotation.x = Math.sin(t * buzz * 1.1 + 3) * 0.9; L.legR.rotation.z = -Math.sin(t * 47) * 0.35; }
+  }
+  // whole-body judder: small position rattle + torso arch/roll spasms
+  var jx = Math.sin(t * 53) * 0.05, jz = Math.cos(t * 49) * 0.05;
+  tasedBody.position.x = tasedCam.x + jx;
+  tasedBody.position.z = tasedCam.z + jz;
+  tasedBody.rotation.x = -1.5 + Math.sin(t * 27) * 0.14;   // back arches
+  tasedBody.rotation.z = Math.sin(t * 19) * 0.12;          // rolls side to side
+}
+function updateTased(dt) {
+  if (!tasedCam) return;
+  tasedCam.el += dt;
+  animTasedBody(dt);
+  // camera: slow orbit around the writhing body, low 3/4 angle so it's clearly visible
+  var a = 2.2 + tasedCam.el * 0.6;
+  var r = 5.2, ch = 3.4;
+  camera.position.set(tasedCam.x + Math.cos(a) * r, tasedCam.y + ch, tasedCam.z + Math.sin(a) * r);
+  camera.up.set(0, 1, 0);
+  camera.lookAt(tasedCam.x, tasedCam.y + 0.5, tasedCam.z);
+  tasedT -= dt;
+  if (tasedT <= 0) {
+    // find the nearest able officer — close enough and they slap the cuffs on
+    var near = null, nd = 1e9;
+    for (var i = 0; i < cops.length; i++) {
+      var c = cops[i]; if (c.state === 'down' || c.interior) continue;
+      var dx = c.x - tasedCam.x, dz = c.z - tasedCam.z, d = Math.sqrt(dx * dx + dz * dz);
+      if (d < nd) { nd = d; near = c; }
+    }
+    var busting = near && nd <= TASE_ARREST_R;
+    endTased();
+    if (busting && !state.dead) bustPlayer(near);   // -> arrest cinematic -> jail
+  }
+}
+function endTased() {
+  tased = false; tasedCam = null; tasedT = 0; tasedBy = null;
+  if (tasedBody) { scene.remove(tasedBody); tasedBody = null; }
+  camera.rotation.z = 0;
+  if (!arrested && !state.dead) { vm.visible = true; }
+  var to = document.getElementById('tasedOverlay'); if (to) to.classList.add('hidden');
+  var ch = document.getElementById('crosshair'); if (ch && !arrested && !state.dead) ch.style.display = '';
+  if (state.running && !arrested && !state.dead && typeof lockPointer === 'function') lockPointer();
+}
 function enterJailCell() {
   inside = true; curInterior = JAIL;
   if (typeof clearPolice === 'function') clearPolice();   // the arresting units clear out once you're booked
@@ -14936,10 +15063,14 @@ function updateCops(dt) {
           if (d < wpn.range) aimTgt = tgt;
         }
       } else if (armLevel === 0 && !tgt.id) {
-        // harmless player: run them down and cuff them (no shooting). The actual
-        // cuffing is progressive (see after the loop) — the cop just plants on you.
+        // harmless player: TASE them from range, then cuff. The manual cuffing is
+        // progressive (see after the loop) — but a runner never holds still, so the
+        // taser is what actually drops them and makes an unarmed arrest reliable.
         if (d > ARREST_REACH) { vx = dx / d; vz = dz / d; spd = 4.8; moving = true; }
         else if (arrestAllowed(c)) _arrestReach = c;
+        // ranged taser: reusing arrestAllowed for the same-level / not-in-vehicle gate
+        if (!tased && !arrested && d > ARREST_REACH && d <= TASER_RANGE &&
+          (c.taserCd === undefined || T > c.taserCd) && arrestAllowed(c) && copHasLOS(c, tgt)) copTase(c);
         c.coverT = 0;
       } else {
         // player stopped shooting / melee-escalated / armed: advance and fire
@@ -22617,6 +22748,7 @@ function setZoom(on) {
 // and the viewmodel stays hidden in all of these.
 function inVehicleOrAir() {
   return driving || (typeof para !== 'undefined' && para) || (typeof arrested !== 'undefined' && arrested) ||
+    (typeof tased !== 'undefined' && tased) ||
     (typeof plane !== 'undefined' && plane && plane.piloting) ||
     (typeof heliVeh !== 'undefined' && heliVeh && heliVeh.piloting);
 }
@@ -23520,6 +23652,7 @@ function hurtPlayer(d, sx, sz) {
 var deathCam = null, deathBody = null;
 var DEATH_ZOOM_MS = 5000;
 function startDeathCam() {
+  if (tased) endTased();   // died mid-tase — tear down the spasm body/cam first
   var bx = player.x, bz = player.z;
   if (deathBody) { scene.remove(deathBody); deathBody = null; }
   try {
@@ -24698,6 +24831,7 @@ function sfx(kind, at) {
     case 'cash': bp(880, 0.08, 0.15, 'square'); setTimeout(function () { bp(1320, 0.1, 0.15, 'square'); }, 70); break;
     case 'buy': bp(660, 0.09, 0.15, 'square'); setTimeout(function () { bp(990, 0.12, 0.15, 'square'); }, 80); break;
     case 'deny': bp(150, 0.2, 0.25, 'sawtooth', 110); break;
+    case 'taser': { for (var _tz = 0; _tz < 7; _tz++) setTimeout((function (kk) { return function () { nb(0.03, 2200 + kk * 140, 0.22); bp(140 + kk * 10, 0.03, 0.14, 'square', 60); }; })(_tz), _tz * 45); } break;   // rapid electric crackle
     case 'alarm': bp(760, 0.18, 0.2, 'square'); setTimeout(function () { bp(560, 0.18, 0.2, 'square'); }, 180); setTimeout(function () { bp(760, 0.18, 0.2, 'square'); }, 360); break;
     // cockpit warning-alarm placeholders (owner WAVs in SFX_PACK override these)
     case 'warn_stall': bp(430, 0.16, 0.28, 'square'); setTimeout(function () { bp(430, 0.16, 0.28, 'square'); }, 190); break;      // steady stall horn
@@ -26450,7 +26584,7 @@ if (location.hash.indexOf('#join=') === 0) {
 // dead state (no menu, free mouse) when the browser refused the re-lock
 // inside its post-Esc cooldown (mrg4egvx)
 pauseScreen.addEventListener('click', function () { lockPointer(); });
-document.addEventListener('pointerlockchange', function () { var locked = document.pointerLockElement === canvas; if (!locked && photoMode) exitPhotoMode(); if (!locked && state.running && !state.menu && !chatOpen && !bugOpen && !state.dead && !arrested) pauseScreen.classList.remove('hidden'); else if (locked) pauseScreen.classList.add('hidden'); });
+document.addEventListener('pointerlockchange', function () { var locked = document.pointerLockElement === canvas; if (!locked && photoMode) exitPhotoMode(); if (!locked && state.running && !state.menu && !chatOpen && !bugOpen && !state.dead && !arrested && !tased) pauseScreen.classList.remove('hidden'); else if (locked) pauseScreen.classList.add('hidden'); });
 document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 document.addEventListener('mousemove', function (e) {
   if (document.pointerLockElement !== canvas || state.menu) return;
@@ -27069,7 +27203,7 @@ function toggleNoclip() {
   popup2(noclip ? 'NOCLIP ON' : 'NOCLIP OFF');
 }
 function updatePlayer(dt) {
-  if (state.menu || state.dead || arrested) return;   // the arrest cam owns the frame while being booked
+  if (state.menu || state.dead || arrested || tased) return;   // the arrest/tase cam owns the frame while being booked/twitching
   if (noclip) {   // free-fly: WASD along look dir, Space/Ctrl up/down, Shift = turbo
     var flySpd = (keys['ShiftLeft'] || keys['ShiftRight'] ? 165 : 62);
     var dir = new THREE.Vector3(); camera.getWorldDirection(dir);
@@ -27876,7 +28010,9 @@ function loop(now) {
   T += dt;
   var sdt = dt;
   updatePlayer(dt); updateKick(dt); updatePlaneWorld(dt); updateAirportPlane(dt); updatePlayerHeli(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateCopCars(dt); updateHeatOps(dt); updateHelis(dt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); ensureSpraySpawn(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateJail(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
+  updateTaserWires(dt);
   if (state.dead) updateDeathCam(dt);   // top-down zoom-out cinematic drives the camera while dead
+  else if (tased) updateTased(dt);   // third-person spasm cam while zapped
   else if (arrested) updateArrestCam(dt);   // arrest cinematic drives the camera while being booked
   renderer.render(scene, camera);
 }
@@ -28008,6 +28144,9 @@ window.__wc = {
   rapInfo: function () { return { charges: chargeList(), assault: rap.assault, gta: rap.gta, robbery: rap.robbery, terror: rap.terror, vandalism: rap.vandalism, kills: rap.kills, gunKills: rap.gunKills }; },
   arrestState: function () { return { arrested: arrested, phase: arrestCam && arrestCam.phase, jailT: jailT, inside: inside, cur: curInterior && curInterior.id, arrestProg: arrestProg }; },
   arrestAllowed: function (cop) { return arrestAllowed(cop || null); },
+  taserPlayer: function (c) { taserPlayer(c || null); }, copTase: function (c) { copTase(c); },
+  tasedInfo: function () { return { tased: tased, t: tasedT, hasBody: !!tasedBody, wires: taserWires.length }; },
+  endTased: function () { endTased(); },
   testCharge: function (k, v) { if (k in rap) rap[k] = (v === undefined ? true : v); },
   posSeesPlayer: function (x, z, v) { return posSeesPlayer(x, z, v); },
   setHideTimer: function (v) { heat.loseT = v; },
@@ -28328,7 +28467,7 @@ window.__wc = {
   // lightweight physics step (no render, no NPC/cop/car sim) — fast headless
   // stepping for plane/fall tests. Renders only when you call renderer yourself.
   stepLite: function (dt) { T += dt; updatePlayer(dt); updatePlaneWorld(dt); },
-  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updateKick(dt); updatePlaneWorld(dt); updatePlayerHeli(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateCopCars(dt); updateHeatOps(dt); updateHelis(dt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); ensureSpraySpawn(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateJail(dt); if (arrested) updateArrestCam(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
+  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updateKick(dt); updatePlaneWorld(dt); updatePlayerHeli(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateCopCars(dt); updateHeatOps(dt); updateHelis(dt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); ensureSpraySpawn(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateJail(dt); updateTaserWires(dt); if (arrested) updateArrestCam(dt); else if (tased) updateTased(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
 };
 
 // ---------------- boot screen handoff + menu cover art ----------------

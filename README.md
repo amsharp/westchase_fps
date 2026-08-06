@@ -601,6 +601,14 @@ under a parachute, or flying a helicopter, and they can't reach up to cuff you
 if **you're up on a rooftop and they're stuck on the ground** — get to high
 ground or a vehicle and the meter never lands.
 
+But a runner who just keeps sprinting used to be untouchable — so officers now
+carry a **taser**. Get within range of a cop with a clear shot while you're
+unarmed and on their level and they'll **zap you**: the view swings to a
+**third-person shot of your character face-up on the ground, limbs flailing** as
+you convulse, a **⚡ TASED ⚡** warning strobing on screen. You can't move for a
+few seconds, and by the time it wears off the officer standing over you snaps on
+the cuffs. The taser can't touch you in a car, in the air, or up on a roof.
+
 Dispatch also takes a beat to arrive now: commit a crime and the first units are
 **several seconds out**, then they **trickle in one at a time** instead of the
 whole squad appearing on top of you at once.
