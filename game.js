@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.122.18';
+var GAME_VERSION = 'v1.122.19';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -3463,13 +3463,17 @@ function deckStrip(inner, outer, cum, y, mat, uScale) {
   // The winding above only faces UP when the authored inner/outer/travel handedness
   // matches; exit decks drawn the other way came out wound DOWN, so the single-sided
   // deck-top was back-culled and the DoubleSide dark underside showed through — a
-  // black road. Flip the winding if triangle 0's geometric normal points down.
-  if (idx.length >= 3) {
-    var q0 = idx[0] * 3, q1 = idx[1] * 3, q2 = idx[2] * 3;
-    var ex1 = pos[q1] - pos[q0], ez1 = pos[q1 + 2] - pos[q0 + 2];
-    var ex2 = pos[q2] - pos[q0], ez2 = pos[q2 + 2] - pos[q0 + 2];
-    if (ez1 * ex2 - ex1 * ez2 < 0) { for (var f = 0; f < idx.length; f += 3) { var tmp = idx[f + 1]; idx[f + 1] = idx[f + 2]; idx[f + 2] = tmp; } }
+  // black road. Sum every triangle's up-normal contribution (the taper start is a
+  // degenerate zero-width quad, so a single-triangle check read ~0 and never flipped)
+  // and reverse the whole strip when the deck as a whole faces down.
+  var nyAcc = 0;
+  for (var wt = 0; wt + 2 < idx.length; wt += 3) {
+    var w0 = idx[wt] * 3, w1 = idx[wt + 1] * 3, w2 = idx[wt + 2] * 3;
+    var e1x = pos[w1] - pos[w0], e1z = pos[w1 + 2] - pos[w0 + 2];
+    var e2x = pos[w2] - pos[w0], e2z = pos[w2 + 2] - pos[w0 + 2];
+    nyAcc += e1z * e2x - e1x * e2z;
   }
+  if (nyAcc < 0) { for (var f = 0; f < idx.length; f += 3) { var tmp = idx[f + 1]; idx[f + 1] = idx[f + 2]; idx[f + 2] = tmp; } }
   var g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   g.setAttribute('normal', new THREE.BufferAttribute(nr, 3));
