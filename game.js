@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.122.19';
+var GAME_VERSION = 'v1.123.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -2115,9 +2115,11 @@ var ggGeoCache = {}, ggWheelCache = {}, ggMatCache = {}, ggEndCache = {};
 var GG_TRAFFIC = [];    // roster indices: normal-weight traffic/parked bodies
 var GG_WRECK_I = -1;    // Car 06 husk (explosion leftovers, never a live car)
 var GG_POLICE_I = -1;   // reserved police body — used by the cop-car pursuit system
+var GG_SWATVAN_I = -1;  // reserved step-van body — used as the SWAT van at 5 stars
 if (typeof GGBOT_VEHS !== 'undefined') for (var ggi = 0; ggi < GGBOT_VEHS.length; ggi++) {
   if (GGBOT_VEHS[ggi].n === 'GG_WRECK') GG_WRECK_I = ggi;
   else if (GGBOT_VEHS[ggi].n === 'GG_POLICE') GG_POLICE_I = ggi;   // reserved for the cop-car feature — never in traffic rosters
+  else if (GGBOT_VEHS[ggi].n === 'GG_STEPVAN') GG_SWATVAN_I = ggi;  // reserved for the SWAT van — kept out of traffic
   else GG_TRAFFIC.push(ggi);
 }
 function getGGGeo(gi) {
@@ -7976,11 +7978,13 @@ function getPSXParts() {
 }
 // ---- Meshy AI characters (optional meshychars.js, loaded before game.js) --
 var MESHY_LIST = (typeof MESHY_CHARS !== 'undefined') ? MESHY_CHARS : [];
-var MESHY_CIVS = [], MESHY_COPS = [], MESHY_ROLE = {};
+var MESHY_CIVS = [], MESHY_COPS = [], MESHY_GANG = [], MESHY_SWAT = [], MESHY_ROLE = {};
 for (var mli = 0; mli < MESHY_LIST.length; mli++) {
   var mr = MESHY_LIST[mli].role || 'civ';
   if (mr === 'civ') MESHY_CIVS.push(mli);
   else if (mr === 'cop') MESHY_COPS.push(mli);
+  else if (mr === 'gang') MESHY_GANG.push(mli);       // hostile gang faction (NPC-based, armed)
+  else if (mr === 'swat') MESHY_SWAT.push(mli);       // 5-star SWAT operators (cop-based, armored)
   else MESHY_ROLE[mr] = mli;
 }
 // ---- shop staff (optional staffchars.js): full skinned, uniformed workers.
@@ -9535,6 +9539,8 @@ function spawnNamedNpc(name, dx, dz) {
   scene.add(mesh); npcs.push(n); setNpcTarget(n); maybeAttachAccessory(n); return n;
 }
 for (var ni = 0; ni < NPC_COUNT; ni++) spawnNPC();
+// gang turf + crews are seeded at RUNTIME by maintainGangs (first frame) — gun
+// models and the GANG_TURF var aren't ready during this load pass.
 
 // ============================ SOCIAL GROUPS (#67) ============================
 // A few NAMED civilians roam town as a cohesive GROUP: followers glue to a
@@ -14583,6 +14589,27 @@ function buildCop() {
   g.add(box(0.06, 0.1, 0.16, holsterM, 0.24, 0.82, 0.06));    // holster
   return g;
 }
+// SWAT operator model (Meshy, role:'swat'). Falls back to a dark riot-cop build.
+function buildSwat() {
+  if (MESHY_SWAT.length) {
+    var cfg = randomCharConfig(); cfg.preset = 0; cfg.build = 1 + ((Math.random() * 3) | 0);
+    var mi = MESHY_SWAT[(Math.random() * MESHY_SWAT.length) | 0];
+    var cg = buildMeshySkinned(cfg, mi);
+    cg.userData.vname = MESHY_LIST[mi].n;
+    return cg;
+  }
+  var g = buildPerson('#14161a', '#0d0f12', '#caa07a', { cap: true, shades: true, hairColor: 0x0a0a0a });
+  return g;
+}
+// gang-member model (Meshy, role:'gang'). Returns null if no gang model shipped.
+function buildGangster() {
+  if (!MESHY_GANG.length) return null;
+  var cfg = randomCharConfig(); cfg.preset = 0; cfg.build = 1 + ((Math.random() * 3) | 0);
+  var mi = MESHY_GANG[(Math.random() * MESHY_GANG.length) | 0];
+  var g = buildMeshySkinned(cfg, mi);
+  g.userData.vname = MESHY_LIST[mi].n;
+  return g;
+}
 // where the police response converges: the highest-wanted ALIVE player, local
 // or remote. Matters on a world-bot host (its own "player" is parked off-map)
 // and fixes cops mobbing a clean host while a remote player rampages.
@@ -15047,7 +15074,7 @@ function updateCops(dt) {
   if (!isClient()) {
     copSpawnT -= dt;
     var alive = 0, aliveArr = [];
-    for (var i0 = 0; i0 < cops.length; i0++) { var c0 = cops[i0]; if (c0.state !== 'down' && !c0.interior) { alive++; aliveArr.push(c0); } }
+    for (var i0 = 0; i0 < cops.length; i0++) { var c0 = cops[i0]; if (c0.state !== 'down' && !c0.interior && !c0.swat) { alive++; aliveArr.push(c0); } }   // SWAT are bonus units: they don't count toward (or get culled by) the regular foot-cop cap
     var wantN = desiredCops();
     if (alive < wantN && copSpawnT <= 0) { spawnCop(state.wanted >= 2); copSpawnT = COP_SPAWN_GAP; }
     else if (alive > wantN) {
@@ -18033,9 +18060,63 @@ function spawnCopAt(x, z) {
   scene.add(mesh); cops.push(c);
   return c;
 }
-// (SWAT operators removed for now — the placeholder black vest slab read badly.
-// 5-star cops are just regular officers with the heavier auto/smg weapon roll.
-// A proper Meshy SWAT model may replace this later.)
+// ---- SWAT (v1.123): armored 5-star operators + a van that disgorges a squad ----
+// SWAT ride in the normal cops[] array (so updateCops / damageCop / cover / the
+// hitscan cop path all work unchanged) but carry c.swat: tougher HP, a forced
+// automatic, and the Meshy SWAT model. They deploy from a SWAT VAN (a reserved
+// step-van body in the copCars[] system) once you hit 5 stars.
+var SWAT_HP = 240;                 // ~2.4x a normal officer — soaks a lot before going down
+var SWATVAN_HP = 700;              // tankier than a cruiser (500); a rocket still wrecks it
+var swatVanSpawnT = 0;
+function desiredSwatVans() { return (state.wanted >= 5) ? 2 : (maxWanted() >= 5 ? 1 : 0); }
+function spawnSwatAt(x, z) {
+  if (typeof buildSwat !== 'function') return null;
+  var mesh = buildSwat();
+  var po = pushOut(x, z, 0.6);
+  var c = { mesh: mesh, nid: copNid++, x: po.x, z: po.z, hp: SWAT_HP, state: 'engage', tx: po.x, tz: po.z, phase: Math.random() * 9, fireT: 0.3 + Math.random() * 0.5, downT: 0, hurtFlash: 0, vname: mesh.userData.vname || null, fem: false, swat: true };
+  c.gun = Math.random() < 0.72 ? 'auto' : 'smg';   // SWAT always brings the automatics
+  mesh.position.set(c.x, 0, c.z);
+  mesh.userData.cop = c;
+  scene.add(mesh); cops.push(c);
+  return c;
+}
+// SWAT van — clone of makeCopCarAt with the step-van body + a darker light bar
+function makeSwatVanAt(sx, sz, h, stateName) {
+  if (GG_SWATVAN_I < 0) return makeCopCarAt(sx, sz, h, stateName);   // no van model -> fall back to a cruiser
+  var car = makeCar(GG_SWATVAN_I);
+  car.group.position.set(sx, surfaceHeightAt(sx, sz, false, 1.5), sz);
+  car.group.rotation.y = h;
+  var lr = box(0.34, 0.14, 0.3, new THREE.MeshBasicMaterial({ color: 0xff1622 }), 0.05, 1.9, 0.32);
+  var lb = box(0.34, 0.14, 0.3, new THREE.MeshBasicMaterial({ color: 0x1838ff }), 0.05, 1.9, -0.32);
+  car.group.add(lr); car.group.add(lb);
+  var cc = { car: car, x: sx, z: sz, h: h, speed: 8, state: stateName || 'seek', hp: SWATVAN_HP, parkT: 0, disgorged: false, life: 0, lightR: lr, lightB: lb, role: 'chase', ramT: 0, swat: true };
+  car.group.traverse(function (o) { if (o !== lr && o !== lb) o.userData.copCar = cc; });
+  copCars.push(cc);
+  return cc;
+}
+// SWAT van disgorge — a bigger crew of armored operators, ignoring the foot-cop cap
+function disgorgeSwat(cc) {
+  cc.state = 'parked'; cc.parkT = 0; cc.speed = 0;
+  if (cc.disgorged) return true;
+  cc.disgorged = true;
+  var h = cc.car.group.rotation.y;
+  var sx = Math.cos(h + Math.PI / 2), sz = -Math.sin(h + Math.PI / 2);
+  var n = 3 + ((Math.random() * 2) | 0);   // 3-4 operators per van
+  for (var i = 0; i < n; i++) { var sd = (i % 2 === 0) ? 1 : -1, row = 2.2 + ((i / 2) | 0) * 1.6; spawnSwatAt(cc.x + sx * sd * 2.2 - Math.cos(h) * row, cc.z + sz * sd * 2.2 + Math.sin(h) * row); }
+  if (typeof sfx === 'function') sfx('cardoor', { x: cc.x, z: cc.z, range: 44 });
+  return true;
+}
+function spawnSwatVan() {
+  var a = hottestPlayerPos(), ang = Math.random() * 6.2832, dist = 80 + Math.random() * 40;
+  var vx = a.x + Math.cos(ang) * dist, vz = a.z + Math.sin(ang) * dist;
+  vx = Math.max(WLO + 6, Math.min(WHI - 6, vx)); vz = Math.max(WLO + 6, Math.min(WHI - 6, vz));
+  var rp = (typeof copRoadPoint === 'function') ? copRoadPoint(vx, vz) : { x: vx, z: vz };
+  var cc = makeSwatVanAt(rp.x, rp.z, Math.atan2(a.x - rp.x, a.z - rp.z), 'seek');
+  return cc;
+}
+// a pursuit vehicle reaching the player pours out its crew: a SWAT van dumps an
+// armored squad (ignoring the foot-cop cap); a cruiser does the capped version.
+function disgorgeUnit(cc) { return cc.swat ? disgorgeSwat(cc) : parkAndDisgorge(cc); }
 function parkAndDisgorge(cc) {
   // only STOP to pour cops out if there's genuine room under the foot-cop cap (which
   // scales with your stars — "high enough stars & more cops allowed"). If the cap is
@@ -18142,7 +18223,7 @@ function driveCopCar(cc, dt, pd) {
     var sWanted = (state.wanted || 0) > 0 && !state.dead && !inside;
     var sOnFoot = !(typeof driving !== 'undefined' && driving);
     if (!sWanted) { cc.state = 'patrol'; return; }
-    if (sOnFoot && pd < COP_FOOT_STANDOFF + 2 && parkAndDisgorge(cc)) return;   // room opened up -> park for good, cops out
+    if (sOnFoot && pd < COP_FOOT_STANDOFF + 2 && disgorgeUnit(cc)) return;   // room opened up -> park for good, cops out
     if (!sOnFoot || pd > SHADOW_REAPPROACH) { cc.state = 'seek'; cc.rEdge = null; }   // you ran off / got in a car -> re-approach
     return;
   }
@@ -18167,14 +18248,14 @@ function driveCopCar(cc, dt, pd) {
       tx = player.x; tz = player.z;
       if (isDrv) { var pv = driving.pspeed || 0, lt = (cc.role === 'block') ? 2.4 : 0.4; tx = player.x + (driving.mvx || 0) * pv * lt; tz = player.z + (driving.mvz || 0) * pv * lt; }
       if (!isDrv && pd < COP_FOOT_STANDOFF) {   // caught up on foot
-        if (parkAndDisgorge(cc)) return;        // room -> park for good, officers pile out
+        if (disgorgeUnit(cc)) return;        // room -> park for good, officers pile out
         cc.state = 'shadow'; cc.parkT = 0; cc.speed = 0; updateCarFeel(cc, dt, 0, 0, 0); return;   // cap full -> hold nearby, no cops out, no ramming
       }
       cc.state = isDrv ? 'chase' : 'seek'; maxCruise = isDrv ? 22 : 18;
       if ((player.y - g.position.y) > 4) { var rt = rampTargetFor(cc); if (rt) { tx = rt.x; tz = rt.z; } }   // player on a highway -> take a ramp
     } else if (wantedNow) {
       if (!isDrv && pd < COP_FOOT_STANDOFF) {   // rolled right up next to you on foot (even if LOS momentarily broke)
-        if (parkAndDisgorge(cc)) return;        // room -> pile out
+        if (disgorgeUnit(cc)) return;        // room -> pile out
         cc.state = 'shadow'; cc.parkT = 0; cc.speed = 0; updateCarFeel(cc, dt, 0, 0, 0); return;   // cap full -> hold nearby
       }
       var sp = copSearchPoint(cc, dt); tx = sp.x; tz = sp.z; cc.state = 'search'; maxCruise = 15;   // sweep the last-known trail
@@ -18251,9 +18332,16 @@ function updateCopCars(dt) {
   // you can see them around you as the camera zooms out; clearPolice removes them
   // at the actual respawn / jail-teleport moment.
   var cine = state.dead || arrested;
-  var want = (state.menu || (typeof inside !== 'undefined' && inside)) ? 0 : desiredCopCars();
+  var suppress = state.menu || (typeof inside !== 'undefined' && inside);
+  var want = suppress ? 0 : desiredCopCars();
   copCarSpawnT -= dt;
-  if (!cine && copCars.length < want && copCarSpawnT <= 0) { spawnCopCar(); copCarSpawnT = COPCAR_SPAWN_GAP; }
+  // count cruisers vs SWAT vans separately so vans don't starve the cruiser fleet
+  var cruisers = 0, vans = 0;
+  for (var ci = 0; ci < copCars.length; ci++) { if (copCars[ci].swat) vans++; else cruisers++; }
+  if (!cine && cruisers < want && copCarSpawnT <= 0) { spawnCopCar(); copCarSpawnT = COPCAR_SPAWN_GAP; }
+  // SWAT vans deploy at 5 stars on their own cadence, on top of the cruiser fleet
+  swatVanSpawnT -= dt;
+  if (!cine && !suppress && vans < desiredSwatVans() && swatVanSpawnT <= 0) { spawnSwatVan(); swatVanSpawnT = 14; }
   var nearest = null, nd = 1e9;
   for (var i = copCars.length - 1; i >= 0; i--) {
     var cc = copCars[i];
@@ -20514,6 +20602,7 @@ function damageNPC(n, dmg, kx, kz, silent) {
   if (!playNpcVoice(n.vname, 'hit', 0.65, 4, { x: n.x, z: n.z, yell: true, net: 1, ref: n })) playVoiceAny(n.fem ? ['pedf_hit', 'pedf_hit_2'] : ['pedm_hit_1', 'pedm_hit_2', 'pedo_hit'], 0.6, 'pedHit', 5, { x: n.x, z: n.z, yell: true, net: 1, ref: n });
   n.hp -= dmg; n.hurtFlash = 0.12; n.x += (kx || 0) * 0.5; n.z += (kz || 0) * 0.5;
   lastCrimeT = T;
+  if (n.gang) { n.aggro = true; alertGangGroup(n.gangGrp); }   // shooting a gangster makes the whole crew hostile
   if (n.hp <= 0) {
     // FIST kills are just KNOCKOUTS now — the body lies there with NO blood, and
     // shooting it later (see the corpse-shot path) is what "finishes" them for a
@@ -20527,8 +20616,8 @@ function damageNPC(n, dmg, kx, kz, silent) {
     spawnCash(n.x, n.z, 5 + ((Math.random() * 18) | 0)); sfx('ko', { x: n.x, z: n.z, range: 50 }); sfx('grunt', { x: n.x, z: n.z, range: 50, fem: n.fem });
     maybeNpcItemDrop(n.x, n.z);
     if (!silent) {
-      popup(isKO ? 'KNOCKED OUT' : 'KO!');
-      if (isKO) creditKnockout(); else creditCivKill(null, !meleeHit);   // bullet kill counts toward mass-shooting
+      if (n.gang) { popup('GANGSTER DOWN'); }   // killing a hostile gangster is self-defense — no wanted stars
+      else { popup(isKO ? 'KNOCKED OUT' : 'KO!'); if (isKO) creditKnockout(); else creditCivKill(null, !meleeHit); }   // bullet kill counts toward mass-shooting
     }
   } else {
     sfx('hit', { x: n.x, z: n.z, range: 50 });
@@ -20541,7 +20630,7 @@ function damageNPC(n, dmg, kx, kz, silent) {
   }
   for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o === n || (o.state !== 'walk' && o.state !== 'chat')) continue; var dx = o.x - n.x, dz = o.z - n.z; if (dx * dx + dz * dz < 170) startFlee(o); }
 }
-function startFlee(n) { if (n.state === 'down') return; breakNpcChat(n); n.state = 'flee'; n.dodge = false; n.fleeT = 4 + Math.random() * 3; var dx = n.x - player.x, dz = n.z - player.z; var d = Math.sqrt(dx * dx + dz * dz) || 1; n.fleeDX = dx / d; n.fleeDZ = dz / d; fleeScream(n, false); }
+function startFlee(n) { if (n.state === 'down' || n.gang) return; breakNpcChat(n); n.state = 'flee'; n.dodge = false; n.fleeT = 4 + Math.random() * 3; var dx = n.x - player.x, dz = n.z - player.z; var d = Math.sqrt(dx * dx + dz * dz) || 1; n.fleeDX = dx / d; n.fleeDZ = dz / d; fleeScream(n, false); }
 function panicNear(x, z, r2) { var fled = null; for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o.state !== 'walk' && o.state !== 'chat') continue; var dx = o.x - x, dz = o.z - z; if (dx * dx + dz * dz < r2) { startFlee(o); if (!fled || o.vname) fled = o; } } if (fled && !playNpcVoice(fled.vname, 'gunscared', 0.65, 10, { x: fled.x, z: fled.z, yell: true, net: 1, ref: fled })) playVoiceAny(fled.fem ? ['pedf_gun'] : ['pedm_gun'], 0.6, 'pedGun', 16, { x: fled.x, z: fled.z, yell: true, net: 1, ref: fled }); fleeKidsNear(x, z, r2); }
 
 var npcSocialT = 0, npcBumpT = -99, meleeHit = false, npcAnimF = 0;
@@ -20572,6 +20661,122 @@ function npcChatLine(n, cat) {
   if (playNpcVoice(n.vname, cat, 0.55, 2, { x: n.x, z: n.z, net: 1, ref: n })) return true;
   playNpcVoice(n.vname, 'chat', 0.55, 2, { x: n.x, z: n.z, net: 1, ref: n });
   return false;
+}
+// ==================== GANG FACTION (v1.123) ================================
+// Armed hostile NPCs that live in turf groups. They ride the npcs[] array (so
+// the hitscan/damage/gore/ragdoll paths all work for free) but own their live
+// behavior via updateGangster (called from the NPC loop). They turn hostile when
+// you come near with line of sight, or the instant you shoot one; then they
+// close to firing range and open up on you — and on any nearer cop (3-way).
+var GANG_AGGRO_R2 = 42 * 42;     // spot + engage the player inside this radius (with LOS)
+var GANG_GIVEUP_R2 = 105 * 105;  // lose interest past this
+var GANG_TURF = [];              // {x,z} turf centers, seeded at boot
+var gangGroupSeq = 0, gangSpawnT = 4;
+function spawnGangster(x, z, grp) {
+  if (typeof buildGangster !== 'function' || !MESHY_GANG.length) return null;
+  var mesh = buildGangster(); if (!mesh) return null;
+  var po = pushOut(x, z, 0.5, landColliders || colliders);
+  var gun = Math.random() < 0.5 ? 'pistol' : (Math.random() < 0.5 ? 'smg' : 'shotgun');
+  var n = {
+    mesh: mesh, x: po.x, z: po.z, tx: po.x, tz: po.z, hp: 130, state: 'walk',
+    speed: 1.4, phase: Math.random() * 9, pause: 0, fleeT: 0, downT: 0, hurtFlash: 0,
+    vname: mesh.userData.vname || null, fem: false, baseY: 0,
+    gang: true, gangGrp: grp, gun: gun, homeX: po.x, homeZ: po.z,
+    fireT: 0.4 + Math.random(), aggro: false
+  };
+  mesh.position.set(n.x, 0, n.z);
+  mesh.userData.npc = n;                 // flow through the existing hitscan + damageNPC + gore
+  if (typeof attachHeldGun === 'function') attachHeldGun(mesh, gun);   // visible gun in hand
+  scene.add(mesh); npcs.push(n);
+  return n;
+}
+function spawnGangGroup(cx, cz, count) {
+  var id = ++gangGroupSeq, made = 0;
+  for (var i = 0; i < count; i++) { var a = Math.random() * 6.2832, r = 2 + Math.random() * 9; if (spawnGangster(cx + Math.cos(a) * r, cz + Math.sin(a) * r, id)) made++; }
+  return made;
+}
+function alertGangGroup(grp) {   // one member provoked -> the whole crew turns hostile
+  if (!grp) return;
+  for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o.gang && o.gangGrp === grp && o.state !== 'down' && o.state !== 'ragdoll') o.aggro = true; }
+}
+function gangSeesPlayer(n) {
+  if (state.dead || inside) return false;
+  return copHasLOS({ x: n.x, z: n.z, baseY: n.baseY || 0 }, { x: player.x, z: player.z, y: EYE });
+}
+function nearestGangCop(x, z, maxd) {
+  var best = null, bd = maxd * maxd;
+  for (var i = 0; i < cops.length; i++) { var c = cops[i]; if (c.state === 'down' || c.interior) continue; var dx = c.x - x, dz = c.z - z, d2 = dx * dx + dz * dz; if (d2 < bd) { bd = d2; best = c; } }
+  return best;
+}
+function gangShoot(n, dt, tgt, wpn) {
+  n.fireT -= dt;
+  if (n.fireT > 0) return;
+  if (!copHasLOS({ x: n.x, z: n.z, baseY: n.baseY || 0 }, { x: tgt.x, z: tgt.z, y: tgt.kind === 'player' ? EYE : 1.2 })) { n.fireT = wpn.rate; return; }
+  n.fireT = wpn.rate + 0.12;
+  sfx(wpn.sfx, { x: n.x, z: n.z, y: 1.4, range: 150 });
+  var dx = tgt.x - n.x, dz = tgt.z - n.z, d = Math.sqrt(dx * dx + dz * dz) || 1;
+  if (typeof puff === 'function') puff(new THREE.Vector3(n.x + dx / d * 0.6, 1.35, n.z + dz / d * 0.6), 0xffe08a, 'muzzle');
+  var tacc = Math.max(0, 1 - d / wpn.range);
+  var hitChance = wpn.acc * (0.15 + 1.05 * tacc * tacc) * 0.78;   // a touch less accurate than police
+  if (Math.random() < hitChance) {
+    if (tgt.kind === 'player') { if (!state.dead && !driving && !inside) hurtPlayer(wpn.dmg, n.x, n.z); }
+    else if (tgt.ref && typeof damageCop === 'function') damageCop(tgt.ref, wpn.dmg, dx / d, dz / d, true);   // silent: gang-on-cop shouldn't heat the player
+  }
+}
+function updateGangster(n, dt, m) {
+  var pdx = n.x - player.x, pdz = n.z - player.z, pd2 = pdx * pdx + pdz * pdz, pd = Math.sqrt(pd2);
+  // aggro gating (sticky once provoked)
+  if (!n.aggro) { if (pd2 < GANG_AGGRO_R2 && gangSeesPlayer(n)) { n.aggro = true; alertGangGroup(n.gangGrp); if (typeof playNpcVoice === 'function') playNpcVoice(n.vname, 'quirk', 0.6, 8, { x: n.x, z: n.z, yell: true, net: 1, ref: n }); } }
+  else if (pd2 > GANG_GIVEUP_R2 || state.dead || inside) { n.aggro = false; }
+  if (n.aggro) {
+    // target the player, unless a cop is closer (three-way firefights)
+    var tgt = { x: player.x, z: player.z, kind: 'player' }, td = pd;
+    var nc = nearestGangCop(n.x, n.z, td);
+    if (nc) { tgt = { x: nc.x, z: nc.z, kind: 'cop', ref: nc }; td = Math.hypot(nc.x - n.x, nc.z - n.z); }
+    m.rotation.y = Math.atan2(tgt.x - n.x, tgt.z - n.z);
+    var wpn = COP_GUN_STATS[n.gun] || COP_GUN_STATS.pistol;
+    if (td > wpn.range * 0.7) {
+      var mx = (tgt.x - n.x) / (td || 1), mz = (tgt.z - n.z) / (td || 1), sp = 3.8;
+      var po = pushOut(n.x + mx * sp * dt, n.z + mz * sp * dt, 0.5, landColliders || colliders);
+      n.x = po.x; n.z = po.z;
+      animPerson(m, 3.6, dt, n.phase);
+    } else { animPerson(m, 0.5, dt, n.phase); gangShoot(n, dt, tgt, wpn); }
+    m.position.set(n.x, 0, n.z);
+    return;
+  }
+  // idle: mill around turf home
+  n.pause -= dt;
+  var dx = n.tx - n.x, dz = n.tz - n.z, d = Math.hypot(dx, dz);
+  if (d < 1 || n.pause > 0) {
+    if (n.pause <= 0) { var a = Math.random() * 6.2832, r = 3 + Math.random() * 11; n.tx = n.homeX + Math.cos(a) * r; n.tz = n.homeZ + Math.sin(a) * r; n.pause = 0.6 + Math.random() * 2.2; }
+    animPerson(m, 0, dt, n.phase);
+  } else {
+    var ux = dx / d, uz = dz / d, po2 = pushOut(n.x + ux * 1.3 * dt, n.z + uz * 1.3 * dt, 0.5, landColliders || colliders);
+    n.x = po2.x; n.z = po2.z; m.rotation.y = Math.atan2(ux, uz);
+    animPerson(m, 1.4, dt, n.phase);
+  }
+  m.position.set(n.x, 0, n.z);
+}
+// keep the turfs populated (host/singleplayer only); refill offscreen-ish
+var gangInit = false;
+function maintainGangs(dt) {
+  if (typeof isClient === 'function' && isClient()) return;
+  if (!MESHY_GANG.length) return;
+  if (!gangInit) { gangInit = true; if (typeof seedGangTurf === 'function') seedGangTurf(); for (var ti = 0; ti < GANG_TURF.length; ti++) spawnGangGroup(GANG_TURF[ti].x, GANG_TURF[ti].z, 3); return; }   // first runtime frame: seed turf + populate all crews
+  if (!GANG_TURF.length) return;
+  gangSpawnT -= dt;
+  var live = 0; for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o.gang && o.state !== 'down' && o.state !== 'ragdoll') live++; }
+  if (live < GANG_TURF.length * 3 && gangSpawnT <= 0) {
+    // refill the turf that's furthest from the player (so a crew doesn't pop in your face)
+    var best = null, bd = -1;
+    for (i = 0; i < GANG_TURF.length; i++) { var t = GANG_TURF[i], here = 0; for (var j = 0; j < npcs.length; j++) { var g = npcs[j]; if (g.gang && Math.hypot(g.homeX - t.x, g.homeZ - t.z) < 40) here++; } if (here < 3) { var pdd = Math.hypot(t.x - player.x, t.z - player.z); if (pdd > bd) { bd = pdd; best = t; } } }
+    if (best && bd > 60) { spawnGangGroup(best.x, best.z, 3); gangSpawnT = 10; }
+    else gangSpawnT = 4;
+  }
+}
+function seedGangTurf() {
+  // turf centers in the downtown / expansion where there's open pavement to roam
+  GANG_TURF = [ { x: 1780, z: 1560 }, { x: 2360, z: 2020 }, { x: 900, z: 1980 } ];
 }
 function updateNPCs(dt) {
   // clients: NPCs are mirrored from the host snapshot. Accessories still ride
@@ -20675,10 +20880,11 @@ function updateNPCs(dt) {
     // fog) freeze + hide. Ambient states only — a ragdoll/down/hidden NPC keeps
     // resolving so corpses + respawns aren't stuck. Un-hide the instant it's back
     // in view. This is what keeps a map-wide crowd cheap.
-    if (n.state !== 'ragdoll' && n.state !== 'down' && n.state !== 'hidden') {
+    if (n.state !== 'ragdoll' && n.state !== 'down' && n.state !== 'hidden' && !(n.gang && n.aggro)) {
       if (cullFar(n.x, n.z)) { if (m.visible) m.visible = false; continue; }
       if (!m.visible) m.visible = true;
     }
+    if (n.gang && n.state !== 'ragdoll' && n.state !== 'down') { if (!m.visible) m.visible = true; updateGangster(n, dt, m); continue; }
     // anim LOD: skinned repose is the NPC sim's hot path — NPCs >120u from
     // the player hold their last pose 2 of every 3 frames (phase/animT keep
     // accumulating, so the pose stays correct when it does update)
@@ -20714,6 +20920,7 @@ function updateNPCs(dt) {
     if (n.state === 'down') {
       n.downT -= dt; m.rotation.x = Math.max(-1.45, m.rotation.x - dt * 7);
       if (n.downT <= 0) {
+        if (n.gang) { scene.remove(m); npcs.splice(i, 1); i--; continue; }   // dead gangster stays dead — the turf spawner refills the crew later
         restoreHead(n);   // decapitated corpse respawns with its head back on (mesh is reused)
         restoreBisect(n); // bisected corpse's hidden mesh comes back for the reused NPC
         if (npcDoors.length) {
@@ -28072,7 +28279,7 @@ function loop(now) {
   if (photoMode) { updatePhotoCam(dt); renderer.render(scene, camera); return; }
   T += dt;
   var sdt = dt;
-  updatePlayer(dt); updateKick(dt); updatePlaneWorld(dt); updateAirportPlane(dt); updatePlayerHeli(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateCopCars(dt); updateHeatOps(dt); updateHelis(dt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); ensureSpraySpawn(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateJail(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
+  updatePlayer(dt); updateKick(dt); updatePlaneWorld(dt); updateAirportPlane(dt); updatePlayerHeli(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); maintainGangs(dt); updateCops(sdt); updateCars(sdt); updateCopCars(dt); updateHeatOps(dt); updateHelis(dt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); ensureSpraySpawn(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateJail(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); updateWaypoint(dt); updateNpcTags(); updateHUD(); drawMinimap();
   updateTaserWires(dt);
   if (state.dead) updateDeathCam(dt);   // top-down zoom-out cinematic drives the camera while dead
   else if (tased) updateTased(dt);   // third-person spasm cam while zapped
@@ -28192,6 +28399,10 @@ window.__wc = {
   state: state, player: player, npcs: npcs, cashes: cashes, cops: cops,
   rubblePiles: function () { return rubblePiles; }, towerSplats: function () { return towerSplats; }, rubbleHeightAt: function (x, z) { return rubbleHeightAt(x, z); },
   copCars: function () { return copCars; }, spawnCopCar: function () { return spawnCopCar(); }, desiredCopCars: function () { return desiredCopCars(); },
+  spawnGangGroup: function (x, z, n) { return spawnGangGroup(x, z, n || 3); }, spawnGangster: function (x, z) { return spawnGangster(x, z, ++gangGroupSeq); },
+  spawnSwatVan: function () { return spawnSwatVan(); }, spawnSwatAt: function (x, z) { return spawnSwatAt(x, z); }, makeSwatVanAt: function (x, z, h) { return makeSwatVanAt(x, z, h || 0, 'seek'); },
+  enemyInfo: function () { var gang = 0, swat = 0; for (var i = 0; i < npcs.length; i++) if (npcs[i].gang) gang++; for (i = 0; i < cops.length; i++) if (cops[i].swat) swat++; var vans = 0; for (i = 0; i < copCars.length; i++) if (copCars[i].swat) vans++; return { gangModels: MESHY_GANG.length, swatModels: MESHY_SWAT.length, gangAlive: gang, swatAlive: swat, swatVans: vans, turf: GANG_TURF.length }; },
+  gangTurf: function () { return GANG_TURF; }, seedGangTurf: function () { return seedGangTurf(); },
   spikeStrips: function () { return spikeStrips; }, spawnRoadblock: function () { return spawnRoadblock(); }, spawnSpikeStrip: function () { return spawnSpikeStrip(); }, updateHeatOps: function (dt) { return updateHeatOps(dt); },
   helis: function () { return helis; }, spawnHeli: function () { return spawnHeli(); }, desiredHelis: function () { return desiredHelis(); }, damageHeli: function (h, d, p) { return damageHeli(h, d, p); },
   kids: kids, adultRace: adultRace, spawnKids: spawnKids, updateKids: updateKids, playKidVoice: playKidVoice, kidVoiceDbg: function () { return kidVoiceDbg; },
@@ -28531,7 +28742,7 @@ window.__wc = {
   // lightweight physics step (no render, no NPC/cop/car sim) — fast headless
   // stepping for plane/fall tests. Renders only when you call renderer yourself.
   stepLite: function (dt) { T += dt; updatePlayer(dt); updatePlaneWorld(dt); },
-  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updateKick(dt); updatePlaneWorld(dt); updatePlayerHeli(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); updateCops(sdt); updateCars(sdt); updateCopCars(dt); updateHeatOps(dt); updateHelis(dt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); ensureSpraySpawn(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateJail(dt); updateTaserWires(dt); if (arrested) updateArrestCam(dt); else if (tased) updateTased(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
+  tick: function (dt) { T += dt; var sdt = dt; updatePlayer(dt); updateKick(dt); updatePlaneWorld(dt); updatePlayerHeli(dt); updateTowers(dt); updateNPCs(sdt); updateKids(sdt); maintainGangs(dt); updateCops(sdt); updateCars(sdt); updateCopCars(dt); updateHeatOps(dt); updateHelis(dt); updateRockets(sdt); updateThrownAxes(dt); ensureCabinAxe(); ensureSpraySpawn(); updateDrops(dt); updateUfo(sdt); updateCabinUfo(dt); updateCash(dt); updatePuffs(dt); updateGibs(dt); updateHalves(dt); updateGoreFx(dt); updateBooms(dt); updateDecals(dt); updateWorldFx(sdt); updateStreetcar(sdt); updateMonorail(sdt); updateStreetProps(dt); updateEnvProps(dt); updateEnv(dt); updateInterior(dt); updateJail(dt); updateTaserWires(dt); if (arrested) updateArrestCam(dt); else if (tased) updateTased(dt); updateVoiceAudio(dt); updateNet(dt); updateSecrets(sdt); renderer.render(scene, camera); }
 };
 
 // ---------------- boot screen handoff + menu cover art ----------------

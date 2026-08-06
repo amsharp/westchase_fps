@@ -587,6 +587,26 @@ endless conveyor belt. (The *first* wave still responds quickly; the delay only
 kicks in once you start dropping them.) Getting knocked
 out — or **arrested** (see below) — wipes your wanted level.
 
+### SWAT (5 stars)
+
+Push your wanted level to **five stars** and the department stops sending
+ordinary officers alone — a **SWAT van** rolls in, screeches to a stop, and
+**pours out a squad of armored operators**. SWAT are the toughest cops on foot:
+they soak far more damage than a regular officer (roughly 2.4×), always carry
+**automatics**, and they don't count against the normal foot-cop cap — so a
+five-star firefight gets genuinely hairy. The van itself is tankier than a
+cruiser (a rocket still wrecks it).
+
+### Gangs
+
+The city has **gangs** now — a hostile third faction that holds turf out in the
+newer districts. They roam their blocks in armed crews, and if you get close
+with a clear line of sight, or shoot one of them, **the whole crew turns on you**
+and opens fire. They're not police: gunning a gangster down is treated as
+self-defense and **doesn't cost you any wanted stars**. They'll also trade fire
+with the **cops** if the law wanders into their turf — so you can start a
+three-way street war and slip out the back while they shoot it out.
+
 ### Getting arrested
 
 If an officer catches you **unarmed** (fists, food, spray paint — nothing
