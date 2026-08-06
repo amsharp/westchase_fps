@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.123.3';
+var GAME_VERSION = 'v1.123.4';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -14693,7 +14693,7 @@ function maxWanted() {
   if (typeof net !== 'undefined' && net && net.remotes) for (var id in net.remotes) { var r = net.remotes[id]; if (r && !r.dead && (r.w || 0) > w) w = r.w; }
   return w;
 }
-function desiredCops() { var w = maxWanted(); return w === 0 ? 2 : (2 + w * 1.6) | 0; }   // 0*=2,1*=3,2*=5,3*=6,4*=8,5*=10 (was 3+w*2 → 13 at 5*, too many)
+function desiredCops() { var w = maxWanted(); return w === 0 ? 2 : (2 + w * 1.2) | 0; }   // 0*=2,1*=3,2*=4,3*=5,4*=6,5*=8 (trimmed from 2+w*1.6)
 // where new responders converge: your LAST-KNOWN spot while you're out of sight
 // (so fleeing actually works), otherwise your live position once they're on you.
 function responseAnchor() {
@@ -18005,7 +18005,7 @@ function copCarNear(x, z, cc) {
   return false;
 }
 var COPCAR_HP = 500;   // cruisers are tanky now (~6 rifle / ~15 AK rounds) — a rocket still one-shots (see fireRocket splash)
-function desiredCopCars() { var w = state.wanted; return w === 0 ? 2 : 2 + w; }   // 0*=2 patrol cruisers, then +1 per star (1*=3 … 5*=7)
+function desiredCopCars() { var w = state.wanted; return w === 0 ? 2 : 1 + w; }   // 0*=2 patrol cruisers, then 1*=2,2*=3,3*=4,4*=5,5*=6 (trimmed one off each pursuit tier)
 // snap an arbitrary point onto the nearest road centreline (for patrol waypoints)
 function copRoadPoint(x, z) {
   if (typeof RM === 'undefined' || !RM.edges || !RM.edges.length) return null;
@@ -27534,10 +27534,13 @@ document.addEventListener('keydown', function (e) {
   // N: spawn SYD a few steps in front of you (testing hook, v1.122.12).
   if (e.code === 'KeyN' && !e.repeat && state.running && !state.menu && !state.dead) {
     e.preventDefault();
-    var _sd = new THREE.Vector3(); camera.getWorldDirection(_sd);
-    var _sx = player.x + _sd.x * 5, _sz = player.z + _sd.z * 5;
-    var _sp = pushOut(_sx, _sz, 0.5, landColliders || colliders);
-    if (typeof spawnNamedNpc === 'function') { spawnNamedNpc('SYD', _sp.x, _sp.z); popup('SYD spawned'); }
+    // debug: grant the M249 with a full belt + 1000 rifle rounds in reserve
+    state.owned.m249 = true;
+    state.mag.m249 = WEAPONS.m249.mag;                       // full belt loaded
+    state.ammoRes.rifle = Math.max(1000, state.ammoRes.rifle | 0);   // 1000 rifle bullets
+    if (typeof hotbarAdd === 'function') hotbarAdd('m249');
+    if (typeof setEquipped === 'function') setEquipped('m249');
+    popup('M249 + 1000 rounds');
     return;
   }
   if (e.code === 'KeyG' && !e.repeat && state.running && !state.menu && !state.dead && !(plane && plane.piloting)) { e.preventDefault(); toggleNoclip(); return; }
