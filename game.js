@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.122.17';
+var GAME_VERSION = 'v1.122.18';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -3459,7 +3459,17 @@ function deckStrip(inner, outer, cum, y, mat, uScale) {
     nr[i * 6 + 1] = 1; nr[i * 6 + 4] = 1;
     var u = cum[i] * uScale; uv[i * 4] = u; uv[i * 4 + 1] = 0; uv[i * 4 + 2] = u; uv[i * 4 + 3] = 1;
   }
-  var idx = []; for (var k = 0; k < n - 1; k++) { var a = k * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }   // inner=2i / outer=2i+1 -> top faces up
+  var idx = []; for (var k = 0; k < n - 1; k++) { var a = k * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }   // inner=2i / outer=2i+1
+  // The winding above only faces UP when the authored inner/outer/travel handedness
+  // matches; exit decks drawn the other way came out wound DOWN, so the single-sided
+  // deck-top was back-culled and the DoubleSide dark underside showed through — a
+  // black road. Flip the winding if triangle 0's geometric normal points down.
+  if (idx.length >= 3) {
+    var q0 = idx[0] * 3, q1 = idx[1] * 3, q2 = idx[2] * 3;
+    var ex1 = pos[q1] - pos[q0], ez1 = pos[q1 + 2] - pos[q0 + 2];
+    var ex2 = pos[q2] - pos[q0], ez2 = pos[q2 + 2] - pos[q0 + 2];
+    if (ez1 * ex2 - ex1 * ez2 < 0) { for (var f = 0; f < idx.length; f += 3) { var tmp = idx[f + 1]; idx[f + 1] = idx[f + 2]; idx[f + 2] = tmp; } }
+  }
   var g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   g.setAttribute('normal', new THREE.BufferAttribute(nr, 3));
