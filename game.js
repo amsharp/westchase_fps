@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.122.16';
+var GAME_VERSION = 'v1.122.17';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -10986,6 +10986,8 @@ var TASE_DUR = 3.6;          // seconds of writhing on the ground
 var TASER_RANGE = 16;        // how far a cop can reach with the taser
 var TASER_CD = 5.0;          // per-cop taser cooldown between darts
 var TASE_ARREST_R = 7.0;     // a cop this close when the tase ends makes the collar
+var TASER_CHARGE = 0.9;      // telegraph time — capacitor whine plays, then the dart fires
+var TASER_DODGE_DIST = 3.0;  // move this far from the lock-on spot during the charge to dodge it
 // a plain on-foot pedestrian who can be tased / cuffed (not in a car, plane,
 // heli, parachute, indoors, already down, or mid-cinematic)
 function playerCuffable() {
@@ -10994,21 +10996,60 @@ function playerCuffable() {
     !(typeof plane !== 'undefined' && plane && plane.piloting) &&
     !(typeof heliVeh !== 'undefined' && heliVeh && heliVeh.piloting);
 }
-// cop fires the taser at the (unarmed, on-foot) local player
+// cop LOCKS ON and starts charging the taser — a telegraph, NOT an instant hit.
+// The capacitor whine plays and the cop plants + aims for TASER_CHARGE seconds;
+// updateCopTaser resolves the shot when the whine finishes (dodgeable in between).
 function copTase(c) {
   c.taserCd = T + TASER_CD;
+  c.taserCharging = true;
+  c.taserChargeT = TASER_CHARGE;
+  c.taserAimX = player.x; c.taserAimZ = player.z;   // where you were when they locked on
+  var adx = player.x - c.x, adz = player.z - c.z, al = Math.sqrt(adx * adx + adz * adz) || 1;
+  c.taserAxX = adx / al; c.taserAxZ = adz / al;      // aim axis — a SIDEWAYS juke off this line dodges the dart
+  c.taserSparkT = 0;
   var copAt = { x: c.x, z: c.z, y: (c.baseY || 0) + 1.4, yell: true, net: 1, ref: c };
   if (!playVoiceAny(c.fem ? ['cop_fire_f_1', 'cop_fire_f_2'] : ['cop_fire_1', 'cop_fire_2'], 0.55, 'copBark', 8, copAt))
     playVoiceAny(c.fem ? ['cop_engage_f_1', 'cop_engage_f_2'] : ['cop_engage_1', 'cop_engage_2'], 0.55, 'copBark', 8, copAt);
-  sfx('taser', { x: c.x, z: c.z, y: (c.baseY || 0) + 1.4, range: 90 });
-  spawnTaserWire(c);
-  taserPlayer(c);
+  sfx('tasercharge', { x: c.x, z: c.z, y: (c.baseY || 0) + 1.4, range: 110 });   // rising whine — your cue to move
 }
-// a quick pair of wires/darts from the cop's hand to the player + a spark puff
-function spawnTaserWire(c) {
+// per-frame telegraph: sparks at the cop's hand while charging, then resolve the
+// dart. Dodge = leave range, break LOS, or move TASER_DODGE_DIST off the lock-on
+// spot before the whine ends. Cancelled if you're no longer a taseable target.
+function updateCopTaser(c, dt, armLevel) {
+  if (!c.taserCharging) return;
+  // abandoned: player pulled a gun, got in a vehicle, went down, etc.
+  if (armLevel !== 0 || !arrestAllowed(c) || tased || arrested || state.dead) { c.taserCharging = false; return; }
+  c.taserChargeT -= dt;
+  c.taserSparkT -= dt;
+  if (c.taserSparkT <= 0 && typeof puff === 'function') {   // crackling spark at the muzzle/hand
+    c.taserSparkT = 0.09;
+    var mz = (typeof copMuzzle === 'function' && copMuzzle(c)) || new THREE.Vector3(c.x, (c.baseY || 0) + 1.3, c.z);
+    puff(mz, 0x9fdfff, 'muzzle');
+  }
+  if (c.taserChargeT > 0) return;
+  c.taserCharging = false;
+  // resolve: still in range, clear shot, same level, and you DIDN'T juke aside?
+  // Dodge = LATERAL displacement off the lock-on aim line (a sidestep) — running
+  // in a straight line, toward OR away, doesn't beat the dart; a juke does.
+  var dx = player.x - c.x, dz = player.z - c.z, d = Math.sqrt(dx * dx + dz * dz);
+  var mvx = player.x - c.taserAimX, mvz = player.z - c.taserAimZ;
+  var lateral = Math.abs(mvx * (-c.taserAxZ) + mvz * c.taserAxX);   // component perpendicular to the aim axis
+  var clear = d <= TASER_RANGE + 2 && arrestAllowed(c) && copHasLOS(c, { x: player.x, z: player.z, y: player.y });
+  if (clear && lateral < TASER_DODGE_DIST) {
+    sfx('taser', { x: c.x, z: c.z, y: (c.baseY || 0) + 1.4, range: 90 });
+    spawnTaserWire(c);
+    taserPlayer(c);                                   // HIT
+  } else {
+    sfx('tasermiss', { x: c.x, z: c.z, y: (c.baseY || 0) + 1.4, range: 80 });   // fizzle — darts sail past
+    spawnTaserWire(c, c.taserAimX, c.taserAimZ);      // stray wires snap to where you WERE
+  }
+}
+// a quick pair of wires/darts from the cop's hand to the target (the player on a
+// hit, or the old lock-on spot on a miss) + a spark puff
+function spawnTaserWire(c, mx, mz) {
   try {
     var a = new THREE.Vector3(c.x, (c.baseY || 0) + 1.3, c.z);
-    var b = new THREE.Vector3(player.x, player.y - 0.9, player.z);
+    var b = (mx !== undefined) ? new THREE.Vector3(mx, (c.baseY || 0) + 0.5, mz) : new THREE.Vector3(player.x, player.y - 0.9, player.z);
     var g = new THREE.BufferGeometry().setFromPoints([a, b]);
     var ln = new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0xfff2a0 }));
     scene.add(ln);
@@ -15040,6 +15081,7 @@ function updateCops(dt) {
     }
     if (m.userData.handR && (m.userData.heldKind || null) !== wantGun) attachHeldGun(m, wantGun);
     var wpn = copWeapon(c);   // this cop's own weapon stats (range gates advance/aim below) — was a deleted top-of-fn var (v1.115.3 fix)
+    if (!c.interior) updateCopTaser(c, dt, armLevel);   // resolve/cancel any in-progress taser charge (dodgeable telegraph)
     var vx = 0, vz = 0, spd = 0, moving = false, aimTgt = null;
     if (tgt) {
       var dx = tgt.x - c.x, dz = tgt.z - c.z, d = tgt.d;
@@ -15066,11 +15108,16 @@ function updateCops(dt) {
         // harmless player: TASE them from range, then cuff. The manual cuffing is
         // progressive (see after the loop) — but a runner never holds still, so the
         // taser is what actually drops them and makes an unarmed arrest reliable.
-        if (d > ARREST_REACH) { vx = dx / d; vz = dz / d; spd = 4.8; moving = true; }
-        else if (arrestAllowed(c)) _arrestReach = c;
-        // ranged taser: reusing arrestAllowed for the same-level / not-in-vehicle gate
-        if (!tased && !arrested && d > ARREST_REACH && d <= TASER_RANGE &&
-          (c.taserCd === undefined || T > c.taserCd) && arrestAllowed(c) && copHasLOS(c, tgt)) copTase(c);
+        if (c.taserCharging) {
+          // planted, aiming the taser — hold position (facing set above) so you get
+          // a real window to bolt sideways / break line of sight and dodge the dart
+        } else {
+          if (d > ARREST_REACH) { vx = dx / d; vz = dz / d; spd = 4.8; moving = true; }
+          else if (arrestAllowed(c)) _arrestReach = c;
+          // ranged taser: reusing arrestAllowed for the same-level / not-in-vehicle gate
+          if (!tased && !arrested && d > ARREST_REACH && d <= TASER_RANGE &&
+            (c.taserCd === undefined || T > c.taserCd) && arrestAllowed(c) && copHasLOS(c, tgt)) copTase(c);
+        }
         c.coverT = 0;
       } else {
         // player stopped shooting / melee-escalated / armed: advance and fire
@@ -24832,6 +24879,8 @@ function sfx(kind, at) {
     case 'buy': bp(660, 0.09, 0.15, 'square'); setTimeout(function () { bp(990, 0.12, 0.15, 'square'); }, 80); break;
     case 'deny': bp(150, 0.2, 0.25, 'sawtooth', 110); break;
     case 'taser': { for (var _tz = 0; _tz < 7; _tz++) setTimeout((function (kk) { return function () { nb(0.03, 2200 + kk * 140, 0.22); bp(140 + kk * 10, 0.03, 0.14, 'square', 60); }; })(_tz), _tz * 45); } break;   // rapid electric crackle
+    case 'tasercharge': bp(220, 0.9, 0.16, 'sawtooth', 900); setTimeout(function () { nb(0.06, 1600, 0.08); }, 300); setTimeout(function () { nb(0.06, 2000, 0.1); }, 560); setTimeout(function () { nb(0.06, 2500, 0.12); }, 780); break;   // capacitor whine rising — the "about to fire" cue
+    case 'tasermiss': nb(0.12, 1700, 0.22); bp(230, 0.1, 0.12, 'sawtooth', 70); break;   // darts fizzle past
     case 'alarm': bp(760, 0.18, 0.2, 'square'); setTimeout(function () { bp(560, 0.18, 0.2, 'square'); }, 180); setTimeout(function () { bp(760, 0.18, 0.2, 'square'); }, 360); break;
     // cockpit warning-alarm placeholders (owner WAVs in SFX_PACK override these)
     case 'warn_stall': bp(430, 0.16, 0.28, 'square'); setTimeout(function () { bp(430, 0.16, 0.28, 'square'); }, 190); break;      // steady stall horn
@@ -28145,7 +28194,8 @@ window.__wc = {
   arrestState: function () { return { arrested: arrested, phase: arrestCam && arrestCam.phase, jailT: jailT, inside: inside, cur: curInterior && curInterior.id, arrestProg: arrestProg }; },
   arrestAllowed: function (cop) { return arrestAllowed(cop || null); },
   taserPlayer: function (c) { taserPlayer(c || null); }, copTase: function (c) { copTase(c); },
-  tasedInfo: function () { return { tased: tased, t: tasedT, hasBody: !!tasedBody, wires: taserWires.length }; },
+  tasedInfo: function () { var ch = 0; for (var i = 0; i < cops.length; i++) if (cops[i].taserCharging) ch++; return { tased: tased, t: tasedT, hasBody: !!tasedBody, wires: taserWires.length, charging: ch }; },
+  updateCopTaser: function (c, dt, a) { updateCopTaser(c, dt, a === undefined ? 0 : a); },
   endTased: function () { endTased(); },
   testCharge: function (k, v) { if (k in rap) rap[k] = (v === undefined ? true : v); },
   posSeesPlayer: function (x, z, v) { return posSeesPlayer(x, z, v); },
