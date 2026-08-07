@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.123.5';
+var GAME_VERSION = 'v1.123.6';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -14605,7 +14605,7 @@ function buildSwat() {
   var g = buildPerson('#14161a', '#0d0f12', '#caa07a', { cap: true, shades: true, hairColor: 0x0a0a0a });
   return g;
 }
-var JUGG_SCALE = 1.42;   // he's a very large man — towers over everyone
+var JUGG_SCALE = 1.28;   // a big man, but not comically huge
 // juggernaut model (Meshy, role:'jugg'), scaled up big. Falls back to a bulky
 // dark trooper if no jugg model shipped.
 function buildJugg() {
@@ -15223,6 +15223,7 @@ function updateCops(dt) {
       if (td < 1) { var t = randTarget(); c.tx = t[0]; c.tz = t[1]; }
       else { vx = tdx / td; vz = tdz / td; spd = 1.6; moving = true; m.rotation.y = Math.atan2(vx, vz); }
     }
+    if (c.jugg && moving) spd = Math.min(spd, 2.4);   // the juggernaut is heavy — he stalks toward you at a slow, relentless walk
     if (moving) {
       // route around buildings instead of beelining into them (cop-walks-into-
       // building, bug mreelusq): the same whisker the pedestrians use — probe
@@ -18010,7 +18011,7 @@ function copCarNear(x, z, cc) {
   if (typeof cars !== 'undefined') for (i = 0; i < cars.length; i++) { var c = cars[i]; if (!c || !c.group || c.group === pgc) continue; if (Math.hypot(c.group.position.x - x, c.group.position.z - z) < 2.7) return true; }
   return false;
 }
-var COPCAR_HP = 500;   // cruisers are tanky now (~6 rifle / ~15 AK rounds) — a rocket still one-shots (see fireRocket splash)
+var COPCAR_HP = 900;   // cruisers are tanky now (~6 rifle / ~15 AK rounds) — a rocket still one-shots (see fireRocket splash)
 function desiredCopCars() { var w = state.wanted; return w === 0 ? 2 : 1 + w; }   // 0*=2 patrol cruisers, then 1*=2,2*=3,3*=4,4*=5,5*=6 (trimmed one off each pursuit tier)
 // snap an arbitrary point onto the nearest road centreline (for patrol waypoints)
 function copRoadPoint(x, z) {
@@ -18115,7 +18116,7 @@ function spawnCopAt(x, z) {
 // automatic, and the Meshy SWAT model. They deploy from a SWAT VAN (a reserved
 // step-van body in the copCars[] system) once you hit 5 stars.
 var SWAT_HP = 240;                 // ~2.4x a normal officer — soaks a lot before going down
-var SWATVAN_HP = 700;              // tankier than a cruiser (500); a rocket still wrecks it
+var SWATVAN_HP = 1500;              // tankier than a cruiser (900) — soaks a lot; a rocket still wrecks it
 var swatVanSpawnT = 0;
 function desiredSwatVans() { return (state.wanted >= 5) ? 2 : (maxWanted() >= 5 ? 1 : 0); }
 function spawnSwatAt(x, z) {
@@ -18169,7 +18170,7 @@ function spawnSwatVan() {
 // cops[] array (c.jugg) so shooting/cover/damage all work, but: 2000 HP, an M249
 // with BURST fire, and he ALWAYS shoots — armed or not, no taser/arrest. Killing
 // him is the ONLY way to get the M249 (he drops it).
-var JUGG_HP = 2000;
+var JUGG_HP = 1200;
 function spawnJuggAt(x, z, y) {
   if (typeof buildJugg !== 'function') return null;
   var mesh = buildJugg();
@@ -18232,7 +18233,49 @@ function parkAndDisgorge(cc) {
   return true;
 }
 function removeCopCar(cc) { if (copRammer === cc) copRammer = null; if (cc.car && cc.car.group) scene.remove(cc.car.group); }
-function explodeCopCar(cc) { if (typeof boomAt === 'function') boomAt(cc.x, cc.z); removeCopCar(cc); }
+var copHusks = [];   // burned-out wreck models left where a cruiser / SWAT van was destroyed
+function explodeCopCar(cc) {
+  if (typeof boomAt === 'function') boomAt(cc.x, cc.z);
+  if (typeof spawnHusk === 'function') { spawnHusk(cc); if (cc.husk) { copHusks.push({ mesh: cc.husk, life: 45 }); cc.husk = null; } }   // swap in the destroyed-car model at the spot
+  removeCopCar(cc);
+}
+function updateCopHusks(dt) {
+  for (var i = copHusks.length - 1; i >= 0; i--) {
+    var h = copHusks[i]; h.life -= dt;
+    if (h.life <= 0) { scene.remove(h.mesh); copHusks.splice(i, 1); }
+  }
+}
+// ---- steal a PARKED cop car / SWAT van (v1.123.6) ----------------------------
+// You can only take one that's stopped (parked after disgorging, or a roadblock
+// broadside) — never a cruiser mid-pursuit. It converts into a normal drivable
+// cars[] entry (keeps its light bar) that other peers can't hijack off you.
+function nearestParkedCopCar() {
+  var best = null, bd = 7.5 * 7.5;   // generous — SWAT vans are big, so you steal from a step back
+  for (var i = 0; i < copCars.length; i++) {
+    var cc = copCars[i];
+    if (cc.state !== 'parked' && cc.state !== 'roadblock' && cc.state !== 'shadow') continue;   // stopped units only — no jacking a moving pursuer
+    if (cc.hp <= 0) continue;
+    var g = cc.car.group.position, dx = player.x - g.x, dz = player.z - g.z, d2 = dx * dx + dz * dz;
+    if (d2 < bd) { bd = d2; best = cc; }
+  }
+  return best;
+}
+function stealCopCar(cc) {
+  var idx = copCars.indexOf(cc); if (idx >= 0) copCars.splice(idx, 1);   // remove from the AI pool
+  if (copRammer === cc) copRammer = null;
+  var g = cc.car.group;
+  var c = {
+    car: cc.car, axis: 'x', lane: 0, lane0: 0, dir: 1, pos: 0, speed: 0,
+    dmgT: 0, berserk: false, exploded: false, respawnT: 0, smokeT: 0, eng: null,
+    parked: true, slot: { x: cc.x, z: cc.z, ry: g.rotation.y }, carHP: 100,
+    copVeh: true, noHijack: true   // a commandeered cop vehicle: no NPC/PvP hijack while you drive it
+  };
+  // re-tag every body mesh so the raycast/entry code sees a trafficCar, not a copCar
+  g.traverse(function (o) { if (o.userData.copCar) { o.userData.copCar = null; o.userData.trafficCar = c; } });
+  g.userData.trafficCar = c;
+  cars.push(c);
+  return c;
+}
 function damageCopCar(cc, dmg, pt) {
   cc.hp -= dmg; if (pt && typeof puff === 'function') puff(pt, 0xffe08a);
   // shooting/blowing up a marked cruiser is a crime — draw heat (even on a calm
@@ -18455,6 +18498,7 @@ function updateCopCars(dt) {
   // one shared siren wail from the closest pursuing cruiser (no overlapping sirens)
   copSirenT -= dt;
   if (nearest && nd < 95 && copSirenT <= 0) { copSirenT = 0.85; copSiren(nearest.x, nearest.z); }
+  updateCopHusks(dt);
 }
 // ==================== HEAT OPS (roadblocks + spike strips) ====================
 // While you're DRIVING at 3+ stars the police escalate beyond a straight chase:
@@ -18571,7 +18615,7 @@ function updateHeatOps(dt) {
 // side's fire) or pump enough rounds into the airframe -> it spins out, falls,
 // and explodes on the ground.
 var helis = [], heliSpawnT = 0;
-var HELI_HP = 1000, HELI_GUNNER_HP = 55;   // choppers are the toughest pursuit unit — well above a cruiser's 500
+var HELI_HP = 1500, HELI_GUNNER_HP = 55;   // choppers are the toughest pursuit unit — well above a cruiser's 500
 var HELI_FIRE_INTERVAL = 3.0;   // one aimed burst every 3s (per chopper), only with clear LOS — was two door-gunners spraying ~0.25s apart (way too fast)
 var HELI_MAX_SPD = 48;   // hard top speed — BELOW the plane (78) & Porsche (73) so they can outrun it, still fast enough to run down a normal car / a runner
 function desiredHelis() { var w = state.wanted; return w >= 3 ? Math.min(w - 2, 3) : 0; }   // 3*=1, 4*=2, 5*=3
@@ -27618,6 +27662,8 @@ document.addEventListener('keydown', function (e) {
     if (streetPropInteract()) return;   // vending / payphone / ATM / newsbox / dumpster / kick / mailbox
     if (envPropInteract()) return;      // env props: sit / drink / buy / play / vend / read / mailbox
     if (bushRummage()) return;          // rummage a bush/hedge for lost items
+    var pcc = nearestParkedCopCar();     // a parked cruiser / SWAT van you can commandeer
+    if (pcc) { startBreakIn(stealCopCar(pcc)); return; }
     var sc = nearestStealableCar();
     if (sc) {
       if (sc.parked) startBreakIn(sc);   // empty lot car: 0.9s break-in first
@@ -28586,6 +28632,7 @@ window.__wc = {
   spawnGangGroup: function (x, z, n) { return spawnGangGroup(x, z, n || 3); }, spawnGangster: function (x, z) { return spawnGangster(x, z, ++gangGroupSeq); },
   spawnSwatVan: function () { return spawnSwatVan(); }, spawnSwatAt: function (x, z) { return spawnSwatAt(x, z); }, makeSwatVanAt: function (x, z, h) { return makeSwatVanAt(x, z, h || 0, 'seek'); },
   spawnJuggAt: function (x, z, y) { return spawnJuggAt(x, z, y); }, spawnDeliveryHeli: function () { return spawnDeliveryHeli(); },
+  stealCopCar: function (cc) { return stealCopCar(cc); }, nearestParkedCopCar: function () { return nearestParkedCopCar(); }, copHusks: function () { return copHusks.length; },
   juggInfo: function () { var jn = 0, roping = 0; for (var i = 0; i < cops.length; i++) if (cops[i].jugg && cops[i].state !== 'down') { jn++; if (cops[i].jugg && cops[i].roping) roping++; } var deliv = 0; for (i = 0; i < helis.length; i++) if (helis[i].delivery) deliv++; return { juggModels: MESHY_JUGG.length, juggAlive: jn, juggRoping: roping, deliveryHelis: deliv, deployed: juggDeployed, hasM249: !!state.owned.m249 }; },
   enemyInfo: function () { var gang = 0, swat = 0; for (var i = 0; i < npcs.length; i++) if (npcs[i].gang) gang++; for (i = 0; i < cops.length; i++) if (cops[i].swat) swat++; var vans = 0; for (i = 0; i < copCars.length; i++) if (copCars[i].swat) vans++; return { gangModels: MESHY_GANG.length, swatModels: MESHY_SWAT.length, gangAlive: gang, swatAlive: swat, swatVans: vans, turf: GANG_TURF.length }; },
   gangTurf: function () { return GANG_TURF; }, seedGangTurf: function () { return seedGangTurf(); },

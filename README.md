@@ -602,15 +602,24 @@ cruiser (a rocket still wrecks it).
 Reach five stars and, **once** per five-star spree, the police send in a
 **juggernaut** — a giant of a man in a full bomb-disposal suit. A helicopter
 flies to wherever you are (as soon as the cops know your position) and he
-**fast-ropes down** onto the street. He has **2000 HP**, wades straight through
-gunfire without flinching, and rips **bursts of M249 machine-gun fire** at you —
-**armed or not**, he does not taser or arrest, he just shoots. While he's alive
-the heat stays pinned at five stars: **you cannot wait him out or hide** — the
+**slides down a rope** onto the street. He has **1200 HP**, walks toward you at a
+slow, unstoppable stalk, **never takes cover**, and rips **bursts of M249
+machine-gun fire** at you — **armed or not**, he does not taser or arrest, he
+just shoots. He's fearless and pathfinds straight to you; while he's alive the
+heat stays pinned at five stars, so **you cannot wait him out or hide** — the
 only way to end it is to put him down.
 
 Do that and he **drops his M249** — the **only** way to get one. It's a belt-fed
 light machine gun that runs on **rifle ammo** and hits **harder and faster than
 the AK-47**. (It's not sold anywhere.)
+
+### Commandeering police vehicles
+
+A **parked** cruiser or SWAT van is yours for the taking — walk up and hit **E**
+to break in and drive off in it (they run tougher than a normal car). You can
+only grab one that's **stopped** (parked after dropping its crew, or holding a
+roadblock) — you can't yank a cop out of one that's actively chasing you. Wreck
+a cruiser or van and it leaves a **burned-out husk** behind.
 
 ### Gangs
 
