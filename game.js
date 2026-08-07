@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.123.4';
+var GAME_VERSION = 'v1.123.5';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -16651,6 +16651,7 @@ var PLANE_WARN_PULLUP_VY = 11;       // ... and diving at the ground -> "PULL UP
 var PLANE_WARN_CADENCE = { pullup: 1.0, stall: 1.05, terrain: 1.25, sink: 1.25, bank: 2.9 };
 var FALL_SAFE_VSPEED = 12;    // land harder than this (downward) and you take damage
 var FALL_DMG_K = 6;           // hp per (u/s) of impact over the safe threshold
+var pendingFallDeath = false; // set while a FALL-damage hit is applied, so startDeathCam knows to SPLAT the body
 var PLANE_DEBRIS_LIFE = 60;   // seconds before crash props (debris + scorch) despawn
 // --- plane module state -----------------------------------------------------
 var plane = null;             // the single live plane object, or null
@@ -17768,6 +17769,20 @@ function spawnSplatBody(x, y, z) {
   scene.add(m);
   towerSplats.push({ mesh: m, life: BODY_TTL, max: BODY_TTL });
 }
+// the full "body hits the ground" splat: directional gore burst, blood pool,
+// blood punches + mist, the splatbody.js corpse model, and the impact sounds.
+// Shared by tower jumpers AND the player dying from fall damage.
+function spawnFallSplat(x, floor, z, vx, vz) {
+  vx = vx || 0; vz = vz || 0;
+  if (typeof spawnGoreBurst === 'function') spawnGoreBurst(x, floor + 0.4, z, vx * 0.12, vz * 0.12, 10 + (Math.random() * 6 | 0));
+  if (typeof bloodPool === 'function') bloodPool(x, z);
+  if (typeof bloodPunch === 'function') for (var b = 0; b < 5; b++) bloodPunch(x + (Math.random() - 0.5) * 1.3, floor + 0.4 + Math.random() * 0.8, z + (Math.random() - 0.5) * 1.3);
+  if (typeof puff === 'function') puff(new THREE.Vector3(x, floor + 0.5, z), 0x8f1512, 'blood');
+  spawnSplatBody(x, floor, z);
+  sfx('gore', { x: x, z: z, range: 50 });
+  sfx('crash', { x: x, z: z, range: 42 });
+  sfx('jumperimpact', { x: x, z: z, range: 55 });   // body-impact thud
+}
 function updateTowerSplats(dt) {
   for (var i = towerSplats.length - 1; i >= 0; i--) {
     var s = towerSplats[i]; s.life -= dt;
@@ -17856,16 +17871,7 @@ function updateTowerFallers(dt) {
     var floor = surfaceHeightAt(f.x, f.z, false, f.y);
     if (f.y <= floor || f.life <= 0) {
       // SPLAT
-      if (f.y <= floor + 3) {
-        spawnGoreBurst(f.x, floor + 0.4, f.z, f.vx * 0.12, f.vz * 0.12, 10 + (Math.random() * 6 | 0));
-        if (typeof bloodPool === 'function') bloodPool(f.x, f.z);
-        for (var b = 0; b < 5; b++) bloodPunch(f.x + (Math.random() - 0.5) * 1.3, floor + 0.4 + Math.random() * 0.8, f.z + (Math.random() - 0.5) * 1.3);
-        puff(new THREE.Vector3(f.x, floor + 0.5, f.z), 0x8f1512, 'blood');
-        spawnSplatBody(f.x, floor, f.z);                        // leave the gory splat-body model where they landed
-        sfx('gore', { x: f.x, z: f.z, range: 50 });
-        sfx('crash', { x: f.x, z: f.z, range: 42 });
-        sfx('jumperimpact', { x: f.x, z: f.z, range: 55 });     // added body-impact thud (on top of gore/crash)
-      }
+      if (f.y <= floor + 3) spawnFallSplat(f.x, floor, f.z, f.vx, f.vz);
       scene.remove(f.mesh); towerFallers.splice(i, 1);
     }
   }
@@ -24088,6 +24094,14 @@ function startDeathCam() {
   if (tased) endTased();   // died mid-tase — tear down the spasm body/cam first
   var bx = player.x, bz = player.z;
   if (deathBody) { scene.remove(deathBody); deathBody = null; }
+  // died from a FALL: don't lay out a normal corpse — SPLAT like a tower jumper
+  // (gore burst + blood pool/mist + the splatbody model + impact sfx). The splat
+  // body IS the corpse the death cam zooms over.
+  if (pendingFallDeath) {
+    var _sfl = surfaceHeightAt(bx, bz, false, player.y - EYE);
+    spawnFallSplat(bx, _sfl, bz, 0, 0);
+    pendingFallDeath = false;
+  } else
   try {
     deathBody = buildCharacter(playerChar || randomCharConfig());
     deathBody.position.set(bx, 0.16, bz);
@@ -27731,7 +27745,9 @@ function updatePlayer(dt) {
     // fall damage: a hard downward landing hurts, scaled by impact; a big drop
     // (e.g. bailing out of the plane at altitude) is lethal. Small hops are safe.
     if (wasAirborne && player.vy < -FALL_SAFE_VSPEED && !state.dead) {
+      pendingFallDeath = true;   // if this hit is lethal, the death cam splats the body
       hurtPlayer(Math.round((-player.vy - FALL_SAFE_VSPEED) * FALL_DMG_K));
+      pendingFallDeath = false;
       if (!state.dead) sfx('grunt');
     }
     player.y = eyeFloor; player.vy = 0; player.grounded = true;
