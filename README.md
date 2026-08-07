@@ -276,7 +276,7 @@ Westchase Guns & Ammo. He sells three guns:
 | Weapon | Price | Notes |
 |--------|-------|-------|
 | Pistol | $150  | semi-auto, reliable |
-| SMG (TEC-9) | $400 | full-auto; first shots fly true, then it sprays — feather the trigger |
+| TEC-9 | $400 | full-auto; first shots fly true, then it sprays — feather the trigger |
 | Shotgun | $500 | pump-action cone of pellets, brutal up close and weak far off — a **point-blank shot to the head takes it clean off** in a spray of blood |
 | Axe    | *found* | not for sale — see **The cabin in the woods** below. A solid melee hit **cleaves a body clean in half down the middle**; the two halves topple opposite ways onto the ground in a mess of blood. **Hold right-click to aim, then left-click to hurl it** — it spins through a gravity arc and bisects whoever it hits, then sticks in the ground where it lands for you to go pick back up |
 | Rifle  | $600  | one shot, one nap — right-click to scope. A **headshot is an instant kill that takes the head clean off** (same gore as the shotgun), at any range |
@@ -284,7 +284,7 @@ Westchase Guns & Ammo. He sells three guns:
 | Rocket launcher | $2000 | one rocket per load, 5s hand-reload (R); the blast doesn't care whose side you're on |
 
 Each weapon carries its own **crosshair**: a tight cross-and-dot for the
-pistol, a wider spread for the SMG and AK (it blooms open as you spray), a
+pistol, a wider spread for the TEC-9 and AK (it blooms open as you spray), a
 fine cross for the scoped rifle (which vanishes at the scope), corner
 brackets for the rocket launcher, and a boxed reticle for alien tech.
 
@@ -296,7 +296,7 @@ with R**. There are four kinds of ammo, and guns that fire the same round
 
 | Ammo | Guns | Mag | Reload | Price |
 |------|------|-----|--------|-------|
-| Pistol bullets | Pistol (15), SMG (30) | — | 1.5s / 2s | $25 / 30 rds |
+| Pistol bullets | Pistol (15), TEC-9 (30) | — | 1.5s / 2s | $25 / 30 rds |
 | Rifle bullets | Rifle (10), AK-47 (30) | — | 3s | $50 / 30 rds |
 | Shotgun shells | Shotgun (6) | — | 5s | $25 / 12 rds |
 | Rockets | Rocket launcher (1) | — | 5s | $200 / 1 rd |

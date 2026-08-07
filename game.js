@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.123.7';
+var GAME_VERSION = 'v1.123.8';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -56,7 +56,7 @@ var WEAPONS = {
   axe:    { name: 'AXE',    price: 400, worldOnly: true, melee: true, dmg: 200, rate: 0.62, range: 2.8, bisect: true, desc: 'Heavy chopping axe — a solid hit cleaves a body clean in half.' },
   spray:  { name: 'SPRAY PAINT', worldOnly: true, spray: true, rate: 0.035, range: 3.05, desc: 'Tag any surface. Hold left-click to spray, right-click to change color.' },
   pistol: { name: 'PISTOL', price: 150, dmg: 40, rate: 0.2, auto: false, spread: 0.014, ammo: 'pistol', mag: 15, reload: 1.5, desc: '9mm sidearm. Reliable.', flashAt: [0.26, -0.265, -0.9] },
-  smg:    { name: 'SMG',    price: 400, dmg: 15, rate: 0.065, auto: true, spread: 0.008, spreadMax: 0.05, bloomPerShot: 0.006, ammo: 'pistol', mag: 30, reload: 2, desc: 'First shots on target. Then it sprays.', flashAt: [0.26, -0.262, -1.2] },
+  smg:    { name: 'TEC-9',  price: 400, dmg: 15, rate: 0.065, auto: true, spread: 0.008, spreadMax: 0.05, bloomPerShot: 0.006, ammo: 'pistol', mag: 30, reload: 2, desc: 'First shots on target. Then it sprays.', flashAt: [0.26, -0.262, -1.2] },
   rifle:  { name: 'RIFLE',  price: 600, dmg: 95, rate: 0.8,  auto: false, spread: 0.004, ammo: 'rifle', mag: 10, reload: 3, desc: 'One shot, one nap. Right-click to scope.', flashAt: [0.24, -0.235, -1.38] },
   auto:   { name: 'AK-47',  price: 1000, dmg: 34, rate: 0.075, auto: true, spread: 0.012, ammo: 'rifle', mag: 30, reload: 3, desc: 'Full auto, long range.', flashAt: [0.26, -0.255, -1.2] },
   shotgun: { name: 'SHOTGUN', price: 500, dmg: 17, rate: 0.85, auto: false, pellets: 9, spread: 0.06, falloff: 34, ammo: 'shotgun', mag: 6, reload: 5, desc: 'Pump-action. Point-blank headshots take the head clean off.', flashAt: [0.24, -0.25, -1.0], flashScale: 1.25 },
@@ -24048,7 +24048,7 @@ function spawnMoneyFloat(x, y, z, val) {
 // (fists + owned guns in GUN_LIST order + snack/soda). _qbList is reused so the
 // per-frame HUD draw allocates nothing. ----
 var _qbList = [];
-var QB_ABBR = { fists: 'FST', pistol: 'PST', smg: 'SMG', rifle: 'RIF', auto: 'AK', rocket: 'RPG', raygun: 'RAY', neon_blaster: 'NEO', silenced: 'SIL', snack: 'SNK', soda: 'SOD' };
+var QB_ABBR = { fists: 'FST', pistol: 'PST', smg: 'TEC', rifle: 'RIF', auto: 'AK', rocket: 'RPG', raygun: 'RAY', neon_blaster: 'NEO', silenced: 'SIL', snack: 'SNK', soda: 'SOD' };
 function drawQuickBar(W, H) {
   var list = _qbList; list.length = 0;
   list.push('fists');
@@ -27153,7 +27153,7 @@ document.addEventListener('mouseup', function (e) {
 // in-game, and it renders bottom-center (#hotbarHud). Future food/drink items
 // slot in as more owned items automatically.
 var HOTBAR_SLOTS = 7, INV_COLS = 7, INV_ROWS = 3;
-var ITEM_SHORT = { fists: 'FISTS', pistol: 'PISTOL', smg: 'SMG', rifle: 'RIFLE', auto: 'AK-47', rocket: 'RPG', raygun: 'RAY GUN', neon_blaster: 'NEON', silenced: 'SILENCED', axe: 'AXE', spray: 'SPRAY', snack: 'SNACK', soda: 'SODA' };
+var ITEM_SHORT = { fists: 'FISTS', pistol: 'PISTOL', smg: 'TEC-9', rifle: 'RIFLE', auto: 'AK-47', rocket: 'RPG', raygun: 'RAY GUN', neon_blaster: 'NEON', silenced: 'SILENCED', axe: 'AXE', spray: 'SPRAY', snack: 'SNACK', soda: 'SODA' };
 if (!state.hotbar) state.hotbar = [null, null, null, null, null, null, null];
 function itemShort(id) { return ITEM_SHORT[id] || (WEAPONS[id] ? WEAPONS[id].name : id); }
 function itemCount(id) { return id === 'snack' ? state.snacks : (id === 'soda' ? state.sodas : 0); }
