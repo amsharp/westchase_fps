@@ -621,6 +621,11 @@ only grab one that's **stopped** (parked after dropping its crew, or holding a
 roadblock) — you can't yank a cop out of one that's actively chasing you. Wreck
 a cruiser or van and it leaves a **burned-out husk** behind.
 
+**Cars are cover.** Bullets no longer pass through vehicles — put a car (or a
+burned-out wreck) between you and the police and it **soaks their fire**, so you
+can duck behind one in a shootout. It works both ways: you can't shoot a cop
+through a car either.
+
 ### Gangs
 
 The city has **gangs** now — a hostile third faction that holds turf out in the

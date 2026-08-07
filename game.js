@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.123.6';
+var GAME_VERSION = 'v1.123.7';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -14781,10 +14781,27 @@ function losColliderBlocked(ax, ay, az, bx, by, bz) {
   }
   return false;
 }
+// vehicles are dynamic (not in solidMeshes / colliders) so shots pass through them
+// unless we segment-test their oriented body boxes here. Lets you use a car as cover
+// in a firefight — a cop can't shoot you through a car between you. Husks are handled
+// via solidMeshes (see spawnHusk), so this only covers LIVE cars + cop cars.
+var _vehLosBox = { obb: 1, x: 0, z: 0, hx: 0, hz: 0, c: 1, s: 0 };
+function _vehSeg(ax, ay, az, bx, by, bz, g, hw, hd, ymax) {
+  var b = _vehLosBox, yaw = g.rotation.y;
+  b.x = g.position.x; b.z = g.position.z; b.hx = hw; b.hz = hd; b.c = Math.cos(yaw); b.s = Math.sin(yaw);
+  return segHitsBox(ax, ay, az, bx, by, bz, b, 0.15, ymax);
+}
+function losVehicleBlocked(ax, ay, az, bx, by, bz) {
+  var minx = Math.min(ax, bx) - 4, maxx = Math.max(ax, bx) + 4, minz = Math.min(az, bz) - 4, maxz = Math.max(az, bz) + 4, i, g;
+  for (i = 0; i < cars.length; i++) { var c2 = cars[i]; if (c2.exploded || c2 === driving) continue; g = c2.car.group; if (g.position.x < minx || g.position.x > maxx || g.position.z < minz || g.position.z > maxz) continue; if (_vehSeg(ax, ay, az, bx, by, bz, g, 1.05, 2.3, 1.5)) return true; }
+  for (i = 0; i < copCars.length; i++) { g = copCars[i].car.group; if (g.position.x < minx || g.position.x > maxx || g.position.z < minz || g.position.z > maxz) continue; if (_vehSeg(ax, ay, az, bx, by, bz, g, 1.1, 2.4, 1.6)) return true; }
+  return false;
+}
 function copHasLOS(c, tgt) {
   var oy = (c.baseY || 0) + 1.4;
   var ty = (tgt.y || EYE) - 0.2;
   if (losColliderBlocked(c.x, oy, c.z, tgt.x, ty, tgt.z)) return false;   // buildings/decks aren't in solidMeshes — test collider volumes
+  if (losVehicleBlocked(c.x, oy, c.z, tgt.x, ty, tgt.z)) return false;    // a car/cop-car between us is cover
   var dir = new THREE.Vector3(tgt.x - c.x, ty - oy, tgt.z - c.z);
   var dist = dir.length(); dir.normalize();
   copRay.set(new THREE.Vector3(c.x, oy, c.z), dir); copRay.far = Math.max(0.1, dist - 0.6);
@@ -18236,13 +18253,13 @@ function removeCopCar(cc) { if (copRammer === cc) copRammer = null; if (cc.car &
 var copHusks = [];   // burned-out wreck models left where a cruiser / SWAT van was destroyed
 function explodeCopCar(cc) {
   if (typeof boomAt === 'function') boomAt(cc.x, cc.z);
-  if (typeof spawnHusk === 'function') { spawnHusk(cc); if (cc.husk) { copHusks.push({ mesh: cc.husk, life: 45 }); cc.husk = null; } }   // swap in the destroyed-car model at the spot
+  if (typeof spawnHusk === 'function') { spawnHusk(cc); if (cc.husk) { copHusks.push({ mesh: cc.husk, proxy: cc.huskProxy, life: 45 }); cc.husk = null; cc.huskProxy = null; } }   // swap in the destroyed-car model (+ its bullet-blocking proxy)
   removeCopCar(cc);
 }
 function updateCopHusks(dt) {
   for (var i = copHusks.length - 1; i >= 0; i--) {
     var h = copHusks[i]; h.life -= dt;
-    if (h.life <= 0) { scene.remove(h.mesh); copHusks.splice(i, 1); }
+    if (h.life <= 0) { scene.remove(h.mesh); removeHuskProxy(h.proxy); copHusks.splice(i, 1); }
   }
 }
 // ---- steal a PARKED cop car / SWAT van (v1.123.6) ----------------------------
@@ -18753,6 +18770,7 @@ var _heliLosRay = new THREE.Raycaster();
 function heliHasLOS(h) {
   var oy = h.y - 0.7, ty = player.y - 0.3;
   if (losColliderBlocked(h.x, oy, h.z, player.x, ty, player.z)) return false;
+  if (losVehicleBlocked(h.x, oy, h.z, player.x, ty, player.z)) return false;   // duck behind a car and the chopper can't hit you either
   var dir = new THREE.Vector3(player.x - h.x, ty - oy, player.z - h.z);
   var dist = dir.length(); if (dist < 0.1) return true; dir.normalize();
   _heliLosRay.set(new THREE.Vector3(h.x, oy, h.z), dir); _heliLosRay.far = Math.max(0.1, dist - 0.8);
@@ -19855,6 +19873,21 @@ function igniteCar(c) {
 // so chain explosions get exactly one husk per car. Per-peer visual in MP
 // (like breakables): the host spawns it from explodeCar, clients from the
 // snapshot exploded flag in applyWorldSnap.
+// invisible car-height collision proxy: the crushed wreck model is only ~1.1u
+// tall so chest-height shots would skim over it. This transparent box (in
+// solidMeshes) makes a wreck block bullets from BOTH sides — cover you can hide
+// behind. Raycasts hit transparent(opacity 0) meshes; they only skip visible=false.
+var _huskProxyGeo = new THREE.BoxGeometry(4.6, 1.5, 2.3);
+var _huskProxyM = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
+function attachHuskProxy(c, g) {
+  var proxy = new THREE.Mesh(_huskProxyGeo, _huskProxyM);
+  proxy.position.set(g.position.x, 0.72, g.position.z);
+  proxy.rotation.y = g.rotation.y;
+  proxy.userData.noHole = 1;   // it's invisible — block the shot but don't stamp a floating bullet-hole decal
+  scene.add(proxy); solidMeshes.push(proxy);
+  c.huskProxy = proxy;
+}
+function removeHuskProxy(px) { if (!px) return; scene.remove(px); var pi = solidMeshes.indexOf(px); if (pi >= 0) solidMeshes.splice(pi, 1); }
 function spawnHusk(c) {
   if (GG_WRECK_I < 0 || c.husk) return;
   var e = GGBOT_VEHS[GG_WRECK_I];
@@ -19866,8 +19899,9 @@ function spawnHusk(c) {
   m.rotation.y = g.rotation.y;                         // aligned to the dead car
   scene.add(m);
   c.husk = m;
+  attachHuskProxy(c, g);
 }
-function removeHusk(c) { if (c.husk) { scene.remove(c.husk); c.husk = null; } }
+function removeHusk(c) { if (c.husk) { scene.remove(c.husk); c.husk = null; } removeHuskProxy(c.huskProxy); c.huskProxy = null; }
 function explodeCar(c) {
   if (c.exploded) return;
   c.exploded = true; c.berserk = false; c.dmgT = 0; c.burning = false;
@@ -23564,7 +23598,7 @@ function fireShotgun(w) {
     else if (copCarHit) { hitAny = true; damageCopCar(copCarHit, dmg, h.point); }
     else if (carHit) { puff(h.point, 0xbbbbbb, 'impact'); if (!isClient()) { if (hitTrafficCar(carHit, w.rate * 0.5)) { popup('WRECKED!'); creditCivKill('car'); } } else netToHost({ t: 'shootCar', i: cars.indexOf(carHit), rate: w.rate }); }
     else if (atmHit) shootAtm(atmHit, h.point);
-    else { puff(h.point, 0xbbbbbb, 'impact'); bulletHole(h); }
+    else { puff(h.point, 0xbbbbbb, 'impact'); if (!(h.object.userData && h.object.userData.noHole)) bulletHole(h); }
   }
   if (hitAny) hitMark(false);
   recoilPitch += 0.06;
@@ -23930,7 +23964,7 @@ function tryAttack() {
       }
     }
     else if (atmHit) shootAtm(atmHit, h.point);   // streetprops: burst the ATM open
-    else { puff(h.point, 0xbbbbbb, 'impact'); bulletHole(h); if (Math.random() < 0.28) sfx('ricochet', { x: h.point.x, z: h.point.z, y: h.point.y, range: 60 }); }   // static surface: dust + hole + the odd ricochet zing
+    else { puff(h.point, 0xbbbbbb, 'impact'); if (!(h.object.userData && h.object.userData.noHole)) bulletHole(h); if (Math.random() < 0.28) sfx('ricochet', { x: h.point.x, z: h.point.z, y: h.point.y, range: 60 }); }   // static surface: dust + hole + the odd ricochet zing
     // hitmarker on any damageable connect (a kill mark from damageNPC/Cop above
     // out-ranks this via hitMark's downgrade guard)
     if (npcHit || copHit || remoteHit || copMHit >= 0 || carHit || alienHit || ufoHit) hitMark(false);
