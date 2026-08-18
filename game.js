@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.124.1';
+var GAME_VERSION = 'v1.124.2';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -21008,7 +21008,7 @@ function seedGangTurf() {
 // for a faster, brutal phase 2. Killed for real, he topples and withers to black
 // ash. Local/singleplayer only. The user places him later; start with
 // __wc.startFratBoss(x,z). Model/voice: MESHY role 'fratboss'/'fratboy' + frat_* voice lines.
-var FRAT_BOSS_HP = 900, FRAT_BOSS_SCALE = 1.62, FRAT_BOSS_SCALE2 = 2.1;
+var FRAT_BOSS_HP = 2600, FRAT_BOSS_SCALE = 1.62, FRAT_BOSS_SCALE2 = 2.1;
 var fratBoss = null;
 function buildFratBoss(scale) {
   if (MESHY_ROLE.fratboss === undefined) return null;
@@ -21018,7 +21018,9 @@ function buildFratBoss(scale) {
 }
 function buildFratMinion() {
   if (!MESHY_FRATBOY.length) return null;
-  return buildMeshySkinned(randomCharConfig(), MESHY_FRATBOY[(Math.random() * MESHY_FRATBOY.length) | 0]);
+  var g = buildMeshySkinned(randomCharConfig(), MESHY_FRATBOY[(Math.random() * MESHY_FRATBOY.length) | 0]);
+  g.scale.setScalar(1.28);   // slightly bigger than an average NPC, well under the boss
+  return g;
 }
 function fratBoneMap(mesh, mi) {
   var sk = mesh.userData.skin, map = {};
@@ -21042,7 +21044,7 @@ function clearFratMinions() { for (var i = npcs.length - 1; i >= 0; i--) { var n
 function spawnFratMinion(x, z) {
   var mesh = buildFratMinion(); if (!mesh) return null;
   var po = pushOut(x, z, 0.5, landColliders || colliders);
-  var n = { mesh: mesh, x: po.x, z: po.z, tx: po.x, tz: po.z, hp: 55, state: 'walk', speed: 4.6, phase: Math.random() * 9, hurtFlash: 0, downT: 0, vname: null, fem: false, baseY: 0, fratMinion: true, jabT: 0.9, animT: 0 };
+  var n = { mesh: mesh, x: po.x, z: po.z, tx: po.x, tz: po.z, hp: 130, state: 'walk', speed: 5.0, phase: Math.random() * 9, hurtFlash: 0, downT: 0, vname: null, fem: false, baseY: 0, fratMinion: true, jabT: 0.9, animT: 0 };
   mesh.position.set(n.x, 0, n.z);
   mesh.userData.npc = n;
   scene.add(mesh); npcs.push(n);
@@ -21083,11 +21085,22 @@ function startFratBoss(x, z) {
   scene.add(mesh); npcs.push(b); fratBoss = b;
   showBossHud(true, 'CHAD — ASU FRAT LEADER');
   startBossMusic();
-  if (typeof playVoice === 'function') playVoice('frat_intro_' + (1 + ((Math.random() * 2) | 0)), 1.0, 0);
+  bossSay('frat_intro_' + (1 + ((Math.random() * 2) | 0)), 1.0, true);
   if (typeof popup2 === 'function') popup2('THE FRAT LEADER APPROACHES');
   return b;
 }
 function fratBossPlayerDied() { if (!fratBoss) return; if (fratBoss.mesh) scene.remove(fratBoss.mesh); var idx = npcs.indexOf(fratBoss); if (idx >= 0) npcs.splice(idx, 1); fratBoss = null; clearFratMinions(); showBossHud(false); stopBossMusic(); }
+// Boss dialogue gate: only ONE frat-boss line plays at a time (no overlap). Combat
+// callouts/taunts are skipped while he's still talking; cinematic lines force through.
+var bossVoiceUntil = 0;
+function bossSay(id, gain, force) {
+  if (typeof playVoice !== 'function') return false;
+  if (!force && T < bossVoiceUntil) return false;
+  var dur = (typeof voiceBufs !== 'undefined' && voiceBufs[id] && voiceBufs[id].duration) ? voiceBufs[id].duration : 3.0;
+  bossVoiceUntil = T + dur + 0.3;
+  playVoice(id, gain, 0);
+  return true;
+}
 function updateFratBoss(b, dt, m) {
   if (state.dead && b.state !== 'dying') { fratBossPlayerDied(); return; }   // player lost: kill the music (user request) + clear the fight
   if (b.hurtFlash > 0) { b.hurtFlash -= dt; m.position.y = (b.y || 0) + (b.hurtFlash > 0 ? 0.06 : 0); }
@@ -21101,19 +21114,27 @@ function updateFratBoss(b, dt, m) {
       break;
     case 'chase': {
       fratBossFace(b, player.x, player.z);
-      var chaseSp = fast ? 6.6 : 5.0;
-      if (pd > 3.0) { fratMoveToward(b, player.x, player.z, chaseSp, dt); b.spd = chaseSp; } else b.spd = 0;
+      var chaseSp = fast ? 8.4 : 7.0;
+      // STRAFE/circle the player rather than walk straight in — harder to shoot at.
+      // approach to ~7u, then orbit along a perpendicular that flips every ~1-3s.
+      b.strafeT = (b.strafeT || 0) - dt; if (b.strafeT <= 0) { b.strafeDir = (Math.random() < 0.5 ? 1 : -1); b.strafeT = 1.2 + Math.random() * 1.8; }
+      var ideal = 7, tox = pdx / (pd || 1), toz = pdz / (pd || 1);
+      var radial = pd > ideal + 2 ? 1 : (pd < ideal - 1.5 ? -0.9 : 0);
+      var perpx = -toz * b.strafeDir, perpz = tox * b.strafeDir;
+      var mvx = tox * radial + perpx * 1.0, mvz = toz * radial + perpz * 1.0, ml = Math.hypot(mvx, mvz) || 1;
+      var po2 = pushOut(b.x + mvx / ml * chaseSp * dt, b.z + mvz / ml * chaseSp * dt, 0.8, landColliders || colliders);
+      b.x = po2.x; b.z = po2.z; b.spd = chaseSp;
       b.atkCD -= dt; b.minionCD -= dt;
-      if (b.minionCD <= 0 && MESHY_FRATBOY.length && fratMinionCount() < (fast ? 4 : 2)) { b.state = 'summon'; b.stateT = 1.3; b.hitDone = false; b.minionCD = fast ? 12 : 17; b.spd = 0; if (typeof playVoice === 'function') playVoice('frat_summon_' + (1 + ((Math.random() * 2) | 0)), 0.95, 0); break; }
+      if (b.minionCD <= 0 && MESHY_FRATBOY.length && fratMinionCount() < (fast ? 4 : 2)) { b.state = 'summon'; b.stateT = 1.3; b.hitDone = false; b.minionCD = fast ? 12 : 17; b.spd = 0; bossSay('frat_summon_' + (1 + ((Math.random() * 2) | 0)), 0.95); break; }
       if (b.atkCD <= 0) {
         var atk = fratPickAttack(b); b.state = atk; b.hitDone = false; b.spd = 0;
-        if (atk === 'charge') { b.stateT = fast ? 0.45 : 0.55; b.chargeDX = pdx / (pd || 1); b.chargeDZ = pdz / (pd || 1); b.chargePhase = 'wind'; if (typeof playVoice === 'function') playVoice('frat_charge_' + (1 + ((Math.random() * 2) | 0)), 0.95, 0); }
-        else if (atk === 'spin') { b.stateT = fast ? 1.7 : 1.4; if (typeof playVoice === 'function') playVoice('frat_spin_1', 0.95, 0); }
-        else if (atk === 'bash') { b.stateT = 0.85; if (typeof playVoice === 'function') playVoice('frat_bash_1', 0.9, 3); }
-        else { b.stateT = 0.5; if (typeof playVoice === 'function') playVoice('frat_punch_1', 0.9, 3); }
-        b.atkCD = (fast ? 1.1 : 2.2) + Math.random() * (fast ? 0.7 : 1.4);
+        if (atk === 'charge') { b.stateT = fast ? 0.4 : 0.5; b.chargeDX = pdx / (pd || 1); b.chargeDZ = pdz / (pd || 1); b.chargePhase = 'wind'; bossSay('frat_charge_' + (1 + ((Math.random() * 2) | 0)), 0.95); }
+        else if (atk === 'spin') { b.stateT = fast ? 1.7 : 1.4; bossSay('frat_spin_1', 0.95); }
+        else if (atk === 'bash') { b.stateT = 0.85; bossSay('frat_bash_1', 0.9); }
+        else { b.stateT = 0.5; bossSay('frat_punch_1', 0.9); }
+        b.atkCD = (fast ? 1.0 : 2.0) + Math.random() * (fast ? 0.7 : 1.3);
       }
-      if (b.voiceT <= 0) { if (typeof playVoice === 'function') playVoice('frat_taunt_' + (1 + ((Math.random() * 3) | 0)), 0.8, 0); b.voiceT = 8 + Math.random() * 6; }
+      if (b.voiceT <= 0) { bossSay('frat_taunt_' + (1 + ((Math.random() * 3) | 0)), 0.8); b.voiceT = 15 + Math.random() * 11; }   // taunt far less often + gated so it never overlaps
       break;
     }
     case 'charge': {
@@ -21129,6 +21150,8 @@ function updateFratBoss(b, dt, m) {
     }
     case 'spin': {
       m.rotation.y += (fast ? 15 : 11) * dt;
+      var sdx = player.x - b.x, sdz = player.z - b.z, sd = Math.hypot(sdx, sdz) || 1;
+      if (sd > 1.6) { var ssp = fast ? 10.5 : 8; var spo = pushOut(b.x + sdx / sd * ssp * dt, b.z + sdz / sd * ssp * dt, 0.8, landColliders || colliders); b.x = spo.x; b.z = spo.z; }   // whirl straight AT the player
       if (pd < 3.6 * b.baseScale && (b.spinHitT === undefined || T > b.spinHitT)) { hurtPlayer(fast ? 16 : 12, b.x, b.z); b.spinHitT = T + 0.35; sfx('hit', { x: b.x, z: b.z, range: 50 }); }
       if (b.stateT <= 0) { b.state = 'chase'; b.stateT = 0; }
       break;
@@ -21153,12 +21176,12 @@ function updateFratBoss(b, dt, m) {
     }
     case 'defeated': {   // FALSE defeat: on his knees, in agony
       b.y = -0.42 * b.baseScale;
-      if (b.stateT <= 0) { b.state = 'inject'; b.stateT = 2.6; b.hitDone = false; if (typeof playVoice === 'function') playVoice('frat_phase_2', 1.0, 0); if (typeof popup2 === 'function') popup2('💉 PEPTIDES'); if (!b.syringe) { b.syringe = buildPeptideSyringe(); b.syringe.scale.setScalar(1.3); (m.userData.handR || m).add(b.syringe); } }
+      if (b.stateT <= 0) { b.state = 'inject'; b.stateT = 2.6; b.hitDone = false; bossSay('frat_phase_2', 1.0, true); if (typeof popup2 === 'function') popup2('💉 PEPTIDES'); if (!b.syringe) { b.syringe = buildPeptideSyringe(); b.syringe.scale.setScalar(1.3); (m.userData.handR || m).add(b.syringe); } }
       break;
     }
     case 'inject': {
       b.y = -0.42 * b.baseScale;
-      if (!b.hitDone && b.stateT < 1.3) { b.hitDone = true; if (typeof playVoice === 'function') playVoice('frat_phase_3', 1.0, 0); sfx('hit', { x: b.x, z: b.z, range: 40 }); }
+      if (!b.hitDone && b.stateT < 1.3) { b.hitDone = true; bossSay('frat_phase_3', 1.0, true); sfx('hit', { x: b.x, z: b.z, range: 40 }); }
       var gg = Math.max(0, Math.min(1, (2.6 - b.stateT) / 2.6));
       var sc = FRAT_BOSS_SCALE + (FRAT_BOSS_SCALE2 - FRAT_BOSS_SCALE) * gg; b.baseScale = sc;
       m.scale.set(sc * (1 + gg * 0.18), sc, sc * (1 + gg * 0.18));   // grow + widen (frame mog)
@@ -21166,7 +21189,7 @@ function updateFratBoss(b, dt, m) {
         b.phase = 2; b.maxHp = Math.round(FRAT_BOSS_HP * 1.25); b.hp = b.maxHp; b.state = 'chase'; b.stateT = 0; b.atkCD = 0.9; b.y = 0;
         if (b.syringe && b.syringe.parent) { b.syringe.parent.remove(b.syringe); b.syringe = null; }
         m.scale.set(FRAT_BOSS_SCALE2 * 1.18, FRAT_BOSS_SCALE2, FRAT_BOSS_SCALE2 * 1.18); b.baseScale = FRAT_BOSS_SCALE2; m.rotation.x = 0;
-        if (typeof playVoice === 'function') playVoice('frat_enrage_' + (1 + ((Math.random() * 2) | 0)), 1.0, 0);
+        bossSay('frat_enrage_' + (1 + ((Math.random() * 2) | 0)), 1.0, true);
         if (typeof popup2 === 'function') popup2('HE FRAME MOGS YOU HARDER');
       }
       break;
@@ -21208,10 +21231,10 @@ function fratBossHit(b, dmg, kx, kz) {
   if (b.state === 'defeated' || b.state === 'inject' || b.state === 'dying' || b.state === 'intro') return;   // invulnerable during cinematics
   b.hp -= dmg; b.hurtFlash = 0.1;
   if (typeof puff === 'function') puff(new THREE.Vector3(b.x, 1.2 * b.baseScale, b.z), 0xd93a2a, 'blood');
-  if (Math.random() < 0.22 && typeof playVoice === 'function') playVoice('frat_hurt_' + (1 + ((Math.random() * 2) | 0)), 0.85, 2);
+  if (Math.random() < 0.16) bossSay('frat_hurt_' + (1 + ((Math.random() * 2) | 0)), 0.85);
   if (b.hp <= 0) {
-    if (b.phase === 1) { b.hp = 0; b.state = 'defeated'; b.stateT = 2.0; b.mesh.rotation.x = 0; clearFratMinions(); if (typeof playVoice === 'function') playVoice('frat_phase_1', 1.0, 0); if (typeof popup2 === 'function') popup2('...IS IT OVER?'); }
-    else { b.hp = 0; b.state = 'dying'; b.ashT = 0; clearFratMinions(); bossMusicOnKill(); if (typeof playVoice === 'function') playVoice('frat_death_' + (1 + ((Math.random() * 2) | 0)), 1.0, 0); if (typeof popup2 === 'function') popup2('THE FRAT LEADER FALLS'); }
+    if (b.phase === 1) { b.hp = 0; b.state = 'defeated'; b.stateT = 2.0; b.mesh.rotation.x = 0; clearFratMinions(); bossSay('frat_phase_1', 1.0, true); if (typeof popup2 === 'function') popup2('...IS IT OVER?'); }
+    else { b.hp = 0; b.state = 'dying'; b.ashT = 0; clearFratMinions(); bossMusicOnKill(); bossSay('frat_death_' + (1 + ((Math.random() * 2) | 0)), 1.0, true); if (typeof popup2 === 'function') popup2('THE FRAT LEADER FALLS'); }
   }
   updateBossHud();
 }
@@ -23150,8 +23173,7 @@ var vmM249 = new THREE.Group();
     mg.rotation.order = 'YXZ';
     mg.rotation.set(0.02, -Math.PI / 2 + 0.10, 0);
     vmM249.add(mg);
-    var mAr1 = vmArm(0.33, -0.49, -0.32, 0.18); mAr1.userData.gunArm = 1; vmM249.add(mAr1);
-    var mAr2 = vmArm(0.16, -0.45, -0.82, -0.3); mAr2.userData.gunArm = 1; vmM249.add(mAr2);
+    // (no vmArm here — the baked model reads clean on its own; the extra arm poked out below the gun)
     WEAPONS.m249.flashAt = meshyMuzzleAt(mg);
     WEAPONS.m249.flashScale = 0.5;
     return;
