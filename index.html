@@ -103,6 +103,12 @@
     color:#fff; background:#0a0e16; border:4px solid #cfc7b0; outline:4px solid #000;
     box-shadow:6px 6px 0 rgba(0,0,0,.5); padding:16px 26px; font-size:19px; line-height:1.5;
     letter-spacing:1px; text-shadow:2px 2px 0 #000; text-transform:uppercase; }
+  /* boss health bar — top-center, PSX chunky frame; shown only during the frat-leader fight */
+  #bossHud { position:fixed; z-index:76; left:50%; top:3.5%; transform:translateX(-50%); width:min(70vw,640px); text-align:center; }
+  #bossHud.hidden { display:none !important; }
+  #bossName { color:#ffdf6b; font-size:20px; font-weight:bold; letter-spacing:2px; text-transform:uppercase; text-shadow:2px 2px 0 #000; margin-bottom:5px; }
+  #bossBarOuter { height:20px; background:#180a0a; border:3px solid #cfc7b0; outline:3px solid #000; box-shadow:4px 4px 0 rgba(0,0,0,.5); overflow:hidden; }
+  #bossBar { height:100%; width:100%; background:linear-gradient(#ff5a4a,#c8201a); transition:width .18s linear; }
   #popups { position:fixed; z-index:75; left:50%; top:54%; transform:translateX(-50%); text-align:center; }
   .pop { color:#8ee87f; font-size:34px; font-weight:bold; letter-spacing:1px;
     text-shadow:3px 3px 0 #000, -1px -1px 0 #000; animation:rise .9s forwards; }
@@ -274,6 +280,7 @@
   <div id="prompt"></div>
   <div id="hotbarHud"></div>
   <div id="toast" class="hidden"></div>
+  <div id="bossHud" class="hidden"><div id="bossName">BOSS</div><div id="bossBarOuter"><div id="bossBar"></div></div></div>
   <div id="popups"></div>
 </div>
 <div id="chatWrap">

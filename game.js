@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.123.8';
+var GAME_VERSION = 'v1.124.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -7981,7 +7981,7 @@ function getPSXParts() {
 }
 // ---- Meshy AI characters (optional meshychars.js, loaded before game.js) --
 var MESHY_LIST = (typeof MESHY_CHARS !== 'undefined') ? MESHY_CHARS : [];
-var MESHY_CIVS = [], MESHY_COPS = [], MESHY_GANG = [], MESHY_SWAT = [], MESHY_JUGG = [], MESHY_ROLE = {};
+var MESHY_CIVS = [], MESHY_COPS = [], MESHY_GANG = [], MESHY_SWAT = [], MESHY_JUGG = [], MESHY_FRATBOY = [], MESHY_ROLE = {};
 for (var mli = 0; mli < MESHY_LIST.length; mli++) {
   var mr = MESHY_LIST[mli].role || 'civ';
   if (mr === 'civ') MESHY_CIVS.push(mli);
@@ -7989,7 +7989,8 @@ for (var mli = 0; mli < MESHY_LIST.length; mli++) {
   else if (mr === 'gang') MESHY_GANG.push(mli);       // hostile gang faction (NPC-based, armed)
   else if (mr === 'swat') MESHY_SWAT.push(mli);       // 5-star SWAT operators (cop-based, armored)
   else if (mr === 'jugg') MESHY_JUGG.push(mli);       // juggernaut boss (cop-based, 2000 HP, M249)
-  else MESHY_ROLE[mr] = mli;
+  else if (mr === 'fratboy') MESHY_FRATBOY.push(mli); // frat-leader boss minions (3 looks)
+  else MESHY_ROLE[mr] = mli;                           // single-slot roles: dealer/clerk/alien/fratboss
 }
 // ---- shop staff (optional staffchars.js): full skinned, uniformed workers.
 // Appended to MESHY_LIST AFTER the civ/cop/role classification so they stay out
@@ -19735,6 +19736,7 @@ function tintSprayCan(g, colorHex) {
 
 // ---------------- ragdoll kills + explosions ----------------
 function killNpcRagdoll(n, dx, dz, power) {
+  if (n.fratBoss) { fratBossHit(n, 250, dx, dz); return; }   // explosions damage the boss without ragdolling it
   if (n.state === 'down' || n.state === 'ragdoll' || n.state === 'hidden') return;
   breakNpcChat(n);   // free the chat partner before this one goes flying
   n.state = 'ragdoll'; n.hp = 0;
@@ -20814,6 +20816,7 @@ function updateUfo(dt) {
 
 // ---------------- NPC logic (wander) ----------------
 function damageNPC(n, dmg, kx, kz, silent) {
+  if (n.fratBoss) { fratBossHit(n, dmg, kx, kz); return; }   // scripted boss: route to its phase/death sequence
   if (n.state === 'down' || n.state === 'hidden') return;
   breakNpcChat(n);   // taking damage ends a conversation mid-line
   // hit reaction plays even for client-caused (silent) damage so both peers hear
@@ -20849,7 +20852,7 @@ function damageNPC(n, dmg, kx, kz, silent) {
   }
   for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o === n || (o.state !== 'walk' && o.state !== 'chat')) continue; var dx = o.x - n.x, dz = o.z - n.z; if (dx * dx + dz * dz < 170) startFlee(o); }
 }
-function startFlee(n) { if (n.state === 'down' || n.gang) return; breakNpcChat(n); n.state = 'flee'; n.dodge = false; n.fleeT = 4 + Math.random() * 3; var dx = n.x - player.x, dz = n.z - player.z; var d = Math.sqrt(dx * dx + dz * dz) || 1; n.fleeDX = dx / d; n.fleeDZ = dz / d; fleeScream(n, false); }
+function startFlee(n) { if (n.state === 'down' || n.gang || n.fratBoss || n.fratMinion) return; breakNpcChat(n); n.state = 'flee'; n.dodge = false; n.fleeT = 4 + Math.random() * 3; var dx = n.x - player.x, dz = n.z - player.z; var d = Math.sqrt(dx * dx + dz * dz) || 1; n.fleeDX = dx / d; n.fleeDZ = dz / d; fleeScream(n, false); }
 function panicNear(x, z, r2) { var fled = null; for (var i = 0; i < npcs.length; i++) { var o = npcs[i]; if (o.state !== 'walk' && o.state !== 'chat') continue; var dx = o.x - x, dz = o.z - z; if (dx * dx + dz * dz < r2) { startFlee(o); if (!fled || o.vname) fled = o; } } if (fled && !playNpcVoice(fled.vname, 'gunscared', 0.65, 10, { x: fled.x, z: fled.z, yell: true, net: 1, ref: fled })) playVoiceAny(fled.fem ? ['pedf_gun'] : ['pedm_gun'], 0.6, 'pedGun', 16, { x: fled.x, z: fled.z, yell: true, net: 1, ref: fled }); fleeKidsNear(x, z, r2); }
 
 var npcSocialT = 0, npcBumpT = -99, meleeHit = false, npcAnimF = 0;
@@ -20997,6 +21000,235 @@ function seedGangTurf() {
   // turf centers in the downtown / expansion where there's open pavement to roam
   GANG_TURF = [ { x: 1780, z: 1560 }, { x: 2360, z: 2020 }, { x: 900, z: 1980 } ];
 }
+// ==================== ASU FRAT LEADER BOSS (v1.124) ========================
+// A scripted TWO-PHASE boss: a huge looksmaxxer frat leader who charges in a
+// straight line, spins with arms out, bashes, punches, and summons frat-boy
+// minions. At 0 HP in phase 1 he's FALSELY defeated — drops to his knees, injects
+// a comically large PEPTIDES syringe, refills his bar and frame-mogs even bigger
+// for a faster, brutal phase 2. Killed for real, he topples and withers to black
+// ash. Local/singleplayer only. The user places him later; start with
+// __wc.startFratBoss(x,z). Model/voice: MESHY role 'fratboss'/'fratboy' + frat_* voice lines.
+var FRAT_BOSS_HP = 900, FRAT_BOSS_SCALE = 1.62, FRAT_BOSS_SCALE2 = 2.1;
+var fratBoss = null;
+function buildFratBoss(scale) {
+  if (MESHY_ROLE.fratboss === undefined) return null;
+  var g = buildMeshySkinned(randomCharConfig(), MESHY_ROLE.fratboss);
+  g.scale.setScalar(scale || FRAT_BOSS_SCALE);
+  return g;
+}
+function buildFratMinion() {
+  if (!MESHY_FRATBOY.length) return null;
+  return buildMeshySkinned(randomCharConfig(), MESHY_FRATBOY[(Math.random() * MESHY_FRATBOY.length) | 0]);
+}
+function fratBoneMap(mesh, mi) {
+  var sk = mesh.userData.skin, map = {};
+  if (sk && MESHY_LIST[mi] && MESHY_LIST[mi].skel) { var names = MESHY_LIST[mi].skel.names; for (var i = 0; i < names.length && i < sk.bones.length; i++) map[names[i]] = sk.bones[i]; }
+  return map;
+}
+// comically oversized PEPTIDES syringe (procedural), parented to the boss's hand for the inject
+function buildPeptideSyringe() {
+  var g = new THREE.Group();
+  var glassM = new THREE.MeshLambertMaterial({ color: 0xe6edf1, transparent: true, opacity: 0.8 });
+  var darkM = new THREE.MeshLambertMaterial({ color: 0x2a2a2a });
+  var barrel = cyl(0.16, 0.16, 1.2, 10, glassM, 0, 0, 0); barrel.rotation.z = Math.PI / 2; g.add(barrel);
+  var fluid = cyl(0.12, 0.12, 0.85, 10, new THREE.MeshBasicMaterial({ color: 0xf0c030 }), -0.12, 0, 0); fluid.rotation.z = Math.PI / 2; g.add(fluid);   // amber peptides
+  var plunger = cyl(0.055, 0.055, 0.55, 8, darkM, 0.75, 0, 0); plunger.rotation.z = Math.PI / 2; g.add(plunger);
+  g.add(box(0.3, 0.05, 0.3, darkM, 0.98, 0, 0));                                  // thumb rest
+  var needle = cyl(0.014, 0.014, 0.45, 6, new THREE.MeshBasicMaterial({ color: 0xd8d8d8 }), -0.82, 0, 0); needle.rotation.z = Math.PI / 2; g.add(needle);
+  return g;
+}
+function fratMinionCount() { var c = 0; for (var i = 0; i < npcs.length; i++) if (npcs[i].fratMinion && npcs[i].state !== 'down' && npcs[i].state !== 'ragdoll') c++; return c; }
+function clearFratMinions() { for (var i = npcs.length - 1; i >= 0; i--) { var n = npcs[i]; if (n.fratMinion) { if (n.mesh) scene.remove(n.mesh); npcs.splice(i, 1); } } }
+function spawnFratMinion(x, z) {
+  var mesh = buildFratMinion(); if (!mesh) return null;
+  var po = pushOut(x, z, 0.5, landColliders || colliders);
+  var n = { mesh: mesh, x: po.x, z: po.z, tx: po.x, tz: po.z, hp: 55, state: 'walk', speed: 4.6, phase: Math.random() * 9, hurtFlash: 0, downT: 0, vname: null, fem: false, baseY: 0, fratMinion: true, jabT: 0.9, animT: 0 };
+  mesh.position.set(n.x, 0, n.z);
+  mesh.userData.npc = n;
+  scene.add(mesh); npcs.push(n);
+  return n;
+}
+function updateFratMinion(n, dt, m) {
+  n.animT += dt;
+  var pdx = player.x - n.x, pdz = player.z - n.z, pd = Math.hypot(pdx, pdz) || 1;
+  m.rotation.y = Math.atan2(pdx, pdz);
+  if (pd > 1.9) {
+    var sp = n.speed, po = pushOut(n.x + pdx / pd * sp * dt, n.z + pdz / pd * sp * dt, 0.5, landColliders || colliders);
+    n.x = po.x; n.z = po.z;
+    animPerson(m, 3.8, dt, n.phase);   // charge/run
+  } else {
+    n.jabT -= dt;
+    animPersonClip(m, 'jab', (n.animT % 1.0), true, 1.0);
+    if (n.jabT <= 0) { n.jabT = 1.0; if (pd < 2.1 && !state.dead) { hurtPlayer(6 + ((Math.random() * 4) | 0), n.x, n.z); sfx('hit', { x: n.x, z: n.z, range: 40 }); if (Math.random() < 0.3 && typeof playVoice === 'function') playVoice('fratboy_' + (1 + ((Math.random() * 5) | 0)), 0.8, 4); } }
+  }
+  m.position.set(n.x, 0, n.z);
+}
+function fratKnockPlayer(dx, dz, force) {
+  var d = Math.hypot(dx, dz) || 1;
+  var po = pushOut(player.x + dx / d * force * 0.12, player.z + dz / d * force * 0.12, 0.55, landColliders || colliders);
+  player.x = po.x; player.z = po.z;
+}
+function fratBossFace(b, tx, tz) { var want = Math.atan2(tx - b.x, tz - b.z), d = want - b.mesh.rotation.y; while (d > Math.PI) d -= 6.283; while (d < -Math.PI) d += 6.283; b.mesh.rotation.y += d * 0.16; }
+function fratMoveToward(b, tx, tz, sp, dt) { var dx = tx - b.x, dz = tz - b.z, d = Math.hypot(dx, dz) || 1; var po = pushOut(b.x + dx / d * sp * dt, b.z + dz / d * sp * dt, 0.8, landColliders || colliders); b.x = po.x; b.z = po.z; }
+function fratPickAttack(b) { var pd = Math.hypot(player.x - b.x, player.z - b.z), r = Math.random(); if (pd > 20 || r < 0.4) return 'charge'; if (r < 0.62) return 'spin'; if (r < 0.8) return 'bash'; return 'punch'; }
+function startFratBoss(x, z) {
+  if (fratBoss) return fratBoss;
+  if (MESHY_ROLE.fratboss === undefined) { if (typeof popup === 'function') popup('frat boss model not loaded'); return null; }
+  if (x === undefined) { x = player.x + Math.sin(player.yaw || 0) * 16; z = player.z + Math.cos(player.yaw || 0) * 16; }
+  var mesh = buildFratBoss(FRAT_BOSS_SCALE); if (!mesh) return null;
+  var po = pushOut(x, z, 0.9, landColliders || colliders);
+  var b = { mesh: mesh, x: po.x, z: po.z, y: 0, tx: po.x, tz: po.z, phase: 1, hp: FRAT_BOSS_HP, maxHp: FRAT_BOSS_HP, state: 'intro', stateT: 1.8, animT: 0, atkCD: 2.6, minionCD: 10, spd: 0, hitDone: false, baseScale: FRAT_BOSS_SCALE, bones: fratBoneMap(mesh, MESHY_ROLE.fratboss), fratBoss: true, chargeDX: 0, chargeDZ: 1, chargePhase: 'wind', hurtFlash: 0, voiceT: 5, dead: false, ashT: 0, syringe: null };
+  mesh.position.set(b.x, 0, b.z);
+  mesh.userData.npc = b;   // hittable via the normal hitscan/melee; damageNPC + killNpcRagdoll are guarded
+  scene.add(mesh); npcs.push(b); fratBoss = b;
+  showBossHud(true, 'CHAD — ASU FRAT LEADER');
+  startBossMusic();
+  if (typeof playVoice === 'function') playVoice('frat_intro_' + (1 + ((Math.random() * 2) | 0)), 1.0, 0);
+  if (typeof popup2 === 'function') popup2('THE FRAT LEADER APPROACHES');
+  return b;
+}
+function updateFratBoss(b, dt, m) {
+  if (b.hurtFlash > 0) { b.hurtFlash -= dt; m.position.y = (b.y || 0) + (b.hurtFlash > 0 ? 0.06 : 0); }
+  b.animT += dt; b.stateT -= dt; b.voiceT -= dt;
+  var pdx = player.x - b.x, pdz = player.z - b.z, pd = Math.hypot(pdx, pdz);
+  var fast = b.phase === 2;
+  switch (b.state) {
+    case 'intro':
+      fratBossFace(b, player.x, player.z);
+      if (b.stateT <= 0) { b.state = 'chase'; b.stateT = 0; }
+      break;
+    case 'chase': {
+      fratBossFace(b, player.x, player.z);
+      var chaseSp = fast ? 6.6 : 5.0;
+      if (pd > 3.0) { fratMoveToward(b, player.x, player.z, chaseSp, dt); b.spd = chaseSp; } else b.spd = 0;
+      b.atkCD -= dt; b.minionCD -= dt;
+      if (b.minionCD <= 0 && MESHY_FRATBOY.length && fratMinionCount() < (fast ? 4 : 2)) { b.state = 'summon'; b.stateT = 1.3; b.hitDone = false; b.minionCD = fast ? 12 : 17; b.spd = 0; if (typeof playVoice === 'function') playVoice('frat_summon_' + (1 + ((Math.random() * 2) | 0)), 0.95, 0); break; }
+      if (b.atkCD <= 0) {
+        var atk = fratPickAttack(b); b.state = atk; b.hitDone = false; b.spd = 0;
+        if (atk === 'charge') { b.stateT = fast ? 0.45 : 0.55; b.chargeDX = pdx / (pd || 1); b.chargeDZ = pdz / (pd || 1); b.chargePhase = 'wind'; if (typeof playVoice === 'function') playVoice('frat_charge_' + (1 + ((Math.random() * 2) | 0)), 0.95, 0); }
+        else if (atk === 'spin') { b.stateT = fast ? 1.7 : 1.4; if (typeof playVoice === 'function') playVoice('frat_spin_1', 0.95, 0); }
+        else if (atk === 'bash') { b.stateT = 0.85; if (typeof playVoice === 'function') playVoice('frat_bash_1', 0.9, 3); }
+        else { b.stateT = 0.5; if (typeof playVoice === 'function') playVoice('frat_punch_1', 0.9, 3); }
+        b.atkCD = (fast ? 1.1 : 2.2) + Math.random() * (fast ? 0.7 : 1.4);
+      }
+      if (b.voiceT <= 0) { if (typeof playVoice === 'function') playVoice('frat_taunt_' + (1 + ((Math.random() * 3) | 0)), 0.8, 0); b.voiceT = 8 + Math.random() * 6; }
+      break;
+    }
+    case 'charge': {
+      if (b.chargePhase === 'wind') { fratBossFace(b, b.x + b.chargeDX, b.z + b.chargeDZ); if (b.stateT <= 0) { b.chargePhase = 'go'; b.stateT = fast ? 0.9 : 0.78; } }
+      else {
+        var cs = fast ? 27 : 21;
+        var po = pushOut(b.x + b.chargeDX * cs * dt, b.z + b.chargeDZ * cs * dt, 0.8, landColliders || colliders);
+        b.x = po.x; b.z = po.z;
+        if (!b.hitDone && pd < 2.6) { hurtPlayer(fast ? 32 : 25, b.x, b.z); fratKnockPlayer(b.chargeDX, b.chargeDZ, 14); b.hitDone = true; sfx('hit', { x: b.x, z: b.z, range: 60 }); }
+        if (b.stateT <= 0) { b.state = 'chase'; b.stateT = 0; b.atkCD = fast ? 0.6 : 1.0; }
+      }
+      break;
+    }
+    case 'spin': {
+      m.rotation.y += (fast ? 15 : 11) * dt;
+      if (pd < 3.6 * b.baseScale && (b.spinHitT === undefined || T > b.spinHitT)) { hurtPlayer(fast ? 16 : 12, b.x, b.z); b.spinHitT = T + 0.35; sfx('hit', { x: b.x, z: b.z, range: 50 }); }
+      if (b.stateT <= 0) { b.state = 'chase'; b.stateT = 0; }
+      break;
+    }
+    case 'bash': {
+      fratBossFace(b, player.x, player.z);
+      if (!b.hitDone && b.stateT < 0.4) { var fx = Math.sin(m.rotation.y), fz = Math.cos(m.rotation.y), hx = b.x + fx * 2.4, hz = b.z + fz * 2.4; if (Math.hypot(player.x - hx, player.z - hz) < 2.8) { hurtPlayer(fast ? 24 : 18, b.x, b.z); fratKnockPlayer(fx, fz, 9); sfx('hit', { x: b.x, z: b.z, range: 55 }); } b.hitDone = true; }
+      if (b.stateT <= 0) { b.state = 'chase'; b.stateT = 0; }
+      break;
+    }
+    case 'punch': {
+      fratBossFace(b, player.x, player.z);
+      if (!b.hitDone && b.stateT < 0.25) { if (pd < 2.7) { hurtPlayer(fast ? 16 : 12, b.x, b.z); sfx('hit', { x: b.x, z: b.z, range: 50 }); } b.hitDone = true; }
+      if (b.stateT <= 0) { b.state = 'chase'; b.stateT = 0; }
+      break;
+    }
+    case 'summon': {
+      fratBossFace(b, player.x, player.z);
+      if (!b.hitDone && b.stateT < 0.6) { var nn = fast ? 3 : 2; for (var i = 0; i < nn; i++) { var a = Math.random() * 6.283, r = 6 + Math.random() * 5; spawnFratMinion(b.x + Math.cos(a) * r, b.z + Math.sin(a) * r); } b.hitDone = true; sfx('alarm', { x: b.x, z: b.z, range: 50 }); }
+      if (b.stateT <= 0) { b.state = 'chase'; b.stateT = 0; }
+      break;
+    }
+    case 'defeated': {   // FALSE defeat: on his knees, in agony
+      b.y = -0.42 * b.baseScale;
+      if (b.stateT <= 0) { b.state = 'inject'; b.stateT = 2.6; b.hitDone = false; if (typeof playVoice === 'function') playVoice('frat_phase_2', 1.0, 0); if (typeof popup2 === 'function') popup2('💉 PEPTIDES'); if (!b.syringe) { b.syringe = buildPeptideSyringe(); b.syringe.scale.setScalar(1.3); (m.userData.handR || m).add(b.syringe); } }
+      break;
+    }
+    case 'inject': {
+      b.y = -0.42 * b.baseScale;
+      if (!b.hitDone && b.stateT < 1.3) { b.hitDone = true; if (typeof playVoice === 'function') playVoice('frat_phase_3', 1.0, 0); sfx('hit', { x: b.x, z: b.z, range: 40 }); }
+      var gg = Math.max(0, Math.min(1, (2.6 - b.stateT) / 2.6));
+      var sc = FRAT_BOSS_SCALE + (FRAT_BOSS_SCALE2 - FRAT_BOSS_SCALE) * gg; b.baseScale = sc;
+      m.scale.set(sc * (1 + gg * 0.18), sc, sc * (1 + gg * 0.18));   // grow + widen (frame mog)
+      if (b.stateT <= 0) {
+        b.phase = 2; b.maxHp = Math.round(FRAT_BOSS_HP * 1.25); b.hp = b.maxHp; b.state = 'chase'; b.stateT = 0; b.atkCD = 0.9; b.y = 0;
+        if (b.syringe && b.syringe.parent) { b.syringe.parent.remove(b.syringe); b.syringe = null; }
+        m.scale.set(FRAT_BOSS_SCALE2 * 1.18, FRAT_BOSS_SCALE2, FRAT_BOSS_SCALE2 * 1.18); b.baseScale = FRAT_BOSS_SCALE2; m.rotation.x = 0;
+        if (typeof playVoice === 'function') playVoice('frat_enrage_' + (1 + ((Math.random() * 2) | 0)), 1.0, 0);
+        if (typeof popup2 === 'function') popup2('HE FRAME MOGS YOU HARDER');
+      }
+      break;
+    }
+    case 'dying': {   // real death: topple, then wither to black ash
+      b.ashT += dt;
+      if (b.ashT > 1.3) {
+        var f = Math.min(1, (b.ashT - 1.3) / 1.6);
+        m.scale.setScalar(b.baseScale * (1 - f)); b.y = -f * 0.8;
+        if (m.userData.shadow) m.userData.shadow.visible = f < 0.5;
+        if (Math.random() < 0.85 && typeof bigPuff === 'function') bigPuff(b.x + (Math.random() - 0.5) * 1.6, 0.4 + Math.random() * 1.6 * b.baseScale, b.z + (Math.random() - 0.5) * 1.6, 'smoke', 1.3 + Math.random(), 1.2, 1.2, 1.5 + Math.random());
+        if (f >= 1) { fratBossEnd(); return; }
+      } else { m.rotation.x = Math.min(1.45, m.rotation.x + dt * 2.2); }
+      m.position.set(b.x, b.y, b.z);
+      return;
+    }
+  }
+  m.position.set(b.x, b.y, b.z);
+  poseFratBoss(b, dt);
+  updateBossHud();
+}
+function poseFratBoss(b, dt) {
+  if (typeof gripTmps === 'function') gripTmps();   // lazy-init the shared aim/pitch temp vectors
+  var m = b.mesh, L = m.userData.limbs, sp = m.userData.spine, yaw = m.rotation.y, sc = b.baseScale, st = b.state;
+  var spd = (st === 'charge' && b.chargePhase === 'go') ? 6 : (st === 'chase' ? b.spd : 0);
+  if (typeof animPerson === 'function') animPerson(m, spd, dt, b.animT);
+  if (!L) return;
+  m.updateMatrixWorld(true);
+  var sh = (b.y || 0) + 1.35 * sc;
+  if (st === 'spin') { var lx = Math.cos(yaw + Math.PI / 2), lz = -Math.sin(yaw + Math.PI / 2); aimLimbAt(L.armL, m.userData.handL, b.x + lx * 6, sh, b.z + lz * 6); aimLimbAt(L.armR, m.userData.handR, b.x - lx * 6, sh, b.z - lz * 6); }
+  else if (st === 'charge') { if (sp) pitchLimbWorld(sp, yaw, b.chargePhase === 'go' ? 0.5 : -0.3); }
+  else if (st === 'bash') { var fx = Math.sin(yaw), fz = Math.cos(yaw); aimLimbAt(L.armL, m.userData.handL, b.x + fx * 3, sh + 0.5, b.z + fz * 3); aimLimbAt(L.armR, m.userData.handR, b.x + fx * 3, sh + 0.5, b.z + fz * 3); if (sp) pitchLimbWorld(sp, yaw, 0.2); }
+  else if (st === 'punch') { var pfx = Math.sin(yaw), pfz = Math.cos(yaw); aimLimbAt(L.armR, m.userData.handR, b.x + pfx * 4, sh, b.z + pfz * 4); }
+  else if (st === 'summon') { aimLimbAt(L.armR, m.userData.handR, b.x, sh + 3, b.z); }
+  else if (st === 'defeated' || st === 'inject') { if (sp) pitchLimbWorld(sp, yaw, 0.9); aimLimbAt(L.armR, m.userData.handR, b.x + Math.sin(yaw) * 0.3, sh - 0.9, b.z + Math.cos(yaw) * 0.3); }
+  m.updateMatrixWorld(true);
+}
+function fratBossHit(b, dmg, kx, kz) {
+  if (b.state === 'defeated' || b.state === 'inject' || b.state === 'dying' || b.state === 'intro') return;   // invulnerable during cinematics
+  b.hp -= dmg; b.hurtFlash = 0.1;
+  if (typeof puff === 'function') puff(new THREE.Vector3(b.x, 1.2 * b.baseScale, b.z), 0xd93a2a, 'blood');
+  if (Math.random() < 0.22 && typeof playVoice === 'function') playVoice('frat_hurt_' + (1 + ((Math.random() * 2) | 0)), 0.85, 2);
+  if (b.hp <= 0) {
+    if (b.phase === 1) { b.hp = 0; b.state = 'defeated'; b.stateT = 2.0; b.mesh.rotation.x = 0; clearFratMinions(); if (typeof playVoice === 'function') playVoice('frat_phase_1', 1.0, 0); if (typeof popup2 === 'function') popup2('...IS IT OVER?'); }
+    else { b.hp = 0; b.state = 'dying'; b.ashT = 0; clearFratMinions(); duckBossMusic(); if (typeof playVoice === 'function') playVoice('frat_death_' + (1 + ((Math.random() * 2) | 0)), 1.0, 0); if (typeof popup2 === 'function') popup2('THE FRAT LEADER FALLS'); }
+  }
+  updateBossHud();
+}
+function fratBossEnd() {
+  if (fratBoss && fratBoss.mesh) { scene.remove(fratBoss.mesh); var idx = npcs.indexOf(fratBoss); if (idx >= 0) npcs.splice(idx, 1); }
+  fratBoss = null; clearFratMinions(); showBossHud(false); stopBossMusic();
+  if (typeof popup2 === 'function') popup2('YOU MOGGED THE FRAT LEADER');
+}
+// ---- boss health-bar HUD (DOM overlay #bossHud/#bossBar/#bossName) ----
+function showBossHud(show, name) { var el = document.getElementById('bossHud'); if (!el) return; el.classList.toggle('hidden', !show); if (show && name) { var nm = document.getElementById('bossName'); if (nm) nm.textContent = name; } }
+function updateBossHud() { if (!fratBoss) return; var bar = document.getElementById('bossBar'); if (bar) bar.style.width = Math.max(0, fratBoss.hp / fratBoss.maxHp * 100) + '%'; }
+// ---- boss music (user supplies bossmusic.js -> var FRAT_BOSS_MUSIC = 'data:audio/...') ----
+var bossMusicSrc = null, bossMusicGain = null;
+function startBossMusic() {
+  if (typeof FRAT_BOSS_MUSIC === 'undefined' || typeof ac === 'undefined' || !ac) return;
+  try { fetch(FRAT_BOSS_MUSIC).then(function (r) { return r.arrayBuffer(); }).then(function (ab) { ac.decodeAudioData(ab, function (buf) { if (!fratBoss) return; bossMusicSrc = ac.createBufferSource(); bossMusicSrc.buffer = buf; bossMusicSrc.loop = true; bossMusicGain = ac.createGain(); bossMusicGain.gain.value = 0; bossMusicSrc.connect(bossMusicGain); bossMusicGain.connect((typeof masterBus !== 'undefined' && masterBus) ? masterBus : ac.destination); bossMusicSrc.start(); bossMusicGain.gain.linearRampToValueAtTime(0.6, ac.currentTime + 1.5); }, function () { }); }); } catch (e) { }
+}
+function duckBossMusic() { if (bossMusicGain && typeof ac !== 'undefined' && ac) try { bossMusicGain.gain.linearRampToValueAtTime(0, ac.currentTime + 2.5); } catch (e) { } }
+function stopBossMusic() { if (bossMusicSrc) { try { if (bossMusicGain) bossMusicGain.gain.linearRampToValueAtTime(0, ac.currentTime + 0.5); bossMusicSrc.stop(ac.currentTime + 0.6); } catch (e) { } bossMusicSrc = null; bossMusicGain = null; } }
 function updateNPCs(dt) {
   // clients: NPCs are mirrored from the host snapshot. Accessories still ride
   // them locally, but updateAccessories must run AFTER applyWorldSnap (end of
@@ -21103,6 +21335,8 @@ function updateNPCs(dt) {
       if (cullFar(n.x, n.z)) { if (m.visible) m.visible = false; continue; }
       if (!m.visible) m.visible = true;
     }
+    if (n.fratBoss) { if (!m.visible) m.visible = true; updateFratBoss(n, dt, m); continue; }   // scripted boss owns its own update (never culled)
+    if (n.fratMinion && n.state !== 'ragdoll' && n.state !== 'down') { if (!m.visible) m.visible = true; updateFratMinion(n, dt, m); continue; }
     if (n.gang && n.state !== 'ragdoll' && n.state !== 'down') { if (!m.visible) m.visible = true; updateGangster(n, dt, m); continue; }
     // anim LOD: skinned repose is the NPC sim's hot path — NPCs >120u from
     // the player hold their last pose 2 of every 3 frames (phase/animT keep
@@ -21139,7 +21373,7 @@ function updateNPCs(dt) {
     if (n.state === 'down') {
       n.downT -= dt; m.rotation.x = Math.max(-1.45, m.rotation.x - dt * 7);
       if (n.downT <= 0) {
-        if (n.gang) { scene.remove(m); npcs.splice(i, 1); i--; continue; }   // dead gangster stays dead — the turf spawner refills the crew later
+        if (n.gang || n.fratMinion) { scene.remove(m); npcs.splice(i, 1); i--; continue; }   // dead gangster / frat minion stays dead
         restoreHead(n);   // decapitated corpse respawns with its head back on (mesh is reused)
         restoreBisect(n); // bisected corpse's hidden mesh comes back for the reused NPC
         if (npcDoors.length) {
@@ -28666,6 +28900,8 @@ window.__wc = {
   spawnGangGroup: function (x, z, n) { return spawnGangGroup(x, z, n || 3); }, spawnGangster: function (x, z) { return spawnGangster(x, z, ++gangGroupSeq); },
   spawnSwatVan: function () { return spawnSwatVan(); }, spawnSwatAt: function (x, z) { return spawnSwatAt(x, z); }, makeSwatVanAt: function (x, z, h) { return makeSwatVanAt(x, z, h || 0, 'seek'); },
   spawnJuggAt: function (x, z, y) { return spawnJuggAt(x, z, y); }, spawnDeliveryHeli: function () { return spawnDeliveryHeli(); },
+  startFratBoss: function (x, z) { return startFratBoss(x, z); }, fratBoss: function () { return fratBoss; }, spawnFratMinion: function (x, z) { return spawnFratMinion(x, z); },
+  fratBossInfo: function () { return { models: MESHY_ROLE.fratboss !== undefined ? 1 : 0, minionModels: MESHY_FRATBOY.length, active: !!fratBoss, hp: fratBoss ? fratBoss.hp : 0, maxHp: fratBoss ? fratBoss.maxHp : 0, phase: fratBoss ? fratBoss.phase : 0, state: fratBoss ? fratBoss.state : null, minions: fratMinionCount() }; },
   stealCopCar: function (cc) { return stealCopCar(cc); }, nearestParkedCopCar: function () { return nearestParkedCopCar(); }, copHusks: function () { return copHusks.length; },
   juggInfo: function () { var jn = 0, roping = 0; for (var i = 0; i < cops.length; i++) if (cops[i].jugg && cops[i].state !== 'down') { jn++; if (cops[i].jugg && cops[i].roping) roping++; } var deliv = 0; for (i = 0; i < helis.length; i++) if (helis[i].delivery) deliv++; return { juggModels: MESHY_JUGG.length, juggAlive: jn, juggRoping: roping, deliveryHelis: deliv, deployed: juggDeployed, hasM249: !!state.owned.m249 }; },
   enemyInfo: function () { var gang = 0, swat = 0; for (var i = 0; i < npcs.length; i++) if (npcs[i].gang) gang++; for (i = 0; i < cops.length; i++) if (cops[i].swat) swat++; var vans = 0; for (i = 0; i < copCars.length; i++) if (copCars[i].swat) vans++; return { gangModels: MESHY_GANG.length, swatModels: MESHY_SWAT.length, gangAlive: gang, swatAlive: swat, swatVans: vans, turf: GANG_TURF.length }; },

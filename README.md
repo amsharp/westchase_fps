@@ -597,6 +597,22 @@ they soak far more damage than a regular officer (roughly 2.4×), always carry
 five-star firefight gets genuinely hairy. The van itself is tankier than a
 cruiser (a rocket still wrecks it).
 
+### Boss fight: the ASU Frat Leader
+
+A scripted **two-phase boss** — a huge looksmaxxer frat leader ("CHAD"). He
+**charges in a straight line** (dodge sideways), does a **spin attack** with his
+arms out, plus **bash** and **punch** melee, and **summons frat-boy minions** who
+charge and swing at you. He's fast, powerful, and taunts you the whole time about
+mogging, mewing, and frame.
+
+Drop his health bar and he's **falsely defeated** — he sinks to his knees, pulls
+out a comically huge **PEPTIDES** syringe, injects himself, **refills his bar and
+frame-mogs even bigger** for a faster, more brutal **phase 2**. Beat him for real
+and he topples over and **withers into black ash**.
+
+(He's placed later in the game — for now he's summoned on demand. His fight music
+is dropped in separately.)
+
 ### The Juggernaut
 
 Reach five stars and, **once** per five-star spree, the police send in a
