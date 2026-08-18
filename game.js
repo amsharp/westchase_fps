@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.124.0';
+var GAME_VERSION = 'v1.124.1';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -21087,7 +21087,9 @@ function startFratBoss(x, z) {
   if (typeof popup2 === 'function') popup2('THE FRAT LEADER APPROACHES');
   return b;
 }
+function fratBossPlayerDied() { if (!fratBoss) return; if (fratBoss.mesh) scene.remove(fratBoss.mesh); var idx = npcs.indexOf(fratBoss); if (idx >= 0) npcs.splice(idx, 1); fratBoss = null; clearFratMinions(); showBossHud(false); stopBossMusic(); }
 function updateFratBoss(b, dt, m) {
+  if (state.dead && b.state !== 'dying') { fratBossPlayerDied(); return; }   // player lost: kill the music (user request) + clear the fight
   if (b.hurtFlash > 0) { b.hurtFlash -= dt; m.position.y = (b.y || 0) + (b.hurtFlash > 0 ? 0.06 : 0); }
   b.animT += dt; b.stateT -= dt; b.voiceT -= dt;
   var pdx = player.x - b.x, pdz = player.z - b.z, pd = Math.hypot(pdx, pdz);
@@ -21209,26 +21211,67 @@ function fratBossHit(b, dmg, kx, kz) {
   if (Math.random() < 0.22 && typeof playVoice === 'function') playVoice('frat_hurt_' + (1 + ((Math.random() * 2) | 0)), 0.85, 2);
   if (b.hp <= 0) {
     if (b.phase === 1) { b.hp = 0; b.state = 'defeated'; b.stateT = 2.0; b.mesh.rotation.x = 0; clearFratMinions(); if (typeof playVoice === 'function') playVoice('frat_phase_1', 1.0, 0); if (typeof popup2 === 'function') popup2('...IS IT OVER?'); }
-    else { b.hp = 0; b.state = 'dying'; b.ashT = 0; clearFratMinions(); duckBossMusic(); if (typeof playVoice === 'function') playVoice('frat_death_' + (1 + ((Math.random() * 2) | 0)), 1.0, 0); if (typeof popup2 === 'function') popup2('THE FRAT LEADER FALLS'); }
+    else { b.hp = 0; b.state = 'dying'; b.ashT = 0; clearFratMinions(); bossMusicOnKill(); if (typeof playVoice === 'function') playVoice('frat_death_' + (1 + ((Math.random() * 2) | 0)), 1.0, 0); if (typeof popup2 === 'function') popup2('THE FRAT LEADER FALLS'); }
   }
   updateBossHud();
 }
 function fratBossEnd() {
   if (fratBoss && fratBoss.mesh) { scene.remove(fratBoss.mesh); var idx = npcs.indexOf(fratBoss); if (idx >= 0) npcs.splice(idx, 1); }
-  fratBoss = null; clearFratMinions(); showBossHud(false); stopBossMusic();
+  fratBoss = null; clearFratMinions(); showBossHud(false);   // music: the END sting (bossMusicOnKill) plays itself out
   if (typeof popup2 === 'function') popup2('YOU MOGGED THE FRAT LEADER');
 }
 // ---- boss health-bar HUD (DOM overlay #bossHud/#bossBar/#bossName) ----
 function showBossHud(show, name) { var el = document.getElementById('bossHud'); if (!el) return; el.classList.toggle('hidden', !show); if (show && name) { var nm = document.getElementById('bossName'); if (nm) nm.textContent = name; } }
 function updateBossHud() { if (!fratBoss) return; var bar = document.getElementById('bossBar'); if (bar) bar.style.width = Math.max(0, fratBoss.hp / fratBoss.maxHp * 100) + '%'; }
-// ---- boss music (user supplies bossmusic.js -> var FRAT_BOSS_MUSIC = 'data:audio/...') ----
-var bossMusicSrc = null, bossMusicGain = null;
-function startBossMusic() {
-  if (typeof FRAT_BOSS_MUSIC === 'undefined' || typeof ac === 'undefined' || !ac) return;
-  try { fetch(FRAT_BOSS_MUSIC).then(function (r) { return r.arrayBuffer(); }).then(function (ab) { ac.decodeAudioData(ab, function (buf) { if (!fratBoss) return; bossMusicSrc = ac.createBufferSource(); bossMusicSrc.buffer = buf; bossMusicSrc.loop = true; bossMusicGain = ac.createGain(); bossMusicGain.gain.value = 0; bossMusicSrc.connect(bossMusicGain); bossMusicGain.connect((typeof masterBus !== 'undefined' && masterBus) ? masterBus : ac.destination); bossMusicSrc.start(); bossMusicGain.gain.linearRampToValueAtTime(0.6, ac.currentTime + 1.5); }, function () { }); }); } catch (e) { }
+// ---- boss music: user-supplied bossmusic.js (FRAT_BOSS_START / _LOOP / _END,
+// data-URL WAVs). Lazy-loaded via <script> on the first fight (file://-safe, keeps
+// boot light). Chain: START plays once -> LOOP loops -> END plays once on the
+// boss's real death. Player death (or any bail) STOPS all boss music instantly. ----
+var bossMusicActive = false, bossMusicSrc = null, bossMusicGain = null, bossMusicPhase = null;
+var _bossBuf = { start: null, loop: null, end: null }, _bossBufReq = false;
+var BOSS_MUSIC_VOL = 0.62;
+function loadBossMusicScript(cb) {
+  if (typeof FRAT_BOSS_LOOP !== 'undefined') { cb(); return; }
+  if (document.getElementById('bossMusicScript')) { var iv = setInterval(function () { if (typeof FRAT_BOSS_LOOP !== 'undefined') { clearInterval(iv); cb(); } }, 120); return; }
+  var s = document.createElement('script'); s.id = 'bossMusicScript'; s.src = 'bossmusic.js';
+  s.onload = function () { cb(); }; s.onerror = function () { };
+  document.head.appendChild(s);
 }
-function duckBossMusic() { if (bossMusicGain && typeof ac !== 'undefined' && ac) try { bossMusicGain.gain.linearRampToValueAtTime(0, ac.currentTime + 2.5); } catch (e) { } }
-function stopBossMusic() { if (bossMusicSrc) { try { if (bossMusicGain) bossMusicGain.gain.linearRampToValueAtTime(0, ac.currentTime + 0.5); bossMusicSrc.stop(ac.currentTime + 0.6); } catch (e) { } bossMusicSrc = null; bossMusicGain = null; } }
+function decodeBossBuffers(cb) {
+  if (_bossBuf.loop) { cb(); return; }
+  if (typeof ac === 'undefined' || !ac || typeof FRAT_BOSS_LOOP === 'undefined') return;
+  var pending = 3, done = function () { if (--pending <= 0) cb(); };
+  var one = function (url, key) { fetch(url).then(function (r) { return r.arrayBuffer(); }).then(function (ab) { ac.decodeAudioData(ab, function (buf) { _bossBuf[key] = buf; done(); }, function () { done(); }); }).catch(function () { done(); }); };
+  one(FRAT_BOSS_START, 'start'); one(FRAT_BOSS_LOOP, 'loop'); one(FRAT_BOSS_END, 'end');
+}
+function stopBossSrc() { if (bossMusicSrc) { try { bossMusicSrc.onended = null; bossMusicSrc.stop(); } catch (e) { } bossMusicSrc = null; bossMusicGain = null; } }
+function playBossBuf(buf, loop, onended) {
+  if (!buf || typeof ac === 'undefined' || !ac) return;
+  stopBossSrc();
+  var src = ac.createBufferSource(), gain = ac.createGain();
+  src.buffer = buf; src.loop = loop; gain.gain.value = BOSS_MUSIC_VOL;
+  src.connect(gain); gain.connect((typeof masterBus !== 'undefined' && masterBus) ? masterBus : ac.destination);
+  src.onended = onended || null;
+  try { src.start(); } catch (e) { return; }
+  bossMusicSrc = src; bossMusicGain = gain;
+}
+function startBossMusic() {
+  bossMusicActive = true;
+  loadBossMusicScript(function () { decodeBossBuffers(function () {
+    if (!bossMusicActive) return;
+    bossMusicPhase = 'start';
+    playBossBuf(_bossBuf.start || _bossBuf.loop, !_bossBuf.start, function () { if (bossMusicActive && bossMusicPhase === 'start') { bossMusicPhase = 'loop'; playBossBuf(_bossBuf.loop, true, null); } });
+  }); });
+}
+// boss's REAL death: stop the loop and play the END sting once (fight was won)
+function bossMusicOnKill() {
+  if (!bossMusicActive) return;
+  bossMusicPhase = 'end';
+  if (_bossBuf.end) playBossBuf(_bossBuf.end, false, function () { bossMusicActive = false; bossMusicPhase = null; stopBossSrc(); });
+  else stopBossMusic();
+}
+// hard stop — player died / fight aborted: kill everything now, no end sting
+function stopBossMusic() { bossMusicActive = false; bossMusicPhase = null; stopBossSrc(); }
 function updateNPCs(dt) {
   // clients: NPCs are mirrored from the host snapshot. Accessories still ride
   // them locally, but updateAccessories must run AFTER applyWorldSnap (end of
@@ -27869,6 +27912,13 @@ document.addEventListener('keydown', function (e) {
     popup('M249 + 1000 rounds');
     return;
   }
+  if (e.code === 'KeyB' && !e.repeat && state.running && !state.menu && !state.dead && !chatOpen && !bugOpen) {
+    // debug/placement: B spawns (or clears) the ASU frat-leader boss in front of you
+    e.preventDefault();
+    if (fratBoss) { fratBossEnd(); popup('frat boss cleared'); }
+    else { var fb = startFratBoss(); if (fb) popup('FRAT BOSS FIGHT!'); }
+    return;
+  }
   if (e.code === 'KeyG' && !e.repeat && state.running && !state.menu && !state.dead && !(plane && plane.piloting)) { e.preventDefault(); toggleNoclip(); return; }
   if (e.code === 'KeyQ' && state.menu === 'inv') { e.preventDefault(); if (bagSel >= 0 && state.bag[bagSel]) bagDrop(bagSel); return; }
   // #46 minimap zoom: [ zooms out (wider), ] zooms in (closer)
@@ -28902,6 +28952,7 @@ window.__wc = {
   spawnJuggAt: function (x, z, y) { return spawnJuggAt(x, z, y); }, spawnDeliveryHeli: function () { return spawnDeliveryHeli(); },
   startFratBoss: function (x, z) { return startFratBoss(x, z); }, fratBoss: function () { return fratBoss; }, spawnFratMinion: function (x, z) { return spawnFratMinion(x, z); },
   fratBossInfo: function () { return { models: MESHY_ROLE.fratboss !== undefined ? 1 : 0, minionModels: MESHY_FRATBOY.length, active: !!fratBoss, hp: fratBoss ? fratBoss.hp : 0, maxHp: fratBoss ? fratBoss.maxHp : 0, phase: fratBoss ? fratBoss.phase : 0, state: fratBoss ? fratBoss.state : null, minions: fratMinionCount() }; },
+  bossMusicInfo: function () { return { active: bossMusicActive, phase: bossMusicPhase, scriptLoaded: typeof FRAT_BOSS_LOOP !== 'undefined', decoded: !!_bossBuf.loop, playing: !!bossMusicSrc }; },
   stealCopCar: function (cc) { return stealCopCar(cc); }, nearestParkedCopCar: function () { return nearestParkedCopCar(); }, copHusks: function () { return copHusks.length; },
   juggInfo: function () { var jn = 0, roping = 0; for (var i = 0; i < cops.length; i++) if (cops[i].jugg && cops[i].state !== 'down') { jn++; if (cops[i].jugg && cops[i].roping) roping++; } var deliv = 0; for (i = 0; i < helis.length; i++) if (helis[i].delivery) deliv++; return { juggModels: MESHY_JUGG.length, juggAlive: jn, juggRoping: roping, deliveryHelis: deliv, deployed: juggDeployed, hasM249: !!state.owned.m249 }; },
   enemyInfo: function () { var gang = 0, swat = 0; for (var i = 0; i < npcs.length; i++) if (npcs[i].gang) gang++; for (i = 0; i < cops.length; i++) if (cops[i].swat) swat++; var vans = 0; for (i = 0; i < copCars.length; i++) if (copCars[i].swat) vans++; return { gangModels: MESHY_GANG.length, swatModels: MESHY_SWAT.length, gangAlive: gang, swatAlive: swat, swatVans: vans, turf: GANG_TURF.length }; },
