@@ -61,5 +61,17 @@
   "ref": "ba24f05b17644498adb77243afd11dd9",
   "title": "Manager",
   "why": "NEW — authoritative middle-aged male; Publix PA/pep/escalate (GREG) + loiter/noloiter"
+ },
+ "fratboss": {
+  "ref": "83b6b86862004951ae3b2c593da1360a",
+  "desc": "ASU frat leader boss - energetic humorous cocky young male"
+ },
+ "fratboy": {
+  "ref": "07df3163253a4d9da09fede93987aa7d",
+  "desc": "frat boy minion - cheerful energetic young male"
+ },
+ "fratboy2": {
+  "ref": "2c3a31789ab5442e803a011f0d389b71",
+  "desc": "frat boy minion 2 - enthusiastic young male"
  }
 }

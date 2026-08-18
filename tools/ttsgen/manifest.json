@@ -178,5 +178,109 @@
  "atc_hijack_2": {
   "text": "(nervous) Unauthorized departure — we have a possible hijacking. Notify the authorities!",
   "voice": "57edb16ea01a4d12adaf5e7ea518be0e"
+ },
+ "frat_intro_1": {
+  "text": "You wanna run it, little bro? I mog you in every single way.",
+  "voice": "83b6b86862004951ae3b2c593da1360a"
+ },
+ "frat_intro_2": {
+  "text": "Welcome to the chapter house. I am the president, and you are about to get absolutely mogged.",
+  "voice": "83b6b86862004951ae3b2c593da1360a"
+ },
+ "frat_taunt_1": {
+  "text": "Look at my hunter eyes! You are sub-five P S L, it is so over for you.",
+  "voice": "83b6b86862004951ae3b2c593da1360a"
+ },
+ "frat_taunt_2": {
+  "text": "I mew twelve hours a day, bro. Your jaw does not even exist.",
+  "voice": "83b6b86862004951ae3b2c593da1360a"
+ },
+ "frat_taunt_3": {
+  "text": "It is called frame, little bro, and you will never have it.",
+  "voice": "83b6b86862004951ae3b2c593da1360a"
+ },
+ "frat_charge_1": {
+  "text": "Mogging session!",
+  "voice": "83b6b86862004951ae3b2c593da1360a"
+ },
+ "frat_charge_2": {
+  "text": "Bull rush, baby!",
+  "voice": "83b6b86862004951ae3b2c593da1360a"
+ },
+ "frat_spin_1": {
+  "text": "Frame check!",
+  "voice": "83b6b86862004951ae3b2c593da1360a"
+ },
+ "frat_bash_1": {
+  "text": "Get bashed, nerd!",
+  "voice": "83b6b86862004951ae3b2c593da1360a"
+ },
+ "frat_punch_1": {
+  "text": "You are down bad!",
+  "voice": "83b6b86862004951ae3b2c593da1360a"
+ },
+ "frat_summon_1": {
+  "text": "Pledges! Handle this G D I!",
+  "voice": "83b6b86862004951ae3b2c593da1360a"
+ },
+ "frat_summon_2": {
+  "text": "Brothers, mog up!",
+  "voice": "83b6b86862004951ae3b2c593da1360a"
+ },
+ "frat_hurt_1": {
+  "text": "Not the face, bro, that is my moneymaker!",
+  "voice": "83b6b86862004951ae3b2c593da1360a"
+ },
+ "frat_hurt_2": {
+  "text": "You are ruining my pump!",
+  "voice": "83b6b86862004951ae3b2c593da1360a"
+ },
+ "frat_phase_1": {
+  "text": "No... this cannot be... my frame...",
+  "voice": "83b6b86862004951ae3b2c593da1360a"
+ },
+ "frat_phase_2": {
+  "text": "You think that is it? I have got... peptides.",
+  "voice": "83b6b86862004951ae3b2c593da1360a"
+ },
+ "frat_phase_3": {
+  "text": "Time to frame mog even harder!",
+  "voice": "83b6b86862004951ae3b2c593da1360a"
+ },
+ "frat_enrage_1": {
+  "text": "Now I am dimorphic, little bro!",
+  "voice": "83b6b86862004951ae3b2c593da1360a"
+ },
+ "frat_enrage_2": {
+  "text": "This is your looksmaxxing final boss!",
+  "voice": "83b6b86862004951ae3b2c593da1360a"
+ },
+ "frat_death_1": {
+  "text": "Impossible... I got... mogged...",
+  "voice": "83b6b86862004951ae3b2c593da1360a"
+ },
+ "frat_death_2": {
+  "text": "Tell the brothers... I maxxed out...",
+  "voice": "83b6b86862004951ae3b2c593da1360a"
+ },
+ "fratboy_1": {
+  "text": "Get mogged, G D I!",
+  "voice": "07df3163253a4d9da09fede93987aa7d"
+ },
+ "fratboy_2": {
+  "text": "It is a frat thing, you would not get it!",
+  "voice": "2c3a31789ab5442e803a011f0d389b71"
+ },
+ "fratboy_3": {
+  "text": "You cannot sit with us!",
+  "voice": "07df3163253a4d9da09fede93987aa7d"
+ },
+ "fratboy_4": {
+  "text": "Do you even lift, bro?",
+  "voice": "2c3a31789ab5442e803a011f0d389b71"
+ },
+ "fratboy_5": {
+  "text": "Rush week, baby!",
+  "voice": "07df3163253a4d9da09fede93987aa7d"
  }
 }
