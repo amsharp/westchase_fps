@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.124.2';
+var GAME_VERSION = 'v1.124.3';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -20838,7 +20838,7 @@ function damageNPC(n, dmg, kx, kz, silent) {
     spawnCash(n.x, n.z, 5 + ((Math.random() * 18) | 0)); sfx('ko', { x: n.x, z: n.z, range: 50 }); sfx('grunt', { x: n.x, z: n.z, range: 50, fem: n.fem });
     maybeNpcItemDrop(n.x, n.z);
     if (!silent) {
-      if (n.gang) { popup('GANGSTER DOWN'); }   // killing a hostile gangster is self-defense — no wanted stars
+      if (n.gang || n.fratMinion) { popup(n.fratMinion ? 'MINION DOWN' : 'GANGSTER DOWN'); }   // hostile faction: no wanted stars
       else { popup(isKO ? 'KNOCKED OUT' : 'KO!'); if (isKO) creditKnockout(); else creditCivKill(null, !meleeHit); }   // bullet kill counts toward mass-shooting
     }
   } else {
@@ -21057,6 +21057,7 @@ function updateFratMinion(n, dt, m) {
   if (pd > 1.9) {
     var sp = n.speed, po = pushOut(n.x + pdx / pd * sp * dt, n.z + pdz / pd * sp * dt, 0.5, landColliders || colliders);
     n.x = po.x; n.z = po.z;
+    n.phase += 3.8 * dt * 3.4;   // integrate at spd*3.4 so the run clip actually plays (was static)
     animPerson(m, 3.8, dt, n.phase);   // charge/run
   } else {
     n.jabT -= dt;
@@ -21073,6 +21074,37 @@ function fratKnockPlayer(dx, dz, force) {
 function fratBossFace(b, tx, tz) { var want = Math.atan2(tx - b.x, tz - b.z), d = want - b.mesh.rotation.y; while (d > Math.PI) d -= 6.283; while (d < -Math.PI) d += 6.283; b.mesh.rotation.y += d * 0.16; }
 function fratMoveToward(b, tx, tz, sp, dt) { var dx = tx - b.x, dz = tz - b.z, d = Math.hypot(dx, dz) || 1; var po = pushOut(b.x + dx / d * sp * dt, b.z + dz / d * sp * dt, 0.8, landColliders || colliders); b.x = po.x; b.z = po.z; }
 function fratPickAttack(b) { var pd = Math.hypot(player.x - b.x, player.z - b.z), r = Math.random(); if (pd > 20 || r < 0.4) return 'charge'; if (r < 0.62) return 'spin'; if (r < 0.8) return 'bash'; return 'punch'; }
+// snapshot a rigid arms-straight-out T-pose (upper arm + forearm aimed out to each
+// side) once at spawn; replayed each frame during the spin so the whole model turns
+// as one and the arms don't twist.
+// Rotate a bone about the upright body's FORWARD axis (sin yaw,0,cos yaw), so a
+// down-hanging arm swings out sideways to horizontal. Only needs the bone's
+// PARENT world quaternion (never child-bone world positions), so it works even
+// on a freshly-built skeleton where child world matrices haven't settled.
+function raiseLimbWorld(bone, yaw, ang) {
+  _aimD1.set(Math.sin(yaw), 0, Math.cos(yaw));
+  _aimQ.setFromAxisAngle(_aimD1, ang);
+  bone.parent.getWorldQuaternion(_aimPQ);
+  _aimPQ2.copy(_aimPQ).invert().multiply(_aimQ).multiply(_aimPQ);
+  bone.quaternion.premultiply(_aimPQ2);
+}
+function captureFratTPose(b) {
+  var m = b.mesh, sk = m.userData.skin, L = m.userData.limbs;
+  if (!sk || !L || !L.armL || !L.armR) { b.tpose = null; return; }
+  if (typeof gripTmps === 'function') gripTmps();
+  var sy = m.rotation.y, sx = m.rotation.x, sz = m.rotation.z;
+  m.rotation.set(0, 0, 0); m.updateMatrixWorld(true);
+  meshyPose(sk, 'walk', 0);   // neutral hanging-arm base to raise from
+  m.updateMatrixWorld(true);
+  // body faces +Z at yaw 0: left arm out to body-left (+X), right arm to body-right (-X)
+  raiseLimbWorld(L.armL, 0, Math.PI / 2);
+  raiseLimbWorld(L.armR, 0, -Math.PI / 2);
+  m.updateMatrixWorld(true);
+  // captured LOCAL quaternions are body-relative, so spinning the group turns the
+  // whole T-pose rigidly (no per-frame re-aim = no arm twist).
+  b.tpose = sk.bones.map(function (bn) { return bn.quaternion.clone(); });
+  m.rotation.set(sx, sy, sz); m.updateMatrixWorld(true);
+}
 function startFratBoss(x, z) {
   if (fratBoss) return fratBoss;
   if (MESHY_ROLE.fratboss === undefined) { if (typeof popup === 'function') popup('frat boss model not loaded'); return null; }
@@ -21082,6 +21114,7 @@ function startFratBoss(x, z) {
   var b = { mesh: mesh, x: po.x, z: po.z, y: 0, tx: po.x, tz: po.z, phase: 1, hp: FRAT_BOSS_HP, maxHp: FRAT_BOSS_HP, state: 'intro', stateT: 1.8, animT: 0, atkCD: 2.6, minionCD: 10, spd: 0, hitDone: false, baseScale: FRAT_BOSS_SCALE, bones: fratBoneMap(mesh, MESHY_ROLE.fratboss), fratBoss: true, chargeDX: 0, chargeDZ: 1, chargePhase: 'wind', hurtFlash: 0, voiceT: 5, dead: false, ashT: 0, syringe: null };
   mesh.position.set(b.x, 0, b.z);
   mesh.userData.npc = b;   // hittable via the normal hitscan/melee; damageNPC + killNpcRagdoll are guarded
+  captureFratTPose(b);     // snapshot a rigid arms-straight-out T-pose for the spin attack
   scene.add(mesh); npcs.push(b); fratBoss = b;
   showBossHud(true, 'CHAD — ASU FRAT LEADER');
   startBossMusic();
@@ -21214,13 +21247,21 @@ function updateFratBoss(b, dt, m) {
 function poseFratBoss(b, dt) {
   if (typeof gripTmps === 'function') gripTmps();   // lazy-init the shared aim/pitch temp vectors
   var m = b.mesh, L = m.userData.limbs, sp = m.userData.spine, yaw = m.rotation.y, sc = b.baseScale, st = b.state;
-  var spd = (st === 'charge' && b.chargePhase === 'go') ? 6 : (st === 'chase' ? b.spd : 0);
-  if (typeof animPerson === 'function') animPerson(m, spd, dt, b.animT);
+  // SPIN: restore the authored T-pose (arms straight out) and let the WHOLE model
+  // spin (rotation.y is turned in updateFratBoss). No per-frame arm re-aim -> no twist.
+  if (st === 'spin' && b.tpose && m.userData.skin) {
+    var bones = m.userData.skin.bones;
+    for (var bi = 0; bi < bones.length && bi < b.tpose.length; bi++) bones[bi].quaternion.copy(b.tpose[bi]);
+    m.userData.reposed = true; m.updateMatrixWorld(true);
+    return;
+  }
+  var spd = (st === 'charge' && b.chargePhase === 'go') ? 6.5 : (st === 'chase' ? b.spd : 0);
+  b.walkPhase = (b.walkPhase || 0) + spd * dt * 3.4;   // integrate at spd*3.4 so the walk/run clip ADVANCES (was static)
+  if (typeof animPerson === 'function') animPerson(m, spd, dt, b.walkPhase);
   if (!L) return;
   m.updateMatrixWorld(true);
   var sh = (b.y || 0) + 1.35 * sc;
-  if (st === 'spin') { var lx = Math.cos(yaw + Math.PI / 2), lz = -Math.sin(yaw + Math.PI / 2); aimLimbAt(L.armL, m.userData.handL, b.x + lx * 6, sh, b.z + lz * 6); aimLimbAt(L.armR, m.userData.handR, b.x - lx * 6, sh, b.z - lz * 6); }
-  else if (st === 'charge') { if (sp) pitchLimbWorld(sp, yaw, b.chargePhase === 'go' ? 0.5 : -0.3); }
+  if (st === 'charge') { if (sp) pitchLimbWorld(sp, yaw, b.chargePhase === 'go' ? 0.5 : -0.3); }
   else if (st === 'bash') { var fx = Math.sin(yaw), fz = Math.cos(yaw); aimLimbAt(L.armL, m.userData.handL, b.x + fx * 3, sh + 0.5, b.z + fz * 3); aimLimbAt(L.armR, m.userData.handR, b.x + fx * 3, sh + 0.5, b.z + fz * 3); if (sp) pitchLimbWorld(sp, yaw, 0.2); }
   else if (st === 'punch') { var pfx = Math.sin(yaw), pfz = Math.cos(yaw); aimLimbAt(L.armR, m.userData.handR, b.x + pfx * 4, sh, b.z + pfz * 4); }
   else if (st === 'summon') { aimLimbAt(L.armR, m.userData.handR, b.x, sh + 3, b.z); }
@@ -23886,7 +23927,7 @@ function fireShotgun(w) {
       hitAny = true;
       var uu = npcHit.mesh && npcHit.mesh.userData ? npcHit.mesh.userData : null;
       var canBehead = uu && !npcHit._headless && ((uu.head && uu.head.visible) || uu.headBone);
-      if (h.point.y > 1.42 && h.distance < 9 && canBehead) decapitateNPC(npcHit, d.x, d.z);
+      if (h.point.y > 1.42 && h.distance < 9 && canBehead && !npcHit.fratBoss) decapitateNPC(npcHit, d.x, d.z);
       else { puff(h.point, 0xd93a2a, 'blood'); if (isClient()) { netToHost({ t: 'dmgNpc', i: npcs.indexOf(npcHit), dmg: dmg, kx: d.x, kz: d.z }); npcHit.hp = Math.max(0, (npcHit.hp || 100) - dmg); } else damageNPC(npcHit, dmg, d.x, d.z, false); }
     }
     else if (copHit) { hitAny = true; damageCop(copHit, dmg, d.x, d.z); puff(h.point, 0xd93a2a, 'blood'); }
@@ -24226,7 +24267,7 @@ function tryAttack() {
       // (reuses the shotgun's decapitation gore) — at ANY range, that's the point of a scope.
       var ru = npcHit.mesh && npcHit.mesh.userData ? npcHit.mesh.userData : null;
       var rBehead = ru && !npcHit._headless && ((ru.head && ru.head.visible) || ru.headBone);
-      if (state.equipped === 'rifle' && h.point.y > 1.42 && rBehead) { decapitateNPC(npcHit, dir.x, dir.z); }
+      if (state.equipped === 'rifle' && h.point.y > 1.42 && rBehead && !npcHit.fratBoss) { decapitateNPC(npcHit, dir.x, dir.z); }
       // clients predict hp so the overhead bar drops on hit (mrg4gnea) — the
       // host stays authoritative for the actual kill/credit
       else if (isClient()) { netToHost({ t: 'dmgNpc', i: npcs.indexOf(npcHit), dmg: w.dmg, kx: dir.x, kz: dir.z }); npcHit.hp = Math.max(0, (npcHit.hp || 100) - w.dmg); }
