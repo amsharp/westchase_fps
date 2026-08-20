@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.124.3';
+var GAME_VERSION = 'v1.124.4';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -21009,6 +21009,7 @@ function seedGangTurf() {
 // ash. Local/singleplayer only. The user places him later; start with
 // __wc.startFratBoss(x,z). Model/voice: MESHY role 'fratboss'/'fratboy' + frat_* voice lines.
 var FRAT_BOSS_HP = 2600, FRAT_BOSS_SCALE = 1.62, FRAT_BOSS_SCALE2 = 2.1;
+var FRAT_TPOSE_ARM = Math.PI * 0.405;   // spin-attack arm raise (level T-pose; <90 deg so arms don't ride up)
 var fratBoss = null;
 function buildFratBoss(scale) {
   if (MESHY_ROLE.fratboss === undefined) return null;
@@ -21096,9 +21097,11 @@ function captureFratTPose(b) {
   m.rotation.set(0, 0, 0); m.updateMatrixWorld(true);
   meshyPose(sk, 'walk', 0);   // neutral hanging-arm base to raise from
   m.updateMatrixWorld(true);
-  // body faces +Z at yaw 0: left arm out to body-left (+X), right arm to body-right (-X)
-  raiseLimbWorld(L.armL, 0, Math.PI / 2);
-  raiseLimbWorld(L.armR, 0, -Math.PI / 2);
+  // body faces +Z at yaw 0: left arm out to body-left (+X), right arm to body-right (-X).
+  // The walk base already leans the arms slightly up/forward, so a full 90 deg
+  // overshot ABOVE horizontal; ~73 deg lands a true level T-pose.
+  raiseLimbWorld(L.armL, 0, FRAT_TPOSE_ARM);
+  raiseLimbWorld(L.armR, 0, -FRAT_TPOSE_ARM);
   m.updateMatrixWorld(true);
   // captured LOCAL quaternions are body-relative, so spinning the group turns the
   // whole T-pose rigidly (no per-frame re-aim = no arm twist).
@@ -21293,7 +21296,7 @@ function updateBossHud() { if (!fratBoss) return; var bar = document.getElementB
 // boss's real death. Player death (or any bail) STOPS all boss music instantly. ----
 var bossMusicActive = false, bossMusicSrc = null, bossMusicGain = null, bossMusicPhase = null;
 var _bossBuf = { start: null, loop: null, end: null }, _bossBufReq = false;
-var BOSS_MUSIC_VOL = 0.62;
+var BOSS_MUSIC_VOL = 0.92;   // drives start/loop/end alike (louder per user request)
 function loadBossMusicScript(cb) {
   if (typeof FRAT_BOSS_LOOP !== 'undefined') { cb(); return; }
   if (document.getElementById('bossMusicScript')) { var iv = setInterval(function () { if (typeof FRAT_BOSS_LOOP !== 'undefined') { clearInterval(iv); cb(); } }, 120); return; }
