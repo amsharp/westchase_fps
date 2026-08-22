@@ -22,6 +22,16 @@ textures for a retro-but-realistic look.
 Just double-click `index.html` — it runs in any modern browser, no install needed.
 (Everything is local: Three.js is bundled, all textures are generated in code.)
 
+## Getting around on foot
+
+**WASD** to move, **MOUSE** to look, **SPACE** to jump. Hold **SHIFT** to
+**sprint** — it's genuinely quick now, the view widens a touch, and your gun
+snaps **up into a canted tactical carry** so you read as running, not gliding.
+Tap **CTRL** while sprinting to **slide**: you drop low and skate forward on
+your momentum, easing out over about two-thirds of a second before a short
+cooldown. It's a fast way to duck under fire, round a corner, or close the
+last few metres onto someone. (Jumping cancels the slide.)
+
 ## Multiplayer
 
 The main menu offers **Singleplayer** (fully offline) or **PLAY ONLINE**.
@@ -277,7 +287,7 @@ Westchase Guns & Ammo. He sells three guns:
 |--------|-------|-------|
 | Pistol | $150  | semi-auto, reliable |
 | TEC-9 | $400 | full-auto; first shots fly true, then it sprays — feather the trigger |
-| Shotgun | $500 | pump-action cone of pellets, brutal up close and weak far off — a **point-blank shot to the head takes it clean off** in a spray of blood |
+| Shotgun | $500 | pump-action; a **tight pellet pattern with real reach** now — devastating up close and still hits hard at range, with a quick pump between shots. A **point-blank shot to the head takes it clean off** in a spray of blood |
 | Axe    | *found* | not for sale — see **The cabin in the woods** below. A solid melee hit **cleaves a body clean in half down the middle**; the two halves topple opposite ways onto the ground in a mess of blood. **Hold right-click to aim, then left-click to hurl it** — it spins through a gravity arc and bisects whoever it hits, then sticks in the ground where it lands for you to go pick back up |
 | Rifle  | $600  | one shot, one nap — right-click to scope. A **headshot is an instant kill that takes the head clean off** (same gore as the shotgun), at any range |
 | AK-47  | $1000 | full-auto, long range, accurate |

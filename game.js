@@ -6,7 +6,7 @@
 'use strict';
 
 // Bump with EVERY change to the game (shown on the main menu).
-var GAME_VERSION = 'v1.124.4';
+var GAME_VERSION = 'v1.125.0';
 document.getElementById('gameVer').textContent = GAME_VERSION;
 
 // ---- WC_REMAP build-time flag (R2, true-geometry remap) ----
@@ -59,7 +59,7 @@ var WEAPONS = {
   smg:    { name: 'TEC-9',  price: 400, dmg: 15, rate: 0.065, auto: true, spread: 0.008, spreadMax: 0.05, bloomPerShot: 0.006, ammo: 'pistol', mag: 30, reload: 2, desc: 'First shots on target. Then it sprays.', flashAt: [0.26, -0.262, -1.2] },
   rifle:  { name: 'RIFLE',  price: 600, dmg: 95, rate: 0.8,  auto: false, spread: 0.004, ammo: 'rifle', mag: 10, reload: 3, desc: 'One shot, one nap. Right-click to scope.', flashAt: [0.24, -0.235, -1.38] },
   auto:   { name: 'AK-47',  price: 1000, dmg: 34, rate: 0.075, auto: true, spread: 0.012, ammo: 'rifle', mag: 30, reload: 3, desc: 'Full auto, long range.', flashAt: [0.26, -0.255, -1.2] },
-  shotgun: { name: 'SHOTGUN', price: 500, dmg: 17, rate: 0.85, auto: false, pellets: 9, spread: 0.06, falloff: 34, ammo: 'shotgun', mag: 6, reload: 5, desc: 'Pump-action. Point-blank headshots take the head clean off.', flashAt: [0.24, -0.25, -1.0], flashScale: 1.25 },
+  shotgun: { name: 'SHOTGUN', price: 500, dmg: 17, rate: 0.68, auto: false, pellets: 9, spread: 0.034, falloff: 54, ammo: 'shotgun', mag: 6, reload: 5, desc: 'Pump-action. Tight pellet pattern with real reach. Point-blank headshots take the head clean off.', flashAt: [0.24, -0.25, -1.0], flashScale: 1.25 },
   rocket: { name: 'ROCKET LAUNCHER', price: 2000, rate: 5, rocket: true, ammo: 'rocket', mag: 1, reload: 5, desc: 'Danger close. Reload with R.', flashAt: [0.3, -0.28, -1.0] },
   // M249 SAW — NOT for sale; the ONLY way to get it is to kill a juggernaut, who
   // drops it. Rifle ammo, faster + harder than the AK, reuses the AK gunshot sfx.
@@ -21296,7 +21296,23 @@ function updateBossHud() { if (!fratBoss) return; var bar = document.getElementB
 // boss's real death. Player death (or any bail) STOPS all boss music instantly. ----
 var bossMusicActive = false, bossMusicSrc = null, bossMusicGain = null, bossMusicPhase = null;
 var _bossBuf = { start: null, loop: null, end: null }, _bossBufReq = false;
-var BOSS_MUSIC_VOL = 0.92;   // drives start/loop/end alike (louder per user request)
+var BOSS_MUSIC_VOL = 1.35;   // drives start/loop/end alike (louder per user request); peaks tamed by bossMusicOut()'s limiter
+var bossLimiter = null;
+// a soft limiter between the (hot) boss-music gain and the master bus, so we can
+// crank BOSS_MUSIC_VOL past unity for loudness without harsh digital clipping.
+function bossMusicOut() {
+  var dest = (typeof masterBus !== 'undefined' && masterBus) ? masterBus : (ac ? ac.destination : null);
+  if (!ac) return dest;
+  if (!bossLimiter) {
+    try {
+      bossLimiter = ac.createDynamicsCompressor();
+      bossLimiter.threshold.value = -4.5; bossLimiter.knee.value = 6;
+      bossLimiter.ratio.value = 14; bossLimiter.attack.value = 0.003; bossLimiter.release.value = 0.22;
+      bossLimiter.connect(dest);
+    } catch (e) { bossLimiter = null; return dest; }
+  }
+  return bossLimiter;
+}
 function loadBossMusicScript(cb) {
   if (typeof FRAT_BOSS_LOOP !== 'undefined') { cb(); return; }
   if (document.getElementById('bossMusicScript')) { var iv = setInterval(function () { if (typeof FRAT_BOSS_LOOP !== 'undefined') { clearInterval(iv); cb(); } }, 120); return; }
@@ -21317,7 +21333,7 @@ function playBossBuf(buf, loop, onended) {
   stopBossSrc();
   var src = ac.createBufferSource(), gain = ac.createGain();
   src.buffer = buf; src.loop = loop; gain.gain.value = BOSS_MUSIC_VOL;
-  src.connect(gain); gain.connect((typeof masterBus !== 'undefined' && masterBus) ? masterBus : ac.destination);
+  src.connect(gain); gain.connect(bossMusicOut());
   src.onended = onended || null;
   try { src.start(); } catch (e) { return; }
   bossMusicSrc = src; bossMusicGain = gain;
@@ -23916,7 +23932,7 @@ function fireShotgun(w) {
     if (!hits.length) continue;
     var h = hits[0], o = h.object, npcHit = null, copHit = null, carHit = null, remoteHit = null, copMHit = -1, atmHit = null, copCarHit = null, heliHit = null, heliGunHit = null;
     while (o) { var u = o.userData; if (u) { if (u.npc) { npcHit = u.npc; break; } if (u.heliGunner) { heliGunHit = u.heliGunner; break; } if (u.heli) { heliHit = u.heli; break; } if (u.cop) { copHit = u.cop; break; } if (u.copM !== undefined) { copMHit = u.copM; break; } if (u.remoteId) { remoteHit = u.remoteId; break; } if (u.copCar) { copCarHit = u.copCar; break; } if (u.trafficCar) { carHit = u.trafficCar; break; } if (u.atm) { atmHit = u.atm; break; } } o = o.parent; }
-    var dmg = Math.round(w.dmg * Math.max(0.25, 1 - h.distance / w.falloff));
+    var dmg = Math.round(w.dmg * Math.max(0.42, 1 - h.distance / w.falloff));   // higher range floor: pellets still bite at distance
     if (npcHit && npcHit.state === 'down') {
       hitAny = true; gorePoke(npcHit.x, h.point.y, npcHit.z, d.x, d.z);   // corpse: extra gibs
       if (npcHit.ko && !isClient()) {   // FINISHING a knocked-out body: now it's a real kill — blood + heat
@@ -28084,8 +28100,12 @@ function toggleNoclip() {
   if (noclip) { state.hp = 100; setWanted(0); }
   popup2(noclip ? 'NOCLIP ON' : 'NOCLIP OFF');
 }
+// ---- sprint + tactical slide tuning ----
+var WALK_SPD = 5.2, SPRINT_SPD = 10.8;                 // faster sprint (was 8.4)
+var SLIDE_SPEED = 16.5, SLIDE_END_SPEED = 4.6, SLIDE_TIME = 0.66, SLIDE_CD = 0.55;
+var sliding = false, slideT = 0, slideVX = 0, slideVZ = 0, slideCD = 0, sprintPose = 0, _slideCtrlWas = false;
 function updatePlayer(dt) {
-  if (state.menu || state.dead || arrested || tased) return;   // the arrest/tase cam owns the frame while being booked/twitching
+  if (state.menu || state.dead || arrested || tased) { sliding = false; return; }   // the arrest/tase cam owns the frame while being booked/twitching
   if (noclip) {   // free-fly: WASD along look dir, Space/Ctrl up/down, Shift = turbo
     var flySpd = (keys['ShiftLeft'] || keys['ShiftRight'] ? 165 : 62);
     var dir = new THREE.Vector3(); camera.getWorldDirection(dir);
@@ -28158,9 +28178,27 @@ function updatePlayer(dt) {
       if (prog >= 1) { resolveDive(diveState.p); diveState = null; }
     }
   }
-  var spd = (keys['ShiftLeft'] || keys['ShiftRight'] ? 8.4 : 5.2);
+  var sprinting = !!(keys['ShiftLeft'] || keys['ShiftRight']);
+  var ctrlDown = !!(keys['ControlLeft'] || keys['ControlRight']);
+  var spd = (sprinting ? SPRINT_SPD : WALK_SPD);
   var _preMvX = player.x, _preMvZ = player.z;   // horizontal start-of-frame position (for swept collision below)
-  if (f || s) { var inv = spd / Math.sqrt(f * f + s * s); var fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw); player.x += (fx * f + rx * s) * inv * dt; player.z += (fz * f + rz * s) * inv * dt; }
+  // ---- tactical slide: tap Ctrl while sprint-moving on the ground -> a quick
+  // low crouch-slide that carries your momentum and decays out, then a short cd ----
+  if (slideCD > 0) slideCD -= dt;
+  var ctrlTap = ctrlDown && !_slideCtrlWas; _slideCtrlWas = ctrlDown;   // fresh Ctrl press only (no auto-chaining while held)
+  if (!sliding && ctrlTap && sprinting && player.grounded && slideCD <= 0 && (f || s) && !state.sitting && bustedT <= 0) {
+    var _fx0 = -Math.sin(yaw), _fz0 = -Math.cos(yaw), _rx0 = Math.cos(yaw), _rz0 = -Math.sin(yaw);
+    var _dvx = _fx0 * f + _rx0 * s, _dvz = _fz0 * f + _rz0 * s, _dl = Math.hypot(_dvx, _dvz) || 1;
+    slideVX = _dvx / _dl; slideVZ = _dvz / _dl; sliding = true; slideT = SLIDE_TIME;
+    if (typeof sfx === 'function') sfx('grunt');
+  }
+  if (sliding) {
+    slideT -= dt;
+    var _sfrac = Math.max(0, slideT / SLIDE_TIME), _se = _sfrac * _sfrac;   // ease-out speed curve
+    var _ssp = SLIDE_END_SPEED + (SLIDE_SPEED - SLIDE_END_SPEED) * _se;
+    player.x += slideVX * _ssp * dt; player.z += slideVZ * _ssp * dt;
+    if (slideT <= 0 || !player.grounded || keys['Space']) { sliding = false; slideCD = SLIDE_CD; }
+  } else if (f || s) { var inv = spd / Math.sqrt(f * f + s * s); var fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw); player.x += (fx * f + rx * s) * inv * dt; player.z += (fz * f + rz * s) * inv * dt; }
   var spaceDown = !!keys['Space']; player._spaceWas = spaceDown;
   if (spaceDown && player.grounded) { player.vy = 6.4; player.grounded = false; }   // ~1.28u apex — clears kerbs + lets you hop onto waist-high props (dumpsters, benches)
   var wasAirborne = !player.grounded;
@@ -28262,6 +28300,7 @@ function updatePlayer(dt) {
     else if (camera.fov !== sprintFov) { camera.fov = sprintFov; camera.updateProjectionMatrix(); }
   }
   if (state.sitting) camera.position.y -= 0.55;   // seated eye height
+  if (sliding) camera.position.y -= 0.62;          // crouch-slide: drop the view low
   camera.position.y += diveDip;                    // dumpster-dive head dip
   // recoil: underdamped spring back to rest so the muzzle kick RECOVERS with a
   // slight settle bounce (dips a hair past zero, then eases home) instead of a
@@ -28299,6 +28338,21 @@ function updatePlayer(dt) {
   vm.rotation.x = recoil * 0.10 + brY * 0.7 + vmSwayY * 0.4;           // barrel-climb: visible kick that recovers via the settle spring, modest so full-auto doesn't park the muzzle above center
   vm.rotation.y = vmSwayX * 0.42;
   vm.rotation.z = brX * 0.5 - vmSwayX * 0.55 + bobX * 6;   // slight weight-shift roll coupled to the horizontal walk-bob
+  // ---- tactical-sprint weapon pose: while sprinting (or sliding) with a real gun,
+  // cant the weapon up and inward like a runner's high-ready. Eased in/out; never
+  // while aiming, reloading, or mid-draw so those anims read clean. ----
+  var _gunOut = state.equipped !== 'fists' && state.equipped !== 'snack' && state.equipped !== 'soda';
+  var _wantSprint = (sprinting && moving && !zoomed && _gunOut && reloadGun !== state.equipped && (T - equipT > 0.45)) || sliding;
+  sprintPose += ((_wantSprint ? 1 : 0) - sprintPose) * Math.min(1, dt * 9);
+  if (sprintPose > 0.001) {
+    var _sp = sprintPose;
+    vm.position.x += _sp * 0.07;
+    vm.position.y += _sp * -0.05;
+    vm.position.z += _sp * 0.05;
+    vm.rotation.x += _sp * -0.34;   // muzzle rises up
+    vm.rotation.y += _sp * 0.40;    // butt swings out, barrel turns inward
+    vm.rotation.z += _sp * 0.62;    // canted grip
+  }
   gunBloom = Math.max(0, gunBloom - dt * 0.06);   // spread recovers ~0.7s after easing off
   // weapon draw + rocket reload animations (procedural, PS1-cheap)
   var wg = vmMap[state.equipped];
